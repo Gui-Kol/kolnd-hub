@@ -9,23 +9,10 @@ export const apps: AppConfig[] = [
     icon: '🎙️',
     color: '#F59E0B',
     gradient: 'from-amber-500 to-orange-500',
-    command: 'py main.py',
-    cwd: '../Mark-LVI',
+    command: 'MarkLVI.exe',
+    cwd: 'resources/programs/MarkLVI',
     category: 'ai',
     tags: ['IA', 'Voz', 'Assistente']
-  },
-  {
-    id: 'playnite',
-    name: 'Playnite',
-    description:
-      'Gerenciador de biblioteca de jogos. Agrega jogos de Steam, Epic, GOG, EA e mais em uma interface unificada com suporte a emulação.',
-    icon: '🎮',
-    color: '#8B5CF6',
-    gradient: 'from-violet-500 to-purple-500',
-    command: 'Playnite.DesktopApp.exe',
-    cwd: '%LOCALAPPDATA%\\Playnite',
-    category: 'gaming',
-    tags: ['Jogos', 'Biblioteca', 'Launcher']
   },
   {
     id: 'kloud-games',
@@ -35,8 +22,8 @@ export const apps: AppConfig[] = [
     icon: '🎮',
     color: '#F97316',
     gradient: 'from-orange-500 to-red-500',
-    command: 'kloud-games.exe',
-    cwd: '../kloud-games',
+    command: '"%ProgramFiles%\\KLOUD_GAMES\\KLOUD_GAMES.exe"',
+    cwd: '%ProgramFiles%\\KLOUD_GAMES',
     category: 'streaming',
     tags: ['Streaming', 'Jogos', 'GPU']
   },

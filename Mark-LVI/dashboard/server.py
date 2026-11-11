@@ -16,6 +16,7 @@ import re
 import secrets
 import socket
 import string
+import sys
 import threading
 import time
 from pathlib import Path
@@ -37,8 +38,13 @@ try:
 except Exception:
     pass
 
-BASE_DIR    = Path(__file__).resolve().parent.parent
-STATIC_DIR  = Path(__file__).parent / "static"
+if getattr(sys, "frozen", False):
+    # Packaged build: dashboard/static/ ships next to MarkLVI.exe
+    BASE_DIR   = Path(sys.executable).resolve().parent
+    STATIC_DIR = BASE_DIR / "dashboard" / "static"
+else:
+    BASE_DIR   = Path(__file__).resolve().parent.parent
+    STATIC_DIR = Path(__file__).parent / "static"
 # The port people TYPE, and the port the app actually runs on.
 #
 # They are not the same, and that is the fix for the most confusing failure

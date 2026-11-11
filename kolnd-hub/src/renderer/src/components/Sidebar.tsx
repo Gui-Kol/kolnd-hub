@@ -2,7 +2,8 @@ import {
   LayoutDashboard,
   Settings,
   Monitor,
-  Zap
+  Zap,
+  LogOut
 } from 'lucide-react'
 import { Page } from '../types'
 
@@ -10,9 +11,15 @@ interface SidebarProps {
   currentPage: Page
   onNavigate: (page: Page) => void
   pcName?: string | null
+  onExit?: () => void
 }
 
-export function Sidebar({ currentPage, onNavigate, pcName }: SidebarProps): JSX.Element {
+export function Sidebar({
+  currentPage,
+  onNavigate,
+  pcName,
+  onExit
+}: SidebarProps): JSX.Element {
   const navItems: { id: Page; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Biblioteca', icon: LayoutDashboard },
     { id: 'inicializacao', label: pcName ?? 'Meu PC', icon: Monitor },
@@ -82,6 +89,18 @@ export function Sidebar({ currentPage, onNavigate, pcName }: SidebarProps): JSX.
           })}
         </div>
       </nav>
+
+      {/* ── Ação: Sair ───────────────────────────────── */}
+      {onExit && (
+        <button
+          onClick={onExit}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 hover:text-red-300"
+          aria-label="Sair do Kolnd Hub"
+        >
+          <LogOut size={17} className="shrink-0" />
+          <span className="min-w-0 truncate">Sair</span>
+        </button>
+      )}
 
       {/* ── Footer ───────────────────────────────────── */}
       <div className="p-4 border-t border-white/[0.05] bg-white/[0.02]">

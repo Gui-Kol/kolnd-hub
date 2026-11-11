@@ -1,0 +1,71 @@
+# -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all
+
+datas = [('core/face_model.obj', 'core')]
+binaries = []
+hiddenimports = ['wmi', 'pycaw.pycaw', 'pywinauto', 'comtypes', 'win32com.client', 'win10toast']
+datas += collect_data_files('sounddevice')
+hiddenimports += collect_submodules('providers')
+hiddenimports += collect_submodules('core')
+hiddenimports += collect_submodules('memory')
+hiddenimports += collect_submodules('dashboard')
+hiddenimports += collect_submodules('actions')
+hiddenimports += collect_submodules('plugins')
+hiddenimports += collect_submodules('yt_dlp')
+tmp_ret = collect_all('playwright')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# Wake word ("Hey Jarvis") ships INSIDE the build — code, onnxruntime and the
+# ONNX models under resources/models — so the assistant wakes on the phrase
+# out of the box, with no one-click download after install.
+for _pkg in ('openwakeword', 'onnxruntime', 'scipy', 'sklearn', 'tqdm'):
+    try:
+        _ret = collect_all(_pkg)
+        datas += _ret[0]; binaries += _ret[1]; hiddenimports += _ret[2]
+    except Exception as _e:
+        print(f"[spec] collect_all({_pkg}) falhou: {_e}")
+
+
+a = Analysis(
+    ['main.py'],
+    pathex=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='MarkLVI',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['config/jarvis.ico'],
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='MarkLVI',
+)

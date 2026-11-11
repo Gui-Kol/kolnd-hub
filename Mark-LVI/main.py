@@ -76,12 +76,10 @@ from actions.proactive         import ProactiveEngine
 from actions.background_monitor import (
     add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
 )
-from actions.web_search        import _news as _fetch_news_sync
 from memory.config_manager     import (
     get_brief_enabled, get_media_resolution, get_proactive_audio_enabled,
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
     get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
-    get_plugin_setting, save_plugin_config,
 )
 from core                     import gemini as _gemini
 from core.plugin_loader        import discover_plugins
@@ -107,6 +105,21 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
+
+# ── Frozen build (PyInstaller) ───────────────────────────────────────────────
+# The packaged MarkLVI.exe also acts as a Python interpreter for any .py
+# scripts bundled next to it. Without this intercept, a detached subprocess
+# call like [sys.executable, "script.py", …] would relaunch the assistant GUI
+# instead of the script in the frozen build.
+if getattr(sys, "frozen", False) and len(sys.argv) >= 2:
+    _script = Path(sys.argv[1])
+    if not _script.is_absolute():
+        _script = BASE_DIR / _script
+    if _script.suffix == ".py" and _script.is_file():
+        import runpy
+        sys.argv = [str(_script), *sys.argv[2:]]
+        runpy.run_path(str(_script), run_name="__main__")
+        raise SystemExit(0)
 # The conversation's model. A NAME, not a decision: the ladder lives in
 # core/gemini.py and this is only whichever rung is currently in use, kept here
 # as a module attribute because plugins read it (chat_takeover asks main for it
@@ -668,7 +681,7 @@ class JarvisLive:
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
 
-        _base_dir = Path(__file__).resolve().parent
+        _base_dir = BASE_DIR  # same resolution as everywhere else (sys.executable when frozen)
         _inline_names = {t["name"] for t in TOOL_DECLARATIONS}
 
         # File-backed tools: every actions/*.py with a TOOL dict, discovered the
@@ -1960,16 +1973,21 @@ class JarvisLive:
             stream.stop()
             stream.close()
 
-    # ── Morning briefing ────────────────────────────────────────────────────────
+    # ── Startup briefing ─────────────────────────────────────────────────────
 
     async def _send_startup_briefing(self) -> None:
         """
         Two-phase briefing optimized for speed:
           Phase 1 — instant greeting (no tools) → speech starts in <1s
-          Phase 2 — news pre-fetched in a background thread while Phase 1 plays,
-                    delivered as ready text (no Gemini tool-call round-trip) and
-                    shown on the UI content panel. Waits for turn_complete event
-                    instead of a fixed sleep so there is no unnecessary gap.
+          Phase 2 — weather and today's agenda pre-fetched in a background thread
+                    while Phase 1 plays, delivered as ready text (no Gemini
+                    tool-call round-trip) and shown on the UI content panel.
+                    Waits for the turn_complete event instead of a fixed sleep
+                    so there is no unnecessary gap.
+
+        Deliberately NO news — only the greeting, the temperature and today's
+        agenda. If the city is unknown the greeting asks for it; the answer is
+        persisted via save_memory (identity/city) so it is never asked again.
         """
         memory   = load_memory()
         identity = memory.get("identity", {})
@@ -1980,11 +1998,18 @@ class JarvisLive:
 
         lang = _val("language")
         name = _val("name")
+        city = _val("city")
         time_str = datetime.now().strftime("%H:%M")
 
-        # Start fetching news immediately — runs in parallel while phase 1 plays
+        # Pre-fetch weather and today's agenda immediately — runs in parallel
+        # while phase 1 plays. Weather only when the city is known.
         loop = asyncio.get_event_loop()
-        news_future = loop.run_in_executor(None, _fetch_news_sync, "top world news today")
+        from actions.weather_report import _fetch_weather_sync
+        from actions.calendar_control import fetch_today_events
+        weather_future = (
+            loop.run_in_executor(None, _fetch_weather_sync, city) if city else None
+        )
+        events_future = loop.run_in_executor(None, fetch_today_events)
 
         await asyncio.sleep(0.3)
         if not self.session:
@@ -2012,10 +2037,26 @@ class JarvisLive:
                 f" Also briefly and naturally mention that {_when}: {last['summary']}"
             )
 
-        p1 = (
-            f"Greet the user warmly, mention it is {time_str}, and say you are fetching today's news now.{session_clause} "
-            f"Keep it to 2 short sentences max. Do not call any tools.{lang_clause}{name_clause}"
-        )
+        if city:
+            p1 = (
+                f"Greet the user warmly — it is {time_str}; use the correct time-of-day "
+                f"greeting in their language (Portuguese: Bom dia / Boa tarde / Boa noite) — "
+                f"and say you are checking today's weather and agenda now.{session_clause} "
+                f"Keep it to 2 short sentences max. Do NOT mention news. Do not call any tools."
+                f"{lang_clause}{name_clause}"
+            )
+        else:
+            p1 = (
+                f"Greet the user warmly — it is {time_str}; use the correct time-of-day "
+                f"greeting in their language (Portuguese: Bom dia / Boa tarde / Boa noite). "
+                f"In the same greeting, ask in one short sentence which city they are from "
+                f"(you need it for the weather) and say you are also checking today's agenda."
+                f"{session_clause} "
+                f"When they name their city, silently call save_memory with category 'identity', "
+                f"key 'city' and value '<the city>' — then you never have to ask again. "
+                f"Keep it to 2 short sentences max. Do NOT mention news. Do not call any tools "
+                f"in this turn.{lang_clause}{name_clause}"
+            )
 
         # Clear the turn-done event so we can wait for Phase 1 to finish
         if self._turn_done_event:
@@ -2028,15 +2069,18 @@ class JarvisLive:
         print("[JARVIS] Briefing phase 1 (greeting) sent.")
 
         # ── Phase 2: fire as soon as Phase 1 audio is done ───────────────────
-        async def _deliver_news():
+        async def _deliver_briefing():
             try:
                 lang_str = (f" Speak in {lang} unless the user has since "
                             f"spoken another language, in which case use theirs."
                             if lang else "")
 
-                # Wait for news fetch (already running) and Phase 1 turn-complete
+                # Wait for the data fetches (already running) and Phase 1 turn-complete
                 # in parallel — whichever takes longer determines the wait time
-                news_done   = asyncio.wrap_future(news_future)
+                events_done = asyncio.wrap_future(events_future)
+                weather_done = (
+                    asyncio.wrap_future(weather_future) if weather_future is not None else None
+                )
                 turn_waited = False
                 if self._turn_done_event:
                     try:
@@ -2054,47 +2098,89 @@ class JarvisLive:
                 else:
                     await asyncio.sleep(1.0)
 
+                # ── Weather ────────────────────────────────────────────────
+                weather_text = ""
+                if weather_done is not None:
+                    try:
+                        weather_text = await asyncio.wait_for(weather_done, timeout=8.0)
+                    except Exception as e:
+                        self.ui.write_log(f"SYS: Weather fetch timed out/failed: {e!r}")
+                        weather_text = ""
+
+                # ── Agenda (Google Calendar) ───────────────────────────────
                 try:
-                    news_text = await asyncio.wait_for(news_done, timeout=8.0)
+                    agenda = await asyncio.wait_for(events_done, timeout=8.0)
                 except Exception as e:
-                    self.ui.write_log(f"SYS: News fetch timed out/failed: {e!r}")
-                    news_text = ""
+                    self.ui.write_log(f"SYS: Calendar fetch timed out/failed: {e!r}")
+                    agenda = {"connected": False, "events": [], "error": str(e)}
 
                 if not self.session:
                     return
 
-                failed = (not news_text) or news_text.startswith(
-                    ("No news found", "Search failed", "Please provide")
-                )
-                if not failed:
-                    # Show on UI content panel immediately
-                    self.ui.show_content("NEWS — top world news today", news_text)
-
-                    p2 = (
-                        f"[BRIEFING] Here are today's top news headlines:\n{news_text}\n\n"
-                        "Pick ONE headline, summarise it in one sentence, then say the full list "
-                        f"is displayed on screen. Do not call any tools.{lang_str}"
-                    )
+                agenda_lines: list[str] = []
+                if agenda.get("connected"):
+                    if agenda.get("error"):
+                        agenda_lines.append(f"Google Calendar error: {agenda['error']}")
+                    elif agenda.get("events"):
+                        agenda_lines.append(
+                            "Today's agenda (Google Calendar): " + "; ".join(agenda["events"])
+                        )
+                    else:
+                        agenda_lines.append(
+                            "Today's agenda (Google Calendar): nothing scheduled."
+                        )
                 else:
-                    self.ui.write_log(
-                        f"SYS: News unavailable — backend returned: {news_text[:120]!r}"
+                    agenda_lines.append(
+                        "Google Calendar is NOT connected. Tell the user in one short "
+                        "sentence that they can connect it any time by saying "
+                        "'conectar meu Google Agenda'."
                     )
-                    p2 = (
-                        "News headlines could not be fetched right now. "
-                        f"Let the user know briefly.{lang_str}"
+
+                # Panel content with the raw data
+                panel_parts: list[str] = []
+                if city:
+                    panel_parts.append(weather_text or f"Weather unavailable for {city}.")
+                else:
+                    panel_parts.append("City unknown — weather not available.")
+                if agenda.get("connected") and not agenda.get("error"):
+                    if agenda.get("events"):
+                        panel_parts.append("Agenda de hoje:\n" + "\n".join(
+                            f"  {e}" for e in agenda["events"]))
+                    else:
+                        panel_parts.append("Agenda de hoje: nada marcado.")
+                self.ui.show_content("HOJE — weather & agenda", "\n\n".join(panel_parts))
+
+                context = (
+                    "[STARTUP_BRIEFING] Context for the user's startup briefing:\n"
+                )
+                if city:
+                    context += f"Weather in {city}: {weather_text or 'unavailable'}\n"
+                else:
+                    context += (
+                        "City unknown — no weather available. Do NOT ask again; "
+                        "the greeting already asked for it.\n"
                     )
+                context += "\n".join(agenda_lines) + "\n"
+                context += (
+                    "Deliver this naturally in at most 2 short sentences, in the "
+                    "user's language: temperature first, then the agenda (or its "
+                    "absence). Do NOT mention news. Do not call any tools."
+                    + lang_str
+                )
+
+                p2 = context
 
                 await self.session.send_client_content(
                     turns={"role": "user", "parts": [{"text": p2}]},
                     turn_complete=True,
                 )
-                print("[JARVIS] Briefing phase 2 (news) sent.")
+                print("[JARVIS] Briefing phase 2 (weather & agenda) sent.")
             except Exception as e:
                 print(f"[Briefing] Phase 2 error: {e}")
                 print(f"[JARVIS] Briefing phase 2 failed: {e}")
-                self.ui.write_log("SYS: Could not fetch the news for the briefing.")
+                self.ui.write_log("SYS: Could not fetch weather/agenda for the briefing.")
 
-        asyncio.create_task(_deliver_news())
+        asyncio.create_task(_deliver_briefing())
 
     # ── Session memory ──────────────────────────────────────────────────────────
 
@@ -2558,7 +2644,8 @@ class JarvisLive:
                     if self._engine is not None:
                         tg.create_task(self._engine.warmup())
 
-                    # Morning briefing — fires once per process launch (if enabled).
+                    # Startup briefing — fires once per process launch (if enabled):
+                    # greeting + weather + today's agenda. No news.
                     # Skipped in wake-word mode: it comes up asleep, and a briefing
                     # would mean talking while "asleep".
                     if not self._briefing_sent and get_brief_enabled() and self._awake:
@@ -2697,94 +2784,8 @@ class JarvisLive:
             await asyncio.sleep(delay)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OpenCode bridge server — started automatically with JARVIS
-# ─────────────────────────────────────────────────────────────────────────────
-
-_BRIDGE_PROC: "_subprocess.Popen[str] | None" = None
-_BRIDGE_PORT = 8000
-_BRIDGE_REMEMBER_KEY = False
-
-
-def _is_port_in_use(port: int) -> bool:
-    """True when something is already listening on the given TCP port."""
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("127.0.0.1", port)) == 0
-
-
-def _start_bridge_server() -> None:
-    """Launch bridge_server.py as a detached background process.
-
-    The OpenCode <-> JARVIS bridge must be running for the opencode_bridge
-    plugin to dispatch coding tasks. It is started automatically with JARVIS
-    and stopped when JARVIS exits.
-    """
-    global _BRIDGE_PROC
-
-    # Already running (e.g. launched manually) — do not start a duplicate.
-    if _is_port_in_use(_BRIDGE_PORT):
-        print(f"[Bridge] OpenCode bridge already listening on port {_BRIDGE_PORT}.")
-        return
-
-    server_script = Path(__file__).resolve().parent / "bridge_server.py"
-    if not server_script.exists():
-        print(f"[Bridge] bridge_server.py not found at {server_script} — "
-              "OpenCode integration will not be available.")
-        return
-
-    try:
-        _BRIDGE_PROC = _subprocess.Popen(
-            [sys.executable, str(server_script), "--port", str(_BRIDGE_PORT)],
-            cwd=str(Path(__file__).resolve().parent),
-            stdout=_subprocess.DEVNULL,
-            stderr=_subprocess.DEVNULL,
-            stdin=_subprocess.DEVNULL,
-            creationflags=_subprocess.CREATE_NEW_PROCESS_GROUP
-            if _platform.system() == "Windows" else 0,
-        )
-        print(f"[Bridge] OpenCode bridge started (PID {_BRIDGE_PROC.pid}) on "
-              f"http://127.0.0.1:{_BRIDGE_PORT}")
-    except Exception as e:
-        print(f"[Bridge] Failed to start OpenCode bridge: {e}")
-        _BRIDGE_PROC = None
-
-
-def _stop_bridge_server() -> None:
-    """Stop the bridge server started by _start_bridge_server()."""
-    global _BRIDGE_PROC, _BRIDGE_REMEMBER_KEY
-    if _BRIDGE_PROC is None:
-        return
-    try:
-        if _platform.system() == "Windows":
-            _BRIDGE_PROC.send_signal(_subprocess.signal.CTRL_BREAK_EVENT)
-        else:
-            _BRIDGE_PROC.terminate()
-        _BRIDGE_PROC.wait(timeout=5)
-    except Exception:
-        try:
-            _BRIDGE_PROC.kill()
-        except Exception:
-            pass
-    _BRIDGE_PROC = None
-    print("[Bridge] OpenCode bridge stopped.")
-
-    # Se o usuário não quis lembrar a API key, apagá-la do disco
-    if not _BRIDGE_REMEMBER_KEY:
-        try:
-            save_plugin_config("opencode_bridge", {"nvidia_api_key": ""})
-            print("[Bridge] API key removida (sessão apenas).")
-        except Exception as e:
-            print(f"[Bridge] Não foi possível remover a API key: {e}")
-        _BRIDGE_REMEMBER_KEY = False
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 def main():
     ui = JarvisUI("face.png")
-
-    # Start the OpenCode bridge server before JARVIS so it is ready when the
-    # opencode_bridge plugin needs it.
-    _start_bridge_server()
 
     def runner():
         ui.wait_for_api_key()
@@ -2793,8 +2794,6 @@ def main():
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
-        finally:
-            _stop_bridge_server()
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()

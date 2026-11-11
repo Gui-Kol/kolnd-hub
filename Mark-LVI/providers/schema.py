@@ -89,6 +89,7 @@ CORE_TOOLS: tuple[str, ...] = (
     "screen_process",
     "save_memory",
     "recall_memory",
+    "calendar_control",
     "undo",
     "reminder",
     "video_player",

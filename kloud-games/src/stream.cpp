@@ -17,11 +17,7 @@
 #include <openssl/err.h>
 #include <rs.h>
 
-extern "C" {
-  // clang-format off
 #include <moonlight-common-c/src/Limelight-internal.h>
-  // clang-format on
-}
 
 // local includes
 #include "config.h"

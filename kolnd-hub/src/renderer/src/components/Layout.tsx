@@ -9,6 +9,7 @@ interface LayoutProps {
   onNavigate: (page: Page) => void
   runningCount: number
   pcName?: string | null
+  onExit?: () => void
 }
 
 export function Layout({
@@ -16,7 +17,8 @@ export function Layout({
   currentPage,
   onNavigate,
   runningCount,
-  pcName
+  pcName,
+  onExit
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
@@ -69,7 +71,12 @@ export function Layout({
 
       {/* ── Main content area ────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar currentPage={currentPage} onNavigate={onNavigate} pcName={pcName} />
+        <Sidebar
+          currentPage={currentPage}
+          onNavigate={onNavigate}
+          pcName={pcName}
+          onExit={onExit}
+        />
         <main className="flex-1 overflow-y-auto p-8 pb-12">{children}</main>
       </div>
     </div>

@@ -1,6 +1,6 @@
 # ⚡ Kolnd Hub
 
-Hub centralizado para iniciar, parar e monitorar os 5 programas do ecossistema Kolnd, com interface desktop moderna (glassmorphism), bandeja do sistema e logs ao vivo.
+Hub centralizado para iniciar, parar e monitorar os programas do ecossistema Kolnd, com interface desktop moderna (glassmorphism), bandeja do sistema e logs ao vivo.
 
 ## Stack
 
@@ -23,6 +23,29 @@ npm run build     # gera os bundles em out/
 npm run package   # gera o instalador NSIS em dist/
 ```
 
+## Gerando o instalador com tudo embutido
+
+O instalador único (`Kolnd Hub Setup <versão>.exe`) embute os programas que o Hub precisa iniciar, via `extraResources` no `electron-builder.yml` (eles ficam em `<instalação>/resources/programs/...`):
+
+| Programa | Origem | Status |
+| --- | --- | --- |
+| Mark LVI (JARVIS) | `Mark-LVI/` (PyInstaller) | ✅ Embutido no instalador |
+| Kloud Games | `kloud-games/` (CMake + MSYS2) | ⚠️ Não embutido — o snapshot local não compila neste ambiente (toolchain atual: GCC 16/Clang 23 com C++23) |
+
+```bash
+# gerar e empacotar
+powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
+```
+
+Depois de rodar a build de um programa, rode `npm run package` de novo para que o instalador pegue a versão nova.
+
+Depois de rodar a build de um programa, rode `npm run package` de novo para que o instalador pegue a versão nova.
+
+**Segredos nunca vão para o instalador**: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`
+e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `electron-builder.yml`).
+
+> ⚠️ **Dados do usuário e builds**: o Mark LVI grava a chave de API e a memória da conversa **na pasta do executável** (`<instalação>/resources/programs/MarkLVI/`). Ao rodar a build de novo, o bundle é recriado a partir do código e o script move esses arquivos para `kolnd-hub-userdata-backups/` automaticamente — mas o ideal é usar sempre o app **instalado**, nunca o bundle de build, para não perder nada. O desinstalador pode remover esses dados junto com a pasta do app.
+
 ## Como usar
 
 1. Abra o app e clique em **Iniciar** no card do programa.
@@ -33,8 +56,8 @@ npm run package   # gera o instalador NSIS em dist/
 Caminhos aceitam:
 
 - caminhos relativos (resolvidos a partir do diretório do Hub), ex.: `../Mark-LVI`
-- caminhos absolutos, ex.: `C:\Program Files\Playnite`
-- variáveis de ambiente, ex.: `%LOCALAPPDATA%\Playnite`, `%USERPROFILE%\Documents\My Games\kloud-games`
+- caminhos absolutos, ex.: `C:\Program Files\KloudGames`
+- variáveis de ambiente, ex.: `%USERPROFILE%\Documents\My Games\kloud-games`
 
 As configurações são salvas em `localStorage` (por usuário).
 
@@ -42,9 +65,8 @@ As configurações são salvas em `localStorage` (por usuário).
 
 | Programa | Comando padrão | Observação |
 | --- | --- | --- |
-| Mark LVI (JARVIS) | `py main.py` | Requer as dependências de `requirements.txt` |
-| Playnite | `Playnite.DesktopApp.exe` | Requer Playnite instalado em `%LOCALAPPDATA%\Playnite` |
-| Kloud Games | `kloud-games.exe` | Ajuste o diretório para a instalação local do Kloud Games |
+| Mark LVI (JARVIS) | `MarkLVI.exe` | Embutido no instalador em `resources/programs/MarkLVI` (PyInstaller) |
+| Kloud Games | `KLOUD_GAMES.exe` | Não incluído por ora — o snapshot local não compila neste toolchain (GCC 16/Clang 23) |
 
 ## Estrutura
 

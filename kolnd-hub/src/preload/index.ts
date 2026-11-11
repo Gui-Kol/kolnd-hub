@@ -12,8 +12,8 @@ const api = {
   launchApp: (appId: string, command: string, cwd: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('app:launch', appId, command, cwd),
 
-  stopApp: (appId: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('app:stop', appId),
+  stopApp: (appId: string, command?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:stop', appId, command),
 
   getAppStatus: (appId: string): Promise<{ status: string; startedAt?: string; logCount: number }> =>
     ipcRenderer.invoke('app:status', appId),
@@ -27,6 +27,10 @@ const api = {
   minimizeWindow: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
   closeWindow: (): Promise<void> => ipcRenderer.invoke('window:close'),
+
+  // ── Encerramento completo do Hub ────────────────
+  shutdownHub: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('app:shutdown'),
 
   // ── Inicialização do PC (startup) ───────────────
   startupList: (): Promise<
@@ -74,6 +78,40 @@ const api = {
       callback(appId, data)
     ipcRenderer.on('app:output', handler)
     return () => ipcRenderer.removeListener('app:output', handler)
+  },
+
+  // ── Primeira execução ───────────────────────────
+  firstRunCheck: (): Promise<boolean> => ipcRenderer.invoke('firstRun:check'),
+  firstRunMarkComplete: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('firstRun:markComplete'),
+  firstRunStart: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('firstRun:start'),
+  firstRunCancel: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('firstRun:cancel'),
+
+  // ── Eventos da primeira execução ────────────────
+  onFirstRunProgress: (
+    callback: (data: { stepId: string; status: 'running' | 'done' | 'error'; progress: number; message?: string }) => void
+  ): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { stepId: string; status: 'running' | 'done' | 'error'; progress: number; message?: string }): void =>
+      callback(data)
+    ipcRenderer.on('firstRun:progress', handler)
+    return () => ipcRenderer.removeListener('firstRun:progress', handler)
+  },
+
+  onFirstRunLog: (callback: (line: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, line: string): void => callback(line)
+    ipcRenderer.on('firstRun:log', handler)
+    return () => ipcRenderer.removeListener('firstRun:log', handler)
+  },
+
+  onFirstRunComplete: (
+    callback: (result: { success: boolean; error?: string }) => void
+  ): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: { success: boolean; error?: string }): void =>
+      callback(result)
+    ipcRenderer.on('firstRun:complete', handler)
+    return () => ipcRenderer.removeListener('firstRun:complete', handler)
   }
 }
 

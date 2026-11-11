@@ -541,7 +541,7 @@ python main.py
 
 `setup.py` only ever installs what your operating system needs — the Windows-only libraries are skipped automatically on macOS and Linux, and vice-versa. It also checks your Python version up front, so a wrong interpreter fails with a sentence instead of a wall of pip output. Prefer to do it by hand? `pip install -r requirements.txt` works too.
 
-> ⚠️ **Installation Note:** If you hit a `ModuleNotFoundError` for an OS-specific package, install it with `pip install <module_name>`. The optional **wake word** engine is *not* installed here — grab it in one click from **⚙ → WAKE WORD** inside the app.
+> ⚠️ **Installation Note:** If you hit a `ModuleNotFoundError` for an OS-specific package, install it with `pip install <module_name>`. The **wake word** engine ships installed (bundled in `requirements.txt` / the frozen build).
 
 ---
 
@@ -559,7 +559,7 @@ python main.py
 | **GPU** | **Not required, anywhere.** The avatar and HUD video are rendered in software; local speech recognition and the neural voice both run on the CPU by default |
 | **YouTube on the HUD** | `yt-dlp`, installed by `setup.py`. Without it, local files and direct URLs still play and YouTube links open in the browser with an explanation |
 | **Aviation Weather** | No API key or account required. The plugin uses the existing `requests` dependency and AviationWeather.gov's public API; an internet connection is required |
-| **Wake word** *(optional)* | One-click download from ⚙ → WAKE WORD (`openwakeword`, a few MB, fully local) |
+| **Wake word** | ON by default — bundled (`openwakeword` + ONNX models, fully local). Sleeps until you say **Hey Jarvis**; switch off in ⚙ → WAKE WORD |
 | **A different engine** *(optional)* | Nothing extra. ⚙ → ENGINE & PROVIDERS talks to any local or hosted model over HTTP using a library the app already has |
 | **Local speech recognition** *(optional)* | `faster-whisper`, installed from the same panel. **CPU is the default** — a GPU is an option, never a requirement |
 | **Local voice** *(optional)* | `piper-tts` for a neural voice in ~50 languages, one click from the panel — or nothing at all, and it uses the voices your OS already has |
@@ -671,7 +671,7 @@ Mark LVI/
 │   ├── audio_devices.py      # Microphone / speaker list — filtered, measured, resolved by name
 │   ├── plugin_loader.py      # Plugin engine — discovery, validation, crash isolation
 │   ├── action_loader.py      # Bundled-action engine — the built-in twin of plugin_loader
-│   └── wake_word.py          # Local "Hey Jarvis" detector — own thread, offline, opt-in
+│   └── wake_word.py          # Local "Hey Jarvis" detector — own thread, offline, default ON
 └── config/
     ├── api_keys.json         # API key, name, voice, colour, toggles — created on first launch (git-ignored)
     └── certs/                # Self-signed TLS pair for the phone dashboard — generated locally (git-ignored)

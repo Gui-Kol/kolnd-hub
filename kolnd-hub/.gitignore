@@ -4,3 +4,8 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# Built program bundles (regenerate with scripts/build-*.ps1)
+resources/programs/MarkLVI/
+resources/programs/kloud-games/KLOUD_GAMES.exe
+resources/programs/kloud-games/assets/

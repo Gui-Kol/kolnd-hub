@@ -1,7 +1,8 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
 import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, resolvePath, setBaseDir } from './processManager'
+import { killProcessesForCommand } from './processKiller'
 import {
   listStartupItems,
   removeStartupItem,
@@ -11,12 +12,14 @@ import {
   getPcName,
   listRunningProcesses
 } from './startupManager'
+import { isFirstRun, markFirstRunComplete } from './firstRun'
+import { registerFirstRunIpc } from './firstRunInstaller'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 const processManager = new ProcessManager()
 
-function createWindow(): void {
+function createWindow(isFirstRunMode = false): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -42,9 +45,16 @@ function createWindow(): void {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    if (isFirstRunMode) url.searchParams.set('first-run', '1')
+    mainWindow.loadURL(url.toString())
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    const htmlPath = join(__dirname, '../renderer/index.html')
+    if (isFirstRunMode) {
+      mainWindow.loadFile(htmlPath, { query: { 'first-run': '1' } })
+    } else {
+      mainWindow.loadFile(htmlPath)
+    }
   }
 }
 
@@ -92,6 +102,9 @@ app.whenReady().then(() => {
   // the installation directory once packaged (never from an inherited cwd).
   setBaseDir(is.dev ? process.cwd() : dirname(app.getPath('exe')))
 
+  // Registra os canais IPC da tela de primeira execução.
+  registerFirstRunIpc(() => mainWindow)
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -101,8 +114,13 @@ app.whenReady().then(() => {
     return processManager.launch(appId, command, cwd)
   })
 
-  ipcMain.handle('app:stop', async (_event, appId: string) => {
-    return processManager.stop(appId)
+  ipcMain.handle('app:stop', async (_event, appId: string, command?: string) => {
+    const result = await processManager.stop(appId)
+    if (result.success || !command) return result
+    // O Hub só conhece processos que ele mesmo iniciou nesta sessão. Se o
+    // programa está rodando em segundo plano (ex.: Hub reiniciado e o
+    // processo ficou órfão), encerra pelo executável do comando.
+    return killProcessesForCommand(command)
   })
 
   ipcMain.handle('app:status', async (_event, appId: string) => {
@@ -161,6 +179,16 @@ app.whenReady().then(() => {
     return processManager.getLogs(appId)
   })
 
+  // ── IPC: Primeira execução ──────────────────────
+  ipcMain.handle('firstRun:check', () => {
+    return isFirstRun()
+  })
+
+  ipcMain.handle('firstRun:markComplete', () => {
+    markFirstRunComplete()
+    return { success: true }
+  })
+
   // ── IPC: Window controls ────────────────────────
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())
   ipcMain.handle('window:maximize', () => {
@@ -170,7 +198,62 @@ app.whenReady().then(() => {
       mainWindow?.maximize()
     }
   })
-  ipcMain.handle('window:close', () => mainWindow?.hide())
+
+  /**
+   * Encerra completamente o Kolnd Hub: mata todos os processos lançados pelo
+   * Hub (incluindo servidores e processos em segundo plano) e fecha a janela
+   * e o próprio Electron (app.quit). Garante que nada do Hub fique aberto.
+   */
+  async function shutdownHub(): Promise<void> {
+    try {
+      processManager.killAll()
+    } catch {
+      // Ignora erros ao matar processos; ainda assim queremos sair.
+    }
+    if (mainWindow) {
+      mainWindow.destroy()
+    }
+    app.quit()
+  }
+
+  ipcMain.handle('app:shutdown', async () => {
+    await shutdownHub()
+    return { success: true }
+  })
+
+  /**
+   * Exibe o popup de confirmação "Você quer encerrar o Hub?". Se o usuário
+   * confirmar, encerra todos os processos e sai do aplicativo. Se cancelar,
+   * nada acontece e a janela permanece aberta.
+   */
+  async function confirmAndQuit(): Promise<void> {
+    if (!mainWindow) return
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: 'Encerrar Kolnd Hub',
+      message: 'Você quer encerrar o Hub?',
+      detail:
+        'Todos os programas e servidores iniciados pelo Kolnd Hub serão fechados, ' +
+        'incluindo o que estiver rodando em segundo plano.',
+      buttons: ['Sim', 'Não'],
+      defaultId: 1,
+      cancelId: 1
+    })
+    if (response === 0) {
+      await shutdownHub()
+    }
+  }
+
+  ipcMain.handle('window:close', async () => {
+    await confirmAndQuit()
+  })
+
+  // Intercepta o evento de fechamento da janela (X do SO, Alt+F4, etc.) para
+  // também exibir o popup de confirmação em vez de apenas esconder a janela.
+  mainWindow?.on('close', (event) => {
+    event.preventDefault()
+    void confirmAndQuit()
+  })
 
   // ── IPC: Shell ──────────────────────────────────
   ipcMain.handle('shell:openExternal', (_event, url: string) => {
@@ -191,7 +274,8 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send('app:output', appId, data)
   })
 
-  createWindow()
+  const firstRun = isFirstRun()
+  createWindow(firstRun)
   createTray()
 })
 
