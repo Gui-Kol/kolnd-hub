@@ -1,0 +1,267 @@
+diff --git a/src/ByteBuffer.h b/src/ByteBuffer.h
+index 96bc4b2..fb8df92 100644
+--- a/src/ByteBuffer.h
++++ b/src/ByteBuffer.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "Platform.h"
+ 
+ #define BYTE_ORDER_LITTLE 1
+@@ -27,3 +29,8 @@ bool BbPut8(PBYTE_BUFFER buff, uint8_t c);
+ bool BbPut16(PBYTE_BUFFER buff, uint16_t s);
+ bool BbPut32(PBYTE_BUFFER buff, uint32_t i);
+ bool BbPut64(PBYTE_BUFFER buff, uint64_t l);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/Input.h b/src/Input.h
+index 1c5166d..bac1a84 100644
+--- a/src/Input.h
++++ b/src/Input.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include <stdint.h>
+ 
+ #pragma pack(push, 1)
+@@ -197,3 +199,8 @@ typedef struct _SS_CONTROLLER_BATTERY_PACKET {
+ } SS_CONTROLLER_BATTERY_PACKET, *PSS_CONTROLLER_BATTERY_PACKET;
+ 
+ #pragma pack(pop)
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/Limelight-internal.h b/src/Limelight-internal.h
+index d41a55c..d243632 100644
+--- a/src/Limelight-internal.h
++++ b/src/Limelight-internal.h
+@@ -14,6 +14,10 @@
+ #include <enet/enet.h>
+ #include <stdatomic.h>
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ // Common globals
+ extern char* RemoteAddrString;
+ extern struct sockaddr_storage RemoteAddr;
+@@ -151,3 +155,8 @@ int initializeInputStream(void);
+ void destroyInputStream(void);
+ int startInputStream(void);
+ int stopInputStream(void);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/LinkedBlockingQueue.h b/src/LinkedBlockingQueue.h
+index 4e505c6..6a230d7 100644
+--- a/src/LinkedBlockingQueue.h
++++ b/src/LinkedBlockingQueue.h
+@@ -5,6 +5,10 @@
+ 
+ #include <stdatomic.h>
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ #define LBQ_SUCCESS 0
+ #define LBQ_INTERRUPTED 1
+ #define LBQ_BOUND_EXCEEDED 2
+@@ -41,3 +45,8 @@ void LbqSignalQueueShutdown(PLINKED_BLOCKING_QUEUE queueHead);
+ void LbqSignalQueueDrain(PLINKED_BLOCKING_QUEUE queueHead);
+ void LbqSignalQueueUserWake(PLINKED_BLOCKING_QUEUE queueHead);
+ int LbqGetItemCount(PLINKED_BLOCKING_QUEUE queueHead);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/Platform.h b/src/Platform.h
+index f219864..99c4731 100644
+--- a/src/Platform.h
++++ b/src/Platform.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #if defined(_WIN32) && !defined(NXDK)
+ // Prevent bogus definitions of error codes
+ // that are incompatible with Winsock errors.
+@@ -184,3 +186,7 @@ uint64_t PltGetMicroseconds(void);
+ 
+ uint64_t PltGetMillis(void);
+ 
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/PlatformCrypto.h b/src/PlatformCrypto.h
+index c111e29..cc093d9 100644
+--- a/src/PlatformCrypto.h
++++ b/src/PlatformCrypto.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include <stdbool.h>
+ #include <stdint.h>
+ 
+@@ -68,3 +70,8 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
+                        unsigned char* outputData, int* outputDataLength);
+ 
+ void PltGenerateRandomData(unsigned char* data, int length);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/PlatformSockets.h b/src/PlatformSockets.h
+index 38e2061..c3a5cbc 100644
+--- a/src/PlatformSockets.h
++++ b/src/PlatformSockets.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "Limelight.h"
+ #include "Platform.h"
+ #ifdef __3DS__
+@@ -147,3 +149,8 @@ void exitLowLatencyMode(void);
+ 
+ int initializePlatformSockets(void);
+ void cleanupPlatformSockets(void);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/PlatformThreads.h b/src/PlatformThreads.h
+index d95b3de..de32dba 100644
+--- a/src/PlatformThreads.h
++++ b/src/PlatformThreads.h
+@@ -5,6 +5,10 @@
+ 
+ #include <stdatomic.h>
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ typedef void(*ThreadEntry)(void* context);
+ 
+ #if defined(LC_WINDOWS)
+@@ -74,3 +78,8 @@ void PltWaitForConditionVariable(PLT_COND* cond, PLT_MUTEX* mutex);
+ 
+ void PltSleepMs(int ms);
+ void PltSleepMsInterruptible(PLT_THREAD* thread, int ms);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/RtpAudioQueue.h b/src/RtpAudioQueue.h
+index 2a73ab2..45d8a81 100644
+--- a/src/RtpAudioQueue.h
++++ b/src/RtpAudioQueue.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "Video.h"
+ 
+ typedef struct _reed_solomon reed_solomon;
+@@ -79,3 +81,8 @@ void RtpaInitializeQueue(PRTP_AUDIO_QUEUE queue);
+ void RtpaCleanupQueue(PRTP_AUDIO_QUEUE queue);
+ int RtpaAddPacket(PRTP_AUDIO_QUEUE queue, PRTP_PACKET packet, uint16_t length);
+ PRTP_PACKET RtpaGetQueuedPacket(PRTP_AUDIO_QUEUE queue, uint16_t customHeaderLength, uint16_t* length);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/RtpVideoQueue.h b/src/RtpVideoQueue.h
+index c9bce6f..d9be0e2 100644
+--- a/src/RtpVideoQueue.h
++++ b/src/RtpVideoQueue.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "Video.h"
+ 
+ typedef struct _RTPV_QUEUE_ENTRY {
+@@ -58,3 +60,8 @@ void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue);
+ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry);
+ uint32_t RtpvGetCurrentFrameNumber(PRTP_VIDEO_QUEUE queue);
+ void RtpvSubmitQueuedPackets(PRTP_VIDEO_QUEUE queue);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/Rtsp.h b/src/Rtsp.h
+index 267c4bc..5762b49 100644
+--- a/src/Rtsp.h
++++ b/src/Rtsp.h
+@@ -1,3 +1,6 @@
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include <stdio.h>
+ #include <string.h>
+ #include <stdlib.h>
+@@ -63,3 +66,8 @@ char* getOptionContent(POPTION_ITEM optionsHead, char* option);
+ void insertOption(POPTION_ITEM* optionsHead, POPTION_ITEM opt);
+ void freeOptionList(POPTION_ITEM optionsHead);
+ char* serializeRtspMessage(PRTSP_MESSAGE msg, int* serializedLength);
++
++#ifdef __cplusplus
++}
++#endif
++
+diff --git a/src/Video.h b/src/Video.h
+index 737d23c..63f88b0 100644
+--- a/src/Video.h
++++ b/src/Video.h
+@@ -1,5 +1,7 @@
+ #pragma once
+-
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "LinkedBlockingQueue.h"
+ 
+ typedef struct _QUEUED_DECODE_UNIT {
+@@ -86,3 +88,8 @@ typedef struct _SS_RFI_REQUEST {
+ } SS_RFI_REQUEST, *PSS_RFI_REQUEST;
+ 
+ #pragma pack(pop)
++
++#ifdef __cplusplus
++}
++#endif
++

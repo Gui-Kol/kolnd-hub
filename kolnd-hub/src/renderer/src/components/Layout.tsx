@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
-import { Minus, Square, X } from 'lucide-react'
+import { Minus, Square, X, Zap } from 'lucide-react'
 import { Page } from '../types'
 
 interface LayoutProps {
@@ -9,6 +9,7 @@ interface LayoutProps {
   onNavigate: (page: Page) => void
   runningCount: number
   pcName?: string | null
+  onExit?: () => void
 }
 
 export function Layout({
@@ -16,52 +17,67 @@ export function Layout({
   currentPage,
   onNavigate,
   runningCount,
-  pcName
+  pcName,
+  onExit
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
+      {/* ── Scanlines (efeito arcade/console) ────────── */}
+      <div className="scanlines" />
+
       {/* ── Title bar ────────────────────────────────── */}
-      <div className="title-bar h-10 flex items-center justify-between px-4 bg-[#0a0a0f]/90 backdrop-blur-md border-b border-white/[0.04]">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">⚡</span>
-          <span className="text-sm font-semibold text-slate-300 tracking-tight">Kolnd Hub</span>
-          {runningCount > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium border border-emerald-500/20 animate-pulse-slow">
-              {runningCount} ativo{runningCount > 1 ? 's' : ''}
+      <div className="title-bar h-12 flex items-center justify-between px-5 bg-white/[0.02] backdrop-blur-md border-b border-white/[0.05] z-40">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange">
+            <Zap size={14} className="text-white" />
+          </div>
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-bold text-white tracking-tight gradient-text gradient-kloud">
+              Kolnd Hub
             </span>
-          )}
+            {runningCount > 0 && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 animate-pulse-slow">
+                {runningCount} ativo{runningCount > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Window controls */}
-        <div className="title-bar-no-drag flex items-center gap-0.5">
+        <div className="title-bar-no-drag flex items-center gap-1">
           <button
             onClick={() => window.api.minimizeWindow()}
-            className="p-2 rounded-md hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
+            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
             aria-label="Minimizar"
           >
-            <Minus size={13} />
+            <Minus size={12} />
           </button>
           <button
             onClick={() => window.api.maximizeWindow()}
-            className="p-2 rounded-md hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
+            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
             aria-label="Maximizar"
           >
-            <Square size={11} />
+            <Square size={10} />
           </button>
           <button
             onClick={() => window.api.closeWindow()}
-            className="p-2 rounded-md hover:bg-red-500/80 text-slate-500 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-red-600/90 text-white transition-colors shadow-glow-red"
             aria-label="Fechar"
           >
-            <X size={13} />
+            <X size={12} />
           </button>
         </div>
       </div>
 
       {/* ── Main content area ────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar currentPage={currentPage} onNavigate={onNavigate} pcName={pcName} />
-        <main className="flex-1 overflow-y-auto p-6 pb-10">{children}</main>
+        <Sidebar
+          currentPage={currentPage}
+          onNavigate={onNavigate}
+          pcName={pcName}
+          onExit={onExit}
+        />
+        <main className="flex-1 overflow-y-auto p-8 pb-12">{children}</main>
       </div>
     </div>
   )

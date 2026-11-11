@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import numpy as np
 import os
 import platform
 import random
@@ -34,7 +35,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QCursor, QDragEnterEvent, QDropEvent, QFont,
     QFontDatabase, QKeySequence, QLinearGradient, QPainter, QPainterPath,
-    QPen, QPixmap, QRadialGradient, QShortcut,
+    QPen, QPixmap, QPolygonF, QRadialGradient, QShortcut,
 )
 # Video playback for the HUD. Part of PyQt6, so it costs no new dependency —
 # but the multimedia plugins are a separate piece of the Qt install and can be
@@ -403,6 +404,30 @@ class _SysMetrics:
 _metrics = _SysMetrics()
 
 class HudCanvas(QWidget):
+    # Lines of code that float inside the central holographic circle,
+    # styled after the JARVIS Mark LVI centrepiece.
+    _CODE_LINES = [
+        "public class JarvisCore {",
+        "    import java.util.*;",
+        "    def search_algorithm(data):",
+        '        print("")',
+        "        for line in data:",
+        "            if value == None:",
+        "                try:",
+        "                    return process(line)",
+        "            except Exception as e:",
+        "                log.error(e)",
+        "    class HologramGenerator:",
+        "        aticaus = con(i);",
+        "        for (in k, l = 0; l < n; l++)",
+        "            system.ce.noJar(bar);",
+        "        return coordinates;",
+        "    void render_frame() {",
+        "        matrix.rotate(angle);",
+        "        pulse_amplitude = sin(time);",
+        "    }",
+    ]
+
     def __init__(self, face_path: str, assistant_name: str = "J.A.R.V.I.S", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
@@ -432,6 +457,8 @@ class HudCanvas(QWidget):
         except Exception:
             self.hud_style = "face"
         self._core_phase = 0.0
+        self._core_time = 0.0
+        self._core_particles = self._make_core_particles(220)
 
         self._tick       = 0
         self._scale      = 1.0
@@ -605,6 +632,7 @@ class HudCanvas(QWidget):
         # a rate that changes with state jumps the rings the instant JARVIS
         # starts talking. Same lesson the head's sway taught.
         self._core_phase += min(0.10, max(0.0, dt))
+        self._core_time += min(0.10, max(0.0, dt))
 
         if self._avatar is not None and self.hud_style == "face":
             self._avatar.step(dt, amp, speaking=self.speaking,
@@ -694,150 +722,279 @@ class HudCanvas(QWidget):
             return qcol(C.PRI), qcol(C.GREEN)
         return qcol(C.PRI), qcol(C.PRI_DIM)
 
+    # ── 3D core geometry helpers ──────────────────────────────────────────
+    # Software-rendered 3D: numpy builds rotating points in space, QPainter
+    # projects them to screen. Zero OpenGL, zero new dependencies (numpy is
+    # already a core dependency, used by the avatar).
+
+    def _make_core_particles(self, n: int) -> np.ndarray:
+        """Static 3D positions for the floating dust / mote field."""
+        rng = np.random.default_rng(42)
+        phi = rng.uniform(0.0, 2.0 * math.pi, n)
+        cost = rng.uniform(-1.0, 1.0, n)
+        radius = rng.uniform(0.6, 1.9, n)
+        sint = np.sqrt(np.maximum(0.0, 1.0 - cost * cost))
+        x = radius * sint * np.cos(phi)
+        y = radius * sint * np.sin(phi)
+        z = radius * cost
+        return np.stack([x, y, z], axis=1).astype(np.float64)
+
+    @staticmethod
+    def _rot_y(pts: np.ndarray, angle: float) -> np.ndarray:
+        ca, sa = math.cos(angle), math.sin(angle)
+        m = np.array([[ca, 0.0, sa],
+                      [0.0, 1.0, 0.0],
+                      [-sa, 0.0, ca]], dtype=np.float64)
+        return pts @ m.T
+
+    @staticmethod
+    def _rot_x(pts: np.ndarray, angle: float) -> np.ndarray:
+        ca, sa = math.cos(angle), math.sin(angle)
+        m = np.array([[1.0, 0.0, 0.0],
+                      [0.0, ca, -sa],
+                      [0.0, sa, ca]], dtype=np.float64)
+        return pts @ m.T
+
+    @staticmethod
+    def _rot_z(pts: np.ndarray, angle: float) -> np.ndarray:
+        ca, sa = math.cos(angle), math.sin(angle)
+        m = np.array([[ca, -sa, 0.0],
+                      [sa, ca, 0.0],
+                      [0.0, 0.0, 1.0]], dtype=np.float64)
+        return pts @ m.T
+
+    def _project(self, pts: np.ndarray, cx: float, cy: float,
+                 radius: float, cam_d: float = 3.2):
+        """Perspective-project (N,3) points to 2D screen space.
+        Returns (sx, sy, depth) with depth 0 (far) to 1 (near).
+        """
+        x, y, z = pts[:, 0], pts[:, 1], pts[:, 2]
+        w = cam_d - z
+        np.maximum(w, 0.35, out=w)
+        k = (cam_d / w) * radius
+        sx = cx + x * k
+        sy = cy - y * k       # 3D y-up → screen y-down
+        depth = np.clip(1.0 - (z + 1.6) / 3.2, 0.0, 1.0)
+        return sx, sy, depth
+
     def _paint_core(self, p: QPainter, cx: float, cy: float, r: float,
                     W: float = 0.0, H: float = 0.0):
-        """Draw the reactor at (cx, cy) with outer radius r, using the whole
-        canvas (W x H) for the marks that frame it."""
+        """Draw the futuristic 3D holographic reactor core.
+
+        Iron-Man centrepiece: layered atmospheric glow, rotating rings at
+        different axes, a floating 3D particle field, a spherical wireframe
+        grid, energy arcs, floating code glyphs and a pulsing nucleus —
+        all software-rendered with QPainter + numpy 3D projection.
+        """
         main, acc = self._core_colours()
         bg = qcol(C.BG)
         amp = self._amp_disp
-        t = self._core_phase
+        t = self._core_time
         live = (self.speaking or amp > 0.04) and not self.muted
 
         def blend(col: QColor, a: float) -> QColor:
-            """Pre-mix onto the background instead of asking Qt to composite.
-            The raster engine's opaque path is several times faster than its
-            translucent one, and everything here is a line or an arc."""
+            """Pre-mix `col` at alpha `a` onto `bg`, returned fully opaque."""
             k = max(0.0, min(1.0, a))
             return QColor(int(bg.red()   + (col.red()   - bg.red())   * k),
                           int(bg.green() + (col.green() - bg.green()) * k),
                           int(bg.blue()  + (col.blue()  - bg.blue())  * k))
 
-        p.setBrush(Qt.BrushStyle.NoBrush)
+        # ── state-driven animation ────────────────────────────────────────
+        if self.muted:
+            scale, pulse, glow = 0.45, 0.0, 0.25
+        elif self.state in ("THINKING", "PROCESSING"):
+            scale = 0.82 + 0.18 * math.sin(t * 3.2)
+            pulse = 0.75
+            glow = 1.0
+        elif self.speaking:
+            scale = 0.88 + 0.22 * math.sin(t * 4.2) + amp * 0.12
+            pulse = 0.55 + amp * 0.45
+            glow = 0.9 + amp * 0.1
+        elif self.state == "LISTENING":
+            scale, pulse, glow = 0.55, 0.2, 0.5
+        else:
+            scale = 0.78 + 0.12 * math.sin(t * 1.6)
+            pulse = 0.25
+            glow = 0.65
 
-        # 1. The atmosphere. One radial gradient doing what a stack of discs did
-        #    badly: a wide, soft body of light that gives the thing presence
-        #    before any detail is read. This single element decides whether the
-        #    HUD looks vast or looks small, so it is drawn first and drawn big.
-        # Concentrated rather than spread: a gradient reaching the outer rim
-        # washes the whole disc a flat dim blue and reads as fog. Ending it at
-        # two thirds leaves it a body of light with somewhere to fall off to,
-        # which is what makes it look lit rather than tinted.
-        lift = 1.0 + 0.55 * amp + (0.18 if self.speaking else 0.0)
+        cr = r * scale
+        p.save()
+        p.translate(cx, cy)
+
+        # ── outer atmospheric glow (layered) ─────────────────────────────
+        ar = cr * 2.6
+        g = QRadialGradient(0, 0, ar)
+        g.setColorAt(0.00, blend(main, min(0.9, 0.25 + 0.65 * pulse)))
+        g.setColorAt(0.22, blend(main, min(0.9, 0.10 + 0.30 * pulse)))
+        g.setColorAt(0.55, blend(main, min(0.9, 0.03 + 0.10 * pulse)))
+        g.setColorAt(1.00, blend(main, 0.0))
         p.setPen(Qt.PenStyle.NoPen)
-        for gr, a0, a1 in ((r * 0.70, 0.30, 0.0), (r * 0.34, 0.34, 0.0)):
-            g = QRadialGradient(cx, cy, gr)
-            g.setColorAt(0.00, blend(main, min(0.95, a0 * lift)))
-            g.setColorAt(0.45, blend(main, min(0.95, a0 * lift * 0.52)))
-            g.setColorAt(0.78, blend(main, min(0.95, a0 * lift * 0.18)))
-            g.setColorAt(1.00, blend(main, a1))
-            p.setBrush(QBrush(g))
-            p.drawEllipse(QRectF(cx - gr, cy - gr, gr * 2, gr * 2))
+        p.setBrush(QBrush(g))
+        p.drawEllipse(QRectF(-ar, -ar, ar * 2, ar * 2))
         p.setBrush(Qt.BrushStyle.NoBrush)
 
-        # 2. Frame marks at the corners of the whole canvas, not of the circle.
-        #    They are what set the scale: the eye reads the reactor as filling
-        #    the room rather than sitting in the middle of it.
-        if W > 40 and H > 40:
-            m, arm = min(W, H) * 0.035, min(W, H) * 0.055
-            p.setPen(QPen(blend(main, 0.45), 1.4))
-            for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-                x = cx + sx * (W / 2 - m)
-                y = cy + sy * (H / 2 - m)
-                p.drawLine(QLineF(x, y, x - sx * arm, y))
-                p.drawLine(QLineF(x, y, x, y - sy * arm))
+        # Secondary accent halo (orange when active)
+        if live:
+            g2 = QRadialGradient(0, 0, ar * 1.5)
+            g2.setColorAt(0.00, blend(acc, min(0.5, 0.15 + 0.35 * pulse)))
+            g2.setColorAt(0.40, blend(acc, 0.05))
+            g2.setColorAt(1.00, blend(acc, 0.0))
+            p.setBrush(QBrush(g2))
+            p.drawEllipse(QRectF(-ar * 1.5, -ar * 1.5, ar * 3, ar * 3))
+            p.setBrush(Qt.BrushStyle.NoBrush)
 
-        # 3. Crosshair across the full canvas, broken around the core so it
-        #    frames the reactor rather than crossing it.
-        p.setPen(QPen(blend(main, 0.16), 1))
-        gap = r * 0.62
-        if W > 40:
-            p.drawLine(QLineF(cx - W / 2, cy, cx - gap, cy))
-            p.drawLine(QLineF(cx + gap, cy, cx + W / 2, cy))
-        if H > 40:
-            p.drawLine(QLineF(cx, cy - H / 2, cx, cy - gap))
-            p.drawLine(QLineF(cx, cy + gap, cx, cy + H / 2))
+        # ── floating 3D particle field (dust / motes) ─────────────────────
+        pts = self._core_particles.copy()
+        pts = self._rot_y(pts, t * 0.5)           # field spins around Y
+        phase = np.arange(len(pts)) * 0.7
+        pts[:, 1] += np.sin(t + phase) * 0.18     # individual bobbing
+        pts[:, 0] += np.cos(t * 0.7 + phase * 0.5) * 0.12
+        sx, sy, depth = self._project(pts, 0, 0, cr * 0.95, cam_d=3.2)
 
-        # 4. Two thin outer circles. Sparse on purpose — a dense ring reads as a
-        #    grey band at this size, and restraint is what made the original
-        #    look expensive.
-        for rr, a in ((1.00, 0.34), (0.93, 0.16)):
-            rad = r * rr
-            p.setPen(QPen(blend(main, a), 1))
-            p.drawEllipse(QRectF(cx - rad, cy - rad, rad * 2, rad * 2))
+        p.setPen(Qt.PenStyle.NoPen)
+        for i in range(len(sx)):
+            d = depth[i]
+            a = max(0.0, min(1.0, d * (0.10 + 0.25 * pulse + 0.15 * amp)))
+            if a < 0.02:
+                continue
+            sz = 1.2 + d * 1.6                    # near = larger
+            p.setBrush(QBrush(blend(main if live else acc, a)))
+            p.drawEllipse(QRectF(sx[i] - sz / 2, sy[i] - sz / 2, sz, sz))
+            # Occasional brighter spark on near particles
+            if d > 0.7 and (i * 7 + int(t * 30)) % 13 == 0:
+                p.setBrush(QBrush(blend(acc, min(1.0, a * 1.5))))
+                p.drawEllipse(QRectF(sx[i] - sz * 0.5, sy[i] - sz * 0.5, sz, sz))
 
-        # 5. Long, sparse graduations: 24 majors reaching well in from the rim,
-        #    with shorter minors between them.
-        major, minor = [], []
-        for i in range(72):
-            a = math.radians(i * 5.0)
-            ca, sa = math.cos(a), math.sin(a)
-            if i % 3 == 0:
-                major.append(QLineF(cx + ca * r * 0.885, cy + sa * r * 0.885,
-                                    cx + ca * r * 0.985, cy + sa * r * 0.985))
-            else:
-                minor.append(QLineF(cx + ca * r * 0.945, cy + sa * r * 0.945,
-                                    cx + ca * r * 0.985, cy + sa * r * 0.985))
-        p.setPen(QPen(blend(main, 0.42), 1.3))
-        p.drawLines(major)
-        p.setPen(QPen(blend(main, 0.18), 1))
-        p.drawLines(minor)
+        # ── rotating rings at different axes ──────────────────────────────
+        n_ring = 64
+        theta = np.linspace(0.0, 2.0 * math.pi, n_ring, endpoint=False)
+        ring_base = np.stack([np.cos(theta), np.zeros(n_ring), np.sin(theta)], axis=1)
 
-        # 6. Sweeping arcs. Long spans, not dashes — the original's grandeur
-        #    came from a few big strokes. Speed is the state: idle drifts,
-        #    thinking hurries, speaking runs.
-        rate = 1.0 + (1.9 if self.state in ("THINKING", "PROCESSING") else 0.0) \
-                   + (1.2 if self.speaking else 0.0)
-        for k, (rr, span, count, dirn, col, a, wid) in enumerate((
-                (0.955, 118, 2, +1, acc,  0.75, 2.0),
-                (0.845, 82,  3, -1, main, 0.38, 1.3),
-                (0.760, 150, 1, +1, acc,  0.45, 1.6),
-                (0.660, 64,  4, -1, main, 0.26, 1.1),
-                (0.545, 128, 2, +1, main, 0.30, 1.2))):
-            rad = r * rr
-            p.setPen(QPen(blend(col, a), wid))
-            box = QRectF(cx - rad, cy - rad, rad * 2, rad * 2)
-            base = (t * rate * (9 + k * 6) * dirn) % 360.0
-            for sgm in range(count):
-                p.drawArc(box, int((base + sgm * (360.0 / count)) * 16),
-                          int(span * 16))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        ring_specs = [
+            (1.00,  t * 1.2,   0.0,   0.0,   0.45 + 0.25 * pulse,  2.0),
+            (0.78, -t * 0.9,   0.0,   t * 0.4, 0.25 + 0.15 * pulse, 1.5),
+            (0.55,  t * 0.6,   t * 0.5, 0.0,   0.18 + 0.12 * pulse, 1.0),
+        ]
+        for rad, sp_y, sp_x, sp_z, alpha, lw in ring_specs:
+            ring = ring_base * rad
+            ring = self._rot_y(ring, sp_y)
+            ring = self._rot_x(ring, sp_x)
+            ring = self._rot_z(ring, sp_z)
+            sx, sy, depth = self._project(ring, 0, 0, cr, cam_d=3.2)
+            col = blend(acc, alpha)
+            p.setPen(QPen(col, lw))
+            poly = QPolygonF([QPointF(float(a), float(b)) for a, b in zip(sx, sy)])
+            p.drawPolygon(poly)
 
-        # 7. The voice, as a ring of graduations that grow with it. Kept out at
-        #    a wide radius so it never crowds the middle.
-        n = 60
-        ring = r * 0.415
-        spikes = []
-        for i in range(n):
-            a = math.radians(i * (360.0 / n))
-            ca, sa = math.cos(a), math.sin(a)
-            wob = 0.5 + 0.5 * math.sin(t * 2.3 + i * 0.42)
-            idle = 0.018 + 0.012 * math.sin(t * 1.2 + i * 0.7)
-            h = r * (idle + (amp * 0.20 * wob if live else 0.0))
-            spikes.append(QLineF(cx + ca * ring, cy + sa * ring,
-                                 cx + ca * (ring + h), cy + sa * (ring + h)))
-        p.setPen(QPen(blend(acc if live else main, 0.25 + 0.5 * amp), 1.6))
-        p.drawLines(spikes)
+        # ── spherical wireframe grid (longitude + latitude) ───────────────
+        sphere_radius = 1.0
+        p.setPen(QPen(blend(main, 0.10 + 0.15 * pulse), 0.8))
+        # Longitude arcs (great circles around Y)
+        for lon in np.linspace(0.0, math.pi, 9, endpoint=False):
+            base = ring_base.copy()
+            base = self._rot_y(base, float(lon))
+            sx, sy, depth = self._project(base, 0, 0, cr * sphere_radius, cam_d=3.2)
+            poly = QPolygonF([QPointF(float(a), float(b)) for a, b in zip(sx, sy)])
+            p.drawPolygon(poly)
+        # Latitude rings (horizontal-ish slices)
+        for lat in np.linspace(-0.7, 0.7, 6):
+            h = math.sin(lat) * sphere_radius
+            rr = math.cos(lat) * sphere_radius
+            base = np.stack([rr * np.cos(theta), np.full(n_ring, h), rr * np.sin(theta)], axis=1)
+            base = self._rot_x(base, lat * 0.4)
+            sx, sy, depth = self._project(base, 0, 0, cr * sphere_radius, cam_d=3.2)
+            poly = QPolygonF([QPointF(float(a), float(b)) for a, b in zip(sx, sy)])
+            p.drawPolygon(poly)
 
-        # 8. The inner ring the name sits in.
-        inner = r * 0.355
-        p.setPen(QPen(blend(acc, 0.30 + 0.45 * amp), 1.5))
-        p.drawEllipse(QRectF(cx - inner, cy - inner, inner * 2, inner * 2))
+        # ── energy arcs between rings ─────────────────────────────────────
+        if live or pulse > 0.3:
+            p.setPen(QPen(blend(acc, 0.20 + 0.25 * pulse), 1.0))
+            n_arcs = 6
+            for i in range(n_arcs):
+                a1 = (i / n_arcs) * 2.0 * math.pi + t * 0.3
+                a2 = ((i + 1) / n_arcs) * 2.0 * math.pi + t * 0.3 + 0.8
+                p1 = np.array([math.cos(a1), 0.0, math.sin(a1)]) * 1.0
+                p2 = np.array([math.cos(a2), 0.0, math.sin(a2)]) * 0.72
+                mid = (p1 + p2) / 2.0
+                mid[1] += 0.45 + 0.25 * math.sin(t * 2.0 + i)
+                pts_arc = np.stack([p1, mid, p2], axis=0)
+                pts_arc = self._rot_y(pts_arc, t * 0.4)
+                sx, sy, depth = self._project(pts_arc, 0, 0, cr, cam_d=3.2)
+                poly = QPolygonF([QPointF(float(a), float(b)) for a, b in zip(sx, sy)])
+                p.drawPolyline(poly)
 
-        # 9. The name, sized from the string rather than from the radius alone:
-        #    "J.A.R.V.I.S" and a name someone renamed to "MAX" are very
-        #    different widths, and a fixed fraction of r spills one of them past
-        #    the ring it is supposed to sit inside.
-        name = self._assistant_name or ""
-        if name:
-            space = max(1.0, r * 0.018)
-            fsz = max(8, int(min(r * 0.105,
-                                 (inner * 1.75) / max(1, len(name)) * 1.6 - space)))
-            f = QFont("Courier New", fsz, QFont.Weight.Bold)
-            f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, space)
-            p.setFont(f)
-            p.setPen(QPen(blend(qcol(C.WHITE), 0.6 + 0.4 * min(1.0, amp * 2)), 1))
-            p.drawText(QRectF(cx - r, cy - fsz, r * 2, fsz * 2),
-                       Qt.AlignmentFlag.AlignCenter, name)
+        # ── floating code glyphs in 3D ────────────────────────────────────
+        code = "01" * 12 + "    "
+        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        for i in range(18):
+            ang = (i / 18.0) * 2.0 * math.pi + t * 0.35
+            height = math.sin(t * 1.1 + i) * 0.5
+            dist = 1.35 + 0.15 * math.sin(t + i * 0.4)
+            pos = np.array([math.cos(ang) * dist, height, math.sin(ang) * dist])
+            pos = self._rot_y(pos, t * 0.5)
+            sx, sy, depth = self._project(pos[None, :], 0, 0, cr * 0.9, cam_d=3.2)
+            d = depth[0]
+            a = max(0.0, min(1.0, d * (0.25 + 0.35 * pulse)))
+            if a < 0.05:
+                continue
+            ch = code[(i + int(t * 8)) % len(code)]
+            sz = max(5, int(8 * (0.7 + 0.5 * d)))
+            p.setFont(QFont("Courier New", sz, QFont.Weight.Bold))
+            p.setPen(QPen(blend(acc if live else main, a), 1))
+            p.drawText(QRectF(sx[0] - 6, sy[0] - 6, 12, 12),
+                       Qt.AlignmentFlag.AlignCenter, ch)
+
+        # ── inner containment ring ────────────────────────────────────────
+        inner_r = cr * 0.42
+        base = ring_base.copy() * inner_r
+        base = self._rot_y(base, t * 0.8)
+        sx, sy, depth = self._project(base, 0, 0, inner_r, cam_d=3.2)
+        p.setPen(QPen(blend(acc, 0.30 + 0.35 * pulse), 1.2))
+        poly = QPolygonF([QPointF(float(a), float(b)) for a, b in zip(sx, sy)])
+        p.drawPolygon(poly)
+
+        # ── pulsing nucleus ───────────────────────────────────────────────
+        nuc_r = cr * (0.22 + 0.14 * pulse + 0.10 * math.sin(t * 9.0))
+        g3 = QRadialGradient(0, 0, nuc_r)
+        g3.setColorAt(0.00, blend(acc, min(1.0, 0.95 + 0.5 * pulse)))
+        g3.setColorAt(0.35, blend(acc, 0.45))
+        g3.setColorAt(0.75, blend(acc, 0.12))
+        g3.setColorAt(1.00, blend(acc, 0.0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(g3))
+        p.drawEllipse(QRectF(-nuc_r, -nuc_r, nuc_r * 2, nuc_r * 2))
+        # Specular highlight on the nucleus
+        hl = nuc_r * 0.35
+        g4 = QRadialGradient(-nuc_r * 0.3, -nuc_r * 0.3, hl)
+        g4.setColorAt(0.00, QColor(255, 255, 255, int(120 + 80 * pulse)))
+        g4.setColorAt(0.5, QColor(255, 255, 255, 0))
+        p.setBrush(QBrush(g4))
+        p.drawEllipse(QRectF(-nuc_r, -nuc_r, nuc_r * 2, nuc_r * 2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        p.restore()
+
+        # ── scan-line overlay across the core band ────────────────────────
+        p.save()
+        p.translate(cx, cy)
+        scan = (t * 60.0) % (cr * 2.0)
+        p.setPen(Qt.PenStyle.NoPen)
+        for offset in np.arange(-cr * 1.5, cr * 1.5, 6.0):
+            y = (offset + scan) % (cr * 2.0) - cr
+            alpha = 0.06 + 0.04 * math.sin(t * 3.0)
+            p.setBrush(QColor(0, 212, 255, int(alpha * 60)))
+            p.drawRect(QRectF(-cr * 1.3, y - 1, cr * 2.6, 2))
+        p.restore()
+
+        # ── subtle vignette ───────────────────────────────────────────────
+        g5 = QRadialGradient(cx, cy, cr * 1.4)
+        g5.setColorAt(0.55, QColor(0, 0, 0, 0))
+        g5.setColorAt(0.75, QColor(0, 0, 0, 40))
+        g5.setColorAt(1.00, QColor(0, 0, 0, 110))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(g5))
+        p.drawEllipse(QRectF(cx - cr * 1.4, cy - cr * 1.4, cr * 2.8, cr * 2.8))
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -2013,6 +2170,236 @@ class _HudOverlay(QWidget):
         if p is not None:
             p.update(self.geometry())
         super().closeEvent(e)
+
+
+def _shortcut_key_to_name():
+    """Qt.Key → chord name table, built once from the Qt enums (no hand-listed
+    integers). Letters and digits only — punctuation names match hotkey.py."""
+    from PyQt6.QtCore import Qt
+    m: dict[int, str] = {}
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        m[getattr(Qt.Key, f"Key_{ch}")] = ch.lower()
+    for d in "0123456789":
+        m[getattr(Qt.Key, f"Key_{d}")] = d
+    for n in range(1, 13):
+        m[getattr(Qt.Key, f"Key_F{n}")] = f"f{n}"
+    special = {
+        "Key_Space": "space", "Key_Tab": "tab", "Key_Escape": "esc",
+        "Key_Return": "enter", "Key_Enter": "enter",
+        "Key_Backspace": "backspace", "Key_Delete": "delete", "Key_Insert": "insert",
+        "Key_Home": "home", "Key_End": "end",
+        "Key_PageUp": "pageup", "Key_PageDown": "pagedown",
+        "Key_Up": "up", "Key_Down": "down", "Key_Left": "left", "Key_Right": "right",
+        "Key_CapsLock": "capslock",
+        "Key_Minus": "minus", "Key_Equal": "equals", "Key_Comma": "comma",
+        "Key_Period": "period", "Key_Slash": "slash", "Key_Semicolon": "semicolon",
+        "Key_Apostrophe": "quote",
+        "Key_BracketLeft": "bracketleft", "Key_BracketRight": "bracketright",
+        "Key_Backslash": "backslash", "Key_QuoteLeft": "grave",
+    }
+    for k, v in special.items():
+        m[getattr(Qt.Key, k)] = v
+    return m
+
+_QT_KEY_TO_NAME = None
+
+def _qt_key_to_name(key):
+    global _QT_KEY_TO_NAME
+    if _QT_KEY_TO_NAME is None:
+        _QT_KEY_TO_NAME = _shortcut_key_to_name()
+    return _QT_KEY_TO_NAME.get(key)
+
+
+class ShortcutsOverlay(_HudOverlay):
+    """⚙ → ATALHOS — every shortcut the app answers to, in one place.
+
+    The mic mute is rebindable: press REBIND and then the new key combination,
+    and it takes effect immediately (global hook on Windows; focused window
+    elsewhere). Everything else is fixed and listed for reference. While a
+    capture is armed, the app's own shortcuts are paused so pressing a key
+    cannot also toggle the mic or stop the speech mid-sentence.
+    """
+    rebinded        = pyqtSignal(list)   # normalized chord names, e.g. ['ctrl','shift','k']
+    capture_started = pyqtSignal()       # user armed the rebind
+    capture_ended   = pyqtSignal()       # rebind finished or was cancelled
+
+    _OW = 500
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            ShortcutsOverlay {{
+                background: rgba(0, 6, 10, 245);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 6px;
+            }}
+        """)
+        self.setFixedWidth(self._OW)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 16, 22, 16)
+        lay.setSpacing(6)
+
+        lay.addWidget(self._lbl("⌨  ATALHOS", 12, True))
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
+        lay.addWidget(sep)
+
+        # ── Mic mute — the one rebindable chord ──────────────────────────────
+        from core.hotkey import chord_label
+        from memory.config_manager import get_mute_chord
+
+        lay.addWidget(self._lbl("MIC MUTE  —  REBINDABLE", 8, color=C.TEXT_DIM,
+                                align=Qt.AlignmentFlag.AlignLeft))
+        mute_row = QHBoxLayout(); mute_row.setSpacing(8)
+        mute_info = QVBoxLayout(); mute_info.setSpacing(1)
+        mute_info.addWidget(self._lbl("Mute / unmute the microphone", 9))
+        self._mute_chord_lbl = self._lbl(self._chord_text(), 10, bold=True,
+                                         color=C.PRI)
+        mute_info.addWidget(self._mute_chord_lbl)
+        mute_row.addLayout(mute_info, 1)
+        self._rebind_btn = QPushButton("⏺  REBIND")
+        self._rebind_btn.setFixedHeight(34)
+        self._rebind_btn.setFixedWidth(120)
+        self._rebind_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._rebind_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rebind_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+        """)
+        self._rebind_btn.clicked.connect(self._on_rebind_clicked)
+        mute_row.addWidget(self._rebind_btn)
+        lay.addLayout(mute_row)
+        self._mute_status = self._lbl(
+            "Click REBIND, then press the new combination.", 7,
+            color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self._mute_status)
+
+        # ── The rest — fixed, listed for reference ───────────────────────────
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
+        lay.addWidget(sep2)
+        lay.addWidget(self._lbl("EVERYTHING ELSE  —  FIXO", 7, color=C.TEXT_DIM,
+                                align=Qt.AlignmentFlag.AlignLeft))
+        from memory.config_manager import get_push_to_talk_enabled
+        ptt = get_push_to_talk_enabled()
+        rows = [
+            ("🎤", "Mute the mic", "F4"),
+            ("🎤", "Push-to-talk — hold to speak", "Ctrl+Space" if ptt else "Ctrl+Space  (push-to-talk off)"),
+            ("✋", "Stop the assistant mid-sentence", "Escape"),
+            ("⛶", "Toggle fullscreen", "F11"),
+            ("⌨️", "Send message", "Enter  (in the input box)"),
+        ]
+        for icon, what, chord in rows:
+            r = QHBoxLayout(); r.setSpacing(10)
+            lbl = self._lbl(f"{icon}  {what}", 8, align=Qt.AlignmentFlag.AlignLeft)
+            r.addWidget(lbl, 1)
+            keys = self._lbl(chord, 8, bold=True, color=C.PRI,
+                             align=Qt.AlignmentFlag.AlignRight)
+            r.addWidget(keys)
+            lay.addLayout(r)
+
+        lay.addStretch(1)
+
+        self._armed = False
+        close_btn = QPushButton("CLOSE")
+        close_btn.setFixedHeight(30)
+        close_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+        """)
+        close_btn.clicked.connect(self.close)
+        lay.addWidget(close_btn)
+
+        # Capture keys belong to the overlay, not to the buttons inside it —
+        # otherwise Qt gives the key press to a focused button and nothing
+        # reaches keyPressEvent.
+        for w in self.findChildren(QWidget):
+            w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    # ── widgets ──────────────────────────────────────────────────────────────
+
+    def _lbl(self, txt, fs=9, bold=False, color=C.PRI, align=Qt.AlignmentFlag.AlignLeft):
+        w = QLabel(txt); w.setAlignment(align)
+        w.setFont(QFont("Courier New", fs,
+                        QFont.Weight.Bold if bold else QFont.Weight.Normal))
+        w.setStyleSheet(f"color: {color}; background: transparent;")
+        return w
+
+    def _chord_text(self) -> str:
+        from core.hotkey import chord_label
+        from memory.config_manager import get_mute_chord
+        return chord_label(get_mute_chord())
+
+    def _set_status(self, text: str) -> None:
+        self._mute_status.setText(text)
+
+    # ── armed capture ────────────────────────────────────────────────────────
+
+    def _on_rebind_clicked(self):
+        if self._armed:
+            self._disarm(saved=False, note="Rebind cancelled.")
+            return
+        self._armed = True
+        self._rebind_btn.setText("⏺ PRESS KEYS…")
+        self._set_status("Press the new shortcut — e.g. Ctrl+Shift+K, or an F-key alone.  (Esc cancels)")
+        self.setFocus()
+        self.capture_started.emit()
+
+    def _disarm(self, saved: bool, note: str | None = None, chord=None):
+        self._armed = False
+        self._rebind_btn.setText("⏺  REBIND")
+        if saved and chord is not None:
+            from core.hotkey import chord_label
+            self._mute_chord_lbl.setText(chord_label(chord))
+            self._set_status(f"Saved ✓  —  {chord_label(chord)}")
+        else:
+            self._set_status(note or "")
+        self.capture_ended.emit()
+
+    def keyPressEvent(self, e):
+        if not self._armed:
+            super().keyPressEvent(e)
+            return
+
+        mods = []
+        m = e.modifiers()
+        if m & Qt.KeyboardModifier.ControlModifier:
+            mods.append("ctrl")
+        if m & Qt.KeyboardModifier.ShiftModifier:
+            mods.append("shift")
+        if m & Qt.KeyboardModifier.AltModifier:
+            mods.append("alt")
+        if m & Qt.KeyboardModifier.MetaModifier:
+            mods.append("win")
+
+        key = _qt_key_to_name(e.key())
+        if key == "esc" and not mods:
+            self._disarm(saved=False, note="Rebind cancelled.")
+            return
+        if key is None:
+            self._set_status("That key is not supported — pick a modifier (Ctrl/Shift/Alt) plus one key, or an F-key.")
+            return  # stay armed
+
+        from core.hotkey import normalize_chord
+        chord = normalize_chord(mods + [key])
+        if chord is None:
+            self._set_status("Not usable as a global shortcut — Ctrl/Shift/Alt plus one key, or an F-key.")
+            return  # stay armed
+
+        self.rebinded.emit(chord)
+        self._disarm(saved=True, chord=chord)
+
+    def hideEvent(self, e):
+        if self._armed:
+            self._disarm(saved=False, note="Rebind cancelled.")
+        super().hideEvent(e)
 
 
 class ConfirmBanner(_HudOverlay):
@@ -4404,13 +4791,13 @@ class MainWindow(QMainWindow):
     _cam_stream_sig = pyqtSignal(bool)       # True=start live stream, False=stop
     _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
     _video_open_sig  = pyqtSignal(str, str, bool, str)  # video, title, muted, audio
-    _wake_btns_sig   = pyqtSignal()          # wake state resolved off-thread
     _video_close_sig = pyqtSignal()
     _video_mute_sig  = pyqtSignal(bool)
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
-    _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
+    _mute_toggle_sig = pyqtSignal()          # flip mic mute from any thread (F4 / Ctrl+Shift+M)
+    _mute_scope_sig  = pyqtSignal(str)       # 'global' | 'window' — decided by backend hook
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
     _review_sig     = pyqtSignal(str, str, object, object)  # document review payload
@@ -4447,11 +4834,10 @@ class MainWindow(QMainWindow):
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
-        self.on_wake_toggle    = None   # callable: (enable: bool) -> str, set by JarvisLive
-        self.on_wake_manual    = None   # callable: () -> None — manual sleep/wake
         self.on_push_to_talk   = None   # callable: (enable: bool) -> str scope
         self.ptt_hold          = None   # callable: (held: bool) -> None — windowed chord
-        self.wake_get_state    = None   # callable: () -> dict {enabled, awake, ready}
+        self.on_mute_chord_change = None  # callable: (chord: list[str]) -> None — rebind from ⚙ → ATALHOS
+        self.on_mute_capture   = None   # callable: (start: bool) -> None — pause mute hook during capture
         self._muted            = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
@@ -4663,7 +5049,6 @@ class MainWindow(QMainWindow):
         # Quick-access drawer (floating overlay, built after central widget layout is done)
         self._quick_drawer = self._build_quick_drawer()
         self._ctrl_drawer = self._build_controls_drawer()
-        self._warm_wake_state()
         self._update_autostart_btn(self._check_autostart())
         from memory.config_manager import get_brief_enabled as _gbe
         self._update_brief_btn(_gbe())
@@ -4689,12 +5074,12 @@ class MainWindow(QMainWindow):
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
-        self._wake_btns_sig.connect(self._refresh_wake_btns)
         self._video_open_sig.connect(self._on_video_open)
         self._video_close_sig.connect(self._on_video_close)
         self._video_mute_sig.connect(self._on_video_mute)
         self._clipboard_sig.connect(self._show_clipboard_panel)
-        self._wake_dl_sig.connect(self._on_wake_install_done)
+        self._mute_toggle_sig.connect(self._toggle_mute)
+        self._mute_scope_sig.connect(self._apply_mute_shortcut)
         self._quiz_sig.connect(self._show_quiz)
         self._quiz_hide_sig.connect(self._hide_quiz)
         self._review_sig.connect(self._show_review)
@@ -4713,12 +5098,12 @@ class MainWindow(QMainWindow):
         if not self._ready:
             self._show_setup()
 
-        sc_mute = QShortcut(QKeySequence("F4"), self)
-        sc_mute.activated.connect(self._toggle_mute)
-        sc_full = QShortcut(QKeySequence("F11"), self)
-        sc_full.activated.connect(self._toggle_fullscreen)
-        sc_intr = QShortcut(QKeySequence("Escape"), self)
-        sc_intr.activated.connect(self._do_interrupt)
+        self._sc_mute = QShortcut(QKeySequence("F4"), self)
+        self._sc_mute.activated.connect(self._toggle_mute)
+        self._sc_full = QShortcut(QKeySequence("F11"), self)
+        self._sc_full.activated.connect(self._toggle_fullscreen)
+        self._sc_intr = QShortcut(QKeySequence("Escape"), self)
+        self._sc_intr.activated.connect(self._do_interrupt)
 
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot — display camera preview overlay (main thread)."""
@@ -5189,7 +5574,7 @@ class MainWindow(QMainWindow):
         desktop = self._get_desktop_dir()
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        ico_path = _base_dir() / "config" / "jarvis.ico"
         if not ico_path.exists():
             self._build_jarvis_icon(ico_path)
 
@@ -5604,11 +5989,12 @@ class MainWindow(QMainWindow):
         self._interrupt_btn.clicked.connect(self._do_interrupt)
         lay.addWidget(self._interrupt_btn)
 
-        self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE")
+        self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE  [Ctrl+Shift+M]")
         self._mute_btn.setFixedHeight(30)
         self._mute_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mute_btn.clicked.connect(self._toggle_mute)
+        self._mute_btn.setToolTip("Works anywhere on the system, even when this window is not focused (rebind in ⚙ → ATALHOS)")
         self._style_mute_btn()
         lay.addWidget(self._mute_btn)
 
@@ -5719,6 +6105,14 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(self._open_plugin_settings)
         lay.addWidget(settings_btn)
 
+        shortcuts_btn = QPushButton("⌨  ATALHOS")
+        shortcuts_btn.setFixedHeight(26)
+        shortcuts_btn.setFont(QFont("Courier New", 7))
+        shortcuts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        shortcuts_btn.setStyleSheet(_BTN_STYLE_DIM)
+        shortcuts_btn.clicked.connect(self._open_shortcuts)
+        lay.addWidget(shortcuts_btn)
+
         # The button is built here with the rest of the drawer; the panel behind
         # it — and the whole providers package — is imported on the click. The
         # drawer used to stutter for a measured 2.104 seconds because a state
@@ -5767,15 +6161,6 @@ class MainWindow(QMainWindow):
         self._brief_btn = _row(QPushButton())
         self._brief_btn.clicked.connect(self._toggle_brief)
 
-        self._wake_btn = _row(QPushButton())
-        self._wake_btn.clicked.connect(self._toggle_wake_word)
-        self._wake_sleep_btn = _row(QPushButton())
-        self._wake_sleep_btn.clicked.connect(self._tap_wake_manual)
-        # Neutral until the real state lands from the background warm-up.
-        self._wake_btn.setText("🎙  WAKE WORD")
-        self._wake_btn.setStyleSheet(self._BTN_DIM)
-        self._wake_sleep_btn.hide()
-
         self._ptt_btn = _row(QPushButton())
         self._ptt_btn.clicked.connect(self._toggle_ptt)
         self._refresh_talk_btns()
@@ -5786,24 +6171,6 @@ class MainWindow(QMainWindow):
 
         w.adjustSize()
         return w
-
-    def _warm_wake_state(self) -> None:
-        """Work out the wake-word state off the UI thread, once.
-
-        It used to be resolved when the drawer opened, and that made opening the
-        drawer take two seconds the first time — measured at 2.10s, all of it
-        `import openwakeword` dragging in onnxruntime behind it. The button
-        count had nothing to do with it; the Qt thread was simply waiting on an
-        import. Afterwards the same check costs about a millisecond, so it only
-        ever needed to happen somewhere other than in front of the user.
-        """
-        def work():
-            try:
-                self._wake_state()
-            except Exception:
-                pass
-            self._wake_btns_sig.emit()
-        threading.Thread(target=work, daemon=True, name="wake-state-warm").start()
 
     def _toggle_drawer(self, checked: bool):
         if checked:
@@ -5817,7 +6184,6 @@ class MainWindow(QMainWindow):
     def _toggle_controls(self, checked: bool):
         if checked:
             self._close_setup()
-            self._refresh_wake_btns()   # cheap now: the state was warmed at boot
             self._position_ctrl_drawer()
             self._ctrl_drawer.show()
             self._ctrl_drawer.raise_()
@@ -6629,60 +6995,6 @@ class MainWindow(QMainWindow):
         save_brief_enabled(new_val)
         self._update_brief_btn(new_val)
 
-    # ── Wake word settings ───────────────────────────────────────────────────
-
-    def _wake_state(self) -> dict:
-        """Combined state for the two wake-word buttons. Readiness is a cheap,
-        deterministic on-disk check now (see core.wake_word.is_ready), so there
-        is nothing to cache — the button never flickers to a stale value."""
-        if self.wake_get_state:
-            try:
-                s = self.wake_get_state()
-                return {"ready": bool(s.get("ready")),
-                        "enabled": bool(s.get("enabled")),
-                        "awake": bool(s.get("awake"))}
-            except Exception:
-                pass
-        # Before JarvisLive has wired its callback (drawer built at startup).
-        ready, enabled = False, False
-        try:
-            from core.wake_word import is_ready
-            from memory.config_manager import get_wake_word_enabled
-            ready, enabled = is_ready(), get_wake_word_enabled()
-        except Exception:
-            pass
-        return {"ready": ready, "enabled": enabled, "awake": True}
-
-    def _refresh_wake_btns(self):
-        if not hasattr(self, '_wake_btn'):
-            return
-        st = self._wake_state()
-        _on = f"""
-            QPushButton {{ background: #001a08; color: {C.GREEN};
-                border: 1px solid {C.GREEN_D}; border-radius: 3px;
-                text-align: left; padding: 0 8px; }}
-            QPushButton:hover {{ background: #002010; }}"""
-        _off = f"""
-            QPushButton {{ background: transparent; color: {C.TEXT_DIM};
-                border: 1px solid {C.BORDER}; border-radius: 3px;
-                text-align: left; padding: 0 8px; }}
-            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}"""
-        self._wake_btn.setEnabled(True)
-        if not st["ready"]:
-            self._wake_btn.setText("⬇  WAKE WORD: DOWNLOAD")
-            self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
-        elif st["enabled"]:
-            self._wake_btn.setText("🎙  WAKE WORD: ON")
-            self._wake_btn.setStyleSheet(_on)
-            self._wake_sleep_btn.show()
-            self._wake_sleep_btn.setText("😴  SLEEP NOW" if st["awake"] else "👂  WAKE NOW")
-            self._wake_sleep_btn.setStyleSheet(_off)
-        else:
-            self._wake_btn.setText("🎙  WAKE WORD: OFF")
-            self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
-
     def _refresh_talk_btns(self):
         """Repaint the push-to-talk row from the saved setting."""
         if not hasattr(self, "_ptt_btn"):
@@ -6797,6 +7109,29 @@ class MainWindow(QMainWindow):
         self._ptt_sc.setAutoRepeat(True)
         self._ptt_sc.activated.connect(_press)
 
+    def _apply_mute_shortcut(self, scope: str):
+        """Bind the mute chord inside the window when no global hook is available.
+
+        The backend starts a system-wide hook on Windows; elsewhere the chord
+        is live at least while this window has focus. Idempotent: rebuilding
+        from the saved chord whenever it is called, so a rebind takes effect
+        immediately for the window-scoped fallback too.
+        """
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        from core.hotkey import qt_sequence
+        from memory.config_manager import get_mute_chord
+
+        seq = qt_sequence(get_mute_chord())
+        sc = getattr(self, "_mute_sc", None)
+        if sc is not None:
+            sc.setEnabled(False)
+            self._mute_sc = None
+        if scope == "global":
+            return
+        self._mute_sc = QShortcut(QKeySequence(seq), self)
+        self._mute_sc.setAutoRepeat(False)
+        self._mute_sc.activated.connect(self._toggle_mute)
+
     def _ptt_hold(self, held: bool):
         """Report a windowed press/release to whoever owns the microphone."""
         cb = getattr(self, "ptt_hold", None)
@@ -6805,47 +7140,6 @@ class MainWindow(QMainWindow):
                 cb(bool(held))
             except Exception:
                 pass
-
-    def _toggle_wake_word(self):
-        st = self._wake_state()
-        if not st["ready"]:
-            # First time: download openwakeword + model in a worker thread.
-            self._wake_btn.setText("⬇  DOWNLOADING… (one-time)")
-            self._wake_btn.setEnabled(False)
-            def _work():
-                try:
-                    from core.wake_word import install_and_download
-                    ok, msg = install_and_download(
-                        logger=lambda m: self._log_sig.emit(f"SYS: {m}"))
-                except Exception as e:
-                    ok, msg = False, str(e)
-                if ok and self.on_wake_toggle:
-                    try:
-                        self.on_wake_toggle(True)   # auto-enable after a successful download
-                    except Exception:
-                        pass
-                self._wake_dl_sig.emit(ok, msg)
-            threading.Thread(target=_work, daemon=True).start()
-            return
-        # Already downloaded → just flip enabled/disabled through JarvisLive.
-        if self.on_wake_toggle:
-            try:
-                self.on_wake_toggle(not st["enabled"])
-            except Exception:
-                pass
-        self._refresh_wake_btns()
-
-    def _on_wake_install_done(self, ok: bool, msg: str):
-        self._log_sig.emit(f"SYS: {'Wake word ready.' if ok else 'Wake word setup failed: ' + msg}")
-        self._refresh_wake_btns()
-
-    def _tap_wake_manual(self):
-        if self.on_wake_manual:
-            try:
-                self.on_wake_manual()
-            except Exception:
-                pass
-        self._refresh_wake_btns()
 
     def _update_brief_btn(self, enabled: bool):
         if not hasattr(self, '_brief_btn'):
@@ -7074,6 +7368,60 @@ class MainWindow(QMainWindow):
         ov.raise_()
         self._plugin_settings_overlay = ov   # keep a reference so it isn't GC'd
 
+    # ── Shortcuts ─────────────────────────────────────────────────────────────
+
+    def _open_shortcuts(self):
+        cw = self.centralWidget()
+        ov = ShortcutsOverlay(parent=cw)
+        ow = ShortcutsOverlay._OW
+        oh = min(520, cw.height() - 16)
+        ov.setGeometry(
+            (cw.width()  - ow) // 2,
+            (cw.height() - oh) // 2,
+            ow, oh,
+        )
+        # Rebind wins by design — pause the app's own shortcuts + the global
+        # mute hook while the user presses the new combination.
+        ov.capture_started.connect(self._on_shortcut_capture_start)
+        ov.capture_ended.connect(self._on_shortcut_capture_end)
+        ov.rebinded.connect(self._on_shortcut_rebind)
+        ov.show()
+        ov.raise_()
+        self._shortcuts_overlay = ov   # keep a reference so it isn't GC'd
+
+    def _on_shortcut_capture_start(self):
+        self._shortcut_capture_lock(True)
+        if self.on_mute_capture:
+            try:
+                self.on_mute_capture(True)
+            except Exception as e:
+                self._log.append_log(f"ERR: could not pause the mute hook — {e}")
+
+    def _on_shortcut_capture_end(self):
+        self._shortcut_capture_lock(False)
+        if self.on_mute_capture:
+            try:
+                self.on_mute_capture(False)
+            except Exception as e:
+                self._log.append_log(f"ERR: could not resume the mute hook — {e}")
+
+    def _shortcut_capture_lock(self, locked: bool):
+        """While the user records a chord, none of the app's own shortcuts fire."""
+        for sc in (getattr(self, "_sc_mute", None),
+                   getattr(self, "_sc_full", None),
+                   getattr(self, "_sc_intr", None),
+                   getattr(self, "_mute_sc", None)):
+            if sc is not None:
+                sc.setEnabled(not locked)
+
+    def _on_shortcut_rebind(self, chord):
+        if self.on_mute_chord_change:
+            try:
+                self.on_mute_chord_change(list(chord))
+            except Exception as e:
+                self._log.append_log(f"ERR: mute shortcut — {e}")
+        self._style_mute_btn()
+
     # ── Clipboard intelligence ───────────────────────────────────────────────────
 
     def _on_clipboard_changed(self):
@@ -7128,8 +7476,14 @@ class MainWindow(QMainWindow):
             self._log.append_log("SYS: Microphone active." + (f" {note}" if note else ""))
 
     def _style_mute_btn(self):
+        try:
+            from core.hotkey import chord_label
+            from memory.config_manager import get_mute_chord
+            label = chord_label(get_mute_chord())
+        except Exception:
+            label = "Ctrl+Shift+M"
         if self._muted:
-            self._mute_btn.setText("🔇  MICROPHONE MUTED")
+            self._mute_btn.setText(f"🔇  MICROPHONE MUTED  [{label}]")
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #140006; color: {C.MUTED_C};
@@ -7137,7 +7491,7 @@ class MainWindow(QMainWindow):
                 }}
             """)
         else:
-            self._mute_btn.setText("🎙  MICROPHONE ACTIVE")
+            self._mute_btn.setText(f"🎙  MICROPHONE ACTIVE  [{label}]")
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #00140a; color: {C.GREEN};
@@ -7309,6 +7663,22 @@ class JarvisUI:
     def on_audio_device_change(self, cb):
         self._win.on_audio_device_change = cb
 
+    @property
+    def on_mute_chord_change(self):
+        return self._win.on_mute_chord_change
+
+    @on_mute_chord_change.setter
+    def on_mute_chord_change(self, cb):
+        self._win.on_mute_chord_change = cb
+
+    @property
+    def on_mute_capture(self):
+        return self._win.on_mute_capture
+
+    @on_mute_capture.setter
+    def on_mute_capture(self, cb):
+        self._win.on_mute_capture = cb
+
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
@@ -7333,30 +7703,6 @@ class JarvisUI:
     @get_plugin_settings.setter
     def get_plugin_settings(self, cb):
         self._win.get_plugin_settings = cb
-
-    @property
-    def on_wake_toggle(self):
-        return self._win.on_wake_toggle
-
-    @on_wake_toggle.setter
-    def on_wake_toggle(self, cb):
-        self._win.on_wake_toggle = cb
-
-    @property
-    def on_wake_manual(self):
-        return self._win.on_wake_manual
-
-    @on_wake_manual.setter
-    def on_wake_manual(self, cb):
-        self._win.on_wake_manual = cb
-
-    @property
-    def wake_get_state(self):
-        return self._win.wake_get_state
-
-    @wake_get_state.setter
-    def wake_get_state(self, cb):
-        self._win.wake_get_state = cb
 
     def set_audio_level(self, level: float) -> None:
         """Thread-safe: feed a 0.0–1.0 live audio level to the HUD waveform.
@@ -7405,6 +7751,15 @@ class JarvisUI:
 
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
+
+    def toggle_mute(self):
+        """Thread-safe: flip the microphone mute (F4 / global Ctrl+Shift+M)."""
+        self._win._mute_toggle_sig.emit()
+
+    def set_mute_hotkey_scope(self, scope: str):
+        """Thread-safe: tell the window whether Ctrl+Shift+M works globally
+        ('global') or only while it has focus ('window')."""
+        self._win._mute_scope_sig.emit(str(scope))
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)

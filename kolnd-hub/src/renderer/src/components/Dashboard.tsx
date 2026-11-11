@@ -1,6 +1,17 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, Code, Cpu, Gamepad2, Wifi } from 'lucide-react'
+import {
+  Activity,
+  Cpu,
+  Gamepad2,
+  Wifi,
+  Code,
+  Play,
+  Square,
+  ExternalLink,
+  AlertTriangle,
+  Clock
+} from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
 import { AppConfig, AppState } from '../types'
@@ -12,11 +23,34 @@ interface DashboardProps {
   onStop: (appId: string) => void
 }
 
-const categoryMeta = {
-  ai: { label: 'Inteligência Artificial', icon: Cpu },
-  gaming: { label: 'Gaming', icon: Gamepad2 },
-  streaming: { label: 'Streaming', icon: Wifi },
-  dev: { label: 'Dev', icon: Code }
+const categoryMeta: Record<
+  string,
+  { label: string; icon: any; color: string; glow: string }
+> = {
+  ai: {
+    label: 'Inteligência Artificial',
+    icon: Cpu,
+    color: 'text-neon-cyan',
+    glow: 'shadow-glow-cyan'
+  },
+  gaming: {
+    label: 'Gaming',
+    icon: Gamepad2,
+    color: 'text-neon-purple',
+    glow: 'shadow-glow-purple'
+  },
+  streaming: {
+    label: 'Streaming',
+    icon: Wifi,
+    color: 'text-playstation-500',
+    glow: 'shadow-glow-blue'
+  },
+  dev: {
+    label: 'Development',
+    icon: Code,
+    color: 'text-kloud-500',
+    glow: 'shadow-glow-orange'
+  }
 }
 
 export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps): JSX.Element {
@@ -35,44 +69,57 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
     .filter((g) => g.apps.length > 0)
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* ── Header ───────────────────────────────────── */}
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* ── Header estilo perfil Steam ───────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="space-y-1"
+        className="space-y-3"
       >
-        <h2 className="text-2xl font-bold text-white">Dashboard</h2>
-        <p className="text-sm text-slate-500">Gerencie todos os seus programas em um só lugar</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
+              Biblioteca
+            </h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Gerencie e inicie seus jogos e aplicativos em um só lugar
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="glass rounded-xl px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Activity size={12} className="text-slate-500" />
+              <span>{apps.length} títulos</span>
+            </div>
+            <div className="glass rounded-xl px-4 py-2 flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-bold text-emerald-400">{runningCount} online</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 glass rounded-2xl p-5 flex items-center gap-6 border border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+              Todos os sistemas operacionais
+            </span>
+          </div>
+          <div className="w-px h-6 bg-white/10" />
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-slate-600" />
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              {stoppedCount} offline
+            </span>
+          </div>
+          <div className="w-px h-6 bg-white/10" />
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-slate-500" />
+            <span className="text-xs text-slate-400">Latência: 12ms</span>
+          </div>
+        </div>
       </motion.div>
 
-      {/* ── Stats bar ────────────────────────────────── */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="glass rounded-xl p-4 flex items-center gap-6"
-      >
-        <div className="flex items-center gap-2">
-          <Activity size={16} className="text-indigo-400" />
-          <span className="text-sm text-slate-400">Total:</span>
-          <span className="text-sm font-semibold text-white">{apps.length} programas</span>
-        </div>
-        <div className="w-px h-4 bg-white/10" />
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-sm text-slate-400">Ativos:</span>
-          <span className="text-sm font-semibold text-emerald-400">{runningCount}</span>
-        </div>
-        <div className="w-px h-4 bg-white/10" />
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-slate-600" />
-          <span className="text-sm text-slate-400">Parados:</span>
-          <span className="text-sm font-semibold text-slate-300">{stoppedCount}</span>
-        </div>
-      </motion.div>
-
-      {/* ── Grouped apps ─────────────────────────────── */}
+      {/* ── Jogos agrupados por categoria ────────────── */}
       {groupedApps.map((group, gi) => {
         const Icon = group.icon
         return (
@@ -80,19 +127,31 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
             key={group.category}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 + gi * 0.1 }}
+            transition={{ delay: 0.1 + gi * 0.08 }}
+            className="space-y-3"
           >
-            {/* Category header */}
-            <div className="flex items-center gap-2 mb-4">
-              <Icon size={16} className="text-slate-500" />
-              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-                {group.label}
-              </h3>
-              <div className="flex-1 h-px bg-white/[0.04]" />
+            {/* Cabeçalho da categoria estilo Steam */}
+            <div className="flex items-center gap-3 mb-1">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  group.color
+                } ${group.glow}`}
+              >
+                <Icon size={18} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest">
+                  {group.label}
+                </h3>
+                <div className="h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+              </div>
+              <span className="text-[10px] font-bold text-slate-600 bg-white/[0.03] px-2 py-0.5 rounded-full border border-white/10">
+                {group.apps.length}
+              </span>
             </div>
 
-            {/* Cards grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Cards em grade */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {group.apps.map((app, i) => (
                 <AppCard
                   key={app.id}
@@ -101,7 +160,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
                   onLaunch={() => onLaunch(app)}
                   onStop={() => onStop(app.id)}
                   onClick={() => setSelectedApp(app)}
-                  delay={0.3 + gi * 0.1 + i * 0.05}
+                  delay={0.15 + gi * 0.08 + i * 0.03}
                 />
               ))}
             </div>
@@ -109,7 +168,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
         )
       })}
 
-      {/* ── Detail modal ─────────────────────────────── */}
+      {/* ── Detalhe modal ────────────────────────────── */}
       <AnimatePresence>
         {selectedApp && (
           <AppDetailModal

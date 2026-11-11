@@ -9,6 +9,26 @@ files:
   - '!electron.vite.config.*'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{tailwind.config.js,postcss.config.js}'
+  - '!scripts/*'
+  - '!resources/programs/**'
+  - '!Mark-LVI/**'
+  - '!*.log'
+  - '!electron-builder.yml'
+# The managed programs are bundled as extraResources so they land in
+# <install dir>/resources/programs/... and Mark LVI/Kloud Games find their
+# data files relative to the executable working directory.
+extraResources:
+  - from: resources/programs
+    to: programs
+    filter:
+      - '**/*'
+      # Never ship user data with the installer: Mark LVI writes its API
+      # key and conversation memory next to the exe, and the bundled copy
+      # may therefore hold real user data while being good for testing.
+      - '!MarkLVI/config/api_keys.json'
+      - '!MarkLVI/config/certs/**'
+      - '!MarkLVI/config/whatsapp_web/**'
+      - '!MarkLVI/memory/**'
 win:
   icon: resources/icon.ico
   target:
@@ -16,5 +36,9 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # Per-user install (%LOCALAPPDATA%\Programs\Kolnd Hub): the install folder
+  # stays writable, which Mark LVI needs to create config/ and memory/
+  # next to its executable on first run.
+  perMachine: false
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico

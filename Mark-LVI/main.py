@@ -44,6 +44,12 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox,
+    QComboBox, QPushButton, QFrame, QWidget
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 import sounddevice as sd
 import numpy as np
@@ -70,11 +76,11 @@ from actions.proactive         import ProactiveEngine
 from actions.background_monitor import (
     add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
 )
-from actions.web_search        import _news as _fetch_news_sync
 from memory.config_manager     import (
     get_brief_enabled, get_media_resolution, get_proactive_audio_enabled,
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
-    get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
+    get_input_device, get_output_device,
+    get_mute_chord, save_mute_chord,
 )
 from core                     import gemini as _gemini
 from core.plugin_loader        import discover_plugins
@@ -84,13 +90,6 @@ from core                      import audio_devices
 from core.action_loader        import discover_actions
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
-from core.wake_word            import (
-    WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
-)
-
-# How long the assistant stays awake with no user speech before it auto-sleeps
-# again (wake-word mode only).
-WAKE_SLEEP_TIMEOUT = 120.0   # seconds (2 minutes)
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -100,6 +99,21 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
+
+# ── Frozen build (PyInstaller) ───────────────────────────────────────────────
+# The packaged MarkLVI.exe also acts as a Python interpreter for any .py
+# scripts bundled next to it. Without this intercept, a detached subprocess
+# call like [sys.executable, "script.py", …] would relaunch the assistant GUI
+# instead of the script in the frozen build.
+if getattr(sys, "frozen", False) and len(sys.argv) >= 2:
+    _script = Path(sys.argv[1])
+    if not _script.is_absolute():
+        _script = BASE_DIR / _script
+    if _script.suffix == ".py" and _script.is_file():
+        import runpy
+        sys.argv = [str(_script), *sys.argv[2:]]
+        runpy.run_path(str(_script), run_name="__main__")
+        raise SystemExit(0)
 # The conversation's model. A NAME, not a decision: the ladder lives in
 # core/gemini.py and this is only whichever rung is currently in use, kept here
 # as a module attribute because plugins read it (chat_takeover asks main for it
@@ -358,7 +372,7 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
     joined = " ".join(buf)
     return txt in joined
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
@@ -661,7 +675,7 @@ class JarvisLive:
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
 
-        _base_dir = Path(__file__).resolve().parent
+        _base_dir = BASE_DIR  # same resolution as everywhere else (sys.executable when frozen)
         _inline_names = {t["name"] for t in TOOL_DECLARATIONS}
 
         # File-backed tools: every actions/*.py with a TOOL dict, discovered the
@@ -687,14 +701,25 @@ class JarvisLive:
         self.ui.get_plugins = self._plugin_registry.list_for_ui
         self.ui.get_plugin_settings = self._plugin_registry.settings_schemas  # ⚙ settings tab
         self.ui.request_say = self.plugin_say   # plugins: mid-task speech channel
+        self.ui.on_mute_chord_change = self._ui_mute_chord_change  # ⚙ → ATALHOS rebind
+        self.ui.on_mute_capture      = self._ui_mute_capture      # pause/resume during capture
 
-        # ── Wake word ────────────────────────────────────────────────────────
-        # _awake gates the mic (see _listen_audio) and the background speakers.
-        # It is True whenever wake word is OFF, so default behaviour is unchanged.
-        self._wake_enabled     = get_wake_word_enabled()
-        self._awake            = not self._wake_enabled
-        self._wake_detector: WakeWordDetector | None = None
-        self._wake_sleep_timeout = WAKE_SLEEP_TIMEOUT
+        # Global mic mute — the chord is rebindable in ⚙ → ATALHOS and saved
+        # in config; this is whatever it currently is. Windows gets a
+        # system-wide polling hook (like push-to-talk); elsewhere the chord is
+        # live while this window has focus.
+        from core.hotkey import ChordToggle
+        self._mute_chord = ChordToggle(self._on_mute_chord, chord=get_mute_chord())
+        try:
+            scope = self._mute_chord.start()
+        except Exception as e:
+            print(f"[JARVIS] ⚠ Mute shortcut unavailable: {e}")
+            scope = "window"
+        self.ui.set_mute_hotkey_scope(scope)
+        if scope == "global":
+            self.ui.write_log("SYS: Mic mute shortcut active system-wide.")
+        else:
+            self.ui.write_log("SYS: Mic mute shortcut active while this window is focused.")
 
         # Restore the saved push-to-talk preference. Doing it here rather than
         # in __init__ means the hotkey thread only exists once there is a
@@ -704,101 +729,52 @@ class JarvisLive:
                 self.set_push_to_talk(True)
             except Exception as e:
                 print(f"[JARVIS] ⚠ Push-to-talk unavailable: {e}")
-        # UI control surface for the Wake Word settings section.
-        self.ui.wake_is_ready    = wake_is_ready          # () -> bool
-        self.ui.wake_get_state   = self._wake_state       # () -> dict
-        self.ui.on_wake_toggle   = self._ui_wake_toggle   # (enable: bool) -> str
-        self.ui.on_wake_manual   = self._ui_wake_manual   # () -> toggle awake/asleep
-        self.ui.on_wake_install  = self._ui_wake_install  # () -> (ok, msg)
 
-    # ── Wake word: state machine ─────────────────────────────────────────────
+    def _on_mute_chord(self) -> None:
+        """ChordToggle thread → flip the mic mute (the UI does it on the Qt thread)."""
+        try:
+            self.ui.toggle_mute()
+        except Exception as e:
+            print(f"[JARVIS] ⚠ Mute toggle failed: {e}")
 
-    def _wake_state(self) -> dict:
-        # A loaded, running detector is definitively ready; otherwise fall back
-        # to the cheap on-disk model-file check (no Model construction).
-        ready = bool(self._wake_detector and self._wake_detector.ready) or wake_is_ready()
-        return {"enabled": self._wake_enabled, "awake": self._awake, "ready": ready}
-
-    def _ensure_wake_detector(self) -> bool:
-        """Load the detector once (model loads on first start). Idempotent."""
-        if self._wake_detector is None:
-            self._wake_detector = WakeWordDetector(
-                on_detect=self._on_wake_detected,
-                logger=lambda m: print(f"[Wake] {m}"),
-                notify=lambda m: self.ui.write_log(f"SYS: {m}"),
-            )
-        if not self._wake_detector.ready:
-            return self._wake_detector.start()
-        return True
-
-    def _on_wake_detected(self) -> None:
-        """Called from the detector thread when 'Hey Jarvis' is heard."""
-        self.wake(reason="wake word")
-
-    def wake(self, reason: str = "wake word") -> None:
-        if self._awake:
+    def _ui_mute_chord_change(self, chord: list[str]) -> None:
+        """Rebind request from ⚙ → ATALHOS. Save + apply immediately, no restart."""
+        from core.hotkey import chord_label, ChordToggle
+        try:
+            save_mute_chord(chord)
+        except Exception as e:
+            print(f"[JARVIS] ⚠ Could not save the mute chord: {e}")
+            self.ui.write_log("ERR: Mute shortcut could not be saved.")
             return
-        self._awake = True
-        self._last_user_speech = time.monotonic()   # start the auto-sleep clock now
-        if not self.ui.muted:
-            self.ui.set_state("LISTENING")
-        self.ui.write_log(f"SYS: Awake — {reason}.")
+        try:
+            self._mute_chord.stop()
+        except Exception:
+            pass
+        self._mute_chord = ChordToggle(self._on_mute_chord, chord=get_mute_chord())
+        try:
+            scope = self._mute_chord.start()
+        except Exception as e:
+            print(f"[JARVIS] ⚠ Mute shortcut unavailable: {e}")
+            scope = "window"
+        self.ui.set_mute_hotkey_scope(scope)   # recreates the window-scoped Qt shortcut from config
+        self.ui.write_log(f"SYS: Mute shortcut set to {chord_label(get_mute_chord())}.")
 
-    def sleep(self, reason: str = "timeout") -> None:
-        if not self._awake:
+    def _ui_mute_capture(self, start: bool) -> None:
+        """Pause the global mute hook while the user records a new chord (and
+        resume it when the capture ends), so pressing keys can't toggle the mic."""
+        from core.hotkey import ChordToggle
+        if start:
+            try:
+                self._mute_chord.stop()
+            except Exception:
+                pass
             return
-        self._awake = False
-        self.set_speaking(False)
-        self.ui.set_state("SLEEPING")
-        self.ui.write_log(f"SYS: Sleeping — {reason}. Say 'Hey Jarvis' to wake me.")
-
-    async def _run_sleep_watch(self) -> None:
-        """Auto-sleep after the configured silence window (wake-word mode only)."""
-        while True:
-            await asyncio.sleep(5)
-            if not self._wake_enabled or not self._awake:
-                continue
-            with self._speaking_lock:
-                speaking = self._is_speaking
-            if speaking:
-                continue
-            if (time.monotonic() - self._last_user_speech) > self._wake_sleep_timeout:
-                self.sleep(reason="no speech for 2 minutes")
-
-    # ── Wake word: UI callbacks (called from the Qt thread) ──────────────────
-
-    def _ui_wake_toggle(self, enable: bool) -> str:
-        """Enable/disable wake word from the settings UI. Returns a status token:
-        'enabled' | 'disabled' | 'need_download'."""
-        if enable:
-            if not wake_is_ready():
-                return "need_download"
-            self._wake_enabled = True
-            save_wake_word_enabled(True)
-            self._ensure_wake_detector()
-            self.sleep(reason="wake word enabled")
-            return "enabled"
-        else:
-            self._wake_enabled = False
-            save_wake_word_enabled(False)
-            self.wake(reason="wake word disabled")
-            return "disabled"
-
-    def _ui_wake_manual(self) -> None:
-        """Manual sleep/wake button in the UI."""
-        if not self._wake_enabled:
-            return
-        if self._awake:
-            self.sleep(reason="you tapped sleep")
-        else:
-            self.wake(reason="you tapped wake")
-
-    def _ui_wake_install(self) -> tuple[bool, str]:
-        """Download openwakeword + the model (runs in a UI worker thread)."""
-        # Triggered by the user pressing the button, so its progress is exactly
-        # what they are waiting to see.
-        return wake_install(logger=lambda m: print(f"[Wake] {m}"),
-                            notify=lambda m: self.ui.write_log(f"SYS: {m}"))
+        self._mute_chord = ChordToggle(self._on_mute_chord, chord=get_mute_chord())
+        try:
+            scope = self._mute_chord.start()
+        except Exception:
+            scope = "window"
+        self.ui.set_mute_hotkey_scope(scope)
 
     def plugin_say(self, instruction: str) -> None:
         """
@@ -966,12 +942,6 @@ class JarvisLive:
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
-        # Respect wake-word sleep: a typed command must not be answered while
-        # asleep either (the sleep gate is not just for the mic). Wake first with
-        # "Hey Jarvis" or the WAKE NOW button.
-        if self._wake_enabled and not self._awake:
-            self.ui.write_log("SYS: I'm asleep — say 'Hey Jarvis' or tap WAKE NOW first.")
-            return
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"role": "user", "parts": [{"text": text}]},
@@ -1035,12 +1005,6 @@ class JarvisLive:
     def _on_ptt(self, held: bool) -> None:
         """Chord pressed or released — may arrive on the hotkey thread."""
         self._ptt_held = held
-        if held:
-            # Holding the key is also a way to wake it, so push-to-talk works
-            # without having to say the wake word first.
-            if self._wake_enabled and not self._awake:
-                self._awake = True
-                self._last_user_speech = time.monotonic()
         # Releasing the key ends the turn. On Live the server works that out from
         # the audio; a local pipeline has no server, so the release IS the
         # signal — which is also why it is the more reliable of the two ways to
@@ -1053,20 +1017,7 @@ class JarvisLive:
             except Exception as e:
                 print(f"[JARVIS] PTT flush failed: {e}")
         try:
-            if held:
-                state = "LISTENING"
-            else:
-                # Releasing the key does NOT mean the assistant went to sleep.
-                #
-                # This used to paint SLEEPING unconditionally, and SLEEPING in
-                # this app means one specific thing — the wake-word gate is
-                # closed, the lids are down, nothing is being listened to at all.
-                # With push-to-talk on, every key release asserted that, so
-                # tapping WAKE NOW appeared to do nothing: the assistant really
-                # did wake, and the next release immediately painted it asleep
-                # again. Two different ideas were sharing one state.
-                state = ("SLEEPING" if (self._wake_enabled and not self._awake)
-                         else "LISTENING")
+            state = "LISTENING"
             self.ui.set_state(state)
         except Exception:
             pass
@@ -1526,18 +1477,6 @@ class JarvisLive:
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
-            # ── Wake-word gate ───────────────────────────────────────────────
-            # While asleep, the mic audio NEVER goes to Gemini (nothing is
-            # streamed, so JARVIS can't respond to speech not addressed to it and
-            # nothing leaves the machine). Frames are instead handed to the local
-            # detector, which runs its model in ITS OWN thread — the cost here is
-            # only a queue push, so the audio path is never slowed. When wake word
-            # is off (default) or we're awake, this is a single boolean check.
-            if self._wake_enabled and not self._awake:
-                det = self._wake_detector
-                if det is not None:
-                    det.feed(indata)
-                return
             with self._speaking_lock:
                 jarvis_speaking = self._is_speaking
 
@@ -1953,16 +1892,21 @@ class JarvisLive:
             stream.stop()
             stream.close()
 
-    # ── Morning briefing ────────────────────────────────────────────────────────
+    # ── Startup briefing ─────────────────────────────────────────────────────
 
     async def _send_startup_briefing(self) -> None:
         """
         Two-phase briefing optimized for speed:
           Phase 1 — instant greeting (no tools) → speech starts in <1s
-          Phase 2 — news pre-fetched in a background thread while Phase 1 plays,
-                    delivered as ready text (no Gemini tool-call round-trip) and
-                    shown on the UI content panel. Waits for turn_complete event
-                    instead of a fixed sleep so there is no unnecessary gap.
+          Phase 2 — weather and today's agenda pre-fetched in a background thread
+                    while Phase 1 plays, delivered as ready text (no Gemini
+                    tool-call round-trip) and shown on the UI content panel.
+                    Waits for the turn_complete event instead of a fixed sleep
+                    so there is no unnecessary gap.
+
+        Deliberately NO news — only the greeting, the temperature and today's
+        agenda. If the city is unknown the greeting asks for it; the answer is
+        persisted via save_memory (identity/city) so it is never asked again.
         """
         memory   = load_memory()
         identity = memory.get("identity", {})
@@ -1973,11 +1917,18 @@ class JarvisLive:
 
         lang = _val("language")
         name = _val("name")
+        city = _val("city")
         time_str = datetime.now().strftime("%H:%M")
 
-        # Start fetching news immediately — runs in parallel while phase 1 plays
+        # Pre-fetch weather and today's agenda immediately — runs in parallel
+        # while phase 1 plays. Weather only when the city is known.
         loop = asyncio.get_event_loop()
-        news_future = loop.run_in_executor(None, _fetch_news_sync, "top world news today")
+        from actions.weather_report import _fetch_weather_sync
+        from actions.calendar_control import fetch_today_events
+        weather_future = (
+            loop.run_in_executor(None, _fetch_weather_sync, city) if city else None
+        )
+        events_future = loop.run_in_executor(None, fetch_today_events)
 
         await asyncio.sleep(0.3)
         if not self.session:
@@ -2005,10 +1956,26 @@ class JarvisLive:
                 f" Also briefly and naturally mention that {_when}: {last['summary']}"
             )
 
-        p1 = (
-            f"Greet the user warmly, mention it is {time_str}, and say you are fetching today's news now.{session_clause} "
-            f"Keep it to 2 short sentences max. Do not call any tools.{lang_clause}{name_clause}"
-        )
+        if city:
+            p1 = (
+                f"Greet the user warmly — it is {time_str}; use the correct time-of-day "
+                f"greeting in their language (Portuguese: Bom dia / Boa tarde / Boa noite) — "
+                f"and say you are checking today's weather and agenda now.{session_clause} "
+                f"Keep it to 2 short sentences max. Do NOT mention news. Do not call any tools."
+                f"{lang_clause}{name_clause}"
+            )
+        else:
+            p1 = (
+                f"Greet the user warmly — it is {time_str}; use the correct time-of-day "
+                f"greeting in their language (Portuguese: Bom dia / Boa tarde / Boa noite). "
+                f"In the same greeting, ask in one short sentence which city they are from "
+                f"(you need it for the weather) and say you are also checking today's agenda."
+                f"{session_clause} "
+                f"When they name their city, silently call save_memory with category 'identity', "
+                f"key 'city' and value '<the city>' — then you never have to ask again. "
+                f"Keep it to 2 short sentences max. Do NOT mention news. Do not call any tools "
+                f"in this turn.{lang_clause}{name_clause}"
+            )
 
         # Clear the turn-done event so we can wait for Phase 1 to finish
         if self._turn_done_event:
@@ -2021,15 +1988,18 @@ class JarvisLive:
         print("[JARVIS] Briefing phase 1 (greeting) sent.")
 
         # ── Phase 2: fire as soon as Phase 1 audio is done ───────────────────
-        async def _deliver_news():
+        async def _deliver_briefing():
             try:
                 lang_str = (f" Speak in {lang} unless the user has since "
                             f"spoken another language, in which case use theirs."
                             if lang else "")
 
-                # Wait for news fetch (already running) and Phase 1 turn-complete
+                # Wait for the data fetches (already running) and Phase 1 turn-complete
                 # in parallel — whichever takes longer determines the wait time
-                news_done   = asyncio.wrap_future(news_future)
+                events_done = asyncio.wrap_future(events_future)
+                weather_done = (
+                    asyncio.wrap_future(weather_future) if weather_future is not None else None
+                )
                 turn_waited = False
                 if self._turn_done_event:
                     try:
@@ -2047,47 +2017,89 @@ class JarvisLive:
                 else:
                     await asyncio.sleep(1.0)
 
+                # ── Weather ────────────────────────────────────────────────
+                weather_text = ""
+                if weather_done is not None:
+                    try:
+                        weather_text = await asyncio.wait_for(weather_done, timeout=8.0)
+                    except Exception as e:
+                        self.ui.write_log(f"SYS: Weather fetch timed out/failed: {e!r}")
+                        weather_text = ""
+
+                # ── Agenda (Google Calendar) ───────────────────────────────
                 try:
-                    news_text = await asyncio.wait_for(news_done, timeout=8.0)
+                    agenda = await asyncio.wait_for(events_done, timeout=8.0)
                 except Exception as e:
-                    self.ui.write_log(f"SYS: News fetch timed out/failed: {e!r}")
-                    news_text = ""
+                    self.ui.write_log(f"SYS: Calendar fetch timed out/failed: {e!r}")
+                    agenda = {"connected": False, "events": [], "error": str(e)}
 
                 if not self.session:
                     return
 
-                failed = (not news_text) or news_text.startswith(
-                    ("No news found", "Search failed", "Please provide")
-                )
-                if not failed:
-                    # Show on UI content panel immediately
-                    self.ui.show_content("NEWS — top world news today", news_text)
-
-                    p2 = (
-                        f"[BRIEFING] Here are today's top news headlines:\n{news_text}\n\n"
-                        "Pick ONE headline, summarise it in one sentence, then say the full list "
-                        f"is displayed on screen. Do not call any tools.{lang_str}"
-                    )
+                agenda_lines: list[str] = []
+                if agenda.get("connected"):
+                    if agenda.get("error"):
+                        agenda_lines.append(f"Google Calendar error: {agenda['error']}")
+                    elif agenda.get("events"):
+                        agenda_lines.append(
+                            "Today's agenda (Google Calendar): " + "; ".join(agenda["events"])
+                        )
+                    else:
+                        agenda_lines.append(
+                            "Today's agenda (Google Calendar): nothing scheduled."
+                        )
                 else:
-                    self.ui.write_log(
-                        f"SYS: News unavailable — backend returned: {news_text[:120]!r}"
+                    agenda_lines.append(
+                        "Google Calendar is NOT connected. Tell the user in one short "
+                        "sentence that they can connect it any time by saying "
+                        "'conectar meu Google Agenda'."
                     )
-                    p2 = (
-                        "News headlines could not be fetched right now. "
-                        f"Let the user know briefly.{lang_str}"
+
+                # Panel content with the raw data
+                panel_parts: list[str] = []
+                if city:
+                    panel_parts.append(weather_text or f"Weather unavailable for {city}.")
+                else:
+                    panel_parts.append("City unknown — weather not available.")
+                if agenda.get("connected") and not agenda.get("error"):
+                    if agenda.get("events"):
+                        panel_parts.append("Agenda de hoje:\n" + "\n".join(
+                            f"  {e}" for e in agenda["events"]))
+                    else:
+                        panel_parts.append("Agenda de hoje: nada marcado.")
+                self.ui.show_content("HOJE — weather & agenda", "\n\n".join(panel_parts))
+
+                context = (
+                    "[STARTUP_BRIEFING] Context for the user's startup briefing:\n"
+                )
+                if city:
+                    context += f"Weather in {city}: {weather_text or 'unavailable'}\n"
+                else:
+                    context += (
+                        "City unknown — no weather available. Do NOT ask again; "
+                        "the greeting already asked for it.\n"
                     )
+                context += "\n".join(agenda_lines) + "\n"
+                context += (
+                    "Deliver this naturally in at most 2 short sentences, in the "
+                    "user's language: temperature first, then the agenda (or its "
+                    "absence). Do NOT mention news. Do not call any tools."
+                    + lang_str
+                )
+
+                p2 = context
 
                 await self.session.send_client_content(
                     turns={"role": "user", "parts": [{"text": p2}]},
                     turn_complete=True,
                 )
-                print("[JARVIS] Briefing phase 2 (news) sent.")
+                print("[JARVIS] Briefing phase 2 (weather & agenda) sent.")
             except Exception as e:
                 print(f"[Briefing] Phase 2 error: {e}")
                 print(f"[JARVIS] Briefing phase 2 failed: {e}")
-                self.ui.write_log("SYS: Could not fetch the news for the briefing.")
+                self.ui.write_log("SYS: Could not fetch weather/agenda for the briefing.")
 
-        asyncio.create_task(_deliver_news())
+        asyncio.create_task(_deliver_briefing())
 
     # ── Session memory ──────────────────────────────────────────────────────────
 
@@ -2126,7 +2138,7 @@ class JarvisLive:
         while True:
             await asyncio.sleep(10)
             alert = await asyncio.to_thread(self._sys_monitor.check)
-            if not alert or not self.session or not self._awake:
+            if not alert or not self.session:
                 continue
             # Don't interrupt an active conversation
             with self._speaking_lock:
@@ -2147,7 +2159,7 @@ class JarvisLive:
         """Check user-configured topics once per day; speak alerts when new headlines appear."""
         await asyncio.sleep(300)          # wait 5 min after startup before first check
         while True:
-            if self.session and self._awake:
+            if self.session:
                 # Don't interrupt if user spoke recently or JARVIS is mid-sentence
                 with self._speaking_lock:
                     speaking = self._is_speaking
@@ -2185,7 +2197,7 @@ class JarvisLive:
         while True:
             await asyncio.sleep(60)   # evaluate once per minute
 
-            if not self.session or not self._awake:
+            if not self.session:
                 continue
 
             with self._speaking_lock:
@@ -2250,16 +2262,12 @@ class JarvisLive:
                 )
                 if not text:
                     continue
-                # Wait up to 8s for session to become ready after a wake
+                # Wait up to 8s for the session to become ready
                 for _ in range(80):
                     if self.session:
                         break
                     await asyncio.sleep(0.1)
                 if self.session:
-                    # A remote command is deliberate control and the phone user
-                    # has no desktop WAKE button — so it wakes JARVIS if asleep.
-                    if self._wake_enabled and not self._awake:
-                        self.wake(reason="remote command")
                     await self.session.send_client_content(
                         turns={"role": "user", "parts": [{"text": text}]},
                         turn_complete=True,
@@ -2497,17 +2505,8 @@ class JarvisLive:
                         # is the whole point, and it is invisible otherwise.
                         self.ui.write_log("SYS: Reconnected — conversation restored.")
 
-                    # Wake word: if enabled, come up ASLEEP (mic gated, silent)
-                    # until the user says "Hey Jarvis" or taps wake in the UI.
-                    if self._wake_enabled:
-                        self._ensure_wake_detector()
-                        self._awake = False
-                        self.ui.set_state("SLEEPING")
-                        self.ui.write_log("SYS: JARVIS online — sleeping. Say 'Hey Jarvis' to wake me.")
-                    else:
-                        self._awake = True
-                        self.ui.set_state("LISTENING")
-                        self.ui.write_log("SYS: JARVIS online.")
+                    self.ui.set_state("LISTENING")
+                    self.ui.write_log("SYS: JARVIS online.")
 
                     # What this machine will not permit, said once, on screen.
                     #
@@ -2540,7 +2539,6 @@ class JarvisLive:
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())
                     tg.create_task(self._run_proactive_mode())
-                    tg.create_task(self._run_sleep_watch())
                     if self._dashboard:
                         tg.create_task(self._relay_phone_audio())
 
@@ -2551,10 +2549,9 @@ class JarvisLive:
                     if self._engine is not None:
                         tg.create_task(self._engine.warmup())
 
-                    # Morning briefing — fires once per process launch (if enabled).
-                    # Skipped in wake-word mode: it comes up asleep, and a briefing
-                    # would mean talking while "asleep".
-                    if not self._briefing_sent and get_brief_enabled() and self._awake:
+                    # Startup briefing — fires once per process launch (if enabled):
+                    # greeting + weather + today's agenda. No news.
+                    if not self._briefing_sent and get_brief_enabled():
                         self._briefing_sent = True
                         tg.create_task(self._send_startup_briefing())
 
@@ -2683,12 +2680,13 @@ class JarvisLive:
             self.ui.set_state("SLEEPING")
 
             if self._dashboard:
-                await self._dashboard.broadcast({"type": "status", "state": "sleeping"})
+                await self._dashboard.broadcast({"type": "status", "state": "offline"})
 
             delay = getattr(self, "_conn_backoff", 3)
             print(f"[JARVIS] Reconnecting in {delay}s...")
             await asyncio.sleep(delay)
 
+# ─────────────────────────────────────────────────────────────────────────────
 def main():
     ui = JarvisUI("face.png")
 

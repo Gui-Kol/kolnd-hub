@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, RotateCcw, FolderOpen, Terminal } from 'lucide-react'
+import { Save, RotateCcw, Terminal, FolderOpen, AlertCircle } from 'lucide-react'
 import { AppConfig } from '../types'
 
 interface SettingsProps {
@@ -35,84 +35,98 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* ── Header ───────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
+        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
-          <h2 className="text-2xl font-bold text-white">Configurações</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Configure os caminhos e comandos de cada programa
+          <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
+            Configurações
+          </h2>
+          <p className="text-sm text-slate-400 mt-1">
+            Ajuste comandos e diretórios de trabalho dos seus títulos
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white glass glass-hover"
+            className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-white glass glass-hover transition-all"
           >
-            <RotateCcw size={13} /> Resetar
+            <RotateCcw size={14} /> Resetar tudo
           </button>
           <button
             onClick={handleSave}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
               saved
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-glow-cyan'
+                : 'bg-gradient-to-r from-kloud-500 to-nintendo-500 text-white shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600'
             }`}
           >
-            <Save size={13} /> {saved ? 'Salvo! ✓' : 'Salvar'}
+            <Save size={14} /> {saved ? 'Salvo!' : 'Salvar alterações'}
           </button>
         </div>
       </motion.div>
 
-      {/* ── App config cards ─────────────────────────── */}
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+        Gerenciador de títulos
+      </p>
+
+      {/* ── Cards de configuração ────────────────────── */}
       <div className="space-y-4">
         {editedApps.map((app, index) => (
           <motion.div
             key={app.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-            className="glass rounded-xl p-5"
+            transition={{ delay: index * 0.04 }}
+            className="glass rounded-2xl p-6 border-l-4 border-transparent hover:border-kloud-500/50 transition-all"
           >
-            {/* App header */}
-            <div className="flex items-center gap-3 mb-4">
+            {/* Cabeçalho do app */}
+            <div className="flex items-center gap-3.5 mb-5">
               <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-lg shrink-0"
-                style={{ background: `${app.color}15` }}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg"
+                style={{
+                  background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
+                  boxShadow: `0 0 20px ${app.color}40`
+                }}
               >
                 {app.icon}
               </div>
-              <h3 className="text-sm font-semibold text-white">{app.name}</h3>
+              <div>
+                <h3 className="text-base font-bold text-white">{app.name}</h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                  {app.category.toUpperCase()}
+                </p>
+              </div>
             </div>
 
-            {/* Editable fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Campos editáveis */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 mb-1.5">
-                  <Terminal size={11} /> Comando
+                <label className="label-panel">
+                  <Terminal size={12} /> Comando
                 </label>
                 <input
                   type="text"
                   value={app.command}
                   onChange={(e) => handleChange(index, 'command', e.target.value)}
-                  className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all"
-                  placeholder="ex: python main.py"
+                  className="input-gamer"
+                  placeholder="ex: kloud-games.exe"
                 />
               </div>
               <div>
-                <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 mb-1.5">
-                  <FolderOpen size={11} /> Diretório de trabalho
+                <label className="label-panel">
+                  <FolderOpen size={12} /> Diretório de trabalho
                 </label>
                 <input
                   type="text"
                   value={app.cwd}
                   onChange={(e) => handleChange(index, 'cwd', e.target.value)}
-                  className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all"
-                  placeholder="ex: ../Mark-LVI"
+                  className="input-gamer"
+                  placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
                 />
               </div>
             </div>
@@ -120,19 +134,22 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
         ))}
       </div>
 
-      {/* ── Info note ────────────────────────────────── */}
+      {/* ── Nota informativa ─────────────────────────── */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="glass rounded-xl p-4 flex items-start gap-3"
+        className="glass rounded-2xl p-6 flex items-start gap-4 border-l-4 border-kloud-500/50"
       >
-        <span className="text-lg">💡</span>
+        <AlertCircle size={22} className="text-kloud-500 shrink-0 mt-0.5" />
         <div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Os caminhos relativos (como <code className="text-slate-300 bg-white/5 px-1 rounded">../deepseek-harness</code>) são
-            resolvidos a partir do diretório de instalação do Kolnd Hub. Use caminhos absolutos se
-            os programas estiverem em locais diferentes.
+            Caminhos relativos (como
+            <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
+              ../Mark-LVI
+            </code>
+            ) são resolvidos a partir da instalação do Kolnd Hub. Use caminhos absolutos se os
+            programas estiverem em locais diferentes.
           </p>
         </div>
       </motion.div>

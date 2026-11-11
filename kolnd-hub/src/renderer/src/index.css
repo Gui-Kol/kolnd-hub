@@ -10,42 +10,156 @@
   }
 
   body {
-    @apply bg-[#0a0a0f] text-slate-200 font-sans overflow-hidden;
+    @apply bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-kloud-500 selection:text-white;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background: radial-gradient(circle at top right, #1a1014 0%, transparent 40%),
+      radial-gradient(circle at bottom left, #0b1d29 0%, transparent 40%),
+      linear-gradient(180deg, #0a0a0f 0%, #050508 100%);
+    min-height: 100vh;
   }
 
-  /* Custom scrollbar */
+  /* Scanline overlay para efeito de tela de console/arcade */
+  .scanlines {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0) 50%,
+      rgba(0, 0, 0, 0.15) 50%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 60;
+    animation: scanline 10s linear infinite;
+  }
+
+  /* Custom scrollbar gamer */
   ::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-transparent;
+    @apply bg-slate-950/60;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-700/50 rounded-full;
+    @apply bg-slate-700/60 rounded-full hover:bg-kloud-500/60 transition-colors;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-600;
+    @apply border border-white/10;
   }
 }
 
 @layer components {
-  /* Glassmorphism */
+  /* Glassmorphism aprimorado */
   .glass {
-    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.06];
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] shadow-inner-glass;
   }
 
   .glass-hover {
-    @apply hover:bg-white/[0.06] hover:border-white/[0.1] transition-all duration-300;
+    @apply hover:bg-white/[0.05] hover:border-white/[0.12] transition-all duration-300;
   }
 
-  /* Glow effect */
-  .glow {
-    box-shadow: 0 0 40px -10px var(--glow-color, rgba(99, 102, 241, 0.3));
+  .glass-card {
+    @apply glass rounded-2xl overflow-hidden;
+  }
+
+  .glass-panel {
+    @apply glass rounded-3xl p-6;
+  }
+
+  /* Botões estilo console */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
+      text-white bg-gradient-to-r from-kloud-500 to-nintendo-500
+      hover:from-kloud-600 hover:to-nintendo-600
+      shadow-glow-red transition-all duration-200
+      active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
+      text-slate-300 bg-white/[0.05] border border-white/[0.1]
+      hover:bg-white/[0.1] hover:text-white hover:border-white/20
+      transition-all duration-200 active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-400
+      hover:bg-white/[0.05] hover:text-white transition-colors active:scale-95;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
+      text-white bg-red-600/10 border border-red-500/30 text-red-400
+      hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-300
+      transition-all duration-200 active:scale-95;
+  }
+
+  /* Badges estilo Steam/console */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider;
+  }
+
+  .badge-running {
+    @apply badge bg-emerald-500/10 border border-emerald-500/20 text-emerald-400;
+  }
+
+  .badge-stopped {
+    @apply badge bg-slate-700/20 border border-slate-600/40 text-slate-400;
+  }
+
+  .badge-error {
+    @apply badge bg-red-500/10 border border-red-500/20 text-red-400;
+  }
+
+  .badge-nintendo {
+    @apply badge bg-nintendo-500/10 border border-nintendo-500/30 text-nintendo-500;
+  }
+
+  .badge-playstation {
+    @apply badge bg-playstation-500/10 border border-playstation-500/30 text-playstation-500;
+  }
+
+  .badge-steam {
+    @apply badge bg-steam-blue/10 border border-steam-blue/30 text-steam-blue;
+  }
+
+  .badge-neon-cyan {
+    @apply badge bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan;
+  }
+
+  .badge-neon-purple {
+    @apply badge bg-neon-purple/10 border border-neon-purple/30 text-neon-purple;
+  }
+
+  .badge-kloud {
+    @apply badge bg-kloud-500/10 border border-kloud-500/30 text-kloud-500;
+  }
+
+  /* Gradiente texto */
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+  }
+
+  .gradient-kloud {
+    background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
+    -webkit-background-clip: text;
+  }
+
+  /* Inputs estilo terminal gamer */
+  .input-gamer {
+    @apply w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-slate-200 font-mono
+      placeholder-slate-600 focus:outline-none focus:border-kloud-500/50 focus:ring-1 focus:ring-kloud-500/20
+      transition-all duration-200;
+  }
+
+  /* Label estilo painel */
+  .label-panel {
+    @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2;
   }
 
   /* Draggable title bar */
@@ -57,9 +171,21 @@
     -webkit-app-region: no-drag;
   }
 
-  /* Gradient text */
-  .gradient-text {
-    @apply bg-clip-text text-transparent;
+  /* Toggle estilo interruptor de console */
+  .toggle-console {
+    @apply relative inline-flex w-12 h-6 items-center rounded-full bg-slate-800/60 transition-colors duration-200 cursor-pointer;
+  }
+
+  .toggle-console-knob {
+    @apply inline-block w-5 h-5 rounded-full bg-white shadow-sm transform transition-transform duration-200;
+  }
+
+  .toggle-console-checked {
+    @apply bg-kloud-500/90;
+  }
+
+  .toggle-console-checked .toggle-console-knob {
+    @apply translate-x-6;
   }
 }
 
@@ -72,12 +198,20 @@
     animation: glow 2s ease-in-out infinite alternate;
   }
 
-  @keyframes glow {
-    from {
-      box-shadow: 0 0 20px -10px var(--glow-color, rgba(99, 102, 241, 0.3));
-    }
-    to {
-      box-shadow: 0 0 40px -5px var(--glow-color, rgba(99, 102, 241, 0.5));
-    }
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
   }
+
+  .animate-skew {
+    animation: skew 2s linear infinite;
+  }
+
+  .text-shadow {
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@keyframes skew {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }

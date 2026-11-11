@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { X, Play, Square, Clock, Terminal, ExternalLink, FolderOpen, ScrollText } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 
@@ -25,7 +25,7 @@ export function AppDetailModal({
   const [showLogs, setShowLogs] = useState(false)
   const [logs, setLogs] = useState('')
 
-  // Load the captured output and keep listening while the modal is open.
+  // Carrega logs capturados e mantém escutando enquanto o modal está aberto.
   useEffect(() => {
     let active = true
 
@@ -55,20 +55,20 @@ export function AppDetailModal({
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-xl" />
 
       {/* Modal */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="relative w-full max-w-lg glass rounded-2xl overflow-hidden shadow-2xl"
+        transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+        className="relative w-full max-w-2xl glass rounded-[2rem] overflow-hidden shadow-2xl shadow-black/60 border border-white/[0.08]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Color header bar */}
+        {/* Barra de cor no topo */}
         <div
-          className="h-2 w-full"
+          className="h-3 w-full"
           style={{
             background: isError
               ? 'linear-gradient(90deg, #EF4444, #EF444460)'
@@ -76,37 +76,42 @@ export function AppDetailModal({
           }}
         />
 
-        <div className="p-6">
-          {/* Close button */}
+        <div className="p-7">
+          {/* Botão fechar */}
           <button
             onClick={onClose}
-            className="absolute top-5 right-5 p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+            className="absolute top-6 right-6 p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors z-20"
           >
-            <X size={16} />
+            <X size={17} />
           </button>
 
-          {/* ── App info ─────────────────────────────── */}
-          <div className="flex items-center gap-4 mb-5">
+          {/* ── Info do app ───────────────────────────── */}
+          <div className="flex items-center gap-4 mb-6 relative z-10">
             <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0"
-              style={{ background: `${app.color}15` }}
+              className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-2xl"
+              style={{
+                background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
+                boxShadow: `0 0 30px ${app.color}40`
+              }}
             >
               {app.icon}
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">{app.name}</h3>
-              <div className="flex items-center gap-1.5 mt-0.5">
+            <div className="flex-1">
+              <h3 className="text-2xl font-bold text-white tracking-tight">
+                {app.name}
+              </h3>
+              <div className="flex items-center gap-2 mt-2">
                 <div
-                  className={`w-2 h-2 rounded-full ${
+                  className={`w-2.5 h-2.5 rounded-full ${
                     isRunning
                       ? 'bg-emerald-400 animate-pulse'
                       : isError
                         ? 'bg-red-400'
-                        : 'bg-slate-600'
+                        : 'bg-slate-700'
                   }`}
                 />
                 <span
-                  className={`text-xs font-medium ${
+                  className={`text-xs font-bold ${
                     isRunning
                       ? 'text-emerald-400'
                       : isError
@@ -115,52 +120,68 @@ export function AppDetailModal({
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
-                  {isBackground ? 'Ativo' : isRunning ? 'Em execução' : isError ? 'Erro' : 'Parado'}
+                  {isBackground ? 'Ativo' : isRunning ? 'Executando' : isError ? 'Erro' : 'Parado'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* ── Description ──────────────────────────── */}
-          <p className="text-sm text-slate-400 leading-relaxed mb-5">{app.description}</p>
+          {/* ── Descrição ────────────────────────────── */}
+          <p className="text-sm text-slate-400 leading-relaxed mb-7">{app.description}</p>
 
-          {/* ── Details ──────────────────────────────── */}
-          <div className="space-y-2.5 mb-6">
-            <div className="flex items-center gap-2.5 text-xs">
-              <Terminal size={13} className="text-slate-500 shrink-0" />
-              <span className="text-slate-500">Comando:</span>
-              <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
+          {/* ── Detalhes ─────────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-7">
+            <div className="glass rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Terminal size={14} className="text-slate-500 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Comando</span>
+              </div>
+              <code className="text-xs text-slate-300 bg-white/5 px-3 py-2 rounded-lg font-mono block break-all">
                 {app.command}
               </code>
             </div>
-            <div className="flex items-center gap-2.5 text-xs">
-              <FolderOpen size={13} className="text-slate-500 shrink-0" />
-              <span className="text-slate-500">Diretório:</span>
-              <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
+            <div className="glass rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <FolderOpen size={14} className="text-slate-500 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Diretório</span>
+              </div>
+              <code className="text-xs text-slate-300 bg-white/5 px-3 py-2 rounded-lg font-mono block break-all">
                 {app.cwd}
               </code>
             </div>
             {state?.startedAt && isRunning && (
-              <div className="flex items-center gap-2.5 text-xs">
-                <Clock size={13} className="text-slate-500 shrink-0" />
-                <span className="text-slate-500">Iniciado em:</span>
-                <span className="text-slate-300">
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock size={14} className="text-slate-500 shrink-0" />
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Iniciado em</span>
+                </div>
+                <span className="text-xs text-slate-300 block">
                   {new Date(state.startedAt).toLocaleString('pt-BR')}
                 </span>
+              </div>
+            )}
+            {app.url && isRunning && (
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <ExternalLink size={14} className="text-slate-500 shrink-0" />
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Link web</span>
+                </div>
+                <button
+                  onClick={() => window.api.openExternal(app.url!)}
+                  className="text-xs font-bold text-playstation-500 hover:text-playstation-400 underline underline-offset-4 transition-colors"
+                >
+                  Abrir no navegador →
+                </button>
               </div>
             )}
           </div>
 
           {/* ── Tags ─────────────────────────────────── */}
-          <div className="flex items-center gap-1.5 mb-6">
+          <div className="flex flex-wrap gap-2 mb-7">
             {app.tags.map((tag) => (
               <span
                 key={tag}
-                className="text-[11px] px-2.5 py-1 rounded-full font-medium"
-                style={{
-                  background: `${app.color}10`,
-                  color: `${app.color}cc`
-                }}
+                className="text-[10px] px-3 py-1 rounded-lg font-bold border bg-white/[0.03] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] transition-colors"
               >
                 {tag}
               </span>
@@ -169,78 +190,70 @@ export function AppDetailModal({
 
           {/* ── Logs ─────────────────────────────────── */}
           {showLogs && (
-            <div className="mb-6">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+            <div className="mb-7">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
                   <ScrollText size={11} /> Saída do processo
                 </span>
-                <span className="text-[10px] text-slate-600">{cleanLogs ? 'ao vivo' : 'sem saída'}</span>
+                <span className="text-[10px] text-slate-600">
+                  {cleanLogs ? 'ao vivo' : 'sem saída'}
+                </span>
               </div>
-              <pre className="max-h-40 overflow-auto rounded-lg border border-white/[0.06] bg-black/40 p-3 font-mono text-[10px] leading-relaxed text-slate-400 whitespace-pre-wrap break-all">
+              <pre className="max-h-48 overflow-auto rounded-xl border border-white/[0.06] bg-black/50 p-4 font-mono text-[10px] leading-relaxed text-slate-400 whitespace-pre-wrap break-all">
                 {cleanLogs || 'Nenhuma saída capturada ainda. Inicie o programa para ver os logs.'}
               </pre>
             </div>
           )}
 
-          {/* ── Actions ──────────────────────────────── */}
-          <div className="flex items-center gap-3">
-            {/* Launch / Stop */}
+          {/* ── Ações ────────────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Iniciar / Parar */}
             <button
               onClick={isRunning ? onStop : onLaunch}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`flex items-center justify-center gap-2.5 py-4 rounded-xl text-sm font-bold uppercase tracking-wider transition-all shadow ${
                 isRunning
-                  ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20'
-                  : 'text-white hover:opacity-90'
+                  ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40 hover:text-red-300 border border-red-500/30 shadow-glow-red'
+                  : `text-white bg-gradient-to-r from-${app.color}/20 to-${app.color}/10 border border-${app.color}/40 hover:from-${app.color}/40 hover:to-${app.color}/20 hover:border-${app.color}/60 shadow-glow-orange`
               }`}
-              style={
-                !isRunning
-                  ? {
-                      background: `linear-gradient(135deg, ${app.color}30, ${app.color}15)`,
-                      border: `1px solid ${app.color}30`
-                    }
-                  : undefined
-              }
             >
               {isRunning ? (
                 <>
-                  <Square size={14} /> Parar
+                  <Square size={15} /> Parar
                 </>
               ) : (
                 <>
-                  <Play size={14} /> Iniciar
+                  <Play size={15} /> Iniciar
                 </>
               )}
             </button>
 
-            {/* Open URL (only when running and has URL) */}
-            {app.url && isRunning && (
+            {/* Ações secundárias em linha */}
+            <div className="flex items-center gap-2">
+              {app.url && isRunning && (
+                <button
+                  onClick={() => window.api.openExternal(app.url!)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 glass glass-hover"
+                >
+                  <ExternalLink size={14} /> Abrir
+                </button>
+              )}
               <button
-                onClick={() => window.api.openExternal(app.url!)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 glass glass-hover"
+                onClick={() => setShowLogs((prev) => !prev)}
+                className={`flex items-center justify-center px-3 py-2.5 rounded-xl glass glass-hover ${
+                  showLogs ? 'text-kloud-500' : 'text-slate-400'
+                }`}
+                title="Mostrar logs"
               >
-                <ExternalLink size={14} /> Abrir
+                <ScrollText size={15} />
               </button>
-            )}
-
-            {/* Toggle logs */}
-            <button
-              onClick={() => setShowLogs((prev) => !prev)}
-              className={`flex items-center justify-center px-3 py-2.5 rounded-xl glass glass-hover ${
-                showLogs ? 'text-indigo-300' : 'text-slate-400'
-              }`}
-              title="Mostrar logs"
-            >
-              <ScrollText size={14} />
-            </button>
-
-            {/* Open folder */}
-            <button
-              onClick={() => window.api.openPath(app.cwd)}
-              className="flex items-center justify-center px-3 py-2.5 rounded-xl text-slate-400 glass glass-hover"
-              title="Abrir pasta"
-            >
-              <FolderOpen size={14} />
-            </button>
+              <button
+                onClick={() => window.api.openPath(app.cwd)}
+                className="flex items-center justify-center px-3 py-2.5 rounded-xl text-slate-400 glass glass-hover"
+                title="Abrir pasta"
+              >
+                <FolderOpen size={15} />
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>

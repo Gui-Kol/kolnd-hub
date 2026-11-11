@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Play, Square, ExternalLink } from 'lucide-react'
+import { Play, Square, ExternalLink, Monitor, Gamepad2 } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 
 interface AppCardProps {
@@ -9,6 +9,13 @@ interface AppCardProps {
   onStop: () => void
   onClick: () => void
   delay: number
+}
+
+const categoryBadge: Record<string, { label: string; className: string }> = {
+  ai: { label: 'IA', className: 'badge-neon-cyan' },
+  gaming: { label: 'JOGO', className: 'badge-neon-purple' },
+  streaming: { label: 'STREAM', className: 'badge-playstation' },
+  dev: { label: 'DEV', className: 'badge-kloud' }
 }
 
 export function AppCard({
@@ -23,61 +30,74 @@ export function AppCard({
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
 
+  const badge = categoryBadge[app.category] ?? { label: app.category.toUpperCase(), className: 'badge-steam' }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay, duration: 0.4, ease: 'easeOut' }}
-      whileHover={{ y: -2, transition: { duration: 0.2 } }}
-      className="glass glass-hover rounded-xl overflow-hidden cursor-pointer group"
-      style={
-        {
-          '--glow-color': isRunning ? `${app.color}30` : 'transparent'
-        } as React.CSSProperties
-      }
+      transition={{ delay, duration: 0.5, ease: 'easeOut' }}
+      whileHover={{ y: -6, transition: { duration: 0.3 } }}
+      whileTap={{ scale: 0.98 }}
+      className="glass-card cursor-pointer group relative overflow-hidden"
       onClick={onClick}
     >
-      {/* ── Color accent bar ─────────────────────────── */}
+      {/* Brilho de borda baseado no estado */}
       <div
-        className="h-1 w-full transition-all duration-500"
+        className="absolute inset-0 rounded-2xl border p-[1px] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
         style={{
-          background: isRunning
-            ? `linear-gradient(90deg, ${app.color}, ${app.color}80)`
-            : isError
-              ? 'linear-gradient(90deg, #EF4444, #EF444480)'
-              : `linear-gradient(90deg, ${app.color}40, transparent)`
+          borderImage: isRunning
+            ? `linear-gradient(135deg, ${app.color}, #ef4444) 1`
+            : `linear-gradient(135deg, ${app.color}80, transparent) 1`
         }}
       />
 
-      <div className="p-5">
-        {/* ── Header ─────────────────────────────────── */}
+      {/* Overlay de gradiente sutil */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
+
+      {/* Tag da categoria */}
+      <div className="absolute top-4 left-4 z-10">
+        <span className={`badge ${badge.className} shadow`}>{badge.label}</span>
+      </div>
+
+      {/* Status running overlay */}
+      {isRunning && (
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 backdrop-blur-sm">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] font-bold text-emerald-400">Online</span>
+        </div>
+      )}
+
+      {/* Conteúdo do card */}
+      <div className="relative z-20 p-5 pt-10">
+        {/* Cabeçalho com ícone e nome */}
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
-            {/* Icon */}
             <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center text-xl transition-transform duration-300 group-hover:scale-110"
-              style={{ background: `${app.color}15` }}
+              className="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-lg transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110"
+              style={{
+                background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
+                boxShadow: `0 0 20px ${app.color}40`
+              }}
             >
               {app.icon}
             </div>
-
-            {/* Name + status */}
             <div>
-              <h3 className="text-sm font-semibold text-white group-hover:text-white transition-colors">
+              <h3 className="text-base font-bold text-white tracking-tight group-hover:text-white transition-colors">
                 {app.name}
               </h3>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="flex items-center gap-1.5 mt-1">
                 <div
-                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  className={`w-2 h-2 rounded-full transition-colors ${
                     isRunning
                       ? 'bg-emerald-400 animate-pulse'
                       : isError
                         ? 'bg-red-400'
-                        : 'bg-slate-600'
+                        : 'bg-slate-700'
                   }`}
                 />
                 <span
-                  className={`text-[11px] font-medium ${
+                  className={`text-[10px] font-bold ${
                     isRunning
                       ? 'text-emerald-400'
                       : isError
@@ -86,20 +106,20 @@ export function AppCard({
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
-                  {isBackground ? 'Ativo' : isRunning ? 'Em execução' : isError ? 'Erro' : 'Parado'}
+                  {isBackground ? 'Ativo' : isRunning ? 'Executando' : isError ? 'Erro' : 'Parado'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* URL shortcut (only when running) */}
+          {/* Atalho URL */}
           {app.url && isRunning && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 window.api.openExternal(app.url!)
               }}
-              className="p-1.5 rounded-lg hover:bg-white/10 text-slate-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+              className="p-2 rounded-lg hover:bg-white/10 text-slate-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
               title="Abrir no navegador"
             >
               <ExternalLink size={14} />
@@ -107,17 +127,20 @@ export function AppCard({
           )}
         </div>
 
-        {/* ── Description ────────────────────────────── */}
-        <p className="text-xs text-slate-500 leading-relaxed mb-4 line-clamp-2">{app.description}</p>
+        {/* Descrição */}
+        <p className="text-[11px] text-slate-500 leading-relaxed mb-5 line-clamp-2 font-medium">
+          {app.description}
+        </p>
 
-        {/* ── Tags ───────────────────────────────────── */}
-        <div className="flex items-center gap-1.5 mb-4">
+        {/* Tags */}
+        <div className="flex items-center gap-2 mb-6">
           {app.tags.map((tag) => (
             <span
               key={tag}
-              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+              className="text-[9px] px-2 py-0.5 rounded-full font-bold border"
               style={{
                 background: `${app.color}10`,
+                borderColor: `${app.color}30`,
                 color: `${app.color}cc`
               }}
             >
@@ -126,33 +149,25 @@ export function AppCard({
           ))}
         </div>
 
-        {/* ── Action button ──────────────────────────── */}
+        {/* Barra de ação */}
         <button
           onClick={(e) => {
             e.stopPropagation()
             isRunning ? onStop() : onLaunch()
           }}
-          className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all duration-300 ${
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
             isRunning
-              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
-              : 'text-white hover:opacity-90 border border-transparent'
+              ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40 hover:text-red-300 border border-red-500/30 shadow-glow-red'
+              : `text-white bg-gradient-to-r from-${app.color}/20 to-${app.color}/10 border border-${app.color}/40 hover:from-${app.color}/40 hover:to-${app.color}/20 hover:border-${app.color}/60 shadow-glow-orange`
           }`}
-          style={
-            !isRunning
-              ? {
-                  background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
-                  borderColor: `${app.color}30`
-                }
-              : undefined
-          }
         >
           {isRunning ? (
             <>
-              <Square size={12} /> Parar
+              <Square size={13} /> Parar
             </>
           ) : (
             <>
-              <Play size={12} /> Iniciar
+              <Play size={13} /> Iniciar
             </>
           )}
         </button>
