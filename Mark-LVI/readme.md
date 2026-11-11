@@ -56,7 +56,7 @@ It's not just an assistant — it's an extension of your digital life.
 | 🧚 Push-to-Talk | Hold **Ctrl+Space** and the mic opens — closed the rest of the time. Truly global on Windows, window-scoped elsewhere |
 | 🔇 Self-Echo Guard | Never answers its own last sentence: the tail of its own voice is recognised and dropped without muting you |
 | 🪪 Runtime Self-Knowledge | Name, OS, abilities **and limits** are generated from the live system each session — rename it or add a plugin and it knows |
-| 🎙️ Wake Word | Local **"Hey Jarvis"** detection — sleeps until called, auto-sleeps after 2 min of silence, and never streams audio while asleep |
+| 🎙️ Wake Word | Local **"Hey Jarvis"** detection — sleeps until called, sleeps again the moment each reply finishes, and never streams audio while asleep |
 | ⚡ Instant Acknowledgment | Speaks a short, context-aware reply in **your language** the instant a longer task starts — no more silent waiting |
 | 🚀 Faster Live Engine | Runs on **Gemini 3.1 Flash Live** — roughly 2× faster time-to-first-word than the previous model |
 | 🧩 Self-Describing Skills | Every bundled skill declares its own `TOOL` dict + handler and is auto-discovered at launch — adding one is a single file |
@@ -559,7 +559,7 @@ python main.py
 | **GPU** | **Not required, anywhere.** The avatar and HUD video are rendered in software; local speech recognition and the neural voice both run on the CPU by default |
 | **YouTube on the HUD** | `yt-dlp`, installed by `setup.py`. Without it, local files and direct URLs still play and YouTube links open in the browser with an explanation |
 | **Aviation Weather** | No API key or account required. The plugin uses the existing `requests` dependency and AviationWeather.gov's public API; an internet connection is required |
-| **Wake word** | ON by default — bundled (`openwakeword` + ONNX models, fully local). Sleeps until you say **Hey Jarvis**; switch off in ⚙ → WAKE WORD |
+| **Wake word** | ON by default — bundled (`openwakeword` + ONNX models, fully local). Sleeps until you say **Hey Jarvis**; each reply puts it to sleep again when it finishes, so every interaction needs the wake word. Switch off in ⚙ → WAKE WORD |
 | **A different engine** *(optional)* | Nothing extra. ⚙ → ENGINE & PROVIDERS talks to any local or hosted model over HTTP using a library the app already has |
 | **Local speech recognition** *(optional)* | `faster-whisper`, installed from the same panel. **CPU is the default** — a GPU is an option, never a requirement |
 | **Local voice** *(optional)* | `piper-tts` for a neural voice in ~50 languages, one click from the panel — or nothing at all, and it uses the voices your OS already has |
