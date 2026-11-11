@@ -7563,6 +7563,24 @@ class JarvisUI:
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
 
+    def refresh_wake_btns(self):
+        """Thread-safe: repaint the WAKE WORD rows from the backend state.
+
+        sleep()/wake() can be triggered by the backend itself (reply
+        finished, ESC, silence timeout) — without this the drawer kept
+        showing a stale SLEEP NOW / WAKE NOW label.
+        """
+        self._win._wake_btns_sig.emit()
+
+    def refresh_wake_btns(self):
+        """Thread-safe: repaint the WAKE WORD rows from the backend state.
+
+        sleep()/wake() can now be triggered by the backend itself (reply
+        finished, ESC, silence timeout) — without this the drawer kept
+        showing a stale SLEEP NOW / WAKE NOW label.
+        """
+        self._win._wake_btns_sig.emit()
+
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
 

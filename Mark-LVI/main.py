@@ -398,6 +398,24 @@ def _is_wake_only(text: str) -> bool:
     words = re.findall(r"[a-zA-ZÀ-ÿ']+", text.lower())
     return bool(words) and all(w in _WAKE_WORDS for w in words)
 
+
+_SLEEP_COMMANDS = {
+    "durma", "dorme", "vá dormir", "vai dormir", "durma agora", "hora de dormir",
+    "desligue", "desligar", "encerre", "encerrar", "vá dormir agora",
+    "sua hora de dormir", "hora de ir dormir",
+}
+
+
+def _is_sleep_command(text: str) -> bool:
+    """True if the user asked the assistant to go to sleep ('Durma', etc.)."""
+    t = text.lower().strip()
+    if not t:
+        return False
+    if t in _SLEEP_COMMANDS:
+        return True
+    words = set(re.findall(r"[a-zA-ZÀ-ÿ']+", t))
+    return bool(words & _SLEEP_COMMANDS)
+
 TOOL_DECLARATIONS = [
     # ── Inline tools ─────────────────────────────────────────────────────────
     # These stay here (rather than in an actions/*.py TOOL dict) because their
@@ -697,6 +715,7 @@ class JarvisLive:
         # back to sleep before the command could be given.
         self._turn_played_audio = False
         self._turn_wake_only    = False
+        self._turn_sleep_requested = False   # user said 'Durma' — sleep after reply
         self._session_log: list[str] = []          # conversation turns for end-of-session summary
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
@@ -783,6 +802,7 @@ class JarvisLive:
         self._last_user_speech = time.monotonic()   # start the auto-sleep clock now
         self._turn_played_audio = False             # fresh interaction
         self._turn_wake_only    = False
+        self._turn_sleep_requested = False          # fresh interaction
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
         self.ui.write_log(f"SYS: Awake — {reason}.")
@@ -1838,6 +1858,7 @@ class JarvisLive:
                             # else) must not count as a command — the assistant
                             # stays awake waiting for the actual request.
                             self._turn_wake_only = _is_wake_only(full_in)
+                            self._turn_sleep_requested = _is_sleep_command(full_in)
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
@@ -1952,17 +1973,21 @@ class JarvisLive:
                     ):
                         self.set_speaking(False)
                         self._turn_done_event.clear()
-                        # The reply is over — back to sleep so the mic gate
-                        # closes instead of streaming until the silence
-                        # timeout. 'Hey Jarvis' is required for the next turn.
-                        # A turn with no audible reply (silence / wake phrase
-                        # alone) must NOT sleep him, or waking with 'Hey
-                        # Jarvis' never sticks.
-                        played, wake_only = self._turn_played_audio, self._turn_wake_only
+                        # The reply is over. Sleep only when the user asked for
+                        # it ('Durma') — otherwise he stays awake waiting for
+                        # the next 'Hey Jarvis' interaction (no auto-sleep
+                        # after every reply). 'Hey Jarvis' alone never counts
+                        # as a sleep request.
+                        played, wake_only, sleep_req = (
+                            self._turn_played_audio,
+                            self._turn_wake_only,
+                            self._turn_sleep_requested,
+                        )
                         self._turn_played_audio = False
                         self._turn_wake_only    = False
-                        if played and not wake_only:
-                            self._sleep_after_reply()
+                        self._turn_sleep_requested = False
+                        if played and not wake_only and sleep_req:
+                            self._sleep_after_reply(reason="user said sleep")
                     continue
 
                 self.set_speaking(True)
