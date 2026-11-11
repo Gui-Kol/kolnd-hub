@@ -5,6 +5,7 @@ import { Layout } from './components/Layout'
 import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { apps as defaultApps } from './config/apps'
 import {
   AppConfig,
@@ -108,7 +109,15 @@ function App(): JSX.Element {
 
   // ── Itens de inicialização do PC ──────────────────────────────
   const loadStartupItems = useCallback(async (): Promise<void> => {
-    const items = await window.api.startupList()
+    let items: StartupItem[] = []
+    try {
+      items = await window.api.startupList()
+    } catch (err) {
+      setNotice({
+        id: Date.now(),
+        text: `Não foi possível listar a inicialização: ${err instanceof Error ? err.message : String(err)}`
+      })
+    }
     setStartupItems(items)
 
     let map: Record<string, ImportanceLevel> = {}
@@ -132,14 +141,6 @@ function App(): JSX.Element {
 
   const handleRemoveStartup = useCallback(
     async (item: StartupItem): Promise<void> => {
-      if (
-        !window.confirm(
-          `Remover "${item.name}" da inicialização do ${pcName ?? 'este PC'}?`
-        )
-      ) {
-        return
-      }
-
       const result = await window.api.startupRemove(item)
       if (!result.success) {
         setNotice({
@@ -154,15 +155,75 @@ function App(): JSX.Element {
     [pcName, loadStartupItems]
   )
 
-  const handleImportanceChange = useCallback(
-    (itemId: string, level: ImportanceLevel): void => {
-      setStartupImportance((prev) => {
-        const next = { ...prev, [itemId]: level }
-        localStorage.setItem('kolnd-hub-startup-importance', JSON.stringify(next))
-        return next
-      })
+  // Remove vários itens da inicialização em lote.
+  const handleRemoveBatchStartup = useCallback(
+    async (items: StartupItem[]): Promise<void> => {
+      const result = await window.api.startupRemoveBatch(items)
+      if (!result.success) {
+        setNotice({
+          id: Date.now(),
+          text: `Não foi possível remover alguns itens da inicialização: ${result.errors.join(', ')}`
+        })
+        return
+      }
+      await loadStartupItems()
+    },
+    [loadStartupItems]
+  )
+
+  // Verifica se um app configurado no Hub já está na inicialização do Windows.
+  const isAppInStartup = useCallback(
+    (app: AppConfig, items: StartupItem[]): boolean => {
+      const exe = executableName(app.command)
+      if (!exe) return false
+      return items.some(
+        (item) =>
+          executableName(item.path) === exe ||
+          executableName(item.name) === exe
+      )
     },
     []
+  )
+
+  // Apps configurados no Hub que ainda não iniciam com o PC.
+  const appsNotInStartup = useMemo(() => {
+    return defaultApps.filter((app) => !isAppInStartup(app, startupItems))
+  }, [startupItems, isAppInStartup])
+
+  const handleAddStartup = useCallback(
+    async (app: AppConfig): Promise<void> => {
+      const result = await window.api.startupAdd({
+        name: app.name,
+        path: app.command
+      })
+      if (!result.success) {
+        setNotice({
+          id: Date.now(),
+          text: `Não foi possível adicionar "${app.name}" à inicialização: ${result.error ?? 'erro desconhecido'}`
+        })
+        return
+      }
+      await loadStartupItems()
+    },
+    [loadStartupItems]
+  )
+
+  // Adiciona vários apps à inicialização em lote.
+  const handleAddBatchStartup = useCallback(
+    async (apps: AppConfig[]): Promise<void> => {
+      const result = await window.api.startupAddBatch(
+        apps.map((a) => ({ name: a.name, path: a.command }))
+      )
+      if (!result.success) {
+        setNotice({
+          id: Date.now(),
+          text: `Não foi possível adicionar alguns apps à inicialização: ${result.errors.join(', ')}`
+        })
+        return
+      }
+      await loadStartupItems()
+    },
+    [loadStartupItems]
   )
 
   // ── Estado efetivo de cada app ────────────────────────────────
@@ -238,15 +299,20 @@ function App(): JSX.Element {
             onStop={handleStop}
           />
         ) : currentPage === 'inicializacao' ? (
-          <Inicializacao
-            pcName={pcName ?? ''}
-            items={startupItems}
-            importance={startupImportance}
-            labels={IMPORTANCE_LABELS}
-            onImportanceChange={handleImportanceChange}
-            onRemove={handleRemoveStartup}
-            onReload={loadStartupItems}
-          />
+          <ErrorBoundary>
+            <Inicializacao
+              pcName={pcName ?? ''}
+              items={startupItems}
+              importance={startupImportance}
+              labels={IMPORTANCE_LABELS}
+              onRemove={handleRemoveStartup}
+              onRemoveBatch={handleRemoveBatchStartup}
+              onAdd={handleAddStartup}
+              onAddBatch={handleAddBatchStartup}
+              onReload={loadStartupItems}
+              appsNotInStartup={appsNotInStartup}
+            />
+          </ErrorBoundary>
         ) : (
           <Settings apps={apps} onSave={handleSaveApps} />
         )}

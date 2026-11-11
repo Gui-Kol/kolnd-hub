@@ -5,6 +5,9 @@ import { ProcessManager, resolvePath, setBaseDir } from './processManager'
 import {
   listStartupItems,
   removeStartupItem,
+  addStartupItem,
+  removeStartupItemsBatch,
+  addStartupItemsBatch,
   getPcName,
   listRunningProcesses
 } from './startupManager'
@@ -131,6 +134,29 @@ app.whenReady().then(() => {
     }
   )
 
+  ipcMain.handle(
+    'startup:add',
+    (_event, item: { name: string; path: string }) => {
+      return addStartupItem(item as Parameters<typeof addStartupItem>[0])
+    }
+  )
+
+  ipcMain.handle(
+    'startup:removeBatch',
+    (_event, items: Array<{ location: string; scope: string; name: string }>) => {
+      return removeStartupItemsBatch(
+        items as Parameters<typeof removeStartupItemsBatch>[0]
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'startup:addBatch',
+    (_event, items: Array<{ name: string; path: string }>) => {
+      return addStartupItemsBatch(items as Parameters<typeof addStartupItemsBatch>[0])
+    }
+  )
+
   ipcMain.handle('app:logs', async (_event, appId: string) => {
     return processManager.getLogs(appId)
   })
@@ -152,7 +178,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('shell:openPath', (_event, path: string) => {
-    // Settings may store relative paths (../Sunshine) or %VAR% paths.
+    // Settings may store relative paths (../Kloud Games) or %VAR% paths.
     shell.openPath(resolvePath(path))
   })
 

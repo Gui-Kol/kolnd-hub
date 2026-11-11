@@ -1,4 +1,9 @@
-import { LayoutDashboard, Settings, Monitor, Zap } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Settings,
+  Monitor,
+  Zap
+} from 'lucide-react'
 import { Page } from '../types'
 
 interface SidebarProps {
@@ -8,63 +13,70 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentPage, onNavigate, pcName }: SidebarProps): JSX.Element {
-  const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  const navItems: { id: Page; label: string; icon: any }[] = [
+    { id: 'dashboard', label: 'Biblioteca', icon: LayoutDashboard },
     { id: 'inicializacao', label: pcName ?? 'Meu PC', icon: Monitor },
     { id: 'settings', label: 'Configurações', icon: Settings }
   ]
 
   return (
-    <aside className="w-56 border-r border-white/[0.04] bg-[#0c0c14] flex flex-col shrink-0">
-      {/* ── Logo ─────────────────────────────────────── */}
-      <div className="p-5 pb-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-            <Zap size={18} className="text-white" />
+    <aside className="w-60 border-r border-white/[0.05] bg-slate-950/80 backdrop-blur-2xl shrink-0 flex flex-col z-30">
+      {/* ── Logo Kolnd Hub ─────────────────────────── */}
+      <div className="p-6 pb-8">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange relative overflow-hidden">
+            <Zap size={20} className="text-white z-10" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-white tracking-tight">Kolnd Hub</h1>
-            <p className="text-[10px] text-slate-500 font-medium">Central de Controle</p>
+            <h1 className="text-base font-bold text-white tracking-tight gradient-text gradient-kloud text-shadow">
+              Kolnd Hub
+            </h1>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+              Central de Controle
+            </p>
           </div>
         </div>
       </div>
 
       {/* ── PC do usuário ────────────────────────────── */}
       {pcName && (
-        <div className="px-3 mb-2">
-          <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider px-3 mb-2">
+        <div className="px-4 mb-6">
+          <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-3">
             Este computador
           </p>
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs text-slate-300 truncate" title={pcName}>
-            <Monitor size={12} className="shrink-0 text-slate-500" />
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-slate-300 truncate group" title={pcName}>
+            <Monitor size={13} className="shrink-0 text-slate-500 group-hover:text-playstation-500 transition-colors" />
             <span className="min-w-0 truncate">{pcName}</span>
           </div>
         </div>
       )}
 
       {/* ── Navigation ───────────────────────────────── */}
-      <nav className="flex-1 px-3">
-        <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider px-3 mb-2">
+      <nav className="flex-1 px-4">
+        <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-4">
           Menu
         </p>
         <div className="space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = currentPage === item.id
+            const activeColors = {
+              dashboard: 'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
+              inicializacao: 'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
+              settings: 'text-neon-purple bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
+            } as Record<string, string>
             return (
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-l-2 ${
                   isActive
-                    ? 'bg-indigo-500/15 text-indigo-400 shadow-sm shadow-indigo-500/10'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                    ? `border-transparent ${activeColors[item.id]} text-slate-100`
+                    : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
               >
-                <Icon size={16} />
-                <span className="min-w-0 truncate" title={item.label}>
-                  {item.label}
-                </span>
+                <Icon size={17} className="shrink-0" />
+                <span className="min-w-0 truncate font-medium">{item.label}</span>
               </button>
             )
           })}
@@ -72,10 +84,10 @@ export function Sidebar({ currentPage, onNavigate, pcName }: SidebarProps): JSX.
       </nav>
 
       {/* ── Footer ───────────────────────────────────── */}
-      <div className="p-4 border-t border-white/[0.04]">
+      <div className="p-4 border-t border-white/[0.05] bg-white/[0.02]">
         <div className="text-center">
-          <p className="text-[10px] text-slate-600">Kolnd Hub v1.0.0</p>
-          <p className="text-[9px] text-slate-700 mt-0.5">Electron + React + Tailwind</p>
+          <p className="text-[10px] font-bold text-slate-500 tracking-tight">Kolnd Hub</p>
+          <p className="text-[9px] text-slate-600 mt-0.5">v1.0.0 · Gamer Edition</p>
         </div>
       </div>
     </aside>

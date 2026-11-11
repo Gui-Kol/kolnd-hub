@@ -43,6 +43,20 @@ const api = {
     item: { location: string; scope: string; name: string }
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('startup:remove', item),
 
+  startupAdd: (
+    item: { name: string; path: string }
+  ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('startup:add', item),
+
+  startupRemoveBatch: (
+    items: Array<{ location: string; scope: string; name: string }>
+  ): Promise<{ success: boolean; errors: string[] }> =>
+    ipcRenderer.invoke('startup:removeBatch', items),
+
+  startupAddBatch: (
+    items: Array<{ name: string; path: string }>
+  ): Promise<{ success: boolean; errors: string[] }> =>
+    ipcRenderer.invoke('startup:addBatch', items),
+
   // ── Shell ───────────────────────────────────────
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:openPath', path),

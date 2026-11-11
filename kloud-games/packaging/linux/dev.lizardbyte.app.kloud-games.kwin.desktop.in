@@ -1,0 +1,7 @@
+﻿[Desktop Entry]
+Exec=@KLOUD_GAMES_EXECUTABLE_PATH@
+X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1
+Type=Application
+Name=@PROJECT_FQDN@-kwin-wayland-permission
+Comment=KLOUD_GAMES KWin screencast permission
+NoDisplay=true

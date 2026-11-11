@@ -55,17 +55,17 @@ export const apps: AppConfig[] = [
     tags: ['Steam', 'Imagens', 'Grid']
   },
   {
-    id: 'sunshine',
-    name: 'Sunshine',
+    id: 'kloud-games',
+    name: 'Kloud Games',
     description:
-      'Servidor de streaming de jogos para Moonlight. Streaming com baixa latência usando GPU (AMD, Intel, Nvidia) com emulação de gamepad.',
-    icon: '☀️',
+      'Seu próprio servidor de streaming de jogos. Streaming de baixa latência com suporte a gamepad e GPU, totalmente autoral.',
+    icon: '🎮',
     color: '#F97316',
     gradient: 'from-orange-500 to-red-500',
-    command: 'sunshine.exe',
-    cwd: '%USERPROFILE%\\Documents\\My Games\\sunhi',
+    command: 'kloud-games.exe',
+    cwd: '../kloud-games',
     category: 'streaming',
-    tags: ['Streaming', 'Moonlight', 'GPU']
+    tags: ['Streaming', 'Jogos', 'GPU']
   },
   {
     id: 'dev-folder',

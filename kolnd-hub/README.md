@@ -34,7 +34,7 @@ Caminhos aceitam:
 
 - caminhos relativos (resolvidos a partir do diretório do Hub), ex.: `../Mark-LVI`
 - caminhos absolutos, ex.: `C:\Program Files\Playnite`
-- variáveis de ambiente, ex.: `%LOCALAPPDATA%\Playnite`, `%USERPROFILE%\Documents\My Games\sunhi`
+- variáveis de ambiente, ex.: `%LOCALAPPDATA%\Playnite`, `%USERPROFILE%\Documents\My Games\kloud-games`
 
 As configurações são salvas em `localStorage` (por usuário).
 
@@ -46,7 +46,7 @@ As configurações são salvas em `localStorage` (por usuário).
 | Mark LVI (JARVIS) | `py main.py` | Requer as dependências de `requirements.txt` |
 | Playnite | `Playnite.DesktopApp.exe` | Requer Playnite instalado em `%LOCALAPPDATA%\Playnite` |
 | SteamGridDB Manager | `npm run run` | Requer `npm install` na pasta do projeto |
-| Sunshine | `sunshine.exe` | Ajuste o diretório para a instalação local do Sunshine |
+| Kloud Games | `kloud-games.exe` | Ajuste o diretório para a instalação local do Kloud Games |
 
 ## Estrutura
 

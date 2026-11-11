@@ -1,0 +1,83 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Fragment>
+    <StandardDirectory Id="ProgramMenuFolder">
+        <Component Id="ApplicationShortcutRoot" Guid="*">
+            <Shortcut Id="ApplicationStartMenuShortcutRoot"
+                      Name="KLOUD_GAMES"
+                      Description="KLOUD_GAMES Game Stream Host"
+                      Target="[INSTALL_ROOT]KLOUD_GAMES.exe"
+                      Arguments="--shortcut"
+                      WorkingDirectory="INSTALL_ROOT"/>
+            <RegistryValue Root="HKCU" Key="Software\LizardByte\KLOUD_GAMES" Name="installed_root" Type="integer" Value="1" KeyPath="yes"/>
+        </Component>
+        <Directory Id="ProgramMenuSubfolder" Name="LizardByte">
+            <Directory Id="ProgramMenuKLOUD_GAMESFolder" Name="KLOUD_GAMES">
+                <Component Id="ApplicationShortcut" Guid="*">
+                    <Shortcut Id="ApplicationStartMenuShortcut"
+                              Name="KLOUD_GAMES"
+                              Description="KLOUD_GAMES Game Stream Host"
+                              Target="[INSTALL_ROOT]KLOUD_GAMES.exe"
+                              Arguments="--shortcut"
+                              WorkingDirectory="INSTALL_ROOT"/>
+                    <RemoveFolder Id="CleanUpShortCut" Directory="ProgramMenuKLOUD_GAMESFolder" On="uninstall"/>
+                    <RemoveFolder Id="CleanUpShortCutParent" Directory="ProgramMenuSubfolder" On="uninstall"/>
+                    <RegistryValue Root="HKCU" Key="Software\LizardByte\KLOUD_GAMES" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+                </Component>
+                <Component Id="DocumentationShortcut" Guid="*">
+                    <util:InternetShortcut Id="DocumentationLink"
+                                           Name="KLOUD_GAMES Documentation"
+                                           Target="https://docs.lizardbyte.dev/projects/KLOUD_GAMES"
+                                           Type="url"/>
+                    <RemoveFolder Id="CleanUpDocsShortCut" Directory="ProgramMenuKLOUD_GAMESFolder" On="uninstall"/>
+                    <RegistryValue Root="HKCU" Key="Software\LizardByte\KLOUD_GAMES" Name="docs_shortcut" Type="integer" Value="1" KeyPath="yes"/>
+                </Component>
+                <Component Id="WebsiteShortcut" Guid="*">
+                    <util:InternetShortcut Id="WebsiteLink"
+                                           Name="LizardByte Web Site"
+                                           Target="https://app.lizardbyte.dev"
+                                           Type="url"/>
+                    <RemoveFolder Id="CleanUpWebsiteShortCut" Directory="ProgramMenuKLOUD_GAMESFolder" On="uninstall"/>
+                    <RegistryValue Root="HKCU" Key="Software\LizardByte\KLOUD_GAMES" Name="website_shortcut" Type="integer" Value="1" KeyPath="yes"/>
+                </Component>
+                <Component Id="SupportShortcut" Guid="*">
+                    <util:InternetShortcut Id="SupportLink"
+                                           Name="LizardByte Support"
+                                           Target="https://app.lizardbyte.dev/support"
+                                           Type="url"/>
+                    <RemoveFolder Id="CleanUpSupportShortCut" Directory="ProgramMenuKLOUD_GAMESFolder" On="uninstall"/>
+                    <RegistryValue Root="HKCU" Key="Software\LizardByte\KLOUD_GAMES" Name="support_shortcut" Type="integer" Value="1" KeyPath="yes"/>
+                </Component>
+            </Directory>
+        </Directory>
+    </StandardDirectory>
+
+    <!-- Install: Run KLOUD_GAMES-setup.ps1 with -Action install, add -Silent if UILevel <= 3 (silent/basic UI) -->
+    <CustomAction Id="CA_KLOUD_GAMESInstall" Directory="INSTALL_ROOT" ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALL_ROOT]scripts\KLOUD_GAMES-setup.ps1&quot; -Action install" Execute="deferred" Return="ignore" Impersonate="no" />
+    <CustomAction Id="CA_KLOUD_GAMESInstallSilent" Directory="INSTALL_ROOT" ExeCommand="powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALL_ROOT]scripts\KLOUD_GAMES-setup.ps1&quot; -Action install -Silent" Execute="deferred" Return="ignore" Impersonate="no" />
+
+    <!-- Uninstall: Run KLOUD_GAMES-setup.ps1 with -Action uninstall, add -Silent if UILevel <= 3 (silent/basic UI) -->
+    <CustomAction Id="CA_KLOUD_GAMESUninstall" Directory="INSTALL_ROOT" ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALL_ROOT]scripts\KLOUD_GAMES-setup.ps1&quot; -Action uninstall" Execute="deferred" Return="ignore" Impersonate="no" />
+    <CustomAction Id="CA_KLOUD_GAMESUninstallSilent" Directory="INSTALL_ROOT" ExeCommand="powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALL_ROOT]scripts\KLOUD_GAMES-setup.ps1&quot; -Action uninstall -Silent" Execute="deferred" Return="ignore" Impersonate="no" />
+
+    <InstallExecuteSequence>
+        <!-- Run installation script after files are installed -->
+        <!-- UILevel > 3 means Full UI (interactive), UILevel <= 3 means Silent/Basic UI -->
+        <Custom Action="CA_KLOUD_GAMESInstall" After="InstallFiles" Condition="NOT Installed AND UILevel &gt; 3" />
+        <Custom Action="CA_KLOUD_GAMESInstallSilent" After="InstallFiles" Condition="NOT Installed AND UILevel &lt;= 3" />
+
+        <!-- Run uninstallation script before files are removed -->
+        <Custom Action="CA_KLOUD_GAMESUninstall" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND UILevel &gt; 3" />
+        <Custom Action="CA_KLOUD_GAMESUninstallSilent" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND UILevel &lt;= 3" />
+    </InstallExecuteSequence>
+
+    <!-- We need this in order to actually run our custom actions, but let's hide it -->
+    <Feature Id="RunKLOUD_GAMESInstallScripts" Title="Run KLOUD_GAMES Installation Scripts" Level="1" Display="hidden">
+       <ComponentRef Id="ApplicationShortcutRoot" />
+       <ComponentRef Id="ApplicationShortcut" />
+       <ComponentRef Id="DocumentationShortcut" />
+       <ComponentRef Id="WebsiteShortcut" />
+       <ComponentRef Id="SupportShortcut" />
+    </Feature>
+  </Fragment>
+</Wix>

@@ -144,12 +144,12 @@ export function removeStartupItem(item: {
   try {
     if (item.location === 'registro') {
       ps(
-        `$name = $env:KOLND_STARTUP_NAME\nforeach ($path in 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run') { if (Test-Path $path) { Remove-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue } }`,
+        `$ErrorActionPreference = 'SilentlyContinue'\n$name = $env:KOLND_STARTUP_NAME\nforeach ($path in 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run') { if (Test-Path $path) { try { Remove-ItemProperty -Path $path -Name $name -ErrorAction Stop } catch {} } }\nexit 0`,
         { KOLND_STARTUP_NAME: item.name }
       )
     } else {
       ps(
-        `$name = $env:KOLND_STARTUP_NAME\nforeach ($f in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonStartup'))) { if (Test-Path $f) { Get-ChildItem -Path $f -File | Where-Object { $_.BaseName -eq $name -and ($_.Extension -eq '.lnk' -or $_.Extension -eq '.exe') } | Remove-Item -Force -ErrorAction SilentlyContinue } }`,
+        `$ErrorActionPreference = 'SilentlyContinue'\n$name = $env:KOLND_STARTUP_NAME\nforeach ($f in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonStartup'))) { if (Test-Path $f) { Get-ChildItem -Path $f -File | Where-Object { $_.BaseName -eq $name -and ($_.Extension -eq '.lnk' -or $_.Extension -eq '.exe') } | ForEach-Object { try { Remove-Item $_.FullName -Force -ErrorAction Stop } catch {} } } }\nexit 0`,
         { KOLND_STARTUP_NAME: item.name }
       )
     }
@@ -157,6 +157,57 @@ export function removeStartupItem(item: {
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/** Remove vários itens da inicialização em lote. */
+export function removeStartupItemsBatch(items: Array<{
+  location: StartupLocation
+  scope: StartupScope
+  name: string
+}>): { success: boolean; errors: string[] } {
+  const errors: string[] = []
+  let ok = true
+  for (const item of items) {
+    const result = removeStartupItem(item)
+    if (!result.success) {
+      ok = false
+      errors.push(`${item.name}: ${result.error ?? 'erro desconhecido'}`)
+    }
+  }
+  return { success: ok, errors }
+}
+
+/** Adiciona um item à inicialização (chave de registro Run do usuário atual). */
+export function addStartupItem(item: {
+  name: string
+  path: string
+}): { success: boolean; error?: string } {
+  try {
+    ps(
+      `$ErrorActionPreference = 'SilentlyContinue'\n$name = $env:KOLND_STARTUP_NAME\n$value = $env:KOLND_STARTUP_PATH\n$reg = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'\nif (-not (Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null }\ntry { New-ItemProperty -Path $reg -Name $name -Value $value -PropertyType String -Force -ErrorAction Stop } catch { Set-ItemProperty -Path $reg -Name $name -Value $value -ErrorAction Stop }\nexit 0`,
+      { KOLND_STARTUP_NAME: item.name, KOLND_STARTUP_PATH: item.path }
+    )
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Adiciona vários itens à inicialização em lote. */
+export function addStartupItemsBatch(items: Array<{ name: string; path: string }>): {
+  success: boolean
+  errors: string[]
+} {
+  const errors: string[] = []
+  let ok = true
+  for (const item of items) {
+    const result = addStartupItem(item)
+    if (!result.success) {
+      ok = false
+      errors.push(`${item.name}: ${result.error ?? 'erro desconhecido'}`)
+    }
+  }
+  return { success: ok, errors }
 }
 
 /** Nome do computador (ex.: DESKTOP-ABC123). */
