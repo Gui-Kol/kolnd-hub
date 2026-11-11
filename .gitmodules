@@ -1,0 +1,86 @@
+# Submodules do monorepo (mapa completo dos gitlinks registrados).
+# URLs absolutas (kloud-games/.gitmodules usava caminhos relativos a ele;
+# aqui precisam ser absolutos porque a raiz do repo é o monorepo).
+# Inicializar: git submodule update --init --recursive
+# Observação: o build do Kloud Games também aplica
+# kolnd-hub/scripts/patches/moonlight-stdatomic-guards.patch no
+# third-party/moonlight-common-c (ver kolnd-hub/scripts/build-kloud-games.ps1).
+
+[submodule "kloud-games/packaging/linux/flatpak/deps/flatpak-builder-tools"]
+	path = kloud-games/packaging/linux/flatpak/deps/flatpak-builder-tools
+	url = https://github.com/flatpak/flatpak-builder-tools.git
+	branch = master
+
+[submodule "kloud-games/third-party/Simple-Web-Server"]
+	path = kloud-games/third-party/Simple-Web-Server
+	url = https://github.com/LizardByte-infrastructure/Simple-Web-Server.git
+	branch = master
+
+[submodule "kloud-games/third-party/TPCircularBuffer"]
+	path = kloud-games/third-party/TPCircularBuffer
+	url = https://github.com/michaeltyson/TPCircularBuffer.git
+	branch = master
+
+[submodule "kloud-games/third-party/ViGEmClient"]
+	path = kloud-games/third-party/ViGEmClient
+	url = https://github.com/LizardByte/Virtual-Gamepad-Emulation-Client.git
+	branch = master
+
+[submodule "kloud-games/third-party/build-deps"]
+	path = kloud-games/third-party/build-deps
+	url = https://github.com/LizardByte/build-deps.git
+	branch = master
+
+[submodule "kloud-games/third-party/dockle"]
+	path = kloud-games/third-party/dockle
+	url = https://github.com/LizardByte/dockle.git
+	branch = master
+
+[submodule "kloud-games/third-party/glad"]
+	path = kloud-games/third-party/glad
+	url = https://github.com/Dav1dde/glad.git
+
+[submodule "kloud-games/third-party/libdisplaydevice"]
+	path = kloud-games/third-party/libdisplaydevice
+	url = https://github.com/LizardByte/libdisplaydevice.git
+	branch = master
+
+[submodule "kloud-games/third-party/libvirtualhid"]
+	path = kloud-games/third-party/libvirtualhid
+	url = https://github.com/LizardByte/libvirtualhid.git
+	branch = master
+
+[submodule "kloud-games/third-party/lizardbyte-common"]
+	path = kloud-games/third-party/lizardbyte-common
+	url = https://github.com/LizardByte/lizardbyte-common.git
+	branch = master
+
+[submodule "kloud-games/third-party/moonlight-common-c"]
+	path = kloud-games/third-party/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git
+	branch = master
+
+[submodule "kloud-games/third-party/nvapi"]
+	path = kloud-games/third-party/nvapi
+	url = https://github.com/NVIDIA/nvapi.git
+	branch = main
+
+[submodule "kloud-games/third-party/plasma-wayland-protocols"]
+	path = kloud-games/third-party/plasma-wayland-protocols
+	url = https://github.com/KDE/plasma-wayland-protocols.git
+	branch = master
+
+[submodule "kloud-games/third-party/tray"]
+	path = kloud-games/third-party/tray
+	url = https://github.com/LizardByte/tray.git
+	branch = master
+
+[submodule "kloud-games/third-party/wayland-protocols"]
+	path = kloud-games/third-party/wayland-protocols
+	url = https://github.com/LizardByte-infrastructure/wayland-protocols.git
+	branch = main
+
+[submodule "kloud-games/third-party/wlr-protocols"]
+	path = kloud-games/third-party/wlr-protocols
+	url = https://github.com/LizardByte-infrastructure/wlr-protocols.git
+	branch = master
