@@ -121,9 +121,9 @@
       </div>
     </div>
 
-    <!-- Resources -->
+    <!-- Legal -->
     <div class="my-4">
-      <Resource-Card :installed-version-not-stable="installedVersionNotStable"></Resource-Card>
+      <Resource-Card></Resource-Card>
     </div>
   </div>
 </template>

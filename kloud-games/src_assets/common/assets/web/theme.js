@@ -7,25 +7,37 @@ export const getPreferredTheme = () => {
         return storedTheme
     }
 
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'KLOUD_GAMES'
 }
 
-// Define which themes are dark (for Bootstrap compatibility)
+// All themes are dark; only the resolved Bootstrap theme differs per preference
 const darkThemes = new Set([
+    'KLOUD_GAMES',
+    'alucard',
     'dark',
     'dracula',
     'ember',
+    'ember-light',
+    'forest',
+    'indigo',
+    'latte',
+    'lavender',
+    'light',
     'midnight',
     'mocha',
+    'monochrome',
     'moonlight',
     'nord',
+    'ocean',
+    'rose',
     'rose-pine',
+    'rose-pine-dawn',
     'slate',
 ])
 
 const setTheme = theme => {
     if (theme === 'auto') {
-        const preferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        const preferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'KLOUD_GAMES'
         document.documentElement.dataset.bsTheme = preferredTheme
         document.documentElement.dataset.theme = preferredTheme
         console.log(`Theme set to auto (resolved to: ${preferredTheme})`)

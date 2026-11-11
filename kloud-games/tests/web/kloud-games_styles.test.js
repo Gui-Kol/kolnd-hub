@@ -1,23 +1,15 @@
-﻿import { mount, flushPromises } from '@vue/test-utils'
-import { parse } from '@vue/compiler-sfc'
+﻿import { parse } from '@vue/compiler-sfc'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import navbarSource from '../../src_assets/common/assets/web/Navbar.vue?raw'
-
-vi.mock('../../src_assets/common/assets/web/Navbar.vue', () => ({
-  default: { template: '<div />' },
-}))
-
-import Featured from '../../src_assets/common/assets/web/Featured.vue'
 
 const navbarCss = parse(navbarSource).descriptor.styles[0].content
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const bootstrapCss = readFileSync(resolve(projectRoot, 'node_modules/bootstrap/dist/css/bootstrap.css'), 'utf8')
 const KLOUD_GAMESCss = readFileSync(resolve(projectRoot, 'src_assets/common/assets/web/KLOUD_GAMES.css'), 'utf8')
 let stylesheet
-let wrapper
 
 beforeAll(() => {
   stylesheet = document.createElement('style')
@@ -26,12 +18,9 @@ beforeAll(() => {
 })
 
 afterEach(() => {
-  wrapper?.unmount()
-  wrapper = undefined
   document.body.replaceChildren()
   delete document.documentElement.dataset.theme
   delete document.documentElement.dataset.bsTheme
-  vi.unstubAllGlobals()
 })
 
 afterAll(() => {
@@ -51,51 +40,54 @@ function componentStyle(markup, selector) {
 }
 
 /**
- * @brief Mount the featured page with a deterministic app directory.
+ * @brief Render the featured-style category filter button group.
  *
- * @param {object} directory App and category data returned by the directory service.
- * @returns {Promise<import('@vue/test-utils').VueWrapper>} Mounted featured page.
+ * @param {number} categoryCount How many category buttons to render after "All".
+ * @returns {void}
  */
-async function mountFeatured(directory) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true,
-    json: async () => directory,
-  })))
-  wrapper = mount(Featured, {
-    attachTo: document.body,
-    global: { mocks: { $t: key => key }, stubs: { Navbar: true, SimpleIcon: true } },
-  })
-  await flushPromises()
-  return wrapper
+function renderCategoryFilter(categoryCount) {
+  const categories = [
+    { id: 'clients', originalId: 'clients' },
+    { id: 'tools', originalId: 'tools' },
+  ].slice(0, categoryCount)
+  const buttons = [
+    '<button type="button" class="btn btn-outline-primary active">All</button>',
+    ...categories.map(category => `<button type="button" class="btn btn-outline-primary">${category.id}</button>`),
+  ].join('')
+  document.body.innerHTML = `
+    <fieldset>
+      <legend class="visually-hidden">Category filter</legend>
+      <div class="btn-group">${buttons}</div>
+    </fieldset>`
 }
 
 /** @brief Expected computed colors, independent of the stylesheet under test. */
 const themeColors = {
-  light: {
-    background: 'rgb(255, 255, 255)',
-    subtle: 'rgb(248, 249, 250)',
-    muted: 'rgb(233, 236, 239)',
-    surface: 'rgb(255, 255, 255)',
-    surfaceRaised: 'rgb(255, 255, 255)',
-    text: 'rgb(33, 37, 41)',
-    textMuted: 'rgb(108, 117, 125)',
-    primary: 'rgb(13, 110, 253)',
+  KLOUD_GAMES: {
+    background: 'rgb(13, 11, 33)',
+    subtle: 'rgb(20, 17, 41)',
+    muted: 'rgb(30, 26, 62)',
+    surface: 'rgb(20, 17, 41)',
+    surfaceRaised: 'rgb(30, 26, 62)',
+    text: 'rgb(237, 235, 252)',
+    textMuted: 'rgb(180, 176, 224)',
+    primary: 'rgb(139, 92, 246)',
     onPrimary: 'rgb(255, 255, 255)',
-    navbarText: 'rgb(89, 68, 0)',
-    navbarTextMuted: 'rgb(127, 97, 0)',
+    navbarText: 'rgb(255, 255, 255)',
+    navbarTextMuted: 'rgba(255, 255, 255, 0.85)',
   },
   dark: {
-    background: 'rgb(33, 37, 41)',
-    subtle: 'rgb(44, 48, 52)',
-    muted: 'rgb(56, 61, 65)',
-    surface: 'rgb(44, 48, 52)',
-    surfaceRaised: 'rgb(56, 61, 65)',
-    text: 'rgb(248, 249, 250)',
-    textMuted: 'rgb(173, 181, 189)',
-    primary: 'rgb(13, 110, 253)',
+    background: 'rgb(16, 18, 35)',
+    subtle: 'rgb(23, 24, 49)',
+    muted: 'rgb(31, 33, 56)',
+    surface: 'rgb(23, 24, 49)',
+    surfaceRaised: 'rgb(31, 33, 56)',
+    text: 'rgb(232, 234, 252)',
+    textMuted: 'rgb(167, 171, 201)',
+    primary: 'rgb(99, 102, 241)',
     onPrimary: 'rgb(255, 255, 255)',
-    navbarText: 'rgb(89, 68, 0)',
-    navbarTextMuted: 'rgb(127, 97, 0)',
+    navbarText: 'rgb(232, 234, 252)',
+    navbarTextMuted: 'rgba(232, 234, 252, 0.8)',
   },
 }
 
@@ -144,28 +136,22 @@ function componentCases(colors) {
     ['dropdown item', '<div class="dropdown-menu"><button class="dropdown-item">Theme</button></div>', 'button', { color: colors.text }],
     ['active dropdown item', '<div class="dropdown-menu"><button class="dropdown-item active">Theme</button></div>', 'button', { color: colors.text }],
     ['dropdown divider', '<div class="dropdown-menu"><hr class="dropdown-divider"></div>', 'hr', { opacity: '1' }],
-    ['featured icon', '<div class="featured-app-icon"><img alt="App"></div>', 'img', { maxWidth: '64px', maxHeight: '64px' }],
-    ['screenshot', '<button class="screenshot-thumbnail-button"><img class="screenshot-thumbnail" alt="Screenshot"></button>', 'img', { height: '120px', maxWidth: '200px' }],
   ]
 }
 
-describe.each(['light', 'dark'])('%s theme cascade', theme => {
+describe.each(['KLOUD_GAMES', 'dark'])('%s theme cascade', theme => {
   const colors = themeColors[theme]
 
-  it.each([0, 1, 2])('rounds the outside category filter corners with %i categories', async categoryCount => {
+  it.each([0, 1, 2])('rounds the outside category filter corners with %i categories', categoryCount => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.dataset.bsTheme = theme
-    const categories = [
-      { id: 'clients', originalId: 'clients' },
-      { id: 'tools', originalId: 'tools' },
-    ].slice(0, categoryCount)
-    await mountFeatured({ apps: [], categories })
+    document.documentElement.dataset.bsTheme = 'dark'
+    renderCategoryFilter(categoryCount)
 
-    expect(wrapper.get('fieldset legend').text()).toBe('featured.category_filter')
-    const buttons = wrapper.findAll('.btn-group > .btn')
+    expect(document.querySelector('fieldset legend').textContent).toBe('Category filter')
+    const buttons = document.querySelectorAll('.btn-group > .btn')
     expect(buttons).toHaveLength(categoryCount + 1)
-    const firstStyle = getComputedStyle(buttons[0].element)
-    const lastStyle = getComputedStyle(buttons.at(-1).element)
+    const firstStyle = getComputedStyle(buttons[0])
+    const lastStyle = getComputedStyle(buttons.item(buttons.length - 1))
     expect(firstStyle.borderTopLeftRadius).not.toBe('0px')
     expect(firstStyle.borderBottomLeftRadius).not.toBe('0px')
     expect(lastStyle.borderTopRightRadius).not.toBe('0px')
@@ -175,20 +161,16 @@ describe.each(['light', 'dark'])('%s theme cascade', theme => {
       expect(firstStyle.borderBottomRightRadius).toBe('0px')
       expect(lastStyle.borderTopLeftRadius).toBe('0px')
       expect(lastStyle.borderBottomLeftRadius).toBe('0px')
-      for (const button of buttons.slice(1, -1)) {
-        const style = getComputedStyle(button.element)
+      for (const button of Array.from(buttons).slice(1, -1)) {
+        const style = getComputedStyle(button)
         expect([style.borderTopLeftRadius, style.borderBottomLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius]).toEqual(['0px', '0px', '0px', '0px'])
       }
-      await buttons[1].trigger('click')
-      expect(buttons[1].classes()).toContain('active')
-      await buttons[0].trigger('click')
-      expect(buttons[0].classes()).toContain('active')
     }
   })
 
   it('allows specific component rules to override theme defaults', () => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.dataset.bsTheme = theme
+    document.documentElement.dataset.bsTheme = 'dark'
     const override = document.createElement('style')
     override.textContent = '.card.custom-card { background-color: rgb(1, 2, 3); color: rgb(4, 5, 6); }'
     document.head.append(override)
@@ -203,22 +185,22 @@ describe.each(['light', 'dark'])('%s theme cascade', theme => {
 
   it.each(componentCases(colors))('preserves %s styles', (_name, markup, selector, expected) => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.dataset.bsTheme = theme
+    document.documentElement.dataset.bsTheme = 'dark'
     const style = componentStyle(markup, selector)
     for (const [property, value] of Object.entries(expected)) {
       expect(style[property], property).toBe(value)
     }
   })
 
-  it('themes the rendered official and platform badges without Bootstrap background utilities', async () => {
+  it('themes the badges without Bootstrap background utilities', () => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.dataset.bsTheme = theme
-    await mountFeatured({ apps: [{ id: 'sample', name: 'Sample App', official: true, platforms: ['linux'] }] })
+    document.documentElement.dataset.bsTheme = 'dark'
+    document.body.innerHTML = '<span class="badge badge-primary">Official</span><span class="badge badge-secondary">linux</span>'
 
-    const [official, platform] = wrapper.findAll('.badge')
-    expect(getComputedStyle(official.element).backgroundColor).toBe(colors.primary)
-    expect(getComputedStyle(official.element).color).toBe(colors.onPrimary)
-    expect(getComputedStyle(platform.element).backgroundColor).toBe(colors.muted)
-    expect(getComputedStyle(platform.element).color).toBe(colors.text)
+    const [official, platform] = document.querySelectorAll('.badge')
+    expect(getComputedStyle(official).backgroundColor).toBe(colors.primary)
+    expect(getComputedStyle(official).color).toBe(colors.onPrimary)
+    expect(getComputedStyle(platform).backgroundColor).toBe(colors.muted)
+    expect(getComputedStyle(platform).color).toBe(colors.text)
   })
 })

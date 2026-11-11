@@ -113,3 +113,5 @@ src/
 - **Comando não encontrado**: confirme que o executável está no `PATH` ou use o caminho completo no campo *Comando*.
 - **Kloud Games não inicia**: confirme que o MSI foi instalado na primeira execução (`%ProgramFiles%\KLOUD_GAMES`). Se necessário, execute `msiexec /i resources\programs\kloud-games\KLOUD_GAMES.msi` manualmente como administrador.
 - **Instalador sinalizado como falso positivo**: o `.exe` instala outros programas na primeira execução; considere assinar o código para distribuição pública (ver `task.md`, T-18).
+
+> Branch de desenvolvimento: `Dev` (o `main` é mantido estável e não recebe commits diretos)

@@ -2172,6 +2172,236 @@ class _HudOverlay(QWidget):
         super().closeEvent(e)
 
 
+def _shortcut_key_to_name():
+    """Qt.Key → chord name table, built once from the Qt enums (no hand-listed
+    integers). Letters and digits only — punctuation names match hotkey.py."""
+    from PyQt6.QtCore import Qt
+    m: dict[int, str] = {}
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        m[getattr(Qt.Key, f"Key_{ch}")] = ch.lower()
+    for d in "0123456789":
+        m[getattr(Qt.Key, f"Key_{d}")] = d
+    for n in range(1, 13):
+        m[getattr(Qt.Key, f"Key_F{n}")] = f"f{n}"
+    special = {
+        "Key_Space": "space", "Key_Tab": "tab", "Key_Escape": "esc",
+        "Key_Return": "enter", "Key_Enter": "enter",
+        "Key_Backspace": "backspace", "Key_Delete": "delete", "Key_Insert": "insert",
+        "Key_Home": "home", "Key_End": "end",
+        "Key_PageUp": "pageup", "Key_PageDown": "pagedown",
+        "Key_Up": "up", "Key_Down": "down", "Key_Left": "left", "Key_Right": "right",
+        "Key_CapsLock": "capslock",
+        "Key_Minus": "minus", "Key_Equal": "equals", "Key_Comma": "comma",
+        "Key_Period": "period", "Key_Slash": "slash", "Key_Semicolon": "semicolon",
+        "Key_Apostrophe": "quote",
+        "Key_BracketLeft": "bracketleft", "Key_BracketRight": "bracketright",
+        "Key_Backslash": "backslash", "Key_QuoteLeft": "grave",
+    }
+    for k, v in special.items():
+        m[getattr(Qt.Key, k)] = v
+    return m
+
+_QT_KEY_TO_NAME = None
+
+def _qt_key_to_name(key):
+    global _QT_KEY_TO_NAME
+    if _QT_KEY_TO_NAME is None:
+        _QT_KEY_TO_NAME = _shortcut_key_to_name()
+    return _QT_KEY_TO_NAME.get(key)
+
+
+class ShortcutsOverlay(_HudOverlay):
+    """⚙ → ATALHOS — every shortcut the app answers to, in one place.
+
+    The mic mute is rebindable: press REBIND and then the new key combination,
+    and it takes effect immediately (global hook on Windows; focused window
+    elsewhere). Everything else is fixed and listed for reference. While a
+    capture is armed, the app's own shortcuts are paused so pressing a key
+    cannot also toggle the mic or stop the speech mid-sentence.
+    """
+    rebinded        = pyqtSignal(list)   # normalized chord names, e.g. ['ctrl','shift','k']
+    capture_started = pyqtSignal()       # user armed the rebind
+    capture_ended   = pyqtSignal()       # rebind finished or was cancelled
+
+    _OW = 500
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            ShortcutsOverlay {{
+                background: rgba(0, 6, 10, 245);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 6px;
+            }}
+        """)
+        self.setFixedWidth(self._OW)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 16, 22, 16)
+        lay.setSpacing(6)
+
+        lay.addWidget(self._lbl("⌨  ATALHOS", 12, True))
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
+        lay.addWidget(sep)
+
+        # ── Mic mute — the one rebindable chord ──────────────────────────────
+        from core.hotkey import chord_label
+        from memory.config_manager import get_mute_chord
+
+        lay.addWidget(self._lbl("MIC MUTE  —  REBINDABLE", 8, color=C.TEXT_DIM,
+                                align=Qt.AlignmentFlag.AlignLeft))
+        mute_row = QHBoxLayout(); mute_row.setSpacing(8)
+        mute_info = QVBoxLayout(); mute_info.setSpacing(1)
+        mute_info.addWidget(self._lbl("Mute / unmute the microphone", 9))
+        self._mute_chord_lbl = self._lbl(self._chord_text(), 10, bold=True,
+                                         color=C.PRI)
+        mute_info.addWidget(self._mute_chord_lbl)
+        mute_row.addLayout(mute_info, 1)
+        self._rebind_btn = QPushButton("⏺  REBIND")
+        self._rebind_btn.setFixedHeight(34)
+        self._rebind_btn.setFixedWidth(120)
+        self._rebind_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._rebind_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rebind_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+        """)
+        self._rebind_btn.clicked.connect(self._on_rebind_clicked)
+        mute_row.addWidget(self._rebind_btn)
+        lay.addLayout(mute_row)
+        self._mute_status = self._lbl(
+            "Click REBIND, then press the new combination.", 7,
+            color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self._mute_status)
+
+        # ── The rest — fixed, listed for reference ───────────────────────────
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
+        lay.addWidget(sep2)
+        lay.addWidget(self._lbl("EVERYTHING ELSE  —  FIXO", 7, color=C.TEXT_DIM,
+                                align=Qt.AlignmentFlag.AlignLeft))
+        from memory.config_manager import get_push_to_talk_enabled
+        ptt = get_push_to_talk_enabled()
+        rows = [
+            ("🎤", "Mute the mic", "F4"),
+            ("🎤", "Push-to-talk — hold to speak", "Ctrl+Space" if ptt else "Ctrl+Space  (push-to-talk off)"),
+            ("✋", "Stop the assistant mid-sentence", "Escape"),
+            ("⛶", "Toggle fullscreen", "F11"),
+            ("⌨️", "Send message", "Enter  (in the input box)"),
+        ]
+        for icon, what, chord in rows:
+            r = QHBoxLayout(); r.setSpacing(10)
+            lbl = self._lbl(f"{icon}  {what}", 8, align=Qt.AlignmentFlag.AlignLeft)
+            r.addWidget(lbl, 1)
+            keys = self._lbl(chord, 8, bold=True, color=C.PRI,
+                             align=Qt.AlignmentFlag.AlignRight)
+            r.addWidget(keys)
+            lay.addLayout(r)
+
+        lay.addStretch(1)
+
+        self._armed = False
+        close_btn = QPushButton("CLOSE")
+        close_btn.setFixedHeight(30)
+        close_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+        """)
+        close_btn.clicked.connect(self.close)
+        lay.addWidget(close_btn)
+
+        # Capture keys belong to the overlay, not to the buttons inside it —
+        # otherwise Qt gives the key press to a focused button and nothing
+        # reaches keyPressEvent.
+        for w in self.findChildren(QWidget):
+            w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    # ── widgets ──────────────────────────────────────────────────────────────
+
+    def _lbl(self, txt, fs=9, bold=False, color=C.PRI, align=Qt.AlignmentFlag.AlignLeft):
+        w = QLabel(txt); w.setAlignment(align)
+        w.setFont(QFont("Courier New", fs,
+                        QFont.Weight.Bold if bold else QFont.Weight.Normal))
+        w.setStyleSheet(f"color: {color}; background: transparent;")
+        return w
+
+    def _chord_text(self) -> str:
+        from core.hotkey import chord_label
+        from memory.config_manager import get_mute_chord
+        return chord_label(get_mute_chord())
+
+    def _set_status(self, text: str) -> None:
+        self._mute_status.setText(text)
+
+    # ── armed capture ────────────────────────────────────────────────────────
+
+    def _on_rebind_clicked(self):
+        if self._armed:
+            self._disarm(saved=False, note="Rebind cancelled.")
+            return
+        self._armed = True
+        self._rebind_btn.setText("⏺ PRESS KEYS…")
+        self._set_status("Press the new shortcut — e.g. Ctrl+Shift+K, or an F-key alone.  (Esc cancels)")
+        self.setFocus()
+        self.capture_started.emit()
+
+    def _disarm(self, saved: bool, note: str | None = None, chord=None):
+        self._armed = False
+        self._rebind_btn.setText("⏺  REBIND")
+        if saved and chord is not None:
+            from core.hotkey import chord_label
+            self._mute_chord_lbl.setText(chord_label(chord))
+            self._set_status(f"Saved ✓  —  {chord_label(chord)}")
+        else:
+            self._set_status(note or "")
+        self.capture_ended.emit()
+
+    def keyPressEvent(self, e):
+        if not self._armed:
+            super().keyPressEvent(e)
+            return
+
+        mods = []
+        m = e.modifiers()
+        if m & Qt.KeyboardModifier.ControlModifier:
+            mods.append("ctrl")
+        if m & Qt.KeyboardModifier.ShiftModifier:
+            mods.append("shift")
+        if m & Qt.KeyboardModifier.AltModifier:
+            mods.append("alt")
+        if m & Qt.KeyboardModifier.MetaModifier:
+            mods.append("win")
+
+        key = _qt_key_to_name(e.key())
+        if key == "esc" and not mods:
+            self._disarm(saved=False, note="Rebind cancelled.")
+            return
+        if key is None:
+            self._set_status("That key is not supported — pick a modifier (Ctrl/Shift/Alt) plus one key, or an F-key.")
+            return  # stay armed
+
+        from core.hotkey import normalize_chord
+        chord = normalize_chord(mods + [key])
+        if chord is None:
+            self._set_status("Not usable as a global shortcut — Ctrl/Shift/Alt plus one key, or an F-key.")
+            return  # stay armed
+
+        self.rebinded.emit(chord)
+        self._disarm(saved=True, chord=chord)
+
+    def hideEvent(self, e):
+        if self._armed:
+            self._disarm(saved=False, note="Rebind cancelled.")
+        super().hideEvent(e)
+
+
 class ConfirmBanner(_HudOverlay):
     """The gate in front of an action that cannot be taken back.
 
@@ -4561,13 +4791,13 @@ class MainWindow(QMainWindow):
     _cam_stream_sig = pyqtSignal(bool)       # True=start live stream, False=stop
     _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
     _video_open_sig  = pyqtSignal(str, str, bool, str)  # video, title, muted, audio
-    _wake_btns_sig   = pyqtSignal()          # wake state resolved off-thread
     _video_close_sig = pyqtSignal()
     _video_mute_sig  = pyqtSignal(bool)
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
-    _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
+    _mute_toggle_sig = pyqtSignal()          # flip mic mute from any thread (F4 / Ctrl+Shift+M)
+    _mute_scope_sig  = pyqtSignal(str)       # 'global' | 'window' — decided by backend hook
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
     _review_sig     = pyqtSignal(str, str, object, object)  # document review payload
@@ -4604,11 +4834,10 @@ class MainWindow(QMainWindow):
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
-        self.on_wake_toggle    = None   # callable: (enable: bool) -> str, set by JarvisLive
-        self.on_wake_manual    = None   # callable: () -> None — manual sleep/wake
         self.on_push_to_talk   = None   # callable: (enable: bool) -> str scope
         self.ptt_hold          = None   # callable: (held: bool) -> None — windowed chord
-        self.wake_get_state    = None   # callable: () -> dict {enabled, awake, ready}
+        self.on_mute_chord_change = None  # callable: (chord: list[str]) -> None — rebind from ⚙ → ATALHOS
+        self.on_mute_capture   = None   # callable: (start: bool) -> None — pause mute hook during capture
         self._muted            = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
@@ -4820,7 +5049,6 @@ class MainWindow(QMainWindow):
         # Quick-access drawer (floating overlay, built after central widget layout is done)
         self._quick_drawer = self._build_quick_drawer()
         self._ctrl_drawer = self._build_controls_drawer()
-        self._warm_wake_state()
         self._update_autostart_btn(self._check_autostart())
         from memory.config_manager import get_brief_enabled as _gbe
         self._update_brief_btn(_gbe())
@@ -4846,12 +5074,12 @@ class MainWindow(QMainWindow):
         self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
-        self._wake_btns_sig.connect(self._refresh_wake_btns)
         self._video_open_sig.connect(self._on_video_open)
         self._video_close_sig.connect(self._on_video_close)
         self._video_mute_sig.connect(self._on_video_mute)
         self._clipboard_sig.connect(self._show_clipboard_panel)
-        self._wake_dl_sig.connect(self._on_wake_install_done)
+        self._mute_toggle_sig.connect(self._toggle_mute)
+        self._mute_scope_sig.connect(self._apply_mute_shortcut)
         self._quiz_sig.connect(self._show_quiz)
         self._quiz_hide_sig.connect(self._hide_quiz)
         self._review_sig.connect(self._show_review)
@@ -4870,12 +5098,12 @@ class MainWindow(QMainWindow):
         if not self._ready:
             self._show_setup()
 
-        sc_mute = QShortcut(QKeySequence("F4"), self)
-        sc_mute.activated.connect(self._toggle_mute)
-        sc_full = QShortcut(QKeySequence("F11"), self)
-        sc_full.activated.connect(self._toggle_fullscreen)
-        sc_intr = QShortcut(QKeySequence("Escape"), self)
-        sc_intr.activated.connect(self._do_interrupt)
+        self._sc_mute = QShortcut(QKeySequence("F4"), self)
+        self._sc_mute.activated.connect(self._toggle_mute)
+        self._sc_full = QShortcut(QKeySequence("F11"), self)
+        self._sc_full.activated.connect(self._toggle_fullscreen)
+        self._sc_intr = QShortcut(QKeySequence("Escape"), self)
+        self._sc_intr.activated.connect(self._do_interrupt)
 
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot — display camera preview overlay (main thread)."""
@@ -5761,11 +5989,12 @@ class MainWindow(QMainWindow):
         self._interrupt_btn.clicked.connect(self._do_interrupt)
         lay.addWidget(self._interrupt_btn)
 
-        self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE")
+        self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE  [Ctrl+Shift+M]")
         self._mute_btn.setFixedHeight(30)
         self._mute_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mute_btn.clicked.connect(self._toggle_mute)
+        self._mute_btn.setToolTip("Works anywhere on the system, even when this window is not focused (rebind in ⚙ → ATALHOS)")
         self._style_mute_btn()
         lay.addWidget(self._mute_btn)
 
@@ -5876,6 +6105,14 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(self._open_plugin_settings)
         lay.addWidget(settings_btn)
 
+        shortcuts_btn = QPushButton("⌨  ATALHOS")
+        shortcuts_btn.setFixedHeight(26)
+        shortcuts_btn.setFont(QFont("Courier New", 7))
+        shortcuts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        shortcuts_btn.setStyleSheet(_BTN_STYLE_DIM)
+        shortcuts_btn.clicked.connect(self._open_shortcuts)
+        lay.addWidget(shortcuts_btn)
+
         # The button is built here with the rest of the drawer; the panel behind
         # it — and the whole providers package — is imported on the click. The
         # drawer used to stutter for a measured 2.104 seconds because a state
@@ -5924,15 +6161,6 @@ class MainWindow(QMainWindow):
         self._brief_btn = _row(QPushButton())
         self._brief_btn.clicked.connect(self._toggle_brief)
 
-        self._wake_btn = _row(QPushButton())
-        self._wake_btn.clicked.connect(self._toggle_wake_word)
-        self._wake_sleep_btn = _row(QPushButton())
-        self._wake_sleep_btn.clicked.connect(self._tap_wake_manual)
-        # Neutral until the real state lands from the background warm-up.
-        self._wake_btn.setText("🎙  WAKE WORD")
-        self._wake_btn.setStyleSheet(self._BTN_DIM)
-        self._wake_sleep_btn.hide()
-
         self._ptt_btn = _row(QPushButton())
         self._ptt_btn.clicked.connect(self._toggle_ptt)
         self._refresh_talk_btns()
@@ -5943,24 +6171,6 @@ class MainWindow(QMainWindow):
 
         w.adjustSize()
         return w
-
-    def _warm_wake_state(self) -> None:
-        """Work out the wake-word state off the UI thread, once.
-
-        It used to be resolved when the drawer opened, and that made opening the
-        drawer take two seconds the first time — measured at 2.10s, all of it
-        `import openwakeword` dragging in onnxruntime behind it. The button
-        count had nothing to do with it; the Qt thread was simply waiting on an
-        import. Afterwards the same check costs about a millisecond, so it only
-        ever needed to happen somewhere other than in front of the user.
-        """
-        def work():
-            try:
-                self._wake_state()
-            except Exception:
-                pass
-            self._wake_btns_sig.emit()
-        threading.Thread(target=work, daemon=True, name="wake-state-warm").start()
 
     def _toggle_drawer(self, checked: bool):
         if checked:
@@ -5974,7 +6184,6 @@ class MainWindow(QMainWindow):
     def _toggle_controls(self, checked: bool):
         if checked:
             self._close_setup()
-            self._refresh_wake_btns()   # cheap now: the state was warmed at boot
             self._position_ctrl_drawer()
             self._ctrl_drawer.show()
             self._ctrl_drawer.raise_()
@@ -6786,60 +6995,6 @@ class MainWindow(QMainWindow):
         save_brief_enabled(new_val)
         self._update_brief_btn(new_val)
 
-    # ── Wake word settings ───────────────────────────────────────────────────
-
-    def _wake_state(self) -> dict:
-        """Combined state for the two wake-word buttons. Readiness is a cheap,
-        deterministic on-disk check now (see core.wake_word.is_ready), so there
-        is nothing to cache — the button never flickers to a stale value."""
-        if self.wake_get_state:
-            try:
-                s = self.wake_get_state()
-                return {"ready": bool(s.get("ready")),
-                        "enabled": bool(s.get("enabled")),
-                        "awake": bool(s.get("awake"))}
-            except Exception:
-                pass
-        # Before JarvisLive has wired its callback (drawer built at startup).
-        ready, enabled = False, False
-        try:
-            from core.wake_word import is_ready
-            from memory.config_manager import get_wake_word_enabled
-            ready, enabled = is_ready(), get_wake_word_enabled()
-        except Exception:
-            pass
-        return {"ready": ready, "enabled": enabled, "awake": True}
-
-    def _refresh_wake_btns(self):
-        if not hasattr(self, '_wake_btn'):
-            return
-        st = self._wake_state()
-        _on = f"""
-            QPushButton {{ background: #001a08; color: {C.GREEN};
-                border: 1px solid {C.GREEN_D}; border-radius: 3px;
-                text-align: left; padding: 0 8px; }}
-            QPushButton:hover {{ background: #002010; }}"""
-        _off = f"""
-            QPushButton {{ background: transparent; color: {C.TEXT_DIM};
-                border: 1px solid {C.BORDER}; border-radius: 3px;
-                text-align: left; padding: 0 8px; }}
-            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}"""
-        self._wake_btn.setEnabled(True)
-        if not st["ready"]:
-            self._wake_btn.setText("⬇  WAKE WORD: DOWNLOAD")
-            self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
-        elif st["enabled"]:
-            self._wake_btn.setText("🎙  WAKE WORD: ON")
-            self._wake_btn.setStyleSheet(_on)
-            self._wake_sleep_btn.show()
-            self._wake_sleep_btn.setText("😴  SLEEP NOW" if st["awake"] else "👂  WAKE NOW")
-            self._wake_sleep_btn.setStyleSheet(_off)
-        else:
-            self._wake_btn.setText("🎙  WAKE WORD: OFF")
-            self._wake_btn.setStyleSheet(_off)
-            self._wake_sleep_btn.hide()
-
     def _refresh_talk_btns(self):
         """Repaint the push-to-talk row from the saved setting."""
         if not hasattr(self, "_ptt_btn"):
@@ -6954,6 +7109,29 @@ class MainWindow(QMainWindow):
         self._ptt_sc.setAutoRepeat(True)
         self._ptt_sc.activated.connect(_press)
 
+    def _apply_mute_shortcut(self, scope: str):
+        """Bind the mute chord inside the window when no global hook is available.
+
+        The backend starts a system-wide hook on Windows; elsewhere the chord
+        is live at least while this window has focus. Idempotent: rebuilding
+        from the saved chord whenever it is called, so a rebind takes effect
+        immediately for the window-scoped fallback too.
+        """
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        from core.hotkey import qt_sequence
+        from memory.config_manager import get_mute_chord
+
+        seq = qt_sequence(get_mute_chord())
+        sc = getattr(self, "_mute_sc", None)
+        if sc is not None:
+            sc.setEnabled(False)
+            self._mute_sc = None
+        if scope == "global":
+            return
+        self._mute_sc = QShortcut(QKeySequence(seq), self)
+        self._mute_sc.setAutoRepeat(False)
+        self._mute_sc.activated.connect(self._toggle_mute)
+
     def _ptt_hold(self, held: bool):
         """Report a windowed press/release to whoever owns the microphone."""
         cb = getattr(self, "ptt_hold", None)
@@ -6962,47 +7140,6 @@ class MainWindow(QMainWindow):
                 cb(bool(held))
             except Exception:
                 pass
-
-    def _toggle_wake_word(self):
-        st = self._wake_state()
-        if not st["ready"]:
-            # First time: download openwakeword + model in a worker thread.
-            self._wake_btn.setText("⬇  DOWNLOADING… (one-time)")
-            self._wake_btn.setEnabled(False)
-            def _work():
-                try:
-                    from core.wake_word import install_and_download
-                    ok, msg = install_and_download(
-                        logger=lambda m: self._log_sig.emit(f"SYS: {m}"))
-                except Exception as e:
-                    ok, msg = False, str(e)
-                if ok and self.on_wake_toggle:
-                    try:
-                        self.on_wake_toggle(True)   # auto-enable after a successful download
-                    except Exception:
-                        pass
-                self._wake_dl_sig.emit(ok, msg)
-            threading.Thread(target=_work, daemon=True).start()
-            return
-        # Already downloaded → just flip enabled/disabled through JarvisLive.
-        if self.on_wake_toggle:
-            try:
-                self.on_wake_toggle(not st["enabled"])
-            except Exception:
-                pass
-        self._refresh_wake_btns()
-
-    def _on_wake_install_done(self, ok: bool, msg: str):
-        self._log_sig.emit(f"SYS: {'Wake word ready.' if ok else 'Wake word setup failed: ' + msg}")
-        self._refresh_wake_btns()
-
-    def _tap_wake_manual(self):
-        if self.on_wake_manual:
-            try:
-                self.on_wake_manual()
-            except Exception:
-                pass
-        self._refresh_wake_btns()
 
     def _update_brief_btn(self, enabled: bool):
         if not hasattr(self, '_brief_btn'):
@@ -7231,6 +7368,60 @@ class MainWindow(QMainWindow):
         ov.raise_()
         self._plugin_settings_overlay = ov   # keep a reference so it isn't GC'd
 
+    # ── Shortcuts ─────────────────────────────────────────────────────────────
+
+    def _open_shortcuts(self):
+        cw = self.centralWidget()
+        ov = ShortcutsOverlay(parent=cw)
+        ow = ShortcutsOverlay._OW
+        oh = min(520, cw.height() - 16)
+        ov.setGeometry(
+            (cw.width()  - ow) // 2,
+            (cw.height() - oh) // 2,
+            ow, oh,
+        )
+        # Rebind wins by design — pause the app's own shortcuts + the global
+        # mute hook while the user presses the new combination.
+        ov.capture_started.connect(self._on_shortcut_capture_start)
+        ov.capture_ended.connect(self._on_shortcut_capture_end)
+        ov.rebinded.connect(self._on_shortcut_rebind)
+        ov.show()
+        ov.raise_()
+        self._shortcuts_overlay = ov   # keep a reference so it isn't GC'd
+
+    def _on_shortcut_capture_start(self):
+        self._shortcut_capture_lock(True)
+        if self.on_mute_capture:
+            try:
+                self.on_mute_capture(True)
+            except Exception as e:
+                self._log.append_log(f"ERR: could not pause the mute hook — {e}")
+
+    def _on_shortcut_capture_end(self):
+        self._shortcut_capture_lock(False)
+        if self.on_mute_capture:
+            try:
+                self.on_mute_capture(False)
+            except Exception as e:
+                self._log.append_log(f"ERR: could not resume the mute hook — {e}")
+
+    def _shortcut_capture_lock(self, locked: bool):
+        """While the user records a chord, none of the app's own shortcuts fire."""
+        for sc in (getattr(self, "_sc_mute", None),
+                   getattr(self, "_sc_full", None),
+                   getattr(self, "_sc_intr", None),
+                   getattr(self, "_mute_sc", None)):
+            if sc is not None:
+                sc.setEnabled(not locked)
+
+    def _on_shortcut_rebind(self, chord):
+        if self.on_mute_chord_change:
+            try:
+                self.on_mute_chord_change(list(chord))
+            except Exception as e:
+                self._log.append_log(f"ERR: mute shortcut — {e}")
+        self._style_mute_btn()
+
     # ── Clipboard intelligence ───────────────────────────────────────────────────
 
     def _on_clipboard_changed(self):
@@ -7285,8 +7476,14 @@ class MainWindow(QMainWindow):
             self._log.append_log("SYS: Microphone active." + (f" {note}" if note else ""))
 
     def _style_mute_btn(self):
+        try:
+            from core.hotkey import chord_label
+            from memory.config_manager import get_mute_chord
+            label = chord_label(get_mute_chord())
+        except Exception:
+            label = "Ctrl+Shift+M"
         if self._muted:
-            self._mute_btn.setText("🔇  MICROPHONE MUTED")
+            self._mute_btn.setText(f"🔇  MICROPHONE MUTED  [{label}]")
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #140006; color: {C.MUTED_C};
@@ -7294,7 +7491,7 @@ class MainWindow(QMainWindow):
                 }}
             """)
         else:
-            self._mute_btn.setText("🎙  MICROPHONE ACTIVE")
+            self._mute_btn.setText(f"🎙  MICROPHONE ACTIVE  [{label}]")
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #00140a; color: {C.GREEN};
@@ -7466,6 +7663,22 @@ class JarvisUI:
     def on_audio_device_change(self, cb):
         self._win.on_audio_device_change = cb
 
+    @property
+    def on_mute_chord_change(self):
+        return self._win.on_mute_chord_change
+
+    @on_mute_chord_change.setter
+    def on_mute_chord_change(self, cb):
+        self._win.on_mute_chord_change = cb
+
+    @property
+    def on_mute_capture(self):
+        return self._win.on_mute_capture
+
+    @on_mute_capture.setter
+    def on_mute_capture(self, cb):
+        self._win.on_mute_capture = cb
+
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
@@ -7490,30 +7703,6 @@ class JarvisUI:
     @get_plugin_settings.setter
     def get_plugin_settings(self, cb):
         self._win.get_plugin_settings = cb
-
-    @property
-    def on_wake_toggle(self):
-        return self._win.on_wake_toggle
-
-    @on_wake_toggle.setter
-    def on_wake_toggle(self, cb):
-        self._win.on_wake_toggle = cb
-
-    @property
-    def on_wake_manual(self):
-        return self._win.on_wake_manual
-
-    @on_wake_manual.setter
-    def on_wake_manual(self, cb):
-        self._win.on_wake_manual = cb
-
-    @property
-    def wake_get_state(self):
-        return self._win.wake_get_state
-
-    @wake_get_state.setter
-    def wake_get_state(self, cb):
-        self._win.wake_get_state = cb
 
     def set_audio_level(self, level: float) -> None:
         """Thread-safe: feed a 0.0–1.0 live audio level to the HUD waveform.
@@ -7563,23 +7752,14 @@ class JarvisUI:
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
 
-    def refresh_wake_btns(self):
-        """Thread-safe: repaint the WAKE WORD rows from the backend state.
+    def toggle_mute(self):
+        """Thread-safe: flip the microphone mute (F4 / global Ctrl+Shift+M)."""
+        self._win._mute_toggle_sig.emit()
 
-        sleep()/wake() can be triggered by the backend itself (reply
-        finished, ESC, silence timeout) — without this the drawer kept
-        showing a stale SLEEP NOW / WAKE NOW label.
-        """
-        self._win._wake_btns_sig.emit()
-
-    def refresh_wake_btns(self):
-        """Thread-safe: repaint the WAKE WORD rows from the backend state.
-
-        sleep()/wake() can now be triggered by the backend itself (reply
-        finished, ESC, silence timeout) — without this the drawer kept
-        showing a stale SLEEP NOW / WAKE NOW label.
-        """
-        self._win._wake_btns_sig.emit()
+    def set_mute_hotkey_scope(self, scope: str):
+        """Thread-safe: tell the window whether Ctrl+Shift+M works globally
+        ('global') or only while it has focus ('window')."""
+        self._win._mute_scope_sig.emit(str(scope))
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)

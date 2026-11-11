@@ -549,3 +549,5 @@ Thank you to all the contributors who have helped make KLOUD_GAMES better!
 <p align="center">
   <img src='https://cdn.jsdelivr.net/gh/LizardByte/contributors@dist/crowdin.606145.svg' alt="CrowdIn contributors"/>
 </p>
+
+> Fork do Sunshine (LizardByte) integrado ao ecossistema Kolnd Hub. Branch de desenvolvimento: `Dev` (repositório principal: [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub))

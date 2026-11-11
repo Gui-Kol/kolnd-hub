@@ -96,10 +96,6 @@ onMounted(() => {
           <Mountain :size="18" class="theme-icon icon"></Mountain>
           {{ $t('navbar.theme_nord') }}
         </button>
-      </li>
-      <!-- Light Themes -->
-      <li class="theme-menu-group">
-        <h6 class="dropdown-header">{{ $t('navbar.theme_group_light') }}</h6>
         <button type="button" class="dropdown-item d-flex align-items-center" data-bs-theme-value="light" aria-pressed="false">
           <Sun :size="18" class="theme-icon icon"></Sun>
           {{ $t('navbar.theme_light') }}

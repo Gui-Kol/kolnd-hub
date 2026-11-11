@@ -16,15 +16,6 @@ hiddenimports += collect_submodules('plugins')
 hiddenimports += collect_submodules('yt_dlp')
 tmp_ret = collect_all('playwright')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# Wake word ("Hey Jarvis") ships INSIDE the build — code, onnxruntime and the
-# ONNX models under resources/models — so the assistant wakes on the phrase
-# out of the box, with no one-click download after install.
-for _pkg in ('openwakeword', 'onnxruntime', 'scipy', 'sklearn', 'tqdm'):
-    try:
-        _ret = collect_all(_pkg)
-        datas += _ret[0]; binaries += _ret[1]; hiddenimports += _ret[2]
-    except Exception as _e:
-        print(f"[spec] collect_all({_pkg}) falhou: {_e}")
 
 
 a = Analysis(

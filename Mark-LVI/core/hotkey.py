@@ -3,8 +3,8 @@ Push-to-talk — hold a key, speak, release.
 
 Why this exists
 ---------------
-Wake-word is hands-free but it is not always what you want: in a meeting, in a
-noisy room, or when you simply do not feel like saying a name out loud, a key
+Voice activation is hands-free but not always what you want: in a meeting, in
+a noisy room, or when you simply do not feel like speaking out loud, a key
 you hold is faster and never mishears. It is also the natural way to use the
 assistant while another window has focus.
 
@@ -36,21 +36,89 @@ from typing import Callable
 
 _OS = platform.system()
 
-# The default chord. Ctrl+Space is free in most desktop environments and is the
-# same finger shape on every keyboard layout, which matters for a worldwide app.
 DEFAULT_CHORD = ("ctrl", "space")
 
-# Windows virtual-key codes for the names we accept.
+# The chord for the global mute toggle — Ctrl+Shift+M by default, rebindable
+# in ⚙ → ATALHOS (persisted in config).
+DEFAULT_MUTE_CHORD = ("ctrl", "shift", "m")
+MUTE_CHORD = DEFAULT_MUTE_CHORD
+
+# Modifiers recognized in a chord, in the canonical display order.
+MODIFIERS = ("ctrl", "shift", "alt", "win")
+
+# Windows virtual-key codes for every name we accept in a chord.
 _VK = {
-    "ctrl": 0x11, "shift": 0x10, "alt": 0x12,
-    "space": 0x20, "f8": 0x77, "f9": 0x78, "f10": 0x79,
-    "capslock": 0x14, "insert": 0x2D,
+    # modifiers
+    "ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B,
+    # letters (stored uppercase, matched case-insensitively)
+    **{chr(c): c for c in range(ord("A"), ord("Z") + 1)},
+    # digits (stored as "0".."9")
+    **{str(d): ord(str(d)) for d in range(10)},
+    # function keys
+    **{f"f{n}": 0x70 + n - 1 for n in range(1, 13)},
+    # navigation and control
+    "space": 0x20, "tab": 0x09, "esc": 0x1B, "enter": 0x0D, "backspace": 0x08,
+    "delete": 0x2E, "insert": 0x2D, "home": 0x24, "end": 0x23,
+    "pageup": 0x21, "pagedown": 0x22,
+    "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    "capslock": 0x14,
+    # punctuation (OEM codes, US layout)
+    "minus": 0xBD, "equals": 0xBB, "comma": 0xBC, "period": 0xBE, "slash": 0xBF,
+    "semicolon": 0xBA, "quote": 0xDE, "bracketleft": 0xDB, "bracketright": 0xDD,
+    "backslash": 0xDC, "grave": 0xC0,
 }
 
-# Qt key sequence text for the same chord, used by the windowed fallback.
-_QT_NAME = {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "space": "Space",
-            "f8": "F8", "f9": "F9", "f10": "F10",
-            "capslock": "CapsLock", "insert": "Ins"}
+# Qt key sequence text for the same names, used by the windowed fallback and
+# by the shortcuts panel. Must parse as a single key in QKeySequence.
+_QT_NAME = {
+    "ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "win": "Meta",
+    **{chr(c): chr(c) for c in range(ord("A"), ord("Z") + 1)},
+    **{str(d): str(d) for d in range(10)},
+    **{f"f{n}": f"F{n}" for n in range(1, 13)},
+    "space": "Space", "tab": "Tab", "esc": "Esc", "enter": "Return",
+    "backspace": "Backspace", "delete": "Del", "insert": "Ins",
+    "home": "Home", "end": "End", "pageup": "PgUp", "pagedown": "PgDn",
+    "up": "Up", "down": "Down", "left": "Left", "right": "Right",
+    "capslock": "CapsLock",
+    "minus": "Minus", "equals": "Equal", "comma": "Comma", "period": "Period",
+    "slash": "Slash", "semicolon": "Semicolon", "quote": "Apostrophe",
+    "bracketleft": "BracketLeft", "bracketright": "BracketRight",
+    "backslash": "Backslash", "grave": "QuoteLeft",
+}
+# Match case-insensitively: store the lowercase alias of every letter too.
+_VK.update({k.lower(): v for k, v in list(_VK.items()) if k.isalpha()})
+_QT_NAME.update({k.lower(): v for k, v in list(_QT_NAME.items()) if k.isalpha()})
+
+
+def is_modifier(name: str) -> bool:
+    return name.lower() in MODIFIERS
+
+
+def is_known_chord(names) -> bool:
+    """True if every name is a recognised key and at least one is not a modifier."""
+    names = [n.lower() for n in names]
+    if not names:
+        return False
+    if any(n not in _VK for n in names):
+        return False
+    return any(n not in MODIFIERS for n in names)
+
+
+def normalize_chord(names):
+    """Canonical form of a chord: modifiers in fixed order, then the key.
+
+    Returns the normalized list, or None if a name is unknown, or there is no
+    non-modifier key in the chord, or there is more than one — a chord with two
+    real keys is not something the global poller can express cleanly.
+    """
+    names = [n.lower() for n in names]
+    if not names or any(n not in _VK for n in names):
+        return None
+    mods = [m for m in MODIFIERS if m in names]
+    rest = [n for n in names if n not in MODIFIERS]
+    if len(rest) != 1:
+        return None
+    return mods + rest
 
 _POLL_HZ = 30.0
 # A key has to be down this long before we call it speech. It stops a stray
@@ -170,4 +238,88 @@ class PushToTalk:
             self._stop.wait(period)
 
         self._set_held(False)
+        self._scope = "window"
+
+
+# Minimum seconds between accepted toggles — key chatter (or a key bouncing on
+# release) must not flip the mute twice.
+_TOGGLE_COOLDOWN = 0.4
+
+
+class ChordToggle:
+    """Calls `on_toggle()` once per fresh full press of a chord.
+
+    Edge-detected: holding the chord down does nothing after the first press,
+    and the rest of the keys must be released before it can fire again. Same
+    delivery guarantee as PushToTalk — global on Windows via GetAsyncKeyState,
+    window-scoped elsewhere (the Qt fallback is done by the UI layer).
+    Never raises.
+    """
+
+    def __init__(self, on_toggle: Callable[[], None], chord=MUTE_CHORD):
+        self._on_toggle = on_toggle
+        self._chord = tuple(chord)
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._scope = "window"
+
+    @property
+    def scope(self) -> str:
+        """'global' once a system-wide hook is running, else 'window'."""
+        return self._scope
+
+    @property
+    def label(self) -> str:
+        return chord_label(self._chord)
+
+    def start(self) -> str:
+        """Begin watching. Returns the scope actually achieved."""
+        self.stop()
+        self._stop.clear()
+        if _OS == "Windows" and self._can_poll():
+            self._scope = "global"
+            self._thread = threading.Thread(
+                target=self._poll_loop, name="mute-toggle", daemon=True)
+            self._thread.start()
+        else:
+            self._scope = "window"
+        return self._scope
+
+    def stop(self) -> None:
+        self._stop.set()
+        t, self._thread = self._thread, None
+        if t is not None and t.is_alive():
+            t.join(timeout=1.0)
+
+    def _can_poll(self) -> bool:
+        try:
+            import ctypes
+            ctypes.windll.user32.GetAsyncKeyState  # noqa: B018 — presence check
+            return all(k in _VK for k in self._chord)
+        except Exception:
+            return False
+
+    def _poll_loop(self) -> None:
+        import ctypes
+        user32 = ctypes.windll.user32
+        codes = [_VK[k] for k in self._chord]
+        period = 1.0 / _POLL_HZ
+        was_down = False
+        last_fire = 0.0
+
+        while not self._stop.is_set():
+            try:
+                down = all(user32.GetAsyncKeyState(c) & 0x8000 for c in codes)
+            except Exception:
+                break         # driver or session teardown — fall back to windowed
+            now = time.monotonic()
+            if down and not was_down and (now - last_fire) >= _TOGGLE_COOLDOWN:
+                last_fire = now
+                try:
+                    self._on_toggle()
+                except Exception:
+                    pass      # a listener fault must never kill the watcher
+            was_down = down
+            self._stop.wait(period)
+
         self._scope = "window"

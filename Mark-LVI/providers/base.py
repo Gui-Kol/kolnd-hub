@@ -38,7 +38,7 @@ THE DIRECTION OF THE CONTRACT — THIS IS THE IMPORTANT PART
     thing, because the old thing is the one with the users.
 
     The payoff is not small. An engine that emits Live-shaped events inherits
-    the avatar, the lip-sync, the self-echo guard, push-to-talk, the wake word,
+    the avatar, the lip-sync, the self-echo guard, push-to-talk,
     undo, the confirmation gate, memory, and every action and plugin — without
     one line of any of them changing.
 

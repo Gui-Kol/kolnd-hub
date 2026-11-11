@@ -8,7 +8,7 @@ WHAT IT IS
     a TTS — behind an object that emits the events main.py already reads.
 
     Everything upstream of `receive()` is unchanged: the avatar, the lip-sync,
-    the self-echo guard, push-to-talk, the wake word, undo, the confirmation
+    the self-echo guard, push-to-talk, undo, the confirmation
     gate, memory, and every action and plugin. They cannot tell which engine is
     running, and that is the whole design.
 

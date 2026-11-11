@@ -734,7 +734,6 @@ class DashboardServer:
         self._clients: set[WebSocket]     = set()
         self._history: list[dict]         = []
         self._command_queue               = asyncio.Queue()
-        self._wake_callback               = None
         self._connect_callback            = None
         self._pending_keys: dict[str, float] = {}
         self._throttle                    = _Throttle()
@@ -827,9 +826,6 @@ class DashboardServer:
             return None
 
     # ── callbacks ────────────────────────────────────────────────────────
-
-    def set_wake_callback(self, fn) -> None:
-        self._wake_callback = fn
 
     def set_connect_callback(self, fn) -> None:
         self._connect_callback = fn
@@ -1033,16 +1029,6 @@ class DashboardServer:
                 text = (body.get("text") or "").strip()
             if text:
                 await self._command_queue.put(text)
-                if self._wake_callback:
-                    self._wake_callback()
-            return JSONResponse({"ok": True})
-
-        @app.post("/api/wake")
-        async def wake_ep(req: Request):
-            if not _auth(req):
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            if self._wake_callback:
-                self._wake_callback()
             return JSONResponse({"ok": True})
 
         # ── Phone mic real-time audio → Gemini Live ──────────────────────────
@@ -1182,8 +1168,6 @@ class DashboardServer:
                         t   = self._decrypt(tok, enc) if enc else (data.get("text") or "").strip()
                         if t:
                             await self._command_queue.put(t)
-                            if self._wake_callback:
-                                self._wake_callback()
             except WebSocketDisconnect:
                 pass
             finally:

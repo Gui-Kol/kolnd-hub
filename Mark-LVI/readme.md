@@ -28,8 +28,8 @@ when the settings drawer opens. Measured: the decision takes **0.16 ms** and
 loads nothing. The folder can be deleted, and deleting it changes nothing.
 
 Everything the assistant already does carries over untouched. A local engine
-inherits the avatar, the lip-sync, the self-echo guard, push-to-talk, the wake
-word, memory, undo, the confirmation gate and every action and plugin — because
+inherits the avatar, the lip-sync, the self-echo guard, push-to-talk,
+memory, undo, the confirmation gate and every action and plugin — because
 it enters through the same door the Live session always did.
 
 Mark LVI also changes what the assistant is allowed to CLAIM. Every tool that
@@ -54,9 +54,9 @@ It's not just an assistant — it's an extension of your digital life.
 | 🙂 Facial Acting | Brows track the phrase, gaze saccades between fixations, natural blinking, a small nod on stressed syllables |
 | 😐 Face as Status | Looks away while thinking, meets your eyes while listening, lids fall while asleep, glances down at new content |
 | 🧚 Push-to-Talk | Hold **Ctrl+Space** and the mic opens — closed the rest of the time. Truly global on Windows, window-scoped elsewhere |
+| 🔇 Global Mute | **Ctrl+Shift+M** mutes and unmutes the microphone anywhere on the system — the window does not need focus. Window-scoped fallback elsewhere; rebindable in ⚙ → ATALHOS |
 | 🔇 Self-Echo Guard | Never answers its own last sentence: the tail of its own voice is recognised and dropped without muting you |
 | 🪪 Runtime Self-Knowledge | Name, OS, abilities **and limits** are generated from the live system each session — rename it or add a plugin and it knows |
-| 🎙️ Wake Word | Local **"Hey Jarvis"** detection — sleeps until called, sleeps again the moment each reply finishes, and never streams audio while asleep |
 | ⚡ Instant Acknowledgment | Speaks a short, context-aware reply in **your language** the instant a longer task starts — no more silent waiting |
 | 🚀 Faster Live Engine | Runs on **Gemini 3.1 Flash Live** — roughly 2× faster time-to-first-word than the previous model |
 | 🧩 Self-Describing Skills | Every bundled skill declares its own `TOOL` dict + handler and is auto-discovered at launch — adding one is a single file |
@@ -355,9 +355,9 @@ So there are two players running together, with a timer that corrects any drift 
 The microphone is open while a video plays, so the moment you turn the sound on, JARVIS starts answering the film. The mic now mutes itself when the video's sound goes on and unmutes when it goes off — and it says so in the activity log rather than going deaf silently.
 
 #### 🎛 Two drawers instead of one
-⚙ **SETUP** holds the things you set once — remote control, desktop shortcut, auto-start and customisation. 🎛 **CONTROLS** holds the switches you flick daily — fullscreen, morning brief, wake word, sleep, push-to-talk, HUD style. Only one is open at a time, and each sits under its own header button.
+⚙ **SETUP** holds the things you set once — remote control, desktop shortcut, auto-start and customisation. 🎛 **CONTROLS** holds the switches you flick daily — fullscreen, morning brief, push-to-talk, HUD style. Only one is open at a time, and each sits under its own header button.
 
-The panel used to stutter when it opened, and the obvious explanation — too many buttons — was wrong. Measured, the **first** wake-word state check took **2.104 seconds**, because it imported `openwakeword` on the UI thread the moment the drawer was built. That import now happens off-thread at boot, and the drawer opens instantly whether it has six buttons or sixteen.
+The panel used to stutter when it opened, and the obvious explanation — too many buttons — was wrong. The slow path was an expensive import done on the UI thread at the moment the drawer was built; that work now happens off-thread at boot, and the drawer opens instantly either way.
 
 > The drawer also used to vanish *behind* the video. `QVideoWidget` creates a native child window, and no Qt overlay can be drawn on top of one. The video is now a `QGraphicsVideoItem` inside a graphics view — same picture, and the interface stays where it belongs.
 
@@ -404,14 +404,16 @@ This is not only tidiness. Every bundled skill is declared to the model on **eve
 * One-shot Gemini calls had **no timeout anywhere**, in any of the sixteen files that made them. Every call now carries a deadline of at least 10 seconds.
 * YouTube playback failed outright with *"Requested format is not available"* — it was asking for a combined stream that no longer exists.
 * Videos played in a **random language**, because YouTube's auto-dubs carry the same bitrate as the original track.
-* The settings drawer **stuttered on first open** — a 2.1-second `openwakeword` import on the UI thread, not the button count it looked like.
+* The settings drawer **stuttered on first open** — a slow import on the UI thread, not the button count it looked like.
 * The settings drawer opened **underneath the video**, because `QVideoWidget` creates a native window.
 * JARVIS **answered the video's soundtrack.** The microphone now follows the video's sound.
 * Qt's multimedia backend printed an ffmpeg banner to the console on every play, containing the **signed streaming URL with the viewer's IP address in it**. Silenced at startup.
 * **Every launch paid 201 ms for a plugin nobody had asked to use.** Discovery executes every file in `plugins/`, and `youtube_video` imported `requests` and `youtube_transcript_api` at module scope. Deferring one of them would have saved nothing — the transcript library imports `requests` itself. Both are now checked with `find_spec`, which answers "is it installed?" without executing anything, and loaded on first use: **plugin discovery 211 ms → 39 ms**.
 * A plugin that needed a file from a **newer Mark** was rejected with *"pip install core"*. The loader could not tell this project's own packages from a third-party one, so it told people to install a same-named stranger from an index — wrong, and a supply-chain hazard dressed up as a fix. First-party names now say the app is behind the plugin and that there is nothing to install.
 
-> Built on the Mark LI–LV foundation: the **🧑‍🎤 Holographic Avatar**, **👄 Lip-Sync**, **🎚️ Push-to-Talk**, **🔇 Self-Echo Guard**, **🧩 Plugin System**, **♾️ Unlimited Sessions**, **🎨 Live Theming** and **🎙️ Wake Word** are all still here.
+> Built on the Mark LI–LV foundation: the **🧑‍🎤 Holographic Avatar**, **👄 Lip-Sync**, **🎚️ Push-to-Talk**, **🔇 Self-Echo Guard**, **🧩 Plugin System**, **♾️ Unlimited Sessions** and **🎨 Live Theming** are all still here.
+
+> Branch de desenvolvimento: `Dev` (parte do ecossistema Kolnd Hub, repositório [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub))
 
 ---
 
@@ -541,7 +543,7 @@ python main.py
 
 `setup.py` only ever installs what your operating system needs — the Windows-only libraries are skipped automatically on macOS and Linux, and vice-versa. It also checks your Python version up front, so a wrong interpreter fails with a sentence instead of a wall of pip output. Prefer to do it by hand? `pip install -r requirements.txt` works too.
 
-> ⚠️ **Installation Note:** If you hit a `ModuleNotFoundError` for an OS-specific package, install it with `pip install <module_name>`. The **wake word** engine ships installed (bundled in `requirements.txt` / the frozen build).
+> ⚠️ **Installation Note:** If you hit a `ModuleNotFoundError` for an OS-specific package, install it with `pip install <module_name>`.
 
 ---
 
@@ -553,13 +555,12 @@ python main.py
 | **Linux display server** | Everything works on **X11**. On **Wayland** — the default on Ubuntu 22.04+, Fedora and current GNOME/KDE — the system does not permit any program to type, click, capture the screen or raise another window, so those features are unavailable and JARVIS says so at startup instead of pretending. Voice, memory, files, the web and opening applications are unaffected. Log out and pick an Xorg session to get the rest |
 | **macOS permissions** | Accessibility (to type and click) and Screen Recording (to see the screen), both under System Settings → Privacy & Security. Until granted, those actions silently do nothing — the OS reports success either way |
 | **Python** | 3.11, 3.12 or 3.13 |
-| **Microphone** | Required for voice interaction (and for the "Hey Jarvis" wake word) |
+| **Microphone** | Required for voice interaction |
 | **Speakers** | Required for voice replies |
 | **API Key** | Free Gemini API key (entered on first launch → `config/api_keys.json`). Only for the Gemini engine — a fully local setup needs no key and no account |
 | **GPU** | **Not required, anywhere.** The avatar and HUD video are rendered in software; local speech recognition and the neural voice both run on the CPU by default |
 | **YouTube on the HUD** | `yt-dlp`, installed by `setup.py`. Without it, local files and direct URLs still play and YouTube links open in the browser with an explanation |
 | **Aviation Weather** | No API key or account required. The plugin uses the existing `requests` dependency and AviationWeather.gov's public API; an internet connection is required |
-| **Wake word** | ON by default — bundled (`openwakeword` + ONNX models, fully local). Sleeps until you say **Hey Jarvis**; each reply puts it to sleep again when it finishes, so every interaction needs the wake word. Switch off in ⚙ → WAKE WORD |
 | **A different engine** *(optional)* | Nothing extra. ⚙ → ENGINE & PROVIDERS talks to any local or hosted model over HTTP using a library the app already has |
 | **Local speech recognition** *(optional)* | `faster-whisper`, installed from the same panel. **CPU is the default** — a GPU is an option, never a requirement |
 | **Local voice** *(optional)* | `piper-tts` for a neural voice in ~50 languages, one click from the panel — or nothing at all, and it uses the voices your OS already has |
@@ -670,8 +671,7 @@ Mark LVI/
 │   ├── confirm.py            # Irreversible-action gate — the token is issued by the UI, not the model
 │   ├── audio_devices.py      # Microphone / speaker list — filtered, measured, resolved by name
 │   ├── plugin_loader.py      # Plugin engine — discovery, validation, crash isolation
-│   ├── action_loader.py      # Bundled-action engine — the built-in twin of plugin_loader
-│   └── wake_word.py          # Local "Hey Jarvis" detector — own thread, offline, default ON
+│   └── action_loader.py      # Bundled-action engine — the built-in twin of plugin_loader
 └── config/
     ├── api_keys.json         # API key, name, voice, colour, toggles — created on first launch (git-ignored)
     └── certs/                # Self-signed TLS pair for the phone dashboard — generated locally (git-ignored)

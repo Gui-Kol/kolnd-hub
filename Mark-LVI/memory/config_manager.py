@@ -104,26 +104,6 @@ def save_voice(voice_name: str) -> None:
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
-def get_wake_word_enabled() -> bool:
-    """Whether local wake-word gating is on (assistant sleeps until 'Hey Jarvis').
-
-    ON by default: the packaged build bundles openwakeword plus the ONNX
-    models, so the phrase works out of the box with zero post-install steps.
-    A stored False is respected — the user can still switch it off in ⚙."""
-    return load_api_keys().get("wake_word_enabled", True)
-
-
-def save_wake_word_enabled(enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["wake_word_enabled"] = bool(enabled)
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
-
 
 def get_push_to_talk_enabled() -> bool:
     """Hold-a-key-to-speak. When on, the mic is closed unless the chord is held."""
@@ -132,6 +112,38 @@ def get_push_to_talk_enabled() -> bool:
 
 def save_push_to_talk_enabled(enabled: bool) -> None:
     _save_flag("push_to_talk_enabled", enabled)
+
+
+def get_mute_chord() -> list[str]:
+    """The chord that toggles mic mute (default Ctrl+Shift+M).
+
+    Stored as a list of names (e.g. ["ctrl", "shift", "m"]); rebound in
+    ⚙ → ATALHOS. Falls back to the default on anything unrecognised — the
+    caller (UI or backend) validates before applying.
+    """
+    v = load_api_keys().get("mute_chord")
+    if isinstance(v, list) and v:
+        names = [str(n).strip().lower() for n in v if str(n).strip()]
+        if names:
+            return names
+    return ["ctrl", "shift", "m"]
+
+
+def save_mute_chord(chord) -> None:
+    """Persist the mic-mute chord. Chord order is whatever the caller passes
+    (already normalized by the UI); the backend re-normalizes on load anyway."""
+    names = [str(n).strip().lower() for n in (chord or []) if str(n).strip()]
+    if not names:
+        return
+    ensure_config_dir()
+    data: dict = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["mute_chord"] = names
+    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
 HUD_STYLES = ("face", "core")

@@ -120,3 +120,5 @@ Os comandos e diretórios de cada programa ficam configuráveis no app (**Config
 - `Mark-LVI/readme.md` — documentação do assistente JARVIS
 - `kloud-games/AGENTS.md` — instruções de build/teste do Kloud Games
 - Repositório: [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub)
+
+> Branch de desenvolvimento: `Dev` (o `main` é mantido estável e não recebe commits diretos)
