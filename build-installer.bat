@@ -24,22 +24,29 @@ cd /d "%HUB%"
 rem --- Garante que o Node.js esta no PATH ---
 rem (Node: nao usar blocos com parenteses contendo %PATH% - o PATH pode
 rem  conter "(x86)" e quebra o parser do cmd. Por isso usamos goto.)
-where node >nul 2>&1
-if not errorlevel 1 goto :node_ok
+rem Preenche o PATH com o diretorio do Node.js para garantir que cmd.exe
+rem encontre node e npm mesmo quando existem entradas corrompidas no PATH.
+set "NODEJS_DIR="
 if exist "C:\Program Files\nodejs\node.exe" set "NODEJS_DIR=C:\Program Files\nodejs"
 if exist "%USERPROFILE%\desenv\tools\node-v22.23.4-win-x64\node.exe" set "NODEJS_DIR=%USERPROFILE%\desenv\tools\node-v22.23.4-win-x64"
 if defined NODEJS_DIR set "PATH=%NODEJS_DIR%;%PATH%"
-:node_ok
 
 where node >nul 2>&1
 if errorlevel 1 goto :node_missing
-goto :node_ok2
+where npm >nul 2>&1
+if errorlevel 1 goto :npm_missing
+goto :node_ok
 :node_missing
 echo [ERRO] Node.js nao encontrado no PATH.
 echo Instale o Node.js LTS em https://nodejs.org e tente novamente.
 pause
 exit /b 1
-:node_ok2
+:npm_missing
+echo [ERRO] npm nao encontrado no PATH.
+echo Instale o Node.js LTS (que inclui o npm) em https://nodejs.org e tente novamente.
+pause
+exit /b 1
+:node_ok
 
 echo Node:
 node --version
