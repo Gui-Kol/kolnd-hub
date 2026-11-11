@@ -1,0 +1,51 @@
+# IDEs / editores
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*~
+*.swp
+*.swo
+
+# Dependências
+node_modules/
+bower_components/
+vendor/
+
+# Build / output
+build/
+dist/
+out/
+bin/
+obj/
+*.exe
+*.dll
+*.so
+*.dylib
+*.class
+*.pyc
+__pycache__/
+*.egg-info/
+*.egg
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Temp / caches
+.tmp/
+.cache/
+*.tmp

@@ -1,0 +1,6 @@
+public/bundle.js
+public/bundle.js.map
+public/img/*
+node_modules/
+.idea/
+dist/
