@@ -202,7 +202,16 @@
     animation: float 6s ease-in-out infinite;
   }
 
+  .animate-skew {
+    animation: skew 2s linear infinite;
+  }
+
   .text-shadow {
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
+}
+
+@keyframes skew {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }

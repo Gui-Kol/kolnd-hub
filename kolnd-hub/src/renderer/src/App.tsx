@@ -6,6 +6,7 @@ import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { LoadingScreen } from './components/LoadingScreen'
 import { apps as defaultApps } from './config/apps'
 import {
   AppConfig,
@@ -28,6 +29,7 @@ function App(): JSX.Element {
   const [appStates, setAppStates] = useState<Record<string, AppState>>({})
   const [apps, setApps] = useState<AppConfig[]>(defaultApps)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [pcName, setPcName] = useState<string | null>(null)
   const [bgProcesses, setBgProcesses] = useState<SystemProcess[]>([])
   const [startupItems, setStartupItems] = useState<StartupItem[]>([])
@@ -56,6 +58,41 @@ function App(): JSX.Element {
   // Nome do computador (exibe na aba lateral e na página de inicialização).
   useEffect(() => {
     window.api.systemPcName().then(setPcName).catch(() => setPcName(null))
+  }, [])
+
+  // ── Carregamento inicial (tela de loading) ────────────────────────
+  // Mantém a tela de loading visível até que os dados essenciais para
+  // todas as funcionalidades estejam disponíveis, evitando travamentos
+  // e engasgos ao usar o hub.
+  useEffect(() => {
+    let mounted = true
+
+    const init = async (): Promise<void> => {
+      await Promise.allSettled([
+        // Perfil do sistema (nome do PC, usado na sidebar e inicialização).
+        window.api.systemPcName().then((name) => {
+          if (mounted) setPcName(name)
+        }),
+        // Programas configurados para iniciar com o PC.
+        window.api.startupList().then((items) => {
+          if (mounted) setStartupItems(items)
+        }),
+        // Status inicial de todos os apps gerenciados pelo Hub.
+        window.api.getAllStatus().then((status) => {
+          if (mounted) {
+            setAppStates(status as Record<string, AppState>)
+          }
+        })
+      ])
+
+      if (mounted) setIsLoading(false)
+    }
+
+    init()
+
+    return (): void => {
+      mounted = false
+    }
   }, [])
 
   // Poll do status dos processos lançados pelo Hub (a cada 2s).
@@ -285,61 +322,68 @@ function App(): JSX.Element {
 
   return (
     <>
-      <Layout
-        currentPage={currentPage}
-        onNavigate={setCurrentPage}
-        runningCount={runningCount}
-        pcName={pcName}
-      >
-        {currentPage === 'dashboard' ? (
-          <Dashboard
-            apps={apps}
-            appStates={effectiveStates}
-            onLaunch={handleLaunch}
-            onStop={handleStop}
-          />
-        ) : currentPage === 'inicializacao' ? (
-          <ErrorBoundary>
-            <Inicializacao
-              pcName={pcName ?? ''}
-              items={startupItems}
-              importance={startupImportance}
-              labels={IMPORTANCE_LABELS}
-              onRemove={handleRemoveStartup}
-              onRemoveBatch={handleRemoveBatchStartup}
-              onAdd={handleAddStartup}
-              onAddBatch={handleAddBatchStartup}
-              onReload={loadStartupItems}
-              appsNotInStartup={appsNotInStartup}
-            />
-          </ErrorBoundary>
-        ) : (
-          <Settings apps={apps} onSave={handleSaveApps} />
-        )}
-      </Layout>
-
-      {/* ── Error toast ──────────────────────────────── */}
-      <AnimatePresence>
-        {notice && (
-          <motion.div
-            key={notice.id}
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
+      {/* ── Tela de loading inicial ─────────────────────── */}
+      {isLoading ? (
+        <LoadingScreen onReady={() => setIsLoading(false)} />
+      ) : (
+        <>
+          <Layout
+            currentPage={currentPage}
+            onNavigate={setCurrentPage}
+            runningCount={runningCount}
+            pcName={pcName}
           >
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-            <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
-            <button
-              onClick={() => setNotice(null)}
-              className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
-              aria-label="Fechar aviso"
-            >
-              <X size={13} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            {currentPage === 'dashboard' ? (
+              <Dashboard
+                apps={apps}
+                appStates={effectiveStates}
+                onLaunch={handleLaunch}
+                onStop={handleStop}
+              />
+            ) : currentPage === 'inicializacao' ? (
+              <ErrorBoundary>
+                <Inicializacao
+                  pcName={pcName ?? ''}
+                  items={startupItems}
+                  importance={startupImportance}
+                  labels={IMPORTANCE_LABELS}
+                  onRemove={handleRemoveStartup}
+                  onRemoveBatch={handleRemoveBatchStartup}
+                  onAdd={handleAddStartup}
+                  onAddBatch={handleAddBatchStartup}
+                  onReload={loadStartupItems}
+                  appsNotInStartup={appsNotInStartup}
+                />
+              </ErrorBoundary>
+            ) : (
+              <Settings apps={apps} onSave={handleSaveApps} />
+            )}
+          </Layout>
+
+          {/* ── Error toast ──────────────────────────────── */}
+          <AnimatePresence>
+            {notice && (
+              <motion.div
+                key={notice.id}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
+              >
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
+                <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
+                <button
+                  onClick={() => setNotice(null)}
+                  className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
+                  aria-label="Fechar aviso"
+                >
+                  <X size={13} />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      )}
     </>
   )
 }

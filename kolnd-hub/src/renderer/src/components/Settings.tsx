@@ -146,7 +146,7 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
           <p className="text-xs text-slate-400 leading-relaxed">
             Caminhos relativos (como
             <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
-              ../deepseek-harness
+              ../Mark-LVI
             </code>
             ) são resolvidos a partir da instalação do Kolnd Hub. Use caminhos absolutos se os
             programas estiverem em locais diferentes.

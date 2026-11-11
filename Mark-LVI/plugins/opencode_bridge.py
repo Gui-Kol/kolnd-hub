@@ -29,7 +29,6 @@ Configuration (⚙ → plugins → Open Code Bridge, persisted via config_manage
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -42,11 +41,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from memory.config_manager import get_plugin_setting
 
-try:
-    import websockets  # type: ignore
-    _HAS_WEBSOCKETS = True
-except Exception:  # pragma: no cover — websockets is in requirements.txt
-    _HAS_WEBSOCKETS = False
+logger = logging.getLogger("OpenCodeBridge")
 
 logger = logging.getLogger("OpenCodeBridge")
 
@@ -244,17 +239,20 @@ class JARVISOpenCodeBridge:
     # -- auth headers ---------------------------------------------------------
 
     def _auth_headers(self, payload_json: str) -> Dict[str, str]:
-        """Build the Bearer + HMAC headers for a signed request."""
+        """Build the Bearer + HMAC headers for a signed request.
+
+        HMAC headers are only added when enable_hmac is True, so a bridge
+        server that does not require signing still accepts the request.
+        """
         ts = int(time.time())
-        signature = self.auth.generate_signature(payload_json, ts)
         headers = {
             "Authorization": f"Bearer {self.auth.api_key}",
-            "X-Bridge-Timestamp": str(ts),
-            "X-Bridge-Signature": signature,
             "Content-Type": "application/json",
         }
-        if self.auth.api_key:
-            headers["Authorization"] = f"Bearer {self.auth.api_key}"
+        if self.auth.enable_hmac and self.auth.shared_secret:
+            signature = self.auth.generate_signature(payload_json, ts)
+            headers["X-Bridge-Timestamp"] = str(ts)
+            headers["X-Bridge-Signature"] = signature
         return headers
 
     # -- REST operations ------------------------------------------------------
@@ -291,8 +289,11 @@ class JARVISOpenCodeBridge:
     def _fetch_task_result(self, task_id: str) -> Optional[OpenCodeTaskResponse]:
         """GET /api/v1/opencode/tasks/{id} — read current task state/result."""
         try:
+            headers = {}
+            if self.auth.api_key:
+                headers["Authorization"] = f"Bearer {self.auth.api_key}"
             with httpx.Client(timeout=15.0) as client:
-                resp = client.get(self.auth.task_url(task_id))
+                resp = client.get(self.auth.task_url(task_id), headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()
                     return OpenCodeTaskResponse(
@@ -306,46 +307,6 @@ class JARVISOpenCodeBridge:
         except Exception as e:
             self._log(f"Task fetch failed: {e}")
         return None
-
-    # -- WebSocket event listener -------------------------------------------
-
-    async def _ws_listen(self, task_id: str, stop_event: asyncio.Event) -> None:
-        """Connect to the WebSocket and re-emit every event to the UI."""
-        headers = {"Authorization": f"Bearer {self.auth.api_key}"} \
-            if self.auth.api_key else {}
-        try:
-            # websockets >= 11 renamed extra_headers -> additional_headers.
-            # Try both so the plugin works across installed versions.
-            connect_kwargs = {"open_timeout": 10}
-            if headers:
-                connect_kwargs["additional_headers"] = headers
-            async with websockets.connect(
-                self.auth.ws_url(),
-                **connect_kwargs,
-            ) as ws:
-                self._log(f"WebSocket connected for task {task_id}")
-                while not stop_event.is_set():
-                    try:
-                        message = await asyncio.wait_for(ws.recv(), timeout=2.0)
-                    except asyncio.TimeoutError:
-                        continue
-                    try:
-                        raw = json.loads(message)
-                        event_type = raw.get("event_type", "log")
-                        payload = raw.get("payload", raw)
-                        self._emit_event(BridgeEvent(
-                            event_type=event_type,
-                            payload=payload,
-                            timestamp=raw.get("timestamp", time.time()),
-                        ))
-                        if event_type == "task_completed":
-                            stop_event.set()
-                            break
-                    except Exception as e:
-                        self._log(f"Malformed WS message: {e}")
-        except Exception as e:
-            self._log(f"WebSocket unavailable ({e}); falling back to REST polling.")
-            raise  # signal caller to fall back
 
     # -- polling fallback -----------------------------------------------------
 
@@ -416,22 +377,11 @@ class JARVISOpenCodeBridge:
         final_result: Optional[OpenCodeTaskResponse] = None
 
         try:
-            # 2. Try WebSocket first; fall back to polling.
-            if _HAS_WEBSOCKETS:
-                try:
-                    asyncio.run(self._ws_listen(server_task_id,
-                                                asyncio.Event()))
-                    # The WS listener drives itself; when it ends due to
-                    # task_completed we fetch the final result via REST.
-                    final_result = self._fetch_task_result(server_task_id)
-                except Exception:
-                    # _ws_listen already logged the fallback reason.
-                    pass
-
-            if final_result is None:
-                # 2b. REST polling fallback.
-                self._log(f"Polling task {server_task_id} for completion...")
-                final_result = self._poll_task(server_task_id, stop_event, deadline)
+            # 2. Poll the REST endpoint for progress until completion.
+            #    (The server also streams events over WebSocket; polling keeps
+            #    the client simple and robust without an asyncio event loop.)
+            self._log(f"Polling task {server_task_id} for completion...")
+            final_result = self._poll_task(server_task_id, stop_event, deadline)
 
             if final_result is None:
                 # Timeout or unreachable server.

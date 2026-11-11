@@ -2,20 +2,6 @@ import { AppConfig } from '../types'
 
 export const apps: AppConfig[] = [
   {
-    id: 'deepseek-harness',
-    name: 'DeepSeek Harness',
-    description:
-      'AI agent harness com interface web. Arquitetura de plugins para interagir com agentes de IA, terminal, browser e mais.',
-    icon: '🤖',
-    color: '#3B82F6',
-    gradient: 'from-blue-500 to-cyan-500',
-    command: 'pnpm dsh web',
-    cwd: '../deepseek-harness',
-    category: 'ai',
-    tags: ['IA', 'Agentes', 'Web UI'],
-    url: 'http://127.0.0.1:3080'
-  },
-  {
     id: 'mark-lvi',
     name: 'Mark LVI (JARVIS)',
     description:
@@ -42,19 +28,6 @@ export const apps: AppConfig[] = [
     tags: ['Jogos', 'Biblioteca', 'Launcher']
   },
   {
-    id: 'steamgriddb-manager',
-    name: 'SteamGridDB Manager',
-    description:
-      'Encontra jogos de diversos launchers e importa para o Steam com imagens personalizadas do SteamGridDB.com automaticamente.',
-    icon: '🖼️',
-    color: '#10B981',
-    gradient: 'from-emerald-500 to-teal-500',
-    command: 'npm run run',
-    cwd: '../steamgriddb-manager',
-    category: 'gaming',
-    tags: ['Steam', 'Imagens', 'Grid']
-  },
-  {
     id: 'kloud-games',
     name: 'Kloud Games',
     description:
@@ -67,19 +40,7 @@ export const apps: AppConfig[] = [
     category: 'streaming',
     tags: ['Streaming', 'Jogos', 'GPU']
   },
-  {
-    id: 'dev-folder',
-    name: 'Pasta Dev',
-    description:
-      'Acesso rápido à pasta de desenvolvimento do seu PC (C:\\Users\\TiffoDi\\desenv).',
-    icon: '📁',
-    color: '#6B7280',
-    gradient: 'from-gray-500 to-gray-600',
-    command: 'explorer.exe',
-    cwd: 'C:\\Users\\TiffoDi\\desenv',
-    category: 'dev',
-    tags: ['Arquivos', 'Pasta', 'Projetos']
-  },
+
   {
     id: 'intellij',
     name: 'IntelliJ IDEA',

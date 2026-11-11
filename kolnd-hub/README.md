@@ -42,10 +42,8 @@ As configurações são salvas em `localStorage` (por usuário).
 
 | Programa | Comando padrão | Observação |
 | --- | --- | --- |
-| DeepSeek Harness | `pnpm dsh web` | Requer pnpm e Node 24+ (monorepo do Harness) |
 | Mark LVI (JARVIS) | `py main.py` | Requer as dependências de `requirements.txt` |
 | Playnite | `Playnite.DesktopApp.exe` | Requer Playnite instalado em `%LOCALAPPDATA%\Playnite` |
-| SteamGridDB Manager | `npm run run` | Requer `npm install` na pasta do projeto |
 | Kloud Games | `kloud-games.exe` | Ajuste o diretório para a instalação local do Kloud Games |
 
 ## Estrutura

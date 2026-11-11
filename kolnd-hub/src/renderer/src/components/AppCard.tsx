@@ -48,8 +48,7 @@ export function AppCard({
         style={{
           borderImage: isRunning
             ? `linear-gradient(135deg, ${app.color}, #ef4444) 1`
-            : `linear-gradient(135deg, ${app.color}80, transparent) 1`,
-          borderImageSlice: 1
+            : `linear-gradient(135deg, ${app.color}80, transparent) 1`
         }}
       />
 

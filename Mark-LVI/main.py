@@ -44,6 +44,12 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox,
+    QComboBox, QPushButton, QFrame, QWidget
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 import sounddevice as sd
 import numpy as np
@@ -75,6 +81,7 @@ from memory.config_manager     import (
     get_brief_enabled, get_media_resolution, get_proactive_audio_enabled,
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
     get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
+    get_plugin_setting, save_plugin_config,
 )
 from core                     import gemini as _gemini
 from core.plugin_loader        import discover_plugins
@@ -2689,8 +2696,95 @@ class JarvisLive:
             print(f"[JARVIS] Reconnecting in {delay}s...")
             await asyncio.sleep(delay)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenCode bridge server — started automatically with JARVIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BRIDGE_PROC: "_subprocess.Popen[str] | None" = None
+_BRIDGE_PORT = 8000
+_BRIDGE_REMEMBER_KEY = False
+
+
+def _is_port_in_use(port: int) -> bool:
+    """True when something is already listening on the given TCP port."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _start_bridge_server() -> None:
+    """Launch bridge_server.py as a detached background process.
+
+    The OpenCode <-> JARVIS bridge must be running for the opencode_bridge
+    plugin to dispatch coding tasks. It is started automatically with JARVIS
+    and stopped when JARVIS exits.
+    """
+    global _BRIDGE_PROC
+
+    # Already running (e.g. launched manually) — do not start a duplicate.
+    if _is_port_in_use(_BRIDGE_PORT):
+        print(f"[Bridge] OpenCode bridge already listening on port {_BRIDGE_PORT}.")
+        return
+
+    server_script = Path(__file__).resolve().parent / "bridge_server.py"
+    if not server_script.exists():
+        print(f"[Bridge] bridge_server.py not found at {server_script} — "
+              "OpenCode integration will not be available.")
+        return
+
+    try:
+        _BRIDGE_PROC = _subprocess.Popen(
+            [sys.executable, str(server_script), "--port", str(_BRIDGE_PORT)],
+            cwd=str(Path(__file__).resolve().parent),
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+            stdin=_subprocess.DEVNULL,
+            creationflags=_subprocess.CREATE_NEW_PROCESS_GROUP
+            if _platform.system() == "Windows" else 0,
+        )
+        print(f"[Bridge] OpenCode bridge started (PID {_BRIDGE_PROC.pid}) on "
+              f"http://127.0.0.1:{_BRIDGE_PORT}")
+    except Exception as e:
+        print(f"[Bridge] Failed to start OpenCode bridge: {e}")
+        _BRIDGE_PROC = None
+
+
+def _stop_bridge_server() -> None:
+    """Stop the bridge server started by _start_bridge_server()."""
+    global _BRIDGE_PROC, _BRIDGE_REMEMBER_KEY
+    if _BRIDGE_PROC is None:
+        return
+    try:
+        if _platform.system() == "Windows":
+            _BRIDGE_PROC.send_signal(_subprocess.signal.CTRL_BREAK_EVENT)
+        else:
+            _BRIDGE_PROC.terminate()
+        _BRIDGE_PROC.wait(timeout=5)
+    except Exception:
+        try:
+            _BRIDGE_PROC.kill()
+        except Exception:
+            pass
+    _BRIDGE_PROC = None
+    print("[Bridge] OpenCode bridge stopped.")
+
+    # Se o usuário não quis lembrar a API key, apagá-la do disco
+    if not _BRIDGE_REMEMBER_KEY:
+        try:
+            save_plugin_config("opencode_bridge", {"nvidia_api_key": ""})
+            print("[Bridge] API key removida (sessão apenas).")
+        except Exception as e:
+            print(f"[Bridge] Não foi possível remover a API key: {e}")
+        _BRIDGE_REMEMBER_KEY = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def main():
     ui = JarvisUI("face.png")
+
+    # Start the OpenCode bridge server before JARVIS so it is ready when the
+    # opencode_bridge plugin needs it.
+    _start_bridge_server()
 
     def runner():
         ui.wait_for_api_key()
@@ -2699,6 +2793,8 @@ def main():
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
+        finally:
+            _stop_bridge_server()
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()
