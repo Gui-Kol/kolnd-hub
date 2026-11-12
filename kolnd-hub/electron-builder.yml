@@ -35,10 +35,19 @@ win:
     - nsis
 nsis:
   oneClick: false
-  allowToChangeInstallationDirectory: true
   # Per-user install (%LOCALAPPDATA%\Programs\Kolnd Hub): the install folder
-  # stays writable, which Mark LVI needs to create config/ and memory/
-  # next to its executable on first run.
+  # stays writable, which the currently bundled MarkLVI.exe still needs to
+  # create config/ and memory/ next to its executable on first run (the next
+  # Mark LVI rebuild honors MARK_LVI_HOME and writes to %APPDATA%\kolnd-hub\mark-lvi).
+  # Changing the install directory is disallowed on purpose: picking a
+  # Program Files location would make the bundled Mark LVI unable to write
+  # its data files there.
   perMachine: false
+  allowToChangeInstallationDirectory: false
+  # Never wipe %APPDATA%\kolnd-hub on uninstall: it holds the first-run flag,
+  # config.json (electron-store) and mark-lvi/ (the assistant's data).
+  # The uninstaller still removes the install directory itself (including
+  # resources/programs/MarkLVI) — document this in the README.
+  deleteAppDataOnUninstall: false
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico

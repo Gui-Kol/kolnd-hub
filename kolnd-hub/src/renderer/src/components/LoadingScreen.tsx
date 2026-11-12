@@ -86,9 +86,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
     <div className="fixed inset-0 z-[100] bg-[#050508] flex flex-col items-center justify-center overflow-hidden">
       {/* ── Fundo decorativo ─────────────────────────── */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-kloud-500/10 rounded-full blur-[120px] animate-pulse"
-        />
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-kloud-500/10 rounded-full blur-[120px] animate-pulse" />
         <div
           className="absolute bottom-[-20%] right-[-20%] w-[50%] h-[50%] bg-nintendo-500/10 rounded-full blur-[120px] animate-pulse"
           style={{ animationDelay: '2s' }}
@@ -191,11 +189,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
                 )}
                 <span
                   className={`text-xs font-medium leading-tight ${
-                    isDone
-                      ? 'text-emerald-400'
-                      : isActive
-                        ? 'text-white'
-                        : 'text-slate-500'
+                    isDone ? 'text-emerald-400' : isActive ? 'text-white' : 'text-slate-500'
                   }`}
                 >
                   {step.label}

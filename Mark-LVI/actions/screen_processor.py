@@ -39,14 +39,9 @@ except ImportError:
     _PIL = False
 
 
-def _base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-_BASE        = _base_dir()
-_CONFIG_PATH = _BASE / "config" / "api_keys.json"
+_CONFIG_PATH = data_dir() / "config" / "api_keys.json"
 
 
 def _load_config() -> dict:

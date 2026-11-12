@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { spawn } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
 export interface KloudGamesPathsState {
@@ -36,6 +36,27 @@ export interface KloudGamesStatus {
 const EXE_NAME = 'KLOUD_GAMES.exe'
 const MSI_NAME = 'KLOUD_GAMES.msi'
 const STATE_FILE = 'kloud-games.paths.json'
+const LOG_FILE = join('logs', 'kloud-games-install.log')
+
+/** Caminho do log de instalação em %APPDATA%\\kolnd-hub\\logs\\kloud-games-install.log. */
+export function getKloudGamesInstallLogPath(): string {
+  return join(app.getPath('userData'), LOG_FILE)
+}
+
+/** Acrescenta uma entrada carimbada ao log de instalação. Best-effort: nunca lança. */
+function appendKloudGamesLog(entry: string): void {
+  try {
+    const logPath = getKloudGamesInstallLogPath()
+    mkdirSync(dirname(logPath), { recursive: true })
+    const stamp = new Date().toISOString()
+    appendFileSync(logPath, `[${stamp}] ${entry}\n`, 'utf8')
+  } catch (err) {
+    console.warn(
+      '[kloud-games] Não foi possível gravar o log de instalação:',
+      err instanceof Error ? err.message : err
+    )
+  }
+}
 
 /** Pasta resources/programs/kloud-games (resourcesPath em produção, cwd em dev). */
 export function getKloudGamesDir(): string {
@@ -111,10 +132,7 @@ function walkForExe(dir: string, depth = 0): string | null {
   }
 
   for (const entry of entries) {
-    if (
-      entry.isDirectory() &&
-      !['node_modules', '_internal'].includes(entry.name.toLowerCase())
-    ) {
+    if (entry.isDirectory() && !['node_modules', '_internal'].includes(entry.name.toLowerCase())) {
       const found = walkForExe(join(dir, entry.name), depth + 1)
       if (found) return found
     }
@@ -137,7 +155,23 @@ function programFilesCandidates(): string[] {
   return candidates
 }
 
-/** Localiza o KLOUD_GAMES.exe. Ordem: estado salvo → pasta do Hub → Program Files. */
+/** Pastas-raiz onde varrer por KLOUD_GAMES.exe (profundidade ≤ 3). */
+function programFilesScanDirs(): string[] {
+  const dirs: string[] = []
+  const programFiles = process.env['ProgramFiles'] ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)']
+  const programW6432 = process.env['ProgramW6432']
+
+  dirs.push(join(programFiles, 'KLOUD_GAMES'))
+  // Visão 32-bit gravada em disco sob a pasta de 64 bits (equivalente ao WOW6432Node).
+  dirs.push(join(programFiles, 'WOW6432Node', 'KLOUD_GAMES'))
+  if (programW6432) dirs.push(join(programW6432, 'KLOUD_GAMES'))
+  if (programFilesX86) dirs.push(join(programFilesX86, 'KLOUD_GAMES'))
+
+  return dirs
+}
+
+/** Localiza o KLOUD_GAMES.exe. Ordem: estado salvo → pasta do Hub → Program Files → varredura (profundidade ≤ 3). */
 export function findKloudGamesExe(): string | null {
   const saved = readKloudGamesState().exePath
   if (saved && existsSync(saved)) {
@@ -154,6 +188,14 @@ export function findKloudGamesExe(): string | null {
   for (const candidate of programFilesCandidates()) {
     if (existsSync(candidate)) {
       return candidate
+    }
+  }
+
+  // 3) Varredura limitada (profundidade ≤ 3) nas pastas do MSI.
+  for (const dir of programFilesScanDirs()) {
+    const found = walkForExe(dir)
+    if (found) {
+      return found
     }
   }
 
@@ -196,72 +238,195 @@ export function getKloudGamesStatus(): KloudGamesStatus {
   }
 }
 
-/** Instala o MSI elevado via msiexec /quiet (mesmo fluxo da primeira execução). */
-function installMsiElevated(msiPath: string): Promise<{ success: boolean; error?: string }> {
+interface MsiInstallOutcome {
+  success: boolean
+  /** Código de saída do processo elevado (null quando nem chegou a iniciar). */
+  exitCode: number | null
+  error?: string
+}
+
+/** Detecta cancelamento do UAC a partir da saída do PowerShell (pt-BR/en, código 1223). */
+function looksLikeUacDenied(output: string): boolean {
+  return /cancelad|cancelled|canceled|1223|operation was canceled|operação foi cancelada/i.test(
+    output
+  )
+}
+
+/** Códigos de saída do msiexec/Windows Installer tratados com mensagem própria. */
+const MSIEXEC_USER_CANCEL = 1602 // ERROR_INSTALL_USEREXIT (assistente fechado/cancelado)
+const MSIEXEC_OTHER_INSTALL_IN_PROGRESS = new Set([1500, 1618]) // outra instalação em andamento
+const MSIEXEC_SUSPENDED_INSTALL = new Set([1704, 1705]) // instalação suspensa/pendente
+
+/**
+ * Abre o assistente de instalação do MSI de forma visível (a pessoa instala
+ * manualmente). Elevamos via PowerShell (RunAs) e aguardamos o fim.
+ * A saída do processo e o resultado ficam em %APPDATA%\\kolnd-hub\\logs\\kloud-games-install.log.
+ */
+function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
+  const logPath = getKloudGamesInstallLogPath()
   // O MSI é per-machine: sem privilégios administrativos, o Windows abre o
-  // prompt do UAC. Elevamos via PowerShell (RunAs) e aguardamos o fim.
+  // prompt do UAC. Aqui NÃO usamos /quiet — a pessoa vê e conclui o assistente.
   const escapedMsi = msiPath.replace(/'/g, "''")
-  const command = `$p = Start-Process msiexec.exe -ArgumentList '/i "${escapedMsi}" /quiet /norestart' -Verb RunAs -Wait -PassThru; exit $p.ExitCode`
+  const command = `$p = Start-Process msiexec.exe -ArgumentList '/i "${escapedMsi}" /norestart' -Verb RunAs -Wait -PassThru; exit $p.ExitCode`
+
+  appendKloudGamesLog(
+    `Início da instalação do Kloud Games\nMSI: ${msiPath}\nComando: powershell.exe -NoProfile -Command ${command}`
+  )
 
   return new Promise((resolve) => {
+    let output = ''
     const child = spawn('powershell.exe', ['-NoProfile', '-Command', command], {
       windowsHide: true,
-      stdio: 'ignore'
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      output += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      output += chunk.toString()
     })
 
     child.on('close', (code) => {
-      if (code === 0 || findKloudGamesExe()) {
-        resolve({ success: true })
-      } else {
+      const exitCode = code ?? null
+      appendKloudGamesLog(
+        `Código de saída do processo elevado: ${exitCode ?? 'desconhecido'}\nSaída:\n${
+          output.trim() || '(sem saída)'
+        }`
+      )
+
+      if (code === 0) {
+        resolve({ success: true, exitCode })
+        return
+      }
+
+      // UAC negado pelo usuário: o Start-Process -Verb RunAs falha com 1223/cancelado.
+      if (looksLikeUacDenied(output)) {
+        appendKloudGamesLog('Motivo: permissão negada (UAC cancelado pelo usuário).')
         resolve({
           success: false,
-          error: `Instalação do Kloud Games falhou (msiexec saiu com código ${code}). Execute como administrador ou aprove o UAC.`
+          exitCode,
+          error:
+            'Permissão negada (UAC). A instalação do Kloud Games foi pulada; você pode ativá-la depois tentando de novo.'
         })
+        return
       }
+
+      // Assistente cancelado pelo usuário (fechou a janela / clicou em Cancelar).
+      if (exitCode === MSIEXEC_USER_CANCEL) {
+        appendKloudGamesLog('Motivo: instalação cancelada pelo usuário no assistente.')
+        resolve({
+          success: false,
+          exitCode,
+          error: 'Instalação do Kloud Games cancelada no assistente. Você pode tentar de novo quando quiser.'
+        })
+        return
+      }
+
+      if (exitCode !== null && MSIEXEC_OTHER_INSTALL_IN_PROGRESS.has(exitCode)) {
+        appendKloudGamesLog('Motivo: outra instalação do Windows em andamento.')
+        resolve({
+          success: false,
+          exitCode,
+          error: `Outra instalação do Windows está em andamento (código ${exitCode}). Aguarde-a terminar (ou reinicie o PC) e tente de novo. Veja o log em ${logPath}.`
+        })
+        return
+      }
+
+      if (exitCode !== null && MSIEXEC_SUSPENDED_INSTALL.has(exitCode)) {
+        appendKloudGamesLog('Motivo: instalação do Kloud Games suspensa/pendente.')
+        resolve({
+          success: false,
+          exitCode,
+          error: `Há uma instalação do Kloud Games pendente/suspensa (código ${exitCode}). Abra o assistente manualmente e clique em desfazer, ou reinicie o PC e tente de novo. Veja o log em ${logPath}.`
+        })
+        return
+      }
+
+      resolve({
+        success: false,
+        exitCode,
+        error: `A instalação do Kloud Games falhou (msiexec saiu com código ${
+          exitCode ?? 'desconhecido'
+        }). Veja o log em ${logPath}.`
+      })
     })
 
     child.on('error', (err) => {
-      resolve({ success: false, error: err.message })
+      appendKloudGamesLog(`Falha ao iniciar o processo elevado: ${err.message}`)
+      resolve({
+        success: false,
+        exitCode: null,
+        error: `Não foi possível iniciar a instalação elevada: ${err.message}. Veja o log em ${logPath}.`
+      })
     })
   })
 }
 
 /**
  * Garante que o Kloud Games esteja instalado:
- *  1. Procura o .exe (estado salvo → pasta do Hub → Program Files);
+ *  1. Procura o .exe (estado salvo → pasta do Hub → Program Files → varredura ≤ 3);
+ *     se encontrar, não reinstala — registra "[kloud-games] já instalado — pulando";
  *  2. Se não achar, abre o MSI embutido para instalação (UAC);
- *  3. Após instalar, detecta o caminho do .exe e salva tudo em
- *     resources/programs/kloud-games/kloud-games.paths.json.
+ *  3. Após instalar, confirma a existência real do .exe antes de reportar sucesso;
+ *  4. Persiste tudo em resources/programs/kloud-games/kloud-games.paths.json.
  */
 export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResult> {
-  const before = refreshKloudGamesPaths()
-  if (before.exePath) {
-    return { success: true, exePath: before.exePath, msiPath: before.msiPath, installedNow: false }
+  // Pular reinstalação: valida paths.json e/ou varre Program Files antes de instalar.
+  const alreadyInstalled = findKloudGamesExe()
+  if (alreadyInstalled) {
+    const msiPath = findKloudGamesMsi()
+    console.log('[kloud-games] já instalado — pulando')
+    appendKloudGamesLog(`Já instalado em ${alreadyInstalled} — instalação pulada.`)
+    writeKloudGamesState({
+      exePath: alreadyInstalled,
+      msiPath,
+      installedAt: readKloudGamesState().installedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    })
+    return { success: true, exePath: alreadyInstalled, msiPath, installedNow: false }
   }
 
   const msiPath = findKloudGamesMsi()
   if (!msiPath) {
+    const expected = join(getKloudGamesDir(), MSI_NAME)
+    const error = `O MSI do Kloud Games está ausente no instalador (${expected}). Gere-o a partir de kloud-games/ (ver README em resources/programs/kloud-games/).`
+    appendKloudGamesLog(`MSI ausente: ${expected}`)
     return {
       success: false,
       msiPath: null,
-      error: `KLOUD_GAMES.exe não encontrado e o MSI não está em ${join(getKloudGamesDir(), MSI_NAME)}. Gere-o a partir de kloud-games/ (ver README em resources/programs/kloud-games/).`
+      error
     }
   }
 
-  const install = await installMsiElevated(msiPath)
+  const install = await launchInstallerElevated(msiPath)
+
+  // Verificação pós-instalação: estado salvo → Program Files → varredura ≤ 3.
   const exePath = findKloudGamesExe()
 
-  if (install.success && exePath) {
+  if (exePath) {
     writeKloudGamesState({
       exePath,
       msiPath,
       installedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     })
+    if (!install.success) {
+      appendKloudGamesLog(
+        `msiexec retornou código ${install.exitCode ?? 'desconhecido'}, mas o exe foi detectado — considerando instalado.`
+      )
+    }
     return { success: true, exePath, msiPath, installedNow: true }
   }
 
-  // MSI rodou mas o exe não apareceu (ou UAC negado): persiste o que sabemos.
+  const logPath = getKloudGamesInstallLogPath()
+  const error =
+    install.error ??
+    `O instalador terminou, mas o KLOUD_GAMES.exe não foi encontrado (verificados paths.json, Program Files e varredura de profundidade ≤ 3). Veja o log em ${logPath}.`
+
+  appendKloudGamesLog(`Falha na verificação pós-instalação: ${error}`)
+
+  // MSI rodou (ou não), mas o exe não apareceu (ou UAC negado): persiste o que sabemos.
   writeKloudGamesState({
     exePath: null,
     msiPath,
@@ -272,8 +437,6 @@ export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResul
   return {
     success: false,
     msiPath,
-    error:
-      install.error ??
-      'O instalador terminou, mas o KLOUD_GAMES.exe não foi encontrado em Program Files.'
+    error
   }
 }

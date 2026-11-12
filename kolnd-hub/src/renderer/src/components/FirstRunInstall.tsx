@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import React from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Zap,
   Loader2,
@@ -64,12 +64,8 @@ interface FirstRunInstallProps {
 }
 
 export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Element {
-  const [steps, setSteps] = useState<FirstRunStep[]>(
-    INITIAL_STEPS.map((s) => ({ ...s }))
-  )
-  const [logs, setLogs] = useState<string[]>([
-    '[KolndHub] Iniciando instalação automática…\n'
-  ])
+  const [steps, setSteps] = useState<FirstRunStep[]>(INITIAL_STEPS.map((s) => ({ ...s })))
+  const [logs, setLogs] = useState<string[]>(['[KolndHub] Iniciando instalação automática…\n'])
   const [completed, setCompleted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -80,9 +76,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
 
   const updateStep = useCallback(
     (stepId: string, status: FirstRunStep['status'], progress: number): void => {
-      setSteps((prev) =>
-        prev.map((s) => (s.id === stepId ? { ...s, status, progress } : s))
-      )
+      setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, status, progress } : s)))
     },
     []
   )
@@ -144,6 +138,10 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
     window.api.firstRunCancel().catch(() => undefined)
   }, [])
 
+  const handleRetryKloudGames = useCallback(() => {
+    window.api.firstRunRetryKloudGames().catch(() => undefined)
+  }, [])
+
   const progress = Math.round(
     (steps.filter((s) => s.status === 'done').length / steps.length) * 100
   )
@@ -184,7 +182,8 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
         </div>
 
         <p className="text-center text-sm text-slate-300 mb-6">
-          Estamos preparando tudo para que o Kolnd Hub funcione sem que você precise instalar nada manualmente.
+          Estamos preparando tudo para que o Kolnd Hub funcione sem que você precise instalar nada
+          manualmente.
         </p>
 
         {/* Barra de progresso */}
@@ -198,7 +197,11 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
         </div>
         <div className="flex justify-between items-center mb-6">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider">
-            {hasError ? 'Erro na instalação' : completed ? 'Instalação concluída' : 'Instalando dependências…'}
+            {hasError
+              ? 'Erro na instalação'
+              : completed
+                ? 'Instalação concluída'
+                : 'Instalando dependências…'}
           </span>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider">{progress}%</span>
         </div>
@@ -256,6 +259,14 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
                     <span className="ml-2 text-[10px] text-slate-400">({step.progress}%)</span>
                   )}
                 </span>
+                {step.id === 'kloud-games' && isError && (
+                  <button
+                    onClick={handleRetryKloudGames}
+                    className="ml-auto shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-300 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 hover:text-red-200 transition-all"
+                  >
+                    Tentar novamente
+                  </button>
+                )}
               </div>
             )
           })}

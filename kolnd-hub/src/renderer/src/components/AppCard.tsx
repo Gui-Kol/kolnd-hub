@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Play, Square, ExternalLink, Monitor, Gamepad2 } from 'lucide-react'
+import { Play, Square, ExternalLink } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 
 interface AppCardProps {
@@ -30,7 +30,10 @@ export function AppCard({
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
 
-  const badge = categoryBadge[app.category] ?? { label: app.category.toUpperCase(), className: 'badge-steam' }
+  const badge = categoryBadge[app.category] ?? {
+    label: app.category.toUpperCase(),
+    className: 'badge-steam'
+  }
 
   return (
     <motion.div
@@ -98,11 +101,7 @@ export function AppCard({
                 />
                 <span
                   className={`text-[10px] font-bold ${
-                    isRunning
-                      ? 'text-emerald-400'
-                      : isError
-                        ? 'text-red-400'
-                        : 'text-slate-500'
+                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-500'
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
@@ -153,7 +152,11 @@ export function AppCard({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            isRunning ? onStop() : onLaunch()
+            if (isRunning) {
+              onStop()
+            } else {
+              onLaunch()
+            }
           }}
           className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
             isRunning

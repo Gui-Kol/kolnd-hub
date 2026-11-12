@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, Square, Clock, Terminal, ExternalLink, FolderOpen, ScrollText } from 'lucide-react'
+import { motion } from 'framer-motion'
+import {
+  X,
+  Play,
+  Square,
+  Clock,
+  Terminal,
+  ExternalLink,
+  FolderOpen,
+  ScrollText
+} from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 
 interface AppDetailModalProps {
@@ -44,6 +53,7 @@ export function AppDetailModal({
     }
   }, [app.id])
 
+  // eslint-disable-next-line no-control-regex -- stripping ANSI color codes from process logs is intentional
   const cleanLogs = logs.replace(/\u001b\[[0-9;]*m/g, '').trim()
 
   return (
@@ -97,9 +107,7 @@ export function AppDetailModal({
               {app.icon}
             </div>
             <div className="flex-1">
-              <h3 className="text-2xl font-bold text-white tracking-tight">
-                {app.name}
-              </h3>
+              <h3 className="text-2xl font-bold text-white tracking-tight">{app.name}</h3>
               <div className="flex items-center gap-2 mt-2">
                 <div
                   className={`w-2.5 h-2.5 rounded-full ${
@@ -112,11 +120,7 @@ export function AppDetailModal({
                 />
                 <span
                   className={`text-xs font-bold ${
-                    isRunning
-                      ? 'text-emerald-400'
-                      : isError
-                        ? 'text-red-400'
-                        : 'text-slate-500'
+                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-500'
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
@@ -153,7 +157,9 @@ export function AppDetailModal({
               <div className="glass rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Clock size={14} className="text-slate-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Iniciado em</span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Iniciado em
+                  </span>
                 </div>
                 <span className="text-xs text-slate-300 block">
                   {new Date(state.startedAt).toLocaleString('pt-BR')}

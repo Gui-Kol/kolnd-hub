@@ -60,9 +60,9 @@ module.exports = {
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'glow': 'glow 2s ease-in-out infinite alternate',
-        'float': 'float 6s ease-in-out infinite',
-        'scanline': 'scanline 10s linear infinite'
+        glow: 'glow 2s ease-in-out infinite alternate',
+        float: 'float 6s ease-in-out infinite',
+        scanline: 'scanline 10s linear infinite'
       },
       keyframes: {
         glow: {
@@ -79,7 +79,7 @@ module.exports = {
         }
       },
       borderRadius: {
-        'xl': '12px',
+        xl: '12px',
         '2xl': '16px',
         '3xl': '24px'
       }

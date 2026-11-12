@@ -160,11 +160,13 @@ export function removeStartupItem(item: {
 }
 
 /** Remove vários itens da inicialização em lote. */
-export function removeStartupItemsBatch(items: Array<{
-  location: StartupLocation
-  scope: StartupScope
-  name: string
-}>): { success: boolean; errors: string[] } {
+export function removeStartupItemsBatch(
+  items: Array<{
+    location: StartupLocation
+    scope: StartupScope
+    name: string
+  }>
+): { success: boolean; errors: string[] } {
   const errors: string[] = []
   let ok = true
   for (const item of items) {
@@ -178,10 +180,10 @@ export function removeStartupItemsBatch(items: Array<{
 }
 
 /** Adiciona um item à inicialização (chave de registro Run do usuário atual). */
-export function addStartupItem(item: {
-  name: string
-  path: string
-}): { success: boolean; error?: string } {
+export function addStartupItem(item: { name: string; path: string }): {
+  success: boolean
+  error?: string
+} {
   try {
     ps(
       `$ErrorActionPreference = 'SilentlyContinue'\n$name = $env:KOLND_STARTUP_NAME\n$value = $env:KOLND_STARTUP_PATH\n$reg = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'\nif (-not (Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null }\ntry { New-ItemProperty -Path $reg -Name $name -Value $value -PropertyType String -Force -ErrorAction Stop } catch { Set-ItemProperty -Path $reg -Name $name -Value $value -ErrorAction Stop }\nexit 0`,

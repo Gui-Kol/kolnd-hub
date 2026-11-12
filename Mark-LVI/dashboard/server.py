@@ -38,6 +38,20 @@ try:
 except Exception:
     pass
 
+def _data_dir() -> Path:
+    """Pasta gravável de dados do usuário (config/, memory/, uploads/).
+
+    Honra MARK_LVI_HOME (definido pelo Kolnd Hub) assim como core/paths.py —
+    mantido local porque este servidor também roda como script solto.
+    """
+    import os
+    home = os.environ.get("MARK_LVI_HOME")
+    if home:
+        return Path(home).expanduser()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
 if getattr(sys, "frozen", False):
     # Packaged build: dashboard/static/ ships next to MarkLVI.exe
     BASE_DIR   = Path(sys.executable).resolve().parent
@@ -45,6 +59,8 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR   = Path(__file__).resolve().parent.parent
     STATIC_DIR = Path(__file__).parent / "static"
+
+DATA_DIR = _data_dir()
 # The port people TYPE, and the port the app actually runs on.
 #
 # They are not the same, and that is the fix for the most confusing failure
@@ -66,14 +82,14 @@ def _make_uploads_dir() -> Path:
     for candidate in [
         Path.home() / "Downloads" / "JARVIS Uploads",
         Path.home() / "Documents" / "JARVIS Uploads",
-        BASE_DIR / "uploads",
+        DATA_DIR / "uploads",
     ]:
         try:
             candidate.mkdir(parents=True, exist_ok=True)
             return candidate
         except Exception:
             pass
-    return BASE_DIR / "uploads"
+    return DATA_DIR / "uploads"
 
 
 UPLOADS_DIR = _make_uploads_dir()
@@ -81,7 +97,7 @@ UPLOADS_DIR = _make_uploads_dir()
 def _get_gemini_key() -> str | None:
     try:
         import json as _json
-        with open(BASE_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
+        with open(DATA_DIR / "config" / "api_keys.json", "r", encoding="utf-8") as f:
             return _json.load(f).get("gemini_api_key")
     except Exception:
         return None
@@ -595,7 +611,7 @@ def _ensure_certs() -> bool:
     Returns True when a usable pair exists afterwards; False leaves the caller on
     plain HTTP, which still works — the QR code simply encodes http:// instead.
     """
-    certs = BASE_DIR / "config" / "certs"
+    certs = DATA_DIR / "config" / "certs"
     key_p = certs / "jarvis.key"
     crt_p = certs / "jarvis.crt"
     if key_p.exists() and crt_p.exists():
@@ -785,13 +801,13 @@ class DashboardServer:
         """
         try:
             import json as _json
-            with open(BASE_DIR / "config" / "api_keys.json", "r",
+            with open(DATA_DIR / "config" / "api_keys.json", "r",
                       encoding="utf-8") as f:
                 if not _json.load(f).get("dashboard_https"):
                     return False
         except Exception:
             return False
-        certs = BASE_DIR / "config" / "certs"
+        certs = DATA_DIR / "config" / "certs"
         return (certs / "jarvis.key").exists() and (certs / "jarvis.crt").exists()
 
     def get_url(self) -> str:
@@ -1229,7 +1245,7 @@ class DashboardServer:
         # one nobody uses just leaves a private key on disk.
         try:
             import json as _json
-            with open(BASE_DIR / "config" / "api_keys.json", "r",
+            with open(DATA_DIR / "config" / "api_keys.json", "r",
                       encoding="utf-8") as f:
                 if _json.load(f).get("dashboard_https"):
                     _ensure_certs()
@@ -1237,8 +1253,8 @@ class DashboardServer:
             pass
 
         use_ssl  = self._ssl_enabled()
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key  = DATA_DIR / "config" / "certs" / "jarvis.key"
+        ssl_cert = DATA_DIR / "config" / "certs" / "jarvis.crt"
 
         # TLS IS WANTED, BUT NOT AT THE COST OF NOT STARTING.
         #

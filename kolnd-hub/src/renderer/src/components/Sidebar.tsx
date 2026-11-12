@@ -1,10 +1,4 @@
-import {
-  LayoutDashboard,
-  Settings,
-  Monitor,
-  Zap,
-  LogOut
-} from 'lucide-react'
+import { Wrench, Settings, Monitor, Zap, LogOut, Gamepad2 } from 'lucide-react'
 import { Page } from '../types'
 
 interface SidebarProps {
@@ -14,15 +8,11 @@ interface SidebarProps {
   onExit?: () => void
 }
 
-export function Sidebar({
-  currentPage,
-  onNavigate,
-  pcName,
-  onExit
-}: SidebarProps): JSX.Element {
+export function Sidebar({ currentPage, onNavigate, pcName, onExit }: SidebarProps): JSX.Element {
   const navItems: { id: Page; label: string; icon: any }[] = [
-    { id: 'dashboard', label: 'Biblioteca', icon: LayoutDashboard },
+    { id: 'dashboard', label: 'Ferramentas', icon: Wrench },
     { id: 'inicializacao', label: pcName ?? 'Meu PC', icon: Monitor },
+    { id: 'biblioteca', label: 'Biblioteca', icon: Gamepad2 },
     { id: 'settings', label: 'Configurações', icon: Settings }
   ]
 
@@ -51,8 +41,14 @@ export function Sidebar({
           <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-3">
             Este computador
           </p>
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-slate-300 truncate group" title={pcName}>
-            <Monitor size={13} className="shrink-0 text-slate-500 group-hover:text-playstation-500 transition-colors" />
+          <div
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-slate-300 truncate group"
+            title={pcName}
+          >
+            <Monitor
+              size={13}
+              className="shrink-0 text-slate-500 group-hover:text-playstation-500 transition-colors"
+            />
             <span className="min-w-0 truncate">{pcName}</span>
           </div>
         </div>
@@ -68,9 +64,14 @@ export function Sidebar({
             const Icon = item.icon
             const isActive = currentPage === item.id
             const activeColors = {
-              dashboard: 'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
-              inicializacao: 'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
-              settings: 'text-neon-purple bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
+              dashboard:
+                'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
+              inicializacao:
+                'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
+              biblioteca:
+                'text-steam-blue bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
+              settings:
+                'text-neon-purple bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
             } as Record<string, string>
             return (
               <button

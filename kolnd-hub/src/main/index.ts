@@ -16,10 +16,33 @@ import {
 } from './startupManager'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { registerFirstRunIpc } from './firstRunInstaller'
+import { registerConfigIpc } from './store'
+import { registerWingetIpc } from './wingetUpdater'
+import { registerTempCleanerIpc } from './tempCleaner'
+import { registerGamesIpc } from './games'
+import { registerSteamIpc } from './steamScanner'
+import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 const processManager = new ProcessManager()
+
+/**
+ * Allowlist de URLs para abrir no navegador externo.
+ * https://http://mailto: são os únicos esquemas permitidos — bloqueia
+ * file://, javascript:, data: e esquemas de protocolo arbitrários
+ * (qualquer XSS no renderer viraria um `app:launch` arbitrário; esta
+ * allowlist limita o que o renderer consegue alcançar por fora).
+ */
+function isAllowedExternalUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl)
+    const scheme = parsed.protocol.toLowerCase()
+    return scheme === 'https:' || scheme === 'http:' || scheme === 'mailto:'
+  } catch {
+    return false
+  }
+}
 
 function createWindow(isFirstRunMode = false): void {
   mainWindow = new BrowserWindow({
@@ -33,7 +56,9 @@ function createWindow(isFirstRunMode = false): void {
     backgroundColor: '#0a0a0f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
@@ -42,7 +67,11 @@ function createWindow(isFirstRunMode = false): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedExternalUrl(details.url)) {
+      shell.openExternal(details.url)
+    } else {
+      console.warn(`[window] setWindowOpenHandler: bloqueado esquema não permitido: ${details.url}`)
+    }
     return { action: 'deny' }
   })
 
@@ -107,6 +136,25 @@ app.whenReady().then(() => {
   // Registra os canais IPC da tela de primeira execução.
   registerFirstRunIpc(() => mainWindow)
 
+  // Registra os canais IPC da config persistente (electron-store).
+  registerConfigIpc()
+
+  // Registra os canais IPC do winget (listagem de atualizações).
+  registerWingetIpc()
+
+  // Registra os canais IPC da limpeza de arquivos temporários.
+  registerTempCleanerIpc()
+
+  // Registra os canais IPC da biblioteca de jogos.
+  registerGamesIpc()
+
+  // Registra os canais IPC da importação de jogos da Steam.
+  registerSteamIpc()
+
+  // Seed dos dados do Mark LVI para %APPDATA%/kolnd-hub/mark-lvi
+  // (migração transparente para quem já tinha config/memory ao lado do exe).
+  seedMarkLviData()
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -139,11 +187,41 @@ app.whenReady().then(() => {
   })
 
   // ── IPC: App management ─────────────────────────
-  ipcMain.handle('app:launch', async (_event, appId: string, command: string, cwd: string) => {
-    return processManager.launch(appId, command, cwd)
-  })
+  ipcMain.handle(
+    'app:launch',
+    async (_event, appId: unknown, command: unknown, cwd: unknown, useShell?: unknown) => {
+      // O renderer pode estar comprometido (XSS) — valide tudo que chega por IPC.
+      if (typeof appId !== 'string' || typeof command !== 'string' || typeof cwd !== 'string') {
+        return { success: false, error: 'Parâmetros inválidos para app:launch' }
+      }
+      const trimmedId = appId.trim()
+      const trimmedCommand = command.trim()
+      const trimmedCwd = cwd.trim()
+      if (!trimmedId || trimmedId.length > 100) {
+        return { success: false, error: 'appId inválido' }
+      }
+      if (!trimmedCommand || trimmedCommand.length > 4096) {
+        return { success: false, error: 'Comando vazio ou longo demais' }
+      }
+      if (trimmedCwd.length > 1024) {
+        return { success: false, error: 'Diretório de trabalho longo demais' }
+      }
 
-  ipcMain.handle('app:stop', async (_event, appId: string, command?: string) => {
+      // Mark LVI: dados do usuário (chave de API, memória) ficam em
+      // %APPDATA%/kolnd-hub/mark-lvi, não ao lado do .exe empacotado.
+      const env = trimmedId === 'mark-lvi' ? { MARK_LVI_HOME: getMarkLviDataDir() } : undefined
+
+      return processManager.launch(trimmedId, trimmedCommand, trimmedCwd, {
+        shell: useShell !== false,
+        env
+      })
+    }
+  )
+
+  ipcMain.handle('app:stop', async (_event, appId: unknown, command?: unknown) => {
+    if (typeof appId !== 'string' || (command !== undefined && typeof command !== 'string')) {
+      return { success: false, error: 'Parâmetros inválidos para app:stop' }
+    }
     const result = await processManager.stop(appId)
     if (result.success || !command) return result
     // O Hub só conhece processos que ele mesmo iniciou nesta sessão. Se o
@@ -152,7 +230,8 @@ app.whenReady().then(() => {
     return killProcessesForCommand(command)
   })
 
-  ipcMain.handle('app:status', async (_event, appId: string) => {
+  ipcMain.handle('app:status', async (_event, appId: unknown) => {
+    if (typeof appId !== 'string') return { status: 'stopped', logCount: 0 }
     return processManager.getStatus(appId)
   })
 
@@ -181,30 +260,23 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle(
-    'startup:add',
-    (_event, item: { name: string; path: string }) => {
-      return addStartupItem(item as Parameters<typeof addStartupItem>[0])
-    }
-  )
+  ipcMain.handle('startup:add', (_event, item: { name: string; path: string }) => {
+    return addStartupItem(item as Parameters<typeof addStartupItem>[0])
+  })
 
   ipcMain.handle(
     'startup:removeBatch',
     (_event, items: Array<{ location: string; scope: string; name: string }>) => {
-      return removeStartupItemsBatch(
-        items as Parameters<typeof removeStartupItemsBatch>[0]
-      )
+      return removeStartupItemsBatch(items as Parameters<typeof removeStartupItemsBatch>[0])
     }
   )
 
-  ipcMain.handle(
-    'startup:addBatch',
-    (_event, items: Array<{ name: string; path: string }>) => {
-      return addStartupItemsBatch(items as Parameters<typeof addStartupItemsBatch>[0])
-    }
-  )
+  ipcMain.handle('startup:addBatch', (_event, items: Array<{ name: string; path: string }>) => {
+    return addStartupItemsBatch(items as Parameters<typeof addStartupItemsBatch>[0])
+  })
 
-  ipcMain.handle('app:logs', async (_event, appId: string) => {
+  ipcMain.handle('app:logs', async (_event, appId: unknown) => {
+    if (typeof appId !== 'string') return ''
     return processManager.getLogs(appId)
   })
 
@@ -306,9 +378,10 @@ app.whenReady().then(() => {
       if (currentValue?.trim()) {
         const cleaned = resolvePath(currentValue.trim().replace(/^"|"$/g, ''))
         if (existsSync(cleaned)) {
-          defaultPath = mode === 'directory' && !cleaned.toLowerCase().endsWith('.exe')
-            ? cleaned
-            : dirname(cleaned)
+          defaultPath =
+            mode === 'directory' && !cleaned.toLowerCase().endsWith('.exe')
+              ? cleaned
+              : dirname(cleaned)
         } else if (existsSync(dirname(cleaned))) {
           defaultPath = dirname(cleaned)
         }
@@ -345,13 +418,18 @@ app.whenReady().then(() => {
   )
 
   // ── IPC: Shell ──────────────────────────────────
-  ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    shell.openExternal(url)
+  ipcMain.handle('shell:openExternal', (_event, url: unknown) => {
+    if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
+      console.warn(`[shell] openExternal bloqueado (esquema não permitido): ${String(url)}`)
+      return
+    }
+    void shell.openExternal(url)
   })
 
-  ipcMain.handle('shell:openPath', (_event, path: string) => {
+  ipcMain.handle('shell:openPath', (_event, path: unknown) => {
+    if (typeof path !== 'string' || path.trim().length === 0 || path.length > 1024) return
     // Settings may store relative paths (../Kloud Games) or %VAR% paths.
-    shell.openPath(resolvePath(path))
+    void shell.openPath(resolvePath(path))
   })
 
   // ── Forward process events to renderer ──────────

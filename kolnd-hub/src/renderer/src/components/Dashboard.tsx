@@ -1,17 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Activity,
-  Cpu,
-  Gamepad2,
-  Wifi,
-  Code,
-  Play,
-  Square,
-  ExternalLink,
-  AlertTriangle,
-  Clock
-} from 'lucide-react'
+import { Activity, Cpu, Gamepad2, Wifi, Code, Clock } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
 import { AppConfig, AppState } from '../types'
@@ -23,10 +12,7 @@ interface DashboardProps {
   onStop: (appId: string) => void
 }
 
-const categoryMeta: Record<
-  string,
-  { label: string; icon: any; color: string; glow: string }
-> = {
+const categoryMeta: Record<string, { label: string; icon: any; color: string; glow: string }> = {
   ai: {
     label: 'Inteligência Artificial',
     icon: Cpu,
@@ -79,10 +65,10 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
-              Biblioteca
+              Ferramentas
             </h2>
             <p className="text-sm text-slate-400 mt-1">
-              Gerencie e inicie seus jogos e aplicativos em um só lugar
+              Seus programas do ecossistema, num só lugar
             </p>
           </div>
           <div className="flex items-center gap-3">

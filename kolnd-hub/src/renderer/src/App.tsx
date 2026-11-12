@@ -5,6 +5,7 @@ import { Layout } from './components/Layout'
 import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
+import { Biblioteca } from './components/Biblioteca'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
@@ -19,6 +20,7 @@ import {
   IMPORTANCE_LABELS
 } from './types'
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
+import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
 
 interface Notice {
   id: number
@@ -60,7 +62,7 @@ function App(): JSX.Element {
     const command = `"${exePath}"`
     setApps((prev) => {
       const next = prev.map((a) => (a.id === 'kloud-games' ? { ...a, command, cwd: dir } : a))
-      localStorage.setItem('kolnd-hub-apps', JSON.stringify(next))
+      void saveAppConfigs(next)
       return next
     })
   }, [])
@@ -72,47 +74,19 @@ function App(): JSX.Element {
     return (): void => clearTimeout(timer)
   }, [notice])
 
-  // Load saved app configs from localStorage
+  // Load saved app configs (electron-store via IPC, com migração única do
+  // legado localStorage e fallback para ele se o store estiver indisponível).
   useEffect(() => {
-    const saved = localStorage.getItem('kolnd-hub-apps')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as AppConfig[]
-
-        // Old defaults → new bundled paths. Only entries that still hold the
-        // old default values are migrated; anything the user customized is
-        // left untouched.
-        const legacyDefaults: Record<string, Array<{ command: string; cwd: string }>> = {
-          'mark-lvi': [{ command: 'py main.py', cwd: '../Mark-LVI' }],
-          'kloud-games': [
-            { command: 'kloud-games.exe', cwd: '../kloud-games' },
-            // MSI-era default: jogo instalado pelo Hub na 1ª execução
-            { command: 'KLOUD_GAMES.exe', cwd: 'resources/programs/kloud-games' }
-          ]
-        }
-
-        const migrate = (a: AppConfig): AppConfig => {
-          const legacy = (legacyDefaults[a.id] ?? []).find(
-            (l) => l.command === a.command && l.cwd === a.cwd
-          )
-          if (legacy) {
-            const def = defaultApps.find((d) => d.id === a.id)
-            return def ? { ...def, ...a, command: def.command, cwd: def.cwd } : a
-          }
-          return a
-        }
-
-        // Merge saved values onto the current defaults so apps added in newer
-        // versions appear too, instead of localStorage hiding them forever.
-        const merged = defaultApps.map((def) => {
-          const savedApp = parsed.find((a) => a.id === def.id)
-          return savedApp ? migrate({ ...def, ...savedApp }) : def
-        })
-        const mergedIds = new Set(merged.map((a) => a.id))
-        setApps([...merged, ...parsed.map(migrate).filter((a) => !mergedIds.has(a.id))])
-      } catch {
-        // Ignore corrupted data
-      }
+    let mounted = true
+    loadAppConfigs()
+      .then((saved) => {
+        if (mounted) setApps(saved)
+      })
+      .catch(() => {
+        // Ignora — mantém os defaults
+      })
+    return (): void => {
+      mounted = false
     }
   }, [])
 
@@ -131,7 +105,10 @@ function App(): JSX.Element {
 
   // Nome do computador (exibe na aba lateral e na página de inicialização).
   useEffect(() => {
-    window.api.systemPcName().then(setPcName).catch(() => setPcName(null))
+    window.api
+      .systemPcName()
+      .then(setPcName)
+      .catch(() => setPcName(null))
   }, [])
 
   // ── Carregamento inicial (tela de loading) ────────────────────────
@@ -169,42 +146,46 @@ function App(): JSX.Element {
     }
   }, [])
 
-  // Poll do status dos processos lançados pelo Hub (a cada 2s).
-  useEffect(() => {
-    const poll = async (): Promise<void> => {
-      try {
-        const status = await window.api.getAllStatus()
-        setAppStates((prev) => {
-          const next = { ...prev }
-          for (const [id, state] of Object.entries(status)) {
-            next[id] = state as AppState
-          }
-          return next
-        })
-      } catch {
-        // Ignore polling errors
-      }
-    }
+  // Status dos processos lançados pelo Hub é 100% orientado a eventos:
+  // o main emite `status-change` em toda transição (ver onStatusChanged abaixo),
+  // então o polling periódico de getAllStatus era redundante. O estado inicial
+  // vem da carga em `init()`; o restante chega por eventos.
 
-    poll()
-    const interval = setInterval(poll, 2000)
-    return (): void => clearInterval(interval)
-  }, [])
-
-  // Poll de processos do sistema em segundo plano (a cada 5s).
+  // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
+  // 5s com a janela visível, 30s quando oculta (bandeja), trocando
+  // imediatamente no visibilitychange.
   useEffect(() => {
-    const poll = async (): Promise<void> => {
+    let cancelled = false
+    let timer: number | undefined
+
+    const tick = async (): Promise<void> => {
       try {
         const procs = await window.api.systemRunningProcesses()
-        setBgProcesses(procs as SystemProcess[])
+        if (!cancelled) setBgProcesses(procs as SystemProcess[])
       } catch {
         // Ignore polling errors
+      } finally {
+        if (!cancelled) {
+          const delay = document.visibilityState === 'visible' ? 5000 : 30000
+          timer = window.setTimeout(() => void tick(), delay)
+        }
       }
     }
 
-    poll()
-    const interval = setInterval(poll, 5000)
-    return (): void => clearInterval(interval)
+    const onVisibility = (): void => {
+      // Reinicia já com o intervalo novo; se a janela voltou a ficar visível,
+      // atualiza na hora em vez de esperar o ciclo de 30s.
+      window.clearTimeout(timer)
+      void tick()
+    }
+
+    void tick()
+    document.addEventListener('visibilitychange', onVisibility)
+    return (): void => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   // Listen for real-time status changes from main process
@@ -231,13 +212,7 @@ function App(): JSX.Element {
     }
     setStartupItems(items)
 
-    let map: Record<string, ImportanceLevel> = {}
-    try {
-      const saved = localStorage.getItem('kolnd-hub-startup-importance')
-      map = saved ? JSON.parse(saved) : {}
-    } catch {
-      // Ignore corrupted data
-    }
+    const map = await loadImportanceMap()
 
     const next: Record<string, ImportanceLevel> = {}
     for (const item of items) {
@@ -247,7 +222,9 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    loadStartupItems()
+    // Caregamento assíncrono: o estado só muda quando a lista chega.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStartupItems()
   }, [loadStartupItems])
 
   const handleRemoveStartup = useCallback(
@@ -263,7 +240,7 @@ function App(): JSX.Element {
 
       await loadStartupItems()
     },
-    [pcName, loadStartupItems]
+    [loadStartupItems]
   )
 
   // Remove vários itens da inicialização em lote.
@@ -283,23 +260,18 @@ function App(): JSX.Element {
   )
 
   // Verifica se um app configurado no Hub já está na inicialização do Windows.
-  const isAppInStartup = useCallback(
-    (app: AppConfig, items: StartupItem[]): boolean => {
-      const exe = executableName(app.command)
-      if (!exe) return false
-      return items.some(
-        (item) =>
-          executableName(item.path) === exe ||
-          executableName(item.name) === exe
-      )
-    },
-    []
-  )
+  const isAppInStartup = useCallback((app: AppConfig, items: StartupItem[]): boolean => {
+    const exe = executableName(app.command)
+    if (!exe) return false
+    return items.some(
+      (item) => executableName(item.path) === exe || executableName(item.name) === exe
+    )
+  }, [])
 
   // Apps configurados no Hub que ainda não iniciam com o PC.
   const appsNotInStartup = useMemo(() => {
-    return defaultApps.filter((app) => !isAppInStartup(app, startupItems))
-  }, [startupItems, isAppInStartup])
+    return apps.filter((app) => !isAppInStartup(app, startupItems))
+  }, [apps, startupItems, isAppInStartup])
 
   const handleAddStartup = useCallback(
     async (app: AppConfig): Promise<void> => {
@@ -384,7 +356,7 @@ function App(): JSX.Element {
         return
       }
 
-      const result = await window.api.launchApp(app.id, app.command, app.cwd)
+      const result = await window.api.launchApp(app.id, app.command, app.cwd, app.useShell)
       if (!result.success) {
         setNotice({
           id: Date.now(),
@@ -417,7 +389,7 @@ function App(): JSX.Element {
 
   const handleSaveApps = useCallback((updatedApps: AppConfig[]): void => {
     setApps(updatedApps)
-    localStorage.setItem('kolnd-hub-apps', JSON.stringify(updatedApps))
+    void saveAppConfigs(updatedApps)
   }, [])
 
   // Solicita ao processo principal que encerre tudo (processos, servidores,
@@ -441,7 +413,7 @@ function App(): JSX.Element {
 
   const saveDefaultAppConfigs = useCallback((): void => {
     setApps(defaultApps)
-    localStorage.setItem('kolnd-hub-apps', JSON.stringify(defaultApps))
+    void saveAppConfigs(defaultApps)
   }, [])
 
   const runningCount = Object.values(effectiveStates).filter((s) => s.status === 'running').length
@@ -492,6 +464,10 @@ function App(): JSX.Element {
                   appsNotInStartup={appsNotInStartup}
                 />
               </ErrorBoundary>
+            ) : currentPage === 'biblioteca' ? (
+              <ErrorBoundary>
+                <Biblioteca />
+              </ErrorBoundary>
             ) : (
               <Settings apps={apps} onSave={handleSaveApps} />
             )}
@@ -529,17 +505,14 @@ function App(): JSX.Element {
               }}
             >
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-              <div
-                className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl"
-              >
+              <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl">
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={24} className="mt-0.5 shrink-0 text-red-400" />
                   <div>
                     <h2 className="text-lg font-bold text-white">Encerrar Kolnd Hub?</h2>
                     <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                      Todos os programas e servidores iniciados pelo Hub serão fechados,
-                      incluindo o que estiver rodando em segundo plano. Nada do Kolnd Hub
-                      permanecerá aberto.
+                      Todos os programas e servidores iniciados pelo Hub serão fechados, incluindo o
+                      que estiver rodando em segundo plano. Nada do Kolnd Hub permanecerá aberto.
                     </p>
                   </div>
                 </div>

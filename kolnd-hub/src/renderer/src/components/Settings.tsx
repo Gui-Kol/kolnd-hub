@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, RotateCcw, Terminal, FolderOpen, AlertCircle, FileSearch, FolderSearch } from 'lucide-react'
+import {
+  Save,
+  RotateCcw,
+  Terminal,
+  FolderOpen,
+  AlertCircle,
+  FileSearch,
+  FolderSearch
+} from 'lucide-react'
 import { AppConfig } from '../types'
 
 interface SettingsProps {
@@ -9,9 +17,7 @@ interface SettingsProps {
 }
 
 export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
-  const [editedApps, setEditedApps] = useState<AppConfig[]>(
-    apps.map((a) => ({ ...a }))
-  )
+  const [editedApps, setEditedApps] = useState<AppConfig[]>(apps.map((a) => ({ ...a })))
   const [saved, setSaved] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
 
@@ -192,6 +198,30 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
                 </p>
               </div>
             </div>
+
+            {/* Modo de execução do comando */}
+            <label className="mt-4 flex items-start gap-2.5 cursor-pointer select-none w-fit">
+              <input
+                type="checkbox"
+                checked={app.useShell !== false}
+                onChange={(e) => {
+                  const useShell = e.target.checked
+                  setEditedApps((prev) => {
+                    const next = [...prev]
+                    next[index] = { ...next[index], useShell }
+                    return next
+                  })
+                  setSaved(false)
+                }}
+                className="mt-0.5 h-4 w-4 accent-kloud-500"
+              />
+              <span className="text-xs text-slate-400 leading-relaxed">
+                <span className="text-slate-200 font-semibold">Executar via shell (cmd.exe)</span> —
+                preserva aspas e argumentos, mas interpreta metacaracteres (&amp;, |, %VAR%).
+                Desative apenas para comandos simples sem argumentos complexos: ele é executado sem
+                interpretação de shell.
+              </span>
+            </label>
           </motion.div>
         ))}
       </div>

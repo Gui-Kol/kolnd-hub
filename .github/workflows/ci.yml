@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: kolnd-hub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kolnd-hub/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (electron-vite)
+        run: npm run build
+
+      # resources/programs/MarkLVI is ~600 MB and is not committed to git
+      # (it is produced by scripts/build-mark-lvi.ps1). electron-builder's
+      # extraResources fails if the source does not exist, so CI drops a
+      # placeholder to validate the packaging pipeline end to end.
+      - name: Create placeholder resources for packaging
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force resources/programs/MarkLVI | Out-Null
+          Set-Content -Path resources/programs/MarkLVI/README.txt `
+            -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
+
+      - name: Package (NSIS installer)
+        run: npm run package
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kolnd-hub-setup
+          path: kolnd-hub/dist/Kolnd Hub Setup *.exe
+          retention-days: 7

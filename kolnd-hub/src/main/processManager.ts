@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { resolve } from 'path'
 import treeKill from 'tree-kill'
+import { splitCommandLine, checkCommandLine } from './commandLine'
 
 interface ProcessInfo {
   process: ChildProcess
@@ -49,10 +50,28 @@ export function resolvePath(value: string): string {
   return resolve(baseDir, expandPath(value))
 }
 
+export interface LaunchOptions {
+  /**
+   * true (padrão): executa a string inteira via shell (cmd.exe) — preserva
+   * aspas e argumentos, mas interpreta metacaracteres (&, |, %FOO%, ...).
+   * false: separa a linha em argv e faz spawn sem shell — sem interpretação
+   * de shell; ideal para comandos simples e caminhos sem aspas especiais.
+   */
+  shell?: boolean
+  /** Variáveis de ambiente extras (ex.: MARK_LVI_HOME para o Mark LVI). */
+  env?: NodeJS.ProcessEnv
+}
+
 export class ProcessManager extends EventEmitter {
   private processes: Map<string, ProcessInfo> = new Map()
 
-  launch(appId: string, command: string, cwd: string): { success: boolean; error?: string } {
+  launch(
+    appId: string,
+    command: string,
+    cwd: string,
+    options: LaunchOptions = {}
+  ): { success: boolean; error?: string } {
+    const useShell = options.shell !== false
     const existing = this.processes.get(appId)
     if (existing && existing.status === 'running') {
       return { success: false, error: 'Processo já está em execução' }
@@ -63,21 +82,52 @@ export class ProcessManager extends EventEmitter {
       return { success: false, error: 'Nenhum comando configurado' }
     }
 
+    for (const issue of checkCommandLine(trimmedCommand)) {
+      // Nunca bloqueia (o comando é configurável de propósito), mas o aviso
+      // fica no log do main para facilitar diagnóstico.
+      console.warn(`[processManager] appId=${appId} checagem: ${issue.level}: ${issue.message}`)
+    }
+
     const workingDir = cwd.trim() ? resolvePath(cwd) : process.cwd()
     if (!existsSync(workingDir)) {
       return { success: false, error: `Diretório não encontrado: ${workingDir}` }
     }
 
     try {
-      // Passing the whole command string to the shell preserves quoted paths
-      // and arguments (e.g. "C:\Program Files\App\app.exe" --flag).
-      const child = spawn(trimmedCommand, {
-        cwd: workingDir,
-        shell: true,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env }
-      })
+      let child: ChildProcess
+
+      if (useShell) {
+        // Passar a string inteira para o shell preserva caminhos com aspas
+        // e argumentos. ⚠️ O comando é interpretado pelo cmd.exe: quem tiver
+        // o comando configurado decide o que executa.
+        console.log(
+          `[processManager] appId=${appId} launch via shell:true command="${trimmedCommand}" cwd="${workingDir}"` +
+            ' (interpretação pelo cmd.exe — metacaracteres serão avaliados)'
+        )
+        child = spawn(trimmedCommand, {
+          cwd: workingDir,
+          shell: true,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, ...options.env }
+        })
+      } else {
+        const argv = splitCommandLine(trimmedCommand)
+        if (argv.length === 0) {
+          return { success: false, error: 'Nenhum comando configurado' }
+        }
+        console.log(
+          `[processManager] appId=${appId} launch via shell:false argv=${JSON.stringify(argv)} cwd="${workingDir}"` +
+            ' (sem interpretação de shell)'
+        )
+        child = spawn(argv[0], argv.slice(1), {
+          cwd: workingDir,
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, ...options.env }
+        })
+      }
 
       const info: ProcessInfo = {
         process: child,
