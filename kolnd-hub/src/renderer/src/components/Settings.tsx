@@ -12,6 +12,7 @@ import {
   Check
 } from 'lucide-react'
 import { AppConfig } from '../types'
+import { BigPictureSettings } from './BigPictureSettings'
 
 interface SettingsProps {
   apps: AppConfig[]
@@ -206,6 +207,9 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
           </button>
         </div>
       </motion.div>
+
+      {/* ── Big Picture ─────────────────────────────── */}
+      <BigPictureSettings />
 
       <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
         Gerenciador de títulos

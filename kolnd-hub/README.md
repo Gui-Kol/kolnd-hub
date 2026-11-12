@@ -30,7 +30,7 @@ npm run format    # Prettier --write
 
 ## Qualidade e CI
 
-- **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `main/commandLine.ts`) — sem Electron, sem DOM.
+- **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
 - **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → typecheck → lint → format:check → testes → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefato: `dist/Kolnd Hub Setup *.exe` (7 dias).
 
@@ -97,11 +97,22 @@ Caminhos aceitam:
 - caminhos absolutos, ex.: `C:\Program Files\KLOUD_GAMES`
 - variáveis de ambiente, ex.: `%USERPROFILE%\Documents\My Games\kloud-games`
 
-As configurações são salvas no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas), sem mais sumir ao limpar os dados do navegador. Na primeira execução de uma versão com o store novo, o Hub migra automaticamente o que estava no `localStorage` (as chaves antigas viram `.bak`). Se o store estiver indisponível/corrompido, o app cai de volta no `localStorage` e funciona normalmente.
+As configurações são salvas no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas — a mais recente é a **'1.4.0'**, que adiciona as chaves do modo Big Picture), sem mais sumir ao limpar os dados do navegador. Na primeira execução de uma versão com o store novo, o Hub migra automaticamente o que estava no `localStorage` (as chaves antigas viram `.bak`). Se o store estiver indisponível/corrompido, o app cai de volta no `localStorage` e funciona normalmente.
 
 Por padrão os comandos rodam via **shell (cmd.exe)** — preserva aspas e argumentos. Desative "Executar via shell" em Configurações apenas para comandos simples, sem aspas/argumentos complexos: nesse caso a linha é separada em argv e o processo é executado **sem** interpretação de shell.
 
 > ⚠️ A instalação do MSI do Kloud Games na primeira execução **ainda não foi validada em máquina limpa** (sem Python/winget pré-instalados e com UAC aprovado). A validação ficou pendente — veja a seção de primeira execução acima.
+
+## Modo Big Picture
+
+Interface em tela cheia otimizada para gamepad e TV (estilo Steam Big Picture).
+
+- **Entrar:** botão **Big Picture** no rodapé da barra lateral, acima da versão. Sem controle configurado, o Hub abre a configuração antes de liberar a home ("pressione qualquer botão" detecta Xbox, PlayStation, Switch Pro ou genérico e aplica o perfil certo).
+- **Usar:** D-Pad ou stick esquerdo navega, A/Cross confirma, B/Circle volta, LB/RB alternam as seções (**Jogos · Ferramentas · Controle**), Start abre as opções. Mouse e teclado funcionam por inteiro em paralelo; os jogos da Biblioteca e os programas do Hub abrem direto da grade.
+- **Configurar:** em **Configurações → Big Picture** dá para remapear botão a botão (conflito entre ações pede confirmação) e ligar/desligar os efeitos sonoros. Se o controle desconectar no meio do uso, um aviso aparece na hora e some ao reconectar.
+- **Sair:** item **Sair do Big Picture** no rail, **B** na raiz ou **Esc** — devolve ao Hub normal sem fechar nada.
+
+A configuração do controle fica no **electron-store** (chaves `gamepad` e `bigPicture`, migração **'1.4.0'**), então sobrevive a reinícios.
 
 ## Primeira execução, UAC e antivírus
 
@@ -142,7 +153,8 @@ src/
 │                  #  programsDeployer, store), gerenciamento de processos
 │                  # (processManager, commandLine) e seed dos dados do Mark LVI
 ├── preload/       # bridge segura (contextBridge; sandbox habilitado)
-└── renderer/      # React (Dashboard, Settings, Inicialização, FirstRunInstall…)
+└── renderer/      # React (Dashboard, Settings, Inicialização, FirstRunInstall,
+                   # Big Picture (modo gamepad/TV)…)
                    # config via electron-store com fallback localStorage (lib/hubConfig.ts)
 ```
 

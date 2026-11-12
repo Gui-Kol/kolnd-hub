@@ -10,6 +10,7 @@ interface LayoutProps {
   runningCount: number
   pcName?: string | null
   onExit?: () => void
+  onEnterBigPicture?: () => void
 }
 
 export function Layout({
@@ -18,7 +19,8 @@ export function Layout({
   onNavigate,
   runningCount,
   pcName,
-  onExit
+  onExit,
+  onEnterBigPicture
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
@@ -76,6 +78,7 @@ export function Layout({
           onNavigate={onNavigate}
           pcName={pcName}
           onExit={onExit}
+          onEnterBigPicture={onEnterBigPicture}
         />
         <main className="flex-1 overflow-y-auto p-8 pb-12">{children}</main>
       </div>

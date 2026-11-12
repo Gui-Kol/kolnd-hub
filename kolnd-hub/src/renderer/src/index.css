@@ -31,6 +31,17 @@
     animation: scanline 10s linear infinite;
   }
 
+  /* Acessibilidade: quem pediu menos movimento recebe menos movimento (T8) */
+  @media (prefers-reduced-motion: reduce) {
+    .scanlines,
+    .animate-pulse-slow,
+    .animate-glow,
+    .animate-float,
+    .animate-skew {
+      animation: none !important;
+    }
+  }
+
   /* Custom scrollbar gamer */
   ::-webkit-scrollbar {
     width: 8px;

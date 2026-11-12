@@ -6,9 +6,17 @@ interface SidebarProps {
   onNavigate: (page: Page) => void
   pcName?: string | null
   onExit?: () => void
+  /** Abre o modo Big Picture (tela cheia, navegação para gamepad). Oculto em ?first-run=1. */
+  onEnterBigPicture?: () => void
 }
 
-export function Sidebar({ currentPage, onNavigate, pcName, onExit }: SidebarProps): JSX.Element {
+export function Sidebar({
+  currentPage,
+  onNavigate,
+  pcName,
+  onExit,
+  onEnterBigPicture
+}: SidebarProps): JSX.Element {
   const navItems: { id: Page; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Ferramentas', icon: Wrench },
     { id: 'inicializacao', label: pcName ?? 'Meu PC', icon: Monitor },
@@ -105,6 +113,18 @@ export function Sidebar({ currentPage, onNavigate, pcName, onExit }: SidebarProp
 
       {/* ── Footer ───────────────────────────────────── */}
       <div className="p-4 border-t border-white/[0.05] bg-white/[0.02]">
+        {/* ── Big Picture: entrada para o modo console ── */}
+        {onEnterBigPicture && (
+          <button
+            type="button"
+            onClick={onEnterBigPicture}
+            aria-label="Entrar no modo Big Picture"
+            className="w-full flex items-center gap-3 px-4 py-3 mb-3 rounded-xl text-sm font-medium text-neon-cyan border border-neon-cyan/25 bg-neon-cyan/5 transition-all duration-200 hover:bg-neon-cyan/10 hover:border-neon-cyan/40 hover:shadow-glow-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+          >
+            <Gamepad2 size={17} className="shrink-0" />
+            <span className="min-w-0 truncate">Big Picture</span>
+          </button>
+        )}
         <div className="text-center">
           <p className="text-[10px] font-bold text-slate-500 tracking-tight">Kolnd Hub</p>
           <p className="text-[9px] text-slate-600 mt-0.5">v1.0.0 · Gamer Edition</p>

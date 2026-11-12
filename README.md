@@ -6,7 +6,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 | Pasta / arquivo            | O que é                                                                                                                                                          | Stack                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, configurações, bandeja, primeira execução)                                                                                    | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
+| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, configurações, bandeja, primeira execução, modo Big Picture)                                                                  | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
 | `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                    | Python + PyQt6, empacotado com PyInstaller                         |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                    | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                  | CMD + PowerShell                                                   |
@@ -22,7 +22,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Instalação para o usuário final
 
-Baixe e execute `Kolnd Hub Setup 1.1.0.exe` (gerado em `kolnd-hub/dist/`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução dispara dois processos elevados via UAC:
+Baixe e execute `Kolnd Hub Setup 1.4.0.exe` (gerado em `kolnd-hub/dist/`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução dispara dois processos elevados via UAC:
 
 1. Instalação silenciosa do **Python 3.x** via `winget`, apenas se ele não estiver presente;
 2. Instalação do **Kloud Games** a partir do MSI embutido (serviço + firewall + autostart).
@@ -55,7 +55,7 @@ O script:
 
 1. Garante o Node.js no PATH e instala pré-requisitos via `winget` (Git, MSYS2 em `C:\msys64` e .NET SDK 8, necessários para o WiX/cpack);
 2. Roda `kolnd-hub/scripts/build-kloud-games.ps1` — correções idempotentes de renomeação do snapshot, submódulos (incluindo aninhados e o fix aplicado via `scripts/patches/moonlight-stdatomic-guards.patch`), dependências ucrt64, `cmake + ninja` com gcc, `cpack -G WIX` e cópia do MSI para `kolnd-hub/resources/programs/kloud-games/`;
-3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup 1.1.0.exe` (~360 MB).
+3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup 1.4.0.exe` (~360 MB).
 
 Se o Kloud Games já estiver compilado, apenas o passo 3 é necessário:
 
@@ -97,10 +97,13 @@ kolnd-hub/src/
 │               # instaladores silenciosos, implantação dos programas e
 │               # config persistente (electron-store com schema + migração IPC)
 ├── preload/    # bridge segura (contextBridge, sandbox habilitado)
-└── renderer/   # React: Dashboard, Settings, Inicialização, FirstRunInstall…
+└── renderer/   # React: Dashboard, Settings, Inicialização, FirstRunInstall,
+                # Big Picture (modo gamepad/TV)…
 ```
 
-Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
+Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback; a migração mais recente é a **'1.4.0'**, do modo Big Picture). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
+
+O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em **Big Picture** no rodapé da barra lateral e a janela entra em tela cheia com uma transição cinematográfica. A interface é navegável 100% por controle (D-Pad/stick + botões; LB/RB alternam Jogos · Ferramentas · Controle; B/Esc sai de volta ao Hub) — sem controle configurado, o primeiro acesso abre a configuração (detecção automática do modelo via "pressione qualquer botão", ajuste manual em **Configurações → Big Picture**). Mouse e teclado funcionam em paralelo, e a configuração do controle sobrevive a reinícios (`electron-store`, chaves `gamepad`/`bigPicture`).
 
 ## Segurança e distribuição
 

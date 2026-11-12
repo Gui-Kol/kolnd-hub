@@ -17,6 +17,7 @@ import {
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { registerFirstRunIpc } from './firstRunInstaller'
 import { registerConfigIpc, registerPrefsIpc } from './store'
+import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
 import { registerGamesIpc } from './games'
@@ -141,6 +142,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
   registerPrefsIpc()
+
+  // Registra os canais IPC do modo Big Picture (controle + preferências de sons).
+  registerGamepadIpc()
 
   // Registra os canais IPC do winget (listagem de atualizações).
   registerWingetIpc()
@@ -300,6 +304,34 @@ app.whenReady().then(() => {
       mainWindow.unmaximize()
     } else {
       mainWindow?.maximize()
+    }
+  })
+
+  // ── IPC: Big Picture — tela cheia ───────────────
+  // `setFullScreen` (NÃO `maximize`, NÃO `kiosk`): a janela continua fechável
+  // por Alt+F4 em emergência. Guarda os bounds antes de entrar e restaura ao
+  // sair — o Electron nem sempre devolve a janela ao tamanho/posição exatos.
+  // Janelas maximizadas ficam fora dessa restauração (o estado maximized já
+  // devolve o tamanho correto sozinho).
+  let boundsBeforeFullscreen: Electron.Rectangle | null = null
+  ipcMain.handle('window:set-fullscreen', (_event, flag: unknown) => {
+    if (typeof flag !== 'boolean') {
+      console.warn('[window] set-fullscreen: flag inválida (esperado boolean)')
+      return
+    }
+    if (!mainWindow) return
+    if (flag) {
+      boundsBeforeFullscreen = mainWindow.isMaximized() ? null : mainWindow.getBounds()
+      mainWindow.setFullScreen(true)
+      return
+    }
+    mainWindow.setFullScreen(false)
+    const saved = boundsBeforeFullscreen
+    boundsBeforeFullscreen = null
+    if (saved) {
+      mainWindow.once('leave-full-screen', () => {
+        mainWindow?.setBounds(saved)
+      })
     }
   })
 

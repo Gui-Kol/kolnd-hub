@@ -29,6 +29,14 @@ export interface AppState {
 
 export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca'
 
+// Tipos do modo Big Picture (lib/gamepad, T1) re-exportados para consumo único.
+export type {
+  GamepadProfile,
+  GamepadAction,
+  GamepadButtonMapping,
+  GamepadConfig
+} from './lib/gamepad'
+
 /** Relatório da importação de jogos da Steam (IPC `steam:import`). */
 export interface SteamImportResult {
   ok: boolean

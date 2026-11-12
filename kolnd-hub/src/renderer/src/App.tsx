@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, X } from 'lucide-react'
 import { Layout } from './components/Layout'
+import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
@@ -54,6 +55,12 @@ function App(): JSX.Element {
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+  // Modo Big Picture: 'hidden' = shell normal; 'setup' = gate (sem controle
+  // configurado, exibe a tela de configuração antes da home); 'transitioning'
+  // = transição cinematográfica (T7) antes da home liberar; 'active' = home.
+  const [bigPicture, setBigPicture] = useState<'hidden' | 'setup' | 'transitioning' | 'active'>(
+    'hidden'
+  )
   // Garante que o autostart do Kloud Games seja avaliado uma única vez por
   // sessão (StrictMode invoca os efeitos duas vezes em dev).
   const kloudAutoLaunchTriedRef = useRef(false)
@@ -453,12 +460,79 @@ function App(): JSX.Element {
     }
   }, [])
 
+  // ── Big Picture: entrada sempre passa pelo gate ─────────────
+  // Único ponto de decisão (todos os caminhos de entrada — botão da sidebar,
+  // deep-links futuros — passam por aqui):
+  //   controle configurado (ou store ilegível tratada como ausente) inexistente
+  //   → gate de configuração ('setup'); config válida → home ('active').
+  const enterBigPicture = useCallback((): void => {
+    // ?first-run=1 nunca abre o Big Picture (P12) — recusa silenciosa.
+    if (isFirstRunFromQuery()) {
+      console.warn('[big-picture] entrada recusada durante a primeira execução')
+      return
+    }
+    void (async () => {
+      let hasConfig: boolean
+      try {
+        const result = await window.api.getGamepadConfig()
+        // Config ausente/inválida/erro (store corrompido) → gate ("não configurado").
+        hasConfig = result.ok && result.config !== null
+      } catch {
+        hasConfig = false
+      }
+      void window.api.setFullScreen(true)
+      // Config válida → transição cinematográfica (T7); sem config → gate (T6).
+      setBigPicture(hasConfig ? 'transitioning' : 'setup')
+    })()
+  }, [])
+
+  const exitBigPicture = useCallback((): void => {
+    void window.api.setFullScreen(false)
+    setBigPicture('hidden')
+  }, [])
+
+  // Setup do gate concluído (config persistida): transição cinematográfica
+  // direto para a home — nunca volta para o Hub no meio do caminho.
+  const handleBigPictureSetupComplete = useCallback((): void => {
+    setBigPicture('transitioning')
+  }, [])
+
+  // T7: transição cinematográfica concluída (ou pulada) → home liberada.
+  const handleBigPictureTransitionComplete = useCallback((): void => {
+    setBigPicture('active')
+  }, [])
+
   const saveDefaultAppConfigs = useCallback((): void => {
     setApps(defaultApps)
     void saveAppConfigs(defaultApps)
   }, [])
 
   const runningCount = Object.values(effectiveStates).filter((s) => s.status === 'running').length
+
+  // Toast de erro/aviso — compartilhado entre o shell normal e o Big Picture.
+  const noticeToast = (
+    <AnimatePresence>
+      {notice && (
+        <motion.div
+          key={notice.id}
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+          className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
+        >
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
+          <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
+          <button
+            onClick={() => setNotice(null)}
+            className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
+            aria-label="Fechar aviso"
+          >
+            <X size={13} />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
 
   return (
     <>
@@ -475,6 +549,20 @@ function App(): JSX.Element {
         />
       ) : isLoading ? (
         <LoadingScreen onReady={handleLoadingReady} />
+      ) : bigPicture !== 'hidden' ? (
+        <>
+          {/* ── Big Picture: takeover em tela cheia (no lugar do Layout) ── */}
+          <BigPicture
+            mode={bigPicture}
+            apps={apps}
+            appStates={effectiveStates}
+            onLaunchTool={handleLaunch}
+            onExit={exitBigPicture}
+            onSetupComplete={handleBigPictureSetupComplete}
+            onTransitionComplete={handleBigPictureTransitionComplete}
+          />
+          {noticeToast}
+        </>
       ) : (
         <>
           <Layout
@@ -483,6 +571,7 @@ function App(): JSX.Element {
             runningCount={runningCount}
             pcName={pcName}
             onExit={() => setExitModalOpen(true)}
+            onEnterBigPicture={enterBigPicture}
           >
             {currentPage === 'dashboard' ? (
               <Dashboard
@@ -516,27 +605,7 @@ function App(): JSX.Element {
           </Layout>
 
           {/* ── Error toast ──────────────────────────────── */}
-          <AnimatePresence>
-            {notice && (
-              <motion.div
-                key={notice.id}
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
-              >
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-                <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
-                <button
-                  onClick={() => setNotice(null)}
-                  className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
-                  aria-label="Fechar aviso"
-                >
-                  <X size={13} />
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {noticeToast}
 
           {/* ── Modal: confirmação de saída ──────────────── */}
           {exitModalOpen && (

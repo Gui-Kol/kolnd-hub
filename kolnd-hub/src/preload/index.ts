@@ -1,5 +1,33 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+// Espelho manual de `src/renderer/src/lib/gamepad/types.ts` (T1).
+// Qualquer alteração nos 12 controles/índices deve ser refletida lá e no index.d.ts.
+interface GamepadButtonMapping {
+  confirm: number | null
+  back: number | null
+  up: number | null
+  down: number | null
+  left: number | null
+  right: number | null
+  menu: number | null
+  options: number | null
+  tab_prev: number | null
+  tab_next: number | null
+  stick_left: number | null
+  stick_right: number | null
+}
+
+interface GamepadConfig {
+  profile: 'xbox' | 'playstation' | 'switch' | 'generic'
+  controllerId: string
+  controllerName: string
+  vendorId?: string
+  productId?: string
+  mapping: GamepadButtonMapping
+  autoMapped: boolean
+  configuredAt: string
+}
+
 const api = {
   // ── Sistema ─────────────────────────────────────
   systemPcName: (): Promise<string> => ipcRenderer.invoke('system:pc-name'),
@@ -31,6 +59,30 @@ const api = {
     value: boolean
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('prefs:set', value),
 
+  // ── Big Picture (modo tela cheia) ────────────────
+  getGamepadConfig: (): Promise<{
+    ok: boolean
+    config: GamepadConfig | null
+    error?: string
+  }> => ipcRenderer.invoke('gamepad:get'),
+
+  setGamepadConfig: (
+    config: GamepadConfig
+  ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('gamepad:set', config),
+
+  resetGamepadConfig: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('gamepad:reset'),
+
+  getBigPicturePrefs: (): Promise<{
+    ok: boolean
+    prefs: { sounds: boolean }
+    error?: string
+  }> => ipcRenderer.invoke('bigpicture:get-prefs'),
+
+  setBigPicturePrefs: (prefs: {
+    sounds: boolean
+  }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('bigpicture:set-prefs', prefs),
+
   // ── App management ──────────────────────────────
   launchApp: (
     appId: string,
@@ -57,6 +109,8 @@ const api = {
   minimizeWindow: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
   closeWindow: (): Promise<void> => ipcRenderer.invoke('window:close'),
+  setFullScreen: (flag: boolean): Promise<void> =>
+    ipcRenderer.invoke('window:set-fullscreen', flag),
 
   // ── Encerramento completo do Hub ────────────────
   shutdownHub: (): Promise<{ success: boolean }> => ipcRenderer.invoke('app:shutdown'),
@@ -189,8 +243,18 @@ const api = {
   checkGameExes: (exePaths: string[]): Promise<boolean[]> =>
     ipcRenderer.invoke('games:check-exes', exePaths),
 
-  launchGame: (id: string): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('games:launch', id),
+  launchGame: (id: string): Promise<{
+    ok: boolean
+    error?: string
+    focused?: boolean
+    alreadyRunning?: boolean
+  }> => ipcRenderer.invoke('games:launch', id),
+
+  stopGame: (id: string): Promise<{ ok: boolean; error?: string; killed?: number }> =>
+    ipcRenderer.invoke('games:stop', id),
+
+  getRunningGames: (ids: string[]): Promise<{ ok: boolean; running: Record<string, boolean> }> =>
+    ipcRenderer.invoke('games:running-map', ids),
 
   getGameIcon: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-icon', id),
 

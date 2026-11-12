@@ -54,7 +54,67 @@ export interface HubStoreSchema {
   games: StoredGame[]
   /** Preferência: iniciar o Kloud Games junto com o Hub (default false). */
   launchKloudOnStart: boolean
+  /** Mapeamento de controle do modo Big Picture; null = nunca configurado. */
+  gamepad: GamepadConfig | null
+  /** Preferências do modo Big Picture (ex.: efeitos sonoros). */
+  bigPicture: BigPicturePrefs
 }
+
+// ── Big Picture: controle (gamepad) ──────────────────────
+// Tipos espelhados de `src/renderer/src/lib/gamepad/types.ts` (T1).
+// Mantidos em separado porque o main não importa o renderer; qualquer
+// alteração nos 12 controles/índices deve ser refletida nos dois lados.
+
+export type GamepadProfile = 'xbox' | 'playstation' | 'switch' | 'generic'
+
+export type GamepadAction =
+  | 'confirm'
+  | 'back'
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'menu'
+  | 'options'
+  | 'tab_prev'
+  | 'tab_next'
+  | 'stick_left'
+  | 'stick_right'
+
+export type GamepadButtonMapping = Record<GamepadAction, number | null>
+
+export interface GamepadConfig {
+  profile: GamepadProfile
+  controllerId: string
+  controllerName: string
+  vendorId?: string
+  productId?: string
+  mapping: GamepadButtonMapping
+  autoMapped: boolean
+  configuredAt: string
+}
+
+/** Preferências do modo Big Picture (chave `bigPicture`). */
+export interface BigPicturePrefs {
+  sounds: boolean
+}
+
+const GAMEPAD_PROFILES: GamepadProfile[] = ['xbox', 'playstation', 'switch', 'generic']
+
+const GAMEPAD_ACTIONS: GamepadAction[] = [
+  'confirm',
+  'back',
+  'up',
+  'down',
+  'left',
+  'right',
+  'menu',
+  'options',
+  'tab_prev',
+  'tab_next',
+  'stick_left',
+  'stick_right'
+]
 
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
 const IMPORTANCE_LEVELS: ImportanceLevelName[] = ['critico', 'recomendado', 'opcional', 'inutil']
@@ -178,6 +238,100 @@ export function normalizeGames(input: unknown): StoredGame[] {
   return out
 }
 
+/** Coage um índice de botão para inteiro no intervalo 0–15 (16 = Guide/Home, proibido). */
+function normalizeButtonIndex(value: unknown): number | null {
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : NaN
+  if (!Number.isFinite(n)) return null
+  const truncated = Math.trunc(n)
+  if (truncated < 0 || truncated > 15) return null
+  return truncated
+}
+
+/**
+ * Valida/normaliza a configuração de controle do Big Picture vinda do
+ * renderer/devtools ou do disco. Qualquer inconsistência → null (o gate de
+ * primeira execução trata null como "não configurado"). O índice 16
+ * (Guide/Home) é rejeitado de propósito — muitos drivers o capturam.
+ */
+export function normalizeGamepadConfig(input: unknown): GamepadConfig | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const raw = input as Record<string, unknown>
+
+  const profile = GAMEPAD_PROFILES.includes(raw.profile as GamepadProfile)
+    ? (raw.profile as GamepadProfile)
+    : null
+  if (!profile) return null
+
+  const controllerId = typeof raw.controllerId === 'string' ? raw.controllerId.trim() : ''
+  const controllerName = typeof raw.controllerName === 'string' ? raw.controllerName.trim() : ''
+  const configuredAt = typeof raw.configuredAt === 'string' ? raw.configuredAt.trim() : ''
+  if (!controllerId || !controllerName || !configuredAt) return null
+  if (typeof raw.autoMapped !== 'boolean') return null
+
+  if (!raw.mapping || typeof raw.mapping !== 'object' || Array.isArray(raw.mapping)) return null
+  const rawMapping = raw.mapping as Record<string, unknown>
+  const mapping = {} as GamepadButtonMapping
+  for (const action of GAMEPAD_ACTIONS) {
+    const rawValue = rawMapping[action]
+    if (rawValue === undefined) return null // ação ausente = config incompleta (rejeita)
+    // `null` explícito = "sem botão" (fluxo de conflito do ajuste manual) — permitido.
+    if (rawValue === null) {
+      mapping[action] = null
+      continue
+    }
+    const index = normalizeButtonIndex(rawValue)
+    if (index === null) return null
+    mapping[action] = index
+  }
+
+  const config: GamepadConfig = {
+    profile,
+    controllerId,
+    controllerName,
+    mapping,
+    autoMapped: raw.autoMapped,
+    configuredAt
+  }
+
+  if (typeof raw.vendorId === 'string' && raw.vendorId.trim()) config.vendorId = raw.vendorId.trim()
+  if (typeof raw.productId === 'string' && raw.productId.trim()) config.productId = raw.productId.trim()
+
+  return config
+}
+
+/**
+ * Chave canônica para comparar duas configs ignorando `configuredAt`.
+ * Usada para não regravar `configuredAt` quando nada mudou de verdade
+ * (evita churn no config.json a cada salvamento idêntico).
+ */
+function gamepadConfigFingerprint(config: GamepadConfig): string {
+  const mapping: Record<string, number | null> = {}
+  for (const action of GAMEPAD_ACTIONS) mapping[action] = config.mapping[action]
+  return JSON.stringify({
+    profile: config.profile,
+    controllerId: config.controllerId,
+    controllerName: config.controllerName,
+    vendorId: config.vendorId ?? null,
+    productId: config.productId ?? null,
+    mapping,
+    autoMapped: config.autoMapped
+  })
+}
+
+/** Normaliza as preferências do Big Picture; qualquer inconsistência cai no default `{ sounds: true }`. */
+export function normalizeBigPicturePrefs(input: unknown): BigPicturePrefs {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const sounds = (input as Record<string, unknown>).sounds
+    if (typeof sounds === 'boolean') return { sounds }
+  }
+  return { sounds: true }
+}
+
 const schema: Store.Schema<HubStoreSchema> = {
   apps: {
     type: 'array',
@@ -228,6 +382,20 @@ const schema: Store.Schema<HubStoreSchema> = {
   launchKloudOnStart: {
     type: 'boolean',
     default: false
+  },
+  // Objeto livre de propósito — o conteúdo é validado por normalizeGamepadConfig().
+  // `type: ['object', 'null']` é obrigatório: um `type: 'object'` simples quebra
+  // a leitura quando o valor é null.
+  gamepad: {
+    type: ['object', 'null'],
+    default: null
+  },
+  bigPicture: {
+    type: 'object',
+    default: { sounds: true },
+    properties: {
+      sounds: { type: 'boolean' }
+    }
   }
 }
 
@@ -244,7 +412,8 @@ function createStore(): Store<HubStoreSchema> | null {
       // no próprio arquivo e roda, em ordem, as chaves ≤ projectVersion que ainda
       // não foram aplicadas. 1.0.0 é a baseline; 1.1.0 normaliza apps antigos
       // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`;
-      // 1.3.0 garante o default da chave `launchKloudOnStart`.
+      // 1.3.0 garante o default da chave `launchKloudOnStart`;
+      // 1.4.0 garante os defaults de `gamepad` (null) e `bigPicture` ({ sounds: true }).
       migrations: {
         '1.0.0': (): void => {
           // Baseline — nada a fazer; as chaves já têm defaults pelo schema.
@@ -267,6 +436,17 @@ function createStore(): Store<HubStoreSchema> | null {
         '1.3.0': (s): void => {
           try {
             s.set('launchKloudOnStart', s.get('launchKloudOnStart', false) === true)
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.4.0': (s): void => {
+          try {
+            // Garante a chave `gamepad` (null = não configurado). Um valor
+            // presente mas inválido volta a null — nunca derruba a leitura.
+            s.set('gamepad', normalizeGamepadConfig(s.get('gamepad', null)))
+            // Garante a chave `bigPicture` com `{ sounds: true }` como default.
+            s.set('bigPicture', normalizeBigPicturePrefs(s.get('bigPicture', { sounds: true })))
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -410,6 +590,92 @@ export function setLaunchKloudOnStart(value: unknown): { success: boolean; error
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[store] Falha ao salvar launchKloudOnStart:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lê a configuração de controle do Big Picture (null = não configurado/inválida). */
+export function getGamepadConfig(): GamepadConfig | null {
+  if (!store) return null
+  try {
+    return normalizeGamepadConfig(store.get('gamepad', null))
+  } catch (err) {
+    console.error('[store] Falha ao ler gamepad:', err)
+    return null
+  }
+}
+
+/**
+ * Normaliza e persiste a configuração de controle.
+ * Config inválida → `{ success: false }` sem gravar nada.
+ * Se o restante da config for idêntico à atual, `configuredAt` é preservado
+ * (evita churn no config.json a cada salvamento igual).
+ */
+export function setGamepadConfig(input: unknown): { success: boolean; error?: string } {
+  const config = normalizeGamepadConfig(input)
+  if (!config) {
+    return {
+      success: false,
+      error: 'Configuração de controle inválida (perfil, mapeamento ou índice de botão 0–15).'
+    }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getGamepadConfig()
+    if (current && gamepadConfigFingerprint(current) === gamepadConfigFingerprint(config)) {
+      config.configuredAt = current.configuredAt
+    }
+    store.set('gamepad', config)
+    console.log(`[store] Controle configurado salvo: ${config.controllerName} (perfil ${config.profile})`)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[store] Falha ao salvar gamepad:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Apaga a chave `gamepad` (volta a null = não configurado). */
+export function resetGamepadConfig(): { success: boolean; error?: string } {
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.delete('gamepad')
+    console.log('[store] Configuração de controle apagada')
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[store] Falha ao apagar gamepad:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lê as preferências do Big Picture (default `{ sounds: true }`). */
+export function getBigPicturePrefs(): BigPicturePrefs {
+  if (!store) return { sounds: true }
+  try {
+    return normalizeBigPicturePrefs(store.get('bigPicture', { sounds: true }))
+  } catch (err) {
+    console.error('[store] Falha ao ler bigPicture:', err)
+    return { sounds: true }
+  }
+}
+
+/** Persiste as preferências do Big Picture. Apenas `sounds` (boolean) é aceito. */
+export function setBigPicturePrefs(input: unknown): { success: boolean; error?: string } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { success: false, error: 'Preferências inválidas.' }
+  }
+  const sounds = (input as Record<string, unknown>).sounds
+  if (typeof sounds !== 'boolean') {
+    return { success: false, error: 'Preferências inválidas: `sounds` deve ser booleano.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('bigPicture', { sounds })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[store] Falha ao salvar bigPicture:', message)
     return { success: false, error: message }
   }
 }

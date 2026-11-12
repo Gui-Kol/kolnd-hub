@@ -3,6 +3,10 @@ module.exports = {
   content: ['./src/renderer/index.html', './src/renderer/src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      screens: {
+        // TVs 4K / monitores grandes (≥ 1920 px) — tipografia e alvos maiores.
+        '3xl': '1920px'
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         display: ['"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif']

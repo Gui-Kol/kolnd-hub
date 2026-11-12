@@ -1,3 +1,31 @@
+// Espelho manual de `src/renderer/src/lib/gamepad/types.ts` (T1).
+// Qualquer alteração nos 12 controles/índices deve ser refletida lá e no index.ts.
+interface GamepadButtonMapping {
+  confirm: number | null
+  back: number | null
+  up: number | null
+  down: number | null
+  left: number | null
+  right: number | null
+  menu: number | null
+  options: number | null
+  tab_prev: number | null
+  tab_next: number | null
+  stick_left: number | null
+  stick_right: number | null
+}
+
+interface GamepadConfig {
+  profile: 'xbox' | 'playstation' | 'switch' | 'generic'
+  controllerId: string
+  controllerName: string
+  vendorId?: string
+  productId?: string
+  mapping: GamepadButtonMapping
+  autoMapped: boolean
+  configuredAt: string
+}
+
 declare global {
   interface Window {
     api: {
@@ -20,6 +48,21 @@ declare global {
         dir: string
         running: boolean
       }>
+
+      // ── Big Picture (modo tela cheia) ────────────────
+      getGamepadConfig: () => Promise<{
+        ok: boolean
+        config: GamepadConfig | null
+        error?: string
+      }>
+      setGamepadConfig: (config: GamepadConfig) => Promise<{ ok: boolean; error?: string }>
+      resetGamepadConfig: () => Promise<{ ok: boolean; error?: string }>
+      getBigPicturePrefs: () => Promise<{
+        ok: boolean
+        prefs: { sounds: boolean }
+        error?: string
+      }>
+      setBigPicturePrefs: (prefs: { sounds: boolean }) => Promise<{ ok: boolean; error?: string }>
 
       // ── Preferências do Hub ───────────────────────────
       getLaunchKloudOnStart: () => Promise<boolean>
@@ -48,6 +91,7 @@ declare global {
       minimizeWindow: () => Promise<void>
       maximizeWindow: () => Promise<void>
       closeWindow: () => Promise<void>
+      setFullScreen: (flag: boolean) => Promise<void>
 
       // ── Inicialização do PC (startup) ───────────────
       startupList: () => Promise<
@@ -155,7 +199,14 @@ declare global {
         exePath: string
       ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>
       checkGameExes: (exePaths: string[]) => Promise<boolean[]>
-      launchGame: (id: string) => Promise<{ ok: boolean; error?: string }>
+      launchGame: (id: string) => Promise<{
+        ok: boolean
+        error?: string
+        focused?: boolean
+        alreadyRunning?: boolean
+      }>
+      stopGame: (id: string) => Promise<{ ok: boolean; error?: string; killed?: number }>
+      getRunningGames: (ids: string[]) => Promise<{ ok: boolean; running: Record<string, boolean> }>
       getGameIcon: (id: string) => Promise<string | null>
       addCustomGame: (
         exePath: string

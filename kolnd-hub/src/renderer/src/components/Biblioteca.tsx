@@ -12,9 +12,11 @@ import {
   ImagePlus,
   RotateCcw,
   Trash2,
-  X
+  X,
+  Square
 } from 'lucide-react'
 import { Game, SteamImportResult, AddCustomGameResult } from '../types'
+import { useGamesRunning } from '../hooks/useGamesRunning'
 
 interface Toast {
   id: number
@@ -28,9 +30,106 @@ type SteamImportState =
   | { phase: 'done'; result: SteamImportResult }
 
 /**
+ * Botão "Encerrar jogo" — só pode ser pressionado quando o jogo estiver
+ * aberto (disabled caso contrário). Confirmação em duas etapas inline
+ * ("Encerrar" → "Confirmar?" por 4 s), para não perder progresso por um
+ * clique acidental.
+ */
+function StopGameButton({
+  game,
+  running,
+  onStopped
+}: {
+  game: Game
+  running: boolean
+  onStopped: (game: Game, result: { ok: boolean; error?: string }) => void
+}): JSX.Element {
+  const [confirming, setConfirming] = useState(false)
+  const timeoutRef = useRef<number | null>(null)
+
+  useEffect(
+    () => (): void => {
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+    },
+    []
+  )
+
+  // Jogo fechado por conta própria: sai do modo de confirmação.
+  // (Ajuste de estado durante o render — padrão oficial "you might not need an effect".)
+  const [prevRunning, setPrevRunning] = useState(running)
+  if (running !== prevRunning) {
+    setPrevRunning(running)
+    if (!running) setConfirming(false)
+  }
+
+  const handleActivate = useCallback(
+    async (event: React.SyntheticEvent): Promise<void> => {
+      event.stopPropagation()
+      if (!running) return
+      if (!confirming) {
+        setConfirming(true)
+        timeoutRef.current = window.setTimeout(() => setConfirming(false), 4000)
+        return
+      }
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+      setConfirming(false)
+      try {
+        const result = await window.api.stopGame(game.id)
+        onStopped(game, result)
+      } catch (err) {
+        onStopped(game, { ok: false, error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+    [confirming, game, onStopped, running]
+  )
+
+  return (
+    <span
+      role="button"
+      tabIndex={running ? 0 : -1}
+      aria-label={`Encerrar ${game.name}`}
+      aria-disabled={!running}
+      aria-pressed={confirming}
+      title={
+        running
+          ? confirming
+            ? 'Clique de novo para encerrar o jogo'
+            : `Encerrar ${game.name}`
+          : 'O jogo não está em execução'
+      }
+      onClick={(event) => void handleActivate(event)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          void handleActivate(event)
+        }
+      }}
+      className={`absolute top-2 right-12 inline-flex h-[30px] items-center justify-center rounded-lg border border-transparent p-2 text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400/50 ${
+        !running
+          ? 'cursor-not-allowed text-slate-700'
+          : confirming
+            ? 'border-red-500/40 bg-red-500/15 text-red-300'
+            : 'hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 cursor-pointer'
+      }`}
+    >
+      {confirming ? (
+        <span className="text-[9px] font-bold uppercase tracking-wide">Confirmar?</span>
+      ) : (
+        <Square size={13} />
+      )}
+    </span>
+  )
+}
+
+/**
  * Biblioteca de jogos do Kolnd Hub — página exclusiva para jogos instalados.
  * Os cards lançam o executável via `window.api.launchGame(id)` (spawn direto,
  * sem ProcessManager), então o contador de apps ativos do Hub não é afetado.
+ * Se o jogo já estiver aberto, o launch foca a janela existente em vez de
+ * abrir outra instância.
  */
 export function Biblioteca(): JSX.Element {
   const [games, setGames] = useState<Game[]>([])
@@ -46,6 +145,8 @@ export function Biblioteca(): JSX.Element {
   const iconRequests = useRef<Set<string>>(new Set())
   // T9 — selo ".exe não encontrado": ids cujo executável não existe mais no disco.
   const [missingExes, setMissingExes] = useState<Set<string>>(new Set())
+  // Quais jogos estão com processo aberto (para habilitar o botão "Encerrar").
+  const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
 
@@ -74,6 +175,7 @@ export function Biblioteca(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadGames()
   }, [loadGames])
 
@@ -82,6 +184,7 @@ export function Biblioteca(): JSX.Element {
   useEffect(() => {
     let cancelled = false
     if (games.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMissingExes(new Set())
       return
     }
@@ -165,9 +268,29 @@ export function Biblioteca(): JSX.Element {
         showToast(`Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`)
         return
       }
-      showToast(`Iniciando ${game.name}…`)
+      showToast(
+        result.focused
+          ? `${game.name} já está aberto — trazendo a janela para frente.`
+          : result.alreadyRunning
+            ? `${game.name} já está em execução — aguarde a janela.`
+            : `Iniciando ${game.name}…`
+      )
+      void refreshRunning()
     },
-    [showToast]
+    [showToast, refreshRunning]
+  )
+
+  // Encerramento pelo Hub (botão só fica habilitado com o jogo aberto).
+  const handleGameStopped = useCallback(
+    (game: Game, result: { ok: boolean; error?: string }): void => {
+      showToast(
+        result.ok
+          ? `Encerrando ${game.name}…`
+          : `Não foi possível encerrar ${game.name}: ${result.error ?? 'erro desconhecido'}`
+      )
+      void refreshRunning()
+    },
+    [showToast, refreshRunning]
   )
 
   // "Jogo Personalizado" (T8): abre o seletor nativo filtrado para .exe,
@@ -379,6 +502,13 @@ export function Biblioteca(): JSX.Element {
                 title={`Jogar ${game.name}`}
                 className="glass-card glass-hover group relative flex flex-col items-center gap-3 p-5 pt-6 text-center focus:outline-none focus:ring-2 focus:ring-steam-blue/50"
               >
+                {/* Encerramento pelo Hub — só fica habilitado com o jogo aberto */}
+                <StopGameButton
+                  game={game}
+                  running={runningIds.has(game.id)}
+                  onStopped={handleGameStopped}
+                />
+
                 {/* Edição (T9) — abre o modal "Editar Game" */}
                 <span
                   role="button"
@@ -442,9 +572,20 @@ export function Biblioteca(): JSX.Element {
                 <p className="text-sm font-semibold text-slate-200 leading-snug line-clamp-2 w-full">
                   {game.name}
                 </p>
-                <span className={game.origin === 'steam' ? 'badge-steam' : 'badge-kloud'}>
-                  {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
-                </span>
+                <div className="flex items-center gap-2">
+                  {runningIds.has(game.id) && (
+                    <span
+                      className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400"
+                      title="O jogo está aberto (processo detectado)"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      Em execução
+                    </span>
+                  )}
+                  <span className={game.origin === 'steam' ? 'badge-steam' : 'badge-kloud'}>
+                    {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
+                  </span>
+                </div>
               </button>
             )
           })}
