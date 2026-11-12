@@ -37,3 +37,8 @@ Notas:
     após a correção de stdatomic.h (patch incluído).
   - Para só reconstruir o MSI sem o instalador do Hub:
       powershell -ExecutionPolicy Bypass -File kolnd-hub\scripts\build-kloud-games.ps1
+  - Ao abrir o Kloud Games pelo Hub, ele procura o KLOUD_GAMES.exe nesta
+    pasta (e em Program Files). Se não encontrar, abre o MSI acima para
+    instalação (UAC). Os caminhos detectados (exe/msi) são salvos em
+    kloud-games.paths.json nesta pasta — arquivo gerado em runtime,
+    ignorado pelo git, não edite manualmente.

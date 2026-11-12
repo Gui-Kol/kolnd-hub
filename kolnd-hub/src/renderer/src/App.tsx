@@ -39,13 +39,31 @@ function App(): JSX.Element {
   const [appStates, setAppStates] = useState<Record<string, AppState>>({})
   const [apps, setApps] = useState<AppConfig[]>(defaultApps)
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // A loading screen só sai quando DOIS eventos ocorreram:
+  //  1. os dados essenciais terminaram de carregar (perfil, inicialização, status);
+  //  2. a animação de carregamento concluiu (evita que a tela suma num flash).
+  const [dataReady, setDataReady] = useState(false)
+  const [animationDone, setAnimationDone] = useState(false)
+  const isLoading = !dataReady || !animationDone
+  const handleLoadingReady = useCallback((): void => setAnimationDone(true), [])
   const [pcName, setPcName] = useState<string | null>(null)
   const [bgProcesses, setBgProcesses] = useState<SystemProcess[]>([])
   const [startupItems, setStartupItems] = useState<StartupItem[]>([])
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+
+  // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
+  // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
+  const applyKloudGamesConfig = useCallback((exePath: string): void => {
+    const dir = exePath.replace(/[\\/][^\\/]*$/, '')
+    const command = `"${exePath}"`
+    setApps((prev) => {
+      const next = prev.map((a) => (a.id === 'kloud-games' ? { ...a, command, cwd: dir } : a))
+      localStorage.setItem('kolnd-hub-apps', JSON.stringify(next))
+      return next
+    })
+  }, [])
 
   // Auto-dismiss launch/stop error toasts.
   useEffect(() => {
@@ -98,6 +116,19 @@ function App(): JSX.Element {
     }
   }, [])
 
+  // Kloud Games: revalida os caminhos salvos em resources/programs/kloud-games
+  // (kloud-games.paths.json) e ajusta a config do app para o caminho real do .exe.
+  useEffect(() => {
+    window.api
+      .kloudGamesStatus()
+      .then((status) => {
+        if (status.exePath) applyKloudGamesConfig(status.exePath)
+      })
+      .catch(() => {
+        // Sem status: mantém os defaults (%ProgramFiles%\KLOUD_GAMES).
+      })
+  }, [applyKloudGamesConfig])
+
   // Nome do computador (exibe na aba lateral e na página de inicialização).
   useEffect(() => {
     window.api.systemPcName().then(setPcName).catch(() => setPcName(null))
@@ -128,7 +159,7 @@ function App(): JSX.Element {
         })
       ])
 
-      if (mounted) setIsLoading(false)
+      if (mounted) setDataReady(true)
     }
 
     init()
@@ -335,6 +366,24 @@ function App(): JSX.Element {
 
   const handleLaunch = useCallback(
     async (app: AppConfig): Promise<void> => {
+      // Kloud Games: procura o .exe; se não existir, abre o MSI embutido
+      // para instalação e salva os caminhos detectados.
+      if (app.id === 'kloud-games') {
+        const result = await window.api.kloudGamesLaunch()
+        if (!result.success) {
+          setNotice({
+            id: Date.now(),
+            text: `Não foi possível iniciar ${app.name}: ${result.error ?? 'erro desconhecido'}`
+          })
+          return
+        }
+        if (result.exePath) applyKloudGamesConfig(result.exePath)
+        if (result.installedNow) {
+          setNotice({ id: Date.now(), text: 'Kloud Games foi instalado e iniciado.' })
+        }
+        return
+      }
+
       const result = await window.api.launchApp(app.id, app.command, app.cwd)
       if (!result.success) {
         setNotice({
@@ -343,13 +392,13 @@ function App(): JSX.Element {
         })
       }
     },
-    []
+    [applyKloudGamesConfig]
   )
 
   const handleStop = useCallback(
     async (appId: string): Promise<void> => {
       const app = apps.find((a) => a.id === appId)
-      const result = await window.api.stopApp(appId)
+      const result = await window.api.stopApp(appId, app?.command)
       if (!result.success) {
         setNotice({
           id: Date.now(),
@@ -405,11 +454,13 @@ function App(): JSX.Element {
           onComplete={() => {
             saveDefaultAppConfigs()
             setIsFirstRun(false)
-            setIsLoading(true)
+            // Vai direto para o Hub: a animação da loading screen só faz
+            // sentido na abertura do app, não após a primeira execução.
+            setAnimationDone(true)
           }}
         />
       ) : isLoading ? (
-        <LoadingScreen onReady={() => setIsLoading(false)} />
+        <LoadingScreen onReady={handleLoadingReady} />
       ) : (
         <>
           <Layout

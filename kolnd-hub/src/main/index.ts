@@ -1,8 +1,10 @@
 import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
 import { join, dirname } from 'path'
+import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, resolvePath, setBaseDir } from './processManager'
 import { killProcessesForCommand } from './processKiller'
+import { ensureKloudGamesInstalled, getKloudGamesStatus } from './kloudGames'
 import {
   listStartupItems,
   removeStartupItem,
@@ -107,6 +109,33 @@ app.whenReady().then(() => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+  })
+
+  // ── IPC: Kloud Games ─────────────────────────────
+  // Abrir: procura o .exe (estado salvo → pasta do Hub → Program Files).
+  // Se não encontrar, abre o MSI embutido para instalação (UAC), detecta o
+  // caminho do .exe e salva tudo em resources/programs/kloud-games/kloud-games.paths.json.
+  ipcMain.handle('kloud-games:launch', async () => {
+    const ensured = await ensureKloudGamesInstalled()
+    if (!ensured.success || !ensured.exePath) {
+      return { success: false, error: ensured.error ?? 'Kloud Games não está disponível.' }
+    }
+
+    const exePath = ensured.exePath
+    const cwd = dirname(exePath)
+    const launch = processManager.launch('kloud-games', `"${exePath}"`, cwd)
+    return {
+      success: launch.success,
+      error: launch.error,
+      exePath,
+      cwd,
+      installedNow: ensured.installedNow ?? false
+    }
+  })
+
+  // Status: revalida e retorna os caminhos salvos (usado pelo renderer ao abrir).
+  ipcMain.handle('kloud-games:status', () => {
+    return getKloudGamesStatus()
   })
 
   // ── IPC: App management ─────────────────────────
@@ -254,6 +283,66 @@ app.whenReady().then(() => {
     event.preventDefault()
     void confirmAndQuit()
   })
+
+  // ── IPC: Diálogos (Configurações) ───────────────
+  // Abre o explorador de arquivos nativo para escolher o executável (file)
+  // ou a pasta de instalação (directory) de um app. Cancelar retorna
+  // { success: false, canceled: true } e nada é alterado no renderer.
+  ipcMain.handle(
+    'dialog:pick-path',
+    async (
+      _event,
+      mode: 'file' | 'directory',
+      currentValue?: string
+    ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> => {
+      if (!mainWindow) {
+        return { success: false, error: 'Janela principal não está disponível.' }
+      }
+
+      // Tenta abrir o diálogo já na pasta do caminho atual (se conseguir
+      // resolver): expande %VAR%, remove aspas e sobe para o diretório-pai
+      // quando aponta para um arquivo.
+      let defaultPath: string | undefined
+      if (currentValue?.trim()) {
+        const cleaned = resolvePath(currentValue.trim().replace(/^"|"$/g, ''))
+        if (existsSync(cleaned)) {
+          defaultPath = mode === 'directory' && !cleaned.toLowerCase().endsWith('.exe')
+            ? cleaned
+            : dirname(cleaned)
+        } else if (existsSync(dirname(cleaned))) {
+          defaultPath = dirname(cleaned)
+        }
+      }
+
+      const options: Electron.OpenDialogOptions =
+        mode === 'file'
+          ? {
+              title: 'Selecionar o executável do programa',
+              properties: ['openFile'],
+              filters: [
+                { name: 'Executáveis', extensions: ['exe', 'bat', 'cmd', 'ps1', 'com'] },
+                { name: 'Todos os arquivos', extensions: ['*'] }
+              ],
+              defaultPath
+            }
+          : {
+              title: 'Selecionar a pasta de instalação do programa',
+              properties: ['openDirectory', 'createDirectory'],
+              defaultPath
+            }
+
+      try {
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, options)
+        if (canceled || filePaths.length === 0) {
+          return { success: false, canceled: true }
+        }
+        return { success: true, path: filePaths[0] }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { success: false, error: message }
+      }
+    }
+  )
 
   // ── IPC: Shell ──────────────────────────────────
   ipcMain.handle('shell:openExternal', (_event, url: string) => {

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import React from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { Zap, Loader2, CheckCircle, Clock, Monitor, Database, AlertCircle } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Zap, Loader2, CheckCircle, Clock, Monitor, Database } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 type LoadingStep = {
   id: string
   label: string
-  icon: React.ComponentType<{ size?: number; className?: string }>
+  icon: LucideIcon
   color: string
 }
 
@@ -44,43 +44,40 @@ const STEPS: LoadingStep[] = [
   }
 ]
 
+const STEP_DURATION_MS = 650
+const FINISH_DELAY_MS = 600
+
 interface LoadingScreenProps {
   onReady: () => void
 }
 
 export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
-  const [progress, setProgress] = useState(0)
-  const [finished, setFinished] = useState(false)
+
+  // Progresso derivado da etapa atual: sem estado duplicado para dessincronizar.
+  const progress = Math.round(((currentStepIndex + 1) / STEPS.length) * 100)
 
   useEffect(() => {
-    // Simula o progresso das etapas enquanto os dados reais carregam no App.
-    // Cada etapa dura ~600ms. Ao chegar na última, avisa que está pronto.
-    let timer: NodeJS.Timeout
-    let stepTimer: NodeJS.Timeout
+    const timers: ReturnType<typeof setTimeout>[] = []
+    let step = 0
 
-    const advance = () => {
-      if (finished) return
-      const next = currentStepIndex + 1
-      if (next >= STEPS.length) {
-        setFinished(true)
-        setProgress(100)
-        // Pequeno atraso para o usuário ler "Tudo pronto" antes de liberar.
-        timer = setTimeout(() => onReady(), 500)
+    const tick = (): void => {
+      step += 1
+      if (step >= STEPS.length) {
+        // Última etapa exibida como concluída antes de liberar o Hub.
+        timers.push(setTimeout(onReady, FINISH_DELAY_MS))
         return
       }
-      setCurrentStepIndex(next)
-      setProgress(Math.round(((next + 1) / STEPS.length) * 100))
-      stepTimer = setTimeout(advance, 700)
+      setCurrentStepIndex(step)
+      timers.push(setTimeout(tick, STEP_DURATION_MS))
     }
 
-    stepTimer = setTimeout(advance, 600)
+    timers.push(setTimeout(tick, STEP_DURATION_MS))
 
     return (): void => {
-      clearTimeout(timer)
-      clearTimeout(stepTimer)
+      for (const timer of timers) clearTimeout(timer)
     }
-  }, [currentStepIndex, finished, onReady])
+  }, [onReady])
 
   const activeStep = STEPS[currentStepIndex]
   const ActiveIcon = activeStep.icon
@@ -153,7 +150,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
           >
             {/* Faixa brilhante móvel na barra */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-skew" />
-            </motion.div>
+          </motion.div>
         </div>
         <span className="text-[11px] font-bold text-slate-400 tracking-wider">
           {progress}% concluído
