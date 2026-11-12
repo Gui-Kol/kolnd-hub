@@ -7,12 +7,30 @@ declare global {
         Array<{ name: string; id: number; path: string }>
       >
 
+      // ── Kloud Games ─────────────────────────────────
+      kloudGamesLaunch: () => Promise<{
+        success: boolean
+        error?: string
+        exePath?: string
+        cwd?: string
+        installedNow?: boolean
+      }>
+      kloudGamesStatus: () => Promise<{
+        installed: boolean
+        exePath: string | null
+        msiPath: string | null
+        dir: string
+      }>
+
       // ── App management ──────────────────────────────
       launchApp: (appId: string, command: string, cwd: string) => Promise<{ success: boolean; error?: string }>
-      stopApp: (appId: string) => Promise<{ success: boolean; error?: string }>
+      stopApp: (appId: string, command?: string) => Promise<{ success: boolean; error?: string }>
       getAppStatus: (appId: string) => Promise<{ status: string; startedAt?: string; logCount: number }>
       getAllStatus: () => Promise<Record<string, { status: string; startedAt?: string }>>
       getAppLogs: (appId: string) => Promise<string>
+
+      // ── Encerramento completo do Hub ────────────────
+      shutdownHub: () => Promise<{ success: boolean }>
 
       // ── Window controls ─────────────────────────────
       minimizeWindow: () => Promise<void>
@@ -41,6 +59,12 @@ declare global {
       startupAddBatch: (
         items: Array<{ name: string; path: string }>
       ) => Promise<{ success: boolean; errors: string[] }>
+
+      // ── Diálogos (Configurações) ────────────────────
+      pickAppPath: (
+        mode: 'file' | 'directory',
+        currentValue?: string
+      ) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>
 
       // ── Shell ───────────────────────────────────────
       openExternal: (url: string) => Promise<void>

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, cpSync } from 'fs'
 import { join, dirname } from 'path'
 import { app } from 'electron'
+import { findKloudGamesExe, getKloudGamesDir } from './kloudGames'
 
 export interface ProgramDeployResult {
   id: string
@@ -69,14 +70,13 @@ function deployMarkLvi(): ProgramDeployResult {
 
 /** Verifica se o Kloud Games está instalado (instala via MSI embutido no 1º run). */
 function deployKloudGames(): ProgramDeployResult {
-  const programFiles = process.env['ProgramFiles'] ?? 'C:\\Program Files'
-  const installedExe = join(programFiles, 'KLOUD_GAMES', 'KLOUD_GAMES.exe')
+  const installedExe = findKloudGamesExe()
 
-  if (existsSync(installedExe)) {
+  if (installedExe) {
     return { id: 'kloud-games', name: 'Kloud Games', installed: true, path: installedExe }
   }
 
-  const msi = join(getProgramsDir(), 'kloud-games', 'KLOUD_GAMES.msi')
+  const msi = join(getKloudGamesDir(), 'KLOUD_GAMES.msi')
   if (existsSync(msi)) {
     return {
       id: 'kloud-games',

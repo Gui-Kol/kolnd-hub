@@ -8,6 +8,22 @@ const api = {
     Array<{ name: string; id: number; path: string }>
   > => ipcRenderer.invoke('system:running-processes'),
 
+  // ── Kloud Games ─────────────────────────────────
+  kloudGamesLaunch: (): Promise<{
+    success: boolean
+    error?: string
+    exePath?: string
+    cwd?: string
+    installedNow?: boolean
+  }> => ipcRenderer.invoke('kloud-games:launch'),
+
+  kloudGamesStatus: (): Promise<{
+    installed: boolean
+    exePath: string | null
+    msiPath: string | null
+    dir: string
+  }> => ipcRenderer.invoke('kloud-games:status'),
+
   // ── App management ──────────────────────────────
   launchApp: (appId: string, command: string, cwd: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('app:launch', appId, command, cwd),
@@ -60,6 +76,13 @@ const api = {
     items: Array<{ name: string; path: string }>
   ): Promise<{ success: boolean; errors: string[] }> =>
     ipcRenderer.invoke('startup:addBatch', items),
+
+  // ── Diálogos (Configurações) ────────────────────
+  pickAppPath: (
+    mode: 'file' | 'directory',
+    currentValue?: string
+  ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('dialog:pick-path', mode, currentValue),
 
   // ── Shell ───────────────────────────────────────
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),

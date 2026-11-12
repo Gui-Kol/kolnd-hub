@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, RotateCcw, Terminal, FolderOpen, AlertCircle } from 'lucide-react'
+import { Save, RotateCcw, Terminal, FolderOpen, AlertCircle, FileSearch, FolderSearch } from 'lucide-react'
 import { AppConfig } from '../types'
 
 interface SettingsProps {
@@ -13,6 +13,7 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
     apps.map((a) => ({ ...a }))
   )
   const [saved, setSaved] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
 
   const handleChange = (index: number, field: keyof AppConfig, value: string): void => {
     setEditedApps((prev) => {
@@ -21,6 +22,35 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
       return next
     })
     setSaved(false)
+  }
+
+  // Abre o explorador de arquivos nativo para escolher o caminho correto.
+  // 'file' (Comando): seleciona o executável e salva entre aspas.
+  // 'directory' (Diretório de trabalho): seleciona a pasta de instalação.
+  const handlePickPath = async (
+    index: number,
+    field: 'command' | 'cwd',
+    mode: 'file' | 'directory'
+  ): Promise<void> => {
+    const current = editedApps[index]?.[field]
+    setPickError(null)
+
+    try {
+      const result = await window.api.pickAppPath(mode, current)
+      if (!result.success) {
+        if (!result.canceled) {
+          setPickError(result.error ?? 'Não foi possível abrir o explorador de arquivos.')
+        }
+        return
+      }
+      if (result.path) {
+        handleChange(index, field, field === 'command' ? `"${result.path}"` : result.path)
+      }
+    } catch (err) {
+      setPickError(
+        `Não foi possível abrir o explorador de arquivos: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
   }
 
   const handleSave = (): void => {
@@ -109,30 +139,68 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
                 <label className="label-panel">
                   <Terminal size={12} /> Comando
                 </label>
-                <input
-                  type="text"
-                  value={app.command}
-                  onChange={(e) => handleChange(index, 'command', e.target.value)}
-                  className="input-gamer"
-                  placeholder="ex: kloud-games.exe"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={app.command}
+                    onChange={(e) => handleChange(index, 'command', e.target.value)}
+                    onClick={() => handlePickPath(index, 'command', 'file')}
+                    className="input-gamer cursor-pointer pr-11"
+                    placeholder="ex: kloud-games.exe"
+                    title="Clique para selecionar o executável no explorador de arquivos"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handlePickPath(index, 'command', 'file')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                    title="Selecionar executável…"
+                    aria-label="Selecionar executável"
+                  >
+                    <FileSearch size={18} />
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[10px] text-slate-600">
+                  Clique no campo para escolher o .exe no explorador de arquivos.
+                </p>
               </div>
               <div>
                 <label className="label-panel">
                   <FolderOpen size={12} /> Diretório de trabalho
                 </label>
-                <input
-                  type="text"
-                  value={app.cwd}
-                  onChange={(e) => handleChange(index, 'cwd', e.target.value)}
-                  className="input-gamer"
-                  placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={app.cwd}
+                    onChange={(e) => handleChange(index, 'cwd', e.target.value)}
+                    onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                    className="input-gamer cursor-pointer pr-11"
+                    placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
+                    title="Clique para selecionar a pasta de instalação no explorador de arquivos"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                    title="Selecionar pasta…"
+                    aria-label="Selecionar pasta"
+                  >
+                    <FolderSearch size={18} />
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[10px] text-slate-600">
+                  Clique no campo para escolher a pasta no explorador de arquivos.
+                </p>
               </div>
             </div>
           </motion.div>
         ))}
       </div>
+
+      {pickError && (
+        <p className="text-xs text-red-400 flex items-center gap-1.5 px-2">
+          <AlertCircle size={13} /> {pickError}
+        </p>
+      )}
 
       {/* ── Nota informativa ─────────────────────────── */}
       <motion.div
@@ -144,7 +212,8 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
         <AlertCircle size={22} className="text-kloud-500 shrink-0 mt-0.5" />
         <div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Caminhos relativos (como
+            Clique no campo de um caminho para abrir o explorador de arquivos e selecionar o
+            executável ou a pasta correta — ou edite o texto manualmente. Caminhos relativos (como
             <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
               ../Mark-LVI
             </code>
