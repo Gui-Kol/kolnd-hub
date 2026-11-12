@@ -52,6 +52,8 @@ export interface HubStoreSchema {
   apps: StoredAppConfig[]
   startupImportance: Record<string, ImportanceLevelName>
   games: StoredGame[]
+  /** Preferência: iniciar o Kloud Games junto com o Hub (default false). */
+  launchKloudOnStart: boolean
 }
 
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
@@ -222,6 +224,10 @@ const schema: Store.Schema<HubStoreSchema> = {
         addedAt: { type: 'string' }
       }
     }
+  },
+  launchKloudOnStart: {
+    type: 'boolean',
+    default: false
   }
 }
 
@@ -237,7 +243,8 @@ function createStore(): Store<HubStoreSchema> | null {
       // Migração versionada formal: o conf guarda `__internal__.migrations.version`
       // no próprio arquivo e roda, em ordem, as chaves ≤ projectVersion que ainda
       // não foram aplicadas. 1.0.0 é a baseline; 1.1.0 normaliza apps antigos
-      // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`.
+      // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`;
+      // 1.3.0 garante o default da chave `launchKloudOnStart`.
       migrations: {
         '1.0.0': (): void => {
           // Baseline — nada a fazer; as chaves já têm defaults pelo schema.
@@ -253,6 +260,13 @@ function createStore(): Store<HubStoreSchema> | null {
         '1.2.0': (s): void => {
           try {
             s.set('games', normalizeGames(s.get('games')))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.3.0': (s): void => {
+          try {
+            s.set('launchKloudOnStart', s.get('launchKloudOnStart', false) === true)
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -373,6 +387,33 @@ export function setStoredGames(games: unknown): { success: boolean; error?: stri
   }
 }
 
+/** Lê a preferência "iniciar o Kloud Games junto com o Hub" (default false). */
+export function getLaunchKloudOnStart(): boolean {
+  if (!store) return false
+  try {
+    return store.get('launchKloudOnStart', false) === true
+  } catch (err) {
+    console.error('[store] Falha ao ler launchKloudOnStart:', err)
+    return false
+  }
+}
+
+/** Persiste a preferência "iniciar o Kloud Games junto com o Hub". */
+export function setLaunchKloudOnStart(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'boolean') {
+    return { success: false, error: 'Valor inválido para a preferência.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('launchKloudOnStart', value)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[store] Falha ao salvar launchKloudOnStart:', message)
+    return { success: false, error: message }
+  }
+}
+
 /** Registra os canais IPC da configuração persistente. */
 export function registerConfigIpc(): void {
   ipcMain.handle('config:get', () => getConfigSnapshot())
@@ -388,4 +429,14 @@ export function registerConfigIpc(): void {
     (_event, payload: { apps?: unknown; startupImportance?: unknown }) =>
       migrateFromLegacy(payload ?? {})
   )
+}
+
+/**
+ * Registra os canais IPC das preferências do Hub (tela de Configurações).
+ * IPC próprio e mínimo, para não acoplar com a config de apps.
+ */
+export function registerPrefsIpc(): void {
+  ipcMain.handle('prefs:get', () => getLaunchKloudOnStart())
+
+  ipcMain.handle('prefs:set', (_event, value: unknown) => setLaunchKloudOnStart(value))
 }

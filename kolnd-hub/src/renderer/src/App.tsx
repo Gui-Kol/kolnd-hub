@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, X } from 'lucide-react'
 import { Layout } from './components/Layout'
@@ -54,6 +54,9 @@ function App(): JSX.Element {
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+  // Garante que o autostart do Kloud Games seja avaliado uma única vez por
+  // sessão (StrictMode invoca os efeitos duas vezes em dev).
+  const kloudAutoLaunchTriedRef = useRef(false)
 
   // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
   // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
@@ -150,6 +153,45 @@ function App(): JSX.Element {
   // o main emite `status-change` em toda transição (ver onStatusChanged abaixo),
   // então o polling periódico de getAllStatus era redundante. O estado inicial
   // vem da carga em `init()`; o restante chega por eventos.
+
+  // Autostart do Kloud Games (preferência em Configurações). Só é avaliado
+  // depois da tela de carregamento, uma única vez e nunca durante a 1ª
+  // execução (?first-run=1). Se o jogo já estiver em execução, não abre uma
+  // segunda instância. Falhas são registradas e avisadas discretamente —
+  // nunca bloqueiam o Hub.
+  useEffect(() => {
+    if (isLoading) return
+    if (kloudAutoLaunchTriedRef.current) return
+    if (isFirstRunFromQuery()) return
+    kloudAutoLaunchTriedRef.current = true
+
+    void (async () => {
+      try {
+        const enabled = await window.api.getLaunchKloudOnStart()
+        if (!enabled) return
+
+        const status = await window.api.kloudGamesStatus()
+        if (status.running) return
+
+        const result = await window.api.kloudGamesLaunch()
+        if (!result.success) {
+          console.error('[kloud-games] Falha ao iniciar automaticamente:', result.error)
+          setNotice({
+            id: Date.now(),
+            text: `Não foi possível iniciar o Kloud Games automaticamente: ${result.error ?? 'erro desconhecido'}`
+          })
+        } else if (result.installedNow) {
+          setNotice({ id: Date.now(), text: 'Kloud Games foi instalado e iniciado.' })
+        }
+      } catch (err) {
+        console.error('[kloud-games] Erro ao iniciar automaticamente:', err)
+        setNotice({
+          id: Date.now(),
+          text: 'Não foi possível iniciar o Kloud Games automaticamente. Você pode abri-lo pela aba Ferramentas.'
+        })
+      }
+    })()
+  }, [isLoading])
 
   // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
   // 5s com a janela visível, 30s quando oculta (bandeja), trocando

@@ -21,7 +21,15 @@ const api = {
     exePath: string | null
     msiPath: string | null
     dir: string
+    running: boolean
   }> => ipcRenderer.invoke('kloud-games:status'),
+
+  // ── Preferências do Hub ───────────────────────────
+  getLaunchKloudOnStart: (): Promise<boolean> => ipcRenderer.invoke('prefs:get'),
+
+  setLaunchKloudOnStart: (
+    value: boolean
+  ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('prefs:set', value),
 
   // ── App management ──────────────────────────────
   launchApp: (
@@ -153,10 +161,45 @@ const api = {
   removeGame: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('games:remove', id),
 
+  // Edição de jogos (T9)
+  pickGameIcon: (): Promise<{
+    success: boolean
+    canceled?: boolean
+    dataUrl?: string
+    error?: string
+  }> => ipcRenderer.invoke('games:pick-icon'),
+
+  setGameIcon: (
+    id: string,
+    dataUrl: string
+  ): Promise<{ success: boolean; iconPath?: string; error?: string }> =>
+    ipcRenderer.invoke('games:set-icon', id, dataUrl),
+
+  restoreGameIcon: (
+    id: string,
+    exePath?: string
+  ): Promise<{ success: boolean; iconPath?: string; error?: string }> =>
+    ipcRenderer.invoke('games:restore-exe-icon', id, exePath),
+
+  previewGameIcon: (
+    exePath: string
+  ): Promise<{ success: boolean; dataUrl?: string; error?: string }> =>
+    ipcRenderer.invoke('games:preview-exe-icon', exePath),
+
+  checkGameExes: (exePaths: string[]): Promise<boolean[]> =>
+    ipcRenderer.invoke('games:check-exes', exePaths),
+
   launchGame: (id: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('games:launch', id),
 
   getGameIcon: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-icon', id),
+
+  addCustomGame: (exePath: string): Promise<{
+    success: boolean
+    id?: string
+    name?: string
+    error?: string
+  }> => ipcRenderer.invoke('games:add-custom', exePath),
 
   // ── Steam ─────────────────────────────────────────
   importSteamGames: (): Promise<{
@@ -172,9 +215,10 @@ const api = {
   // ── Diálogos (Configurações) ────────────────────
   pickAppPath: (
     mode: 'file' | 'directory',
-    currentValue?: string
+    currentValue?: string,
+    dialogTitle?: string
   ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> =>
-    ipcRenderer.invoke('dialog:pick-path', mode, currentValue),
+    ipcRenderer.invoke('dialog:pick-path', mode, currentValue, dialogTitle),
 
   // ── Shell ───────────────────────────────────────
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),

@@ -18,7 +18,14 @@ declare global {
         exePath: string | null
         msiPath: string | null
         dir: string
+        running: boolean
       }>
+
+      // ── Preferências do Hub ───────────────────────────
+      getLaunchKloudOnStart: () => Promise<boolean>
+      setLaunchKloudOnStart: (
+        value: boolean
+      ) => Promise<{ success: boolean; error?: string }>
 
       // ── App management ──────────────────────────────
       launchApp: (
@@ -129,8 +136,30 @@ declare global {
         }
       ) => Promise<{ success: boolean; error?: string }>
       removeGame: (id: string) => Promise<{ success: boolean; error?: string }>
+      // Edição de jogos (T9)
+      pickGameIcon: () => Promise<{
+        success: boolean
+        canceled?: boolean
+        dataUrl?: string
+        error?: string
+      }>
+      setGameIcon: (
+        id: string,
+        dataUrl: string
+      ) => Promise<{ success: boolean; iconPath?: string; error?: string }>
+      restoreGameIcon: (
+        id: string,
+        exePath?: string
+      ) => Promise<{ success: boolean; iconPath?: string; error?: string }>
+      previewGameIcon: (
+        exePath: string
+      ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>
+      checkGameExes: (exePaths: string[]) => Promise<boolean[]>
       launchGame: (id: string) => Promise<{ ok: boolean; error?: string }>
       getGameIcon: (id: string) => Promise<string | null>
+      addCustomGame: (
+        exePath: string
+      ) => Promise<{ success: boolean; id?: string; name?: string; error?: string }>
 
       // ── Steam ───────────────────────────────────
       importSteamGames: () => Promise<{
@@ -146,7 +175,8 @@ declare global {
       // ── Diálogos (Configurações) ────────────────────
       pickAppPath: (
         mode: 'file' | 'directory',
-        currentValue?: string
+        currentValue?: string,
+        dialogTitle?: string
       ) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>
 
       // ── Shell ───────────────────────────────────────

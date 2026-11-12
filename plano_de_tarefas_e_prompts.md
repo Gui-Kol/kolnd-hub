@@ -17,12 +17,12 @@
 5. **Branch de trabalho** (`feature/Tn-...` ou `Dev`) — nunca direto em `main` (ver README, seção de branches).
 
 ### Regras globais (definition of done de toda tarefa)
-- [ ] `npx tsc --noEmit -p tsconfig.node.json` **e** `npx tsc --noEmit -p tsconfig.web.json` sem novos erros
-- [ ] `npm run build` concluído com sucesso
-- [ ] `npm run dev` abre o app e a feature nova funciona no fluxo manual
-- [ ] Escopo respeitado (nada fora do descrito; se precisar algo fora, pergunte antes)
-- [ ] Interface em **pt-BR**, linguagem amigável, sem jargão técnico para o usuário final
-- [ ] Sem adicionar dependências novas sem justificativa explícita no PR/commit
+- [x] `npx tsc --noEmit -p tsconfig.node.json` **e** `npx tsc --noEmit -p tsconfig.web.json` sem novos erros
+- [x] `npm run build` concluído com sucesso
+- [x] `npm run dev` abre o app e a feature nova funciona no fluxo manual
+- [x] Escopo respeitado (nada fora do descrito; se precisar algo fora, pergunte antes)
+- [x] Interface em **pt-BR**, linguagem amigável, sem jargão técnico para o usuário final
+- [x] Sem adicionar dependências novas sem justificativa explícita no PR/commit
 
 ---
 
@@ -93,7 +93,7 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 
 ## Fase 1: Correções Críticas e Infraestrutura Base
 
-### [ ] T1 — Endurecer e simplificar o fluxo de instalação do Kloud Games
+### [x] T1 — Endurecer e simplificar o fluxo de instalação do Kloud Games
 **Objetivo:** o MSI do Kloud Games já é instalado na 1ª execução (`silentInstaller.ts → installKloudGames()` via UAC + `msiexec /quiet`); esta tarefa elimina as etapas manuais restantes e torna o fluxo robusto, com erro claro e feedback visível.
 
 **Dependências:** nenhuma.
@@ -112,17 +112,17 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 7. Não modifique `markLvi*`/Mark LVI, nem `first-run-complete.flag`, nem as outras etapas.
 
 **Critérios de aceitação:**
-- [ ] Máquina sem Kloud Games: etapa conclui; card do Hub consegue iniciar o jogo
-- [ ] UAC cancelado pelo usuário: 1ª execução segue normalmente; mensagem clara na etapa; log registra o motivo
-- [ ] Reabrir o app / rodar de novo com o jogo já instalado: instalação pulada (log confirma)
-- [ ] Simular falha do msiexec (ex.: MSI corrompido renomeado): app abre, etapa mostra erro com código + caminho do log; nada trava
-- [ ] `npm run build` ok; nenhuma outra etapa do fluxo de 1ª execução alterada
+- [x] Máquina sem Kloud Games: etapa conclui; card do Hub consegue iniciar o jogo
+- [x] UAC cancelado pelo usuário: 1ª execução segue normalmente; mensagem clara na etapa; log registra o motivo
+- [x] Reabrir o app / rodar de novo com o jogo já instalado: instalação pulada (log confirma)
+- [x] Simular falha do msiexec (ex.: MSI corrompido renomeado): app abre, etapa mostra erro com código + caminho do log; nada trava
+- [x] `npm run build` ok; nenhuma outra etapa do fluxo de 1ª execução alterada
 
 **Validação:** mova/apague a flag `%APPDATA%\kolnd-hub\first-run-complete.flag` para forçar a 1ª execução (faça backup de `%APPDATA%\kolnd-hub` antes, como no procedimento de "máquina limpa" já documentado em `task.md`, T-13). Observe a etapa do Kloud Games, teste os 3 cenários acima e restaure a flag.
 
 ---
 
-### [ ] T2 — Navegação: renomear "Biblioteca" para "Ferramentas"
+### [x] T2 — Navegação: renomear "Biblioteca" para "Ferramentas"
 **Objetivo:** preparar a arquitetura de menus renomeando a seção atual, sem quebrar rotas nem IDs.
 
 **Dependências:** nenhuma.
@@ -137,10 +137,10 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 5. Não toque em rotas, IPC, store ou outras páginas.
 
 **Critérios de aceitação:**
-- [ ] Sidebar exibe "Ferramentas" no lugar de "Biblioteca"
-- [ ] Dashboard exibe título coerente ("Ferramentas") sem restos de "Biblioteca" visíveis ao usuário
-- [ ] Nenhuma mudança funcional: navegação, atalhos e estado de página idênticos aos atuais
-- [ ] Build + `tsc` ok
+- [x] Sidebar exibe "Ferramentas" no lugar de "Biblioteca"
+- [x] Dashboard exibe título coerente ("Ferramentas") sem restos de "Biblioteca" visíveis ao usuário
+- [x] Nenhuma mudança funcional: navegação, atalhos e estado de página idênticos aos atuais
+- [x] Build + `tsc` ok
 
 **Validação:** `npm run dev` → abrir o app → confirmar sidebar/título; grep confirma zero ocorrências espúrias de "Biblioteca".
 
@@ -172,12 +172,12 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 10. Não altere a aba/seção de Inicialização além do necessário para criar a navegação por abas.
 
 **Critérios de aceitação:**
-- [ ] Sem winget → mensagem orientando o App Installer (sem crash)
-- [ ] Com updates pendentes → lista correta (confira contra `winget upgrade` no terminal)
-- [ ] Sem updates → estado "Nenhuma atualização disponível"
-- [ ] IDs com pontos/espaços (`Microsoft.NET.Sdk`) extraídos corretamente
-- [ ] Falha total de parse → erro amigável com `rawLog` exibido de forma expansível/colapsável
-- [ ] Build + `tsc` ok; conteúdo da aba Inicialização inalterado
+- [x] Sem winget → mensagem orientando o App Installer (sem crash)
+- [x] Com updates pendentes → lista correta (confira contra `winget upgrade` no terminal)
+- [x] Sem updates → estado "Nenhuma atualização disponível"
+- [x] IDs com pontos/espaços (`Microsoft.NET.Sdk`) extraídos corretamente
+- [x] Falha total de parse → erro amigável com `rawLog` exibido de forma expansível/colapsável
+- [x] Build + `tsc` ok; conteúdo da aba Inicialização inalterado
 
 **Validação:** `npm run dev` → página do PC → aba Atualizações; comparar a lista com a saída de `winget upgrade` no terminal; testar com winget ausente (renomeie temporariamente no PATH, se aplicável) e restaurar.
 
@@ -204,18 +204,18 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 8. Mantenha os mesmos padrões visuais da aba (cards, `.btn-primary`, cores de status `neon/kloud` já existentes).
 
 **Critérios de aceitação:**
-- [ ] Selecionar/Desmarcar individual e "Selecionar todos" (inclui indeterminado) funcionam
-- [ ] Fila executa **sequencialmente** (comprovar com ≥ 2 apps ou via logs)
-- [ ] Um item falhando não impede os demais; erro mostra código e log expansível
-- [ ] "Cancelar" interrompe o item em curso e impede os próximos
-- [ ] Ao final, lista é recarregada e reflete o estado real
-- [ ] Build + `tsc` ok
+- [x] Selecionar/Desmarcar individual e "Selecionar todos" (inclui indeterminado) funcionam
+- [x] Fila executa **sequencialmente** (comprovar com ≥ 2 apps ou via logs)
+- [x] Um item falhando não impede os demais; erro mostra código e log expansível
+- [x] "Cancelar" interrompe o item em curso e impede os próximos
+- [x] Ao final, lista é recarregada e reflete o estado real
+- [x] Build + `tsc` ok
 
 **Validação:** testar com um app desatualizado de verdade (ou mockando o IPC no devtools); simular falha forçando `--id` inexistente e conferindo a mensagem; cancelar no meio de uma fila de 2+ itens.
 
 ---
 
-### [ ] T5 — Limpeza de arquivos temporários do sistema
+### [x] T5 — Limpeza de arquivos temporários do sistema
 **Objetivo:** ação rápida que remove conteúdo seguro das pastas temporárias e reporta o espaço liberado.
 
 **Dependências:** nenhuma (usa a navegação por abas criada na T3; se T3 ainda não foi feita, crie a aba "Limpeza" vazia na mesma estrutura).
@@ -235,12 +235,12 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 8. Opcional, só se trivial: exibir também os caminhos varridos em fonte pequena.
 
 **Critérios de aceitação:**
-- [ ] Primeira execução remove volume mensurável de temporários; segunda execução remove quase nada (idempotente na prática)
-- [ ] Arquivo aberto/em uso é ignorado sem crash nem bloqueio do app
-- [ ] Modal de confirmação precedido de qualquer exclusão
-- [ ] Resultado exibido com N arquivos, MB/GB liberados e itens ignorados
-- [ ] Nenhuma outra pasta fora das três listadas foi alterada (conferir timestamps/conteúdo)
-- [ ] Build + `tsc` ok
+- [x] Primeira execução remove volume mensurável de temporários; segunda execução remove quase nada (idempotente na prática)
+- [x] Arquivo aberto/em uso é ignorado sem crash nem bloqueio do app
+- [x] Modal de confirmação precedido de qualquer exclusão
+- [x] Resultado exibido com N arquivos, MB/GB liberados e itens ignorados
+- [x] Nenhuma outra pasta fora das três listadas foi alterada (conferir timestamps/conteúdo)
+- [x] Build + `tsc` ok
 
 **Validação:** meça o tamanho de `%TEMP%` antes/depois (Explorer ou `dir /s`); teste com um arquivo `.txt` aberto e bloqueado; rode a limpeza duas vezes seguidas e compare os dois relatórios.
 
@@ -272,11 +272,11 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 12. Não implemente importação Steam nem file picker aqui. Não faça merge desta página com o dashboard.
 
 **Critérios de aceitação:**
-- [ ] Item "Biblioteca" na sidebar, navegação ida e volta sem quebrar outras páginas
-- [ ] Adicionar manualmente (via devtools/mock ou inserção direta no store) e ver o card; fechar e reabrir o app → o jogo **continua** salvo (persistência real)
-- [ ] Clique no card lança o exe (jogo abre, Hub não quebra, contador do `Layout` **não** muda)
-- [ ] `?first-run=1` continua abrindo a 1ª execução; dashboard/Ferramentas inalterados
-- [ ] Build + `tsc` (node e web) ok
+- [x] Item "Biblioteca" na sidebar, navegação ida e volta sem quebrar outras páginas
+- [x] Adicionar manualmente (via devtools/mock ou inserção direta no store) e ver o card; fechar e reabrir o app → o jogo **continua** salvo (persistência real)
+- [x] Clique no card lança o exe (jogo abre, Hub não quebra, contador do `Layout` **não** muda)
+- [x] `?first-run=1` continua abrindo a 1ª execução; dashboard/Ferramentas inalterados
+- [x] Build + `tsc` (node e web) ok
 
 **Validação:** `npm run dev`; usar devtools para `window.api.addGame({...})` com um `.exe` válido qualquer e conferir o ciclo adicionar → fechar → abrir → jogo listado.
 
@@ -305,18 +305,18 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 11. Não abra janelas de console visíveis em nenhuma etapa (`windowsHide` / `execFile` sem shell).
 
 **Critérios de aceitação:**
-- [ ] Steam detectada → importação adiciona os jogos esperados; grade atualiza sem reiniciar
-- [ ] Reimportar não duplica (entradas com `steamAppId` reconhecido são puladas)
-- [ ] Ferramentas Steam (Proton, Redistributables, Linux Runtime) ficam de fora
-- [ ] Steam não instalada/detectável → erro claro, sem quebrar a página
-- [ ] Jogos sem exe localizável são contabilizados em "sem executável", sem travar o restante
-- [ ] Build + `tsc` ok
+- [x] Steam detectada → importação adiciona os jogos esperados; grade atualiza sem reiniciar
+- [x] Reimportar não duplica (entradas com `steamAppId` reconhecido são puladas)
+- [x] Ferramentas Steam (Proton, Redistributables, Linux Runtime) ficam de fora
+- [x] Steam não instalada/detectável → erro claro, sem quebrar a página
+- [x] Jogos sem exe localizável são contabilizados em "sem executável", sem travar o restante
+- [x] Build + `tsc` ok
 
 **Validação:** executar a importação na máquina dev (Steam presente) e conferir: contagem total vs. `libraryfolders`/`appmanifest_*.acf` manuais; rodar duas vezes e verificar que `alreadyInLibrary` = total importado da primeira vez; desconectar/renomear a Steam e conferir a mensagem de erro.
 
 ---
 
-### [ ] T8 — Adição de Jogo Personalizado via Seletor de Arquivos (.exe)
+### [x] T8 — Adição de Jogo Personalizado via Seletor de Arquivos (.exe)
 **Objetivo:** o usuário escolhe manualmente qualquer `.exe` e ele entra na Biblioteca formatado.
 
 **Dependências:** T6 concluída e `[x]`.
@@ -333,17 +333,17 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 5. Cancelar o diálogo não faz nada (sem erro, sem toast).
 
 **Critérios de aceitação:**
-- [ ] Fluxo completo: clique → escolher `.exe` → card aparece na grade com nome formatado e ícone (ou fallback)
-- [ ] Jogo persistido e presente após reiniciar o app
-- [ ] Cancelar o seletor não gera efeito colateral
-- [ ] Ícone extraído aparece na grade (verifique num exe conhecido com ícone)
-- [ ] Build + `tsc` ok
+- [x] Fluxo completo: clique → escolher `.exe` → card aparece na grade com nome formatado e ícone (ou fallback)
+- [x] Jogo persistido e presente após reiniciar o app
+- [x] Cancelar o seletor não gera efeito colateral
+- [x] Ícone extraído aparece na grade (verifique num exe conhecido com ícone)
+- [x] Build + `tsc` ok
 
 **Validação:** adicionar 2–3 exes reais distintos (um com ícone customizado, um sem); conferir nome formatado; fechar/abrir e verificar persistência.
 
 ---
 
-### [ ] T9 — Edição de jogos na Biblioteca (nome, ícone, .exe e remoção)
+### [x] T9 — Edição de jogos na Biblioteca (nome, ícone, .exe e remoção)
 **Objetivo:** customizar metadados e caminhos de qualquer jogo cadastrado.
 
 **Dependências:** T6 concluída. (Funciona de forma independente de T7/T8, mas é para eles que a edição mais importa.)
@@ -362,12 +362,12 @@ Nunca comece T7/T8/T9 antes de T6 estar `[x]`; T4 sempre depois de T3.
 > 5. Não altere o fluxo de adição (T7/T8) além do compartilhamento dos helpers de seleção de arquivo/ícone.
 
 **Critérios de aceitação:**
-- [ ] Editar nome → card atualiza na hora; após restart, mantém o novo nome
-- [ ] Trocar o executável → clique no card lança o novo exe
-- [ ] Trocar a imagem → nova capa visível na grade; imagem inválida/ICO → aviso, sem gravar
-- [ ] Remover com confirmação → card some; ícone cacheado apagado; restart não traz o jogo de volta
-- [ ] Exe movido/apagado do disco → selo ".exe não encontrado" no card, app estável
-- [ ] Build + `tsc` ok
+- [x] Editar nome → card atualiza na hora; após restart, mantém o novo nome
+- [x] Trocar o executável → clique no card lança o novo exe
+- [x] Trocar a imagem → nova capa visível na grade; imagem inválida/ICO → aviso, sem gravar
+- [x] Remover com confirmação → card some; ícone cacheado apagado; restart não traz o jogo de volta
+- [x] Exe movido/apagado do disco → selo ".exe não encontrado" no card, app estável
+- [x] Build + `tsc` ok
 
 **Validação:** exercitar as quatro edições num jogo existente; remover e reinserir um jogo; apagar o exe de um jogo e conferir o selo.
 

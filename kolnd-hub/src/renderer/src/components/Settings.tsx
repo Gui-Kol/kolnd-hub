@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Save,
@@ -7,7 +7,9 @@ import {
   FolderOpen,
   AlertCircle,
   FileSearch,
-  FolderSearch
+  FolderSearch,
+  Gamepad2,
+  Check
 } from 'lucide-react'
 import { AppConfig } from '../types'
 
@@ -20,6 +22,54 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
   const [editedApps, setEditedApps] = useState<AppConfig[]>(apps.map((a) => ({ ...a })))
   const [saved, setSaved] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+
+  // Preferência "Iniciar Kloud Games junto com o Hub": lida do electron-store
+  // (via IPC) na montagem; `null` enquanto carrega (toggle desabilitado).
+  const [launchKloudOnStart, setLaunchKloudOnStart] = useState<boolean | null>(null)
+  const [prefFeedback, setPrefFeedback] = useState<'saved' | 'error' | null>(null)
+  const prefFeedbackTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    window.api
+      .getLaunchKloudOnStart()
+      .then((value) => {
+        if (mounted) setLaunchKloudOnStart(value)
+      })
+      .catch(() => {
+        if (mounted) setLaunchKloudOnStart(false)
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
+    },
+    []
+  )
+
+  const handleTogglePref = async (): Promise<void> => {
+    if (launchKloudOnStart === null) return
+    const next = !launchKloudOnStart
+    setLaunchKloudOnStart(next)
+    setPrefFeedback(null)
+    try {
+      const result = await window.api.setLaunchKloudOnStart(next)
+      if (!result.success) throw new Error(result.error ?? 'erro desconhecido')
+      setPrefFeedback('saved')
+    } catch (err) {
+      console.error('[settings] Falha ao salvar preferência:', err)
+      // Reverte o toggle — o valor real continua sendo o persistido.
+      setLaunchKloudOnStart(!next)
+      setPrefFeedback('error')
+    } finally {
+      if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
+      prefFeedbackTimer.current = window.setTimeout(() => setPrefFeedback(null), 2500)
+    }
+  }
 
   const handleChange = (index: number, field: keyof AppConfig, value: string): void => {
     setEditedApps((prev) => {
@@ -102,6 +152,57 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
             }`}
           >
             <Save size={14} /> {saved ? 'Salvo!' : 'Salvar alterações'}
+          </button>
+        </div>
+      </motion.div>
+
+      {/* ── Ao abrir o Hub ─────────────────────────── */}
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+        Ao abrir o Hub
+      </p>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+      >
+        <div className="flex items-center justify-between gap-6 flex-wrap">
+          <div className="flex items-start gap-4 min-w-0">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+              <Gamepad2 size={20} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">
+                Iniciar Kloud Games junto com o Kolnd Hub
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                O Hub abre o Kloud Games em segundo plano sempre que for iniciado.
+              </p>
+              {prefFeedback === 'saved' && (
+                <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <Check size={12} /> Salvo
+                </p>
+              )}
+              {prefFeedback === 'error' && (
+                <p className="mt-2 text-[11px] font-semibold text-red-400">
+                  Não foi possível salvar. Tente de novo.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={launchKloudOnStart === true}
+            aria-label="Iniciar Kloud Games junto com o Kolnd Hub"
+            disabled={launchKloudOnStart === null}
+            onClick={() => void handleTogglePref()}
+            className={`toggle-console shrink-0 ${
+              launchKloudOnStart === true ? 'toggle-console-checked' : ''
+            } ${launchKloudOnStart === null ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span className="toggle-console-knob" />
           </button>
         </div>
       </motion.div>

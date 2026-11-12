@@ -48,6 +48,17 @@ export interface SteamImportResult {
 
 export type GameOrigin = 'steam' | 'custom'
 
+/** Resultado da adição de um jogo personalizado (IPC `games:add-custom`). */
+export interface AddCustomGameResult {
+  success: boolean
+  /** id determinístico (`custom-<hash>`) do jogo adicionado. */
+  id?: string
+  /** Nome formatado gravado na biblioteca (usado no aviso de confirmação). */
+  name?: string
+  /** Mensagem amigável em caso de falha. */
+  error?: string
+}
+
 /** Jogo persistido na Biblioteca (electron-store, chave `games`). */
 export interface Game {
   id: string

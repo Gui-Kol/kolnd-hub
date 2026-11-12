@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { spawn } from 'child_process'
+import { spawn, execFileSync } from 'child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
@@ -31,6 +31,8 @@ export interface KloudGamesStatus {
   msiPath: string | null
   /** Pasta resources\programs\kloud-games do Kolnd Hub (onde o .paths.json vive). */
   dir: string
+  /** true quando KLOUD_GAMES.exe está em execução no sistema. */
+  running: boolean
 }
 
 const EXE_NAME = 'KLOUD_GAMES.exe'
@@ -227,6 +229,35 @@ export function refreshKloudGamesPaths(): { exePath: string | null; msiPath: str
   return { exePath, msiPath }
 }
 
+/** Nome do processo do jogo no Gerenciador de Tarefas. */
+const RUNNING_PROCESS_NAME = 'KLOUD_GAMES.exe'
+
+/**
+ * Verifica (via `tasklist`, com argumentos em array e sem shell) se o
+ * KLOUD_GAMES.exe está em execução — independente de quem o abriu (Hub ou
+ * manualmente). Síncrono e barato; em qualquer falha retorna false para
+ * nunca impedir o Hub de abrir. A saída do tasklist é localizada, então a
+ * checagem apenas procura o nome da imagem (case-insensitive), sem depender
+ * de mensagens do sistema.
+ */
+export function isKloudGamesRunning(): boolean {
+  try {
+    const out = execFileSync(
+      'tasklist',
+      ['/FI', `IMAGENAME eq ${RUNNING_PROCESS_NAME}`, '/FO', 'CSV', '/NH'],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+        maxBuffer: 4 * 1024 * 1024
+      }
+    )
+    return out.toLowerCase().includes(RUNNING_PROCESS_NAME.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
 /** Status consumido pelo renderer (tela de abrir do Hub). */
 export function getKloudGamesStatus(): KloudGamesStatus {
   const { exePath, msiPath } = refreshKloudGamesPaths()
@@ -234,7 +265,8 @@ export function getKloudGamesStatus(): KloudGamesStatus {
     installed: Boolean(exePath),
     exePath,
     msiPath,
-    dir: getKloudGamesDir()
+    dir: getKloudGamesDir(),
+    running: isKloudGamesRunning()
   }
 }
 

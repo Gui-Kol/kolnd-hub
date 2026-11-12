@@ -16,7 +16,7 @@ import {
 } from './startupManager'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { registerFirstRunIpc } from './firstRunInstaller'
-import { registerConfigIpc } from './store'
+import { registerConfigIpc, registerPrefsIpc } from './store'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
 import { registerGamesIpc } from './games'
@@ -138,6 +138,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC da config persistente (electron-store).
   registerConfigIpc()
+
+  // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
+  registerPrefsIpc()
 
   // Registra os canais IPC do winget (listagem de atualizações).
   registerWingetIpc()
@@ -360,12 +363,15 @@ app.whenReady().then(() => {
   // Abre o explorador de arquivos nativo para escolher o executável (file)
   // ou a pasta de instalação (directory) de um app. Cancelar retorna
   // { success: false, canceled: true } e nada é alterado no renderer.
+  // `dialogTitle` opcional sobrescreve o título do diálogo (ex.: a
+  // Biblioteca pede "Selecione o executável do jogo").
   ipcMain.handle(
     'dialog:pick-path',
     async (
       _event,
       mode: 'file' | 'directory',
-      currentValue?: string
+      currentValue?: string,
+      dialogTitle?: string
     ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> => {
       if (!mainWindow) {
         return { success: false, error: 'Janela principal não está disponível.' }
@@ -387,10 +393,16 @@ app.whenReady().then(() => {
         }
       }
 
+      // Título do diálogo: usa o override validado quando presente, senão o padrão.
+      const title =
+        typeof dialogTitle === 'string' && dialogTitle.trim()
+          ? dialogTitle.trim().slice(0, 120)
+          : undefined
+
       const options: Electron.OpenDialogOptions =
         mode === 'file'
           ? {
-              title: 'Selecionar o executável do programa',
+              title: title ?? 'Selecionar o executável do programa',
               properties: ['openFile'],
               filters: [
                 { name: 'Executáveis', extensions: ['exe', 'bat', 'cmd', 'ps1', 'com'] },
@@ -399,7 +411,7 @@ app.whenReady().then(() => {
               defaultPath
             }
           : {
-              title: 'Selecionar a pasta de instalação do programa',
+              title: title ?? 'Selecionar a pasta de instalação do programa',
               properties: ['openDirectory', 'createDirectory'],
               defaultPath
             }
