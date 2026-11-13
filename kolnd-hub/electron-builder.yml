@@ -44,10 +44,26 @@ nsis:
   # its data files there.
   perMachine: false
   allowToChangeInstallationDirectory: false
-  # Never wipe %APPDATA%\kolnd-hub on uninstall: it holds the first-run flag,
-  # config.json (electron-store) and mark-lvi/ (the assistant's data).
-  # The uninstaller still removes the install directory itself (including
-  # resources/programs/MarkLVI) — document this in the README.
+  # PRESERVADO na desinstalacao (deleteAppDataOnUninstall: false — o default):
+  # %APPDATA%\kolnd-hub inteiro — first-run flag, config.json (electron-store),
+  # logs\ (kolnd-hub.log, kloud-games-uninstall.log), kloud-games.paths.json,
+  # mark-lvi\ (dados do assistente assim que o rebuild 01-1.9, que honra
+  # MARK_LVI_HOME, estiver no ar). REMOVIDO sempre pelo desinstalador:
+  # o diretorio de instalacao inteiro ($INSTDIR, per-user em
+  # %LOCALAPPDATA%\Programs\Kolnd Hub), INCLUINDO resources/programs/MarkLVI
+  # com os dados que a build atual do MarkLVI.exe grava ao lado do exe
+  # (config/api_keys.json, memory/). O Hub mantem a cada boot um espelho
+  # parcial desses dados em %APPDATA%\kolnd-hub\mark-lvi (ver programsDeployer),
+  # que sobrevive — mas o conteudo ao lado do exe e perdido. Ver READMEs.
+  # Sobre texto de aviso na tela de desinstalacao: o electron-builder nao
+  # expoe um texto de desinstalacao configuravel para o usuario final —
+  # nsis.uninstallDisplayName muda so o rotulo no "Aplicativos instalados" e
+  # nsis.include (macro customUnInstall) escreve na secao de uninstall, cujo
+  # output e escondido (ShowUninstDetails nevershow) e tambem rodaria no modo
+  # silencioso. Por isso NAO criamos installer.nsh de proposito: a divulgacao
+  # honesta do que e removido vs. preservado fica nos READMEs (ver
+  # "Desinstalacao" em README.md e kolnd-hub/README.md). Nao mudar este flag
+  # sem revisar a documentacao.
   deleteAppDataOnUninstall: false
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico

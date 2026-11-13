@@ -67,16 +67,21 @@ Em **Configurações**, no fim da página, existe a zona **"Zona de perigo"** co
 
 ### O que acontece com seus dados
 
-`%APPDATA%\kolnd-hub` é **preservado por padrão** em qualquer uma das duas desinstalações.
+Em **qualquer** desinstalação (pelo botão do Hub ou pelo Windows), o padrão é:
 
-Ao desinstalar o Hub você escolhe uma das duas opções:
+- **Preservado — `%APPDATA%\kolnd-hub` inteiro**: `config.json` (electron-store), a flag de primeira execução (`first-run-complete.flag`), `logs\` (`kolnd-hub.log` e `kloud-games-uninstall.log`), `kloud-games.paths.json`, `mark-lvi\` (os dados do assistente, quando gravados lá) e `game-icons\`. Nada disso é apagado pelo desinstalador NSIS (`deleteAppDataOnUninstall: false`), a menos que você escolha a opção irreversível no botão do Hub.
+- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVI\` com os dados que a build atual do `MarkLVI.exe` grava ao lado do executável** (chave de API em `config\api_keys.json` e memória das conversas em `memory\`). Enquanto não houver o rebuild do Mark LVI (tarefa 01-1.9), o que estiver lá — fora do espelho parcial que o Hub mantém em `%APPDATA%\kolnd-hub\mark-lvi` a cada boot — é **perdido** na desinstalação; não há como o NSIS preservá-lo.
 
-- **"Manter meus dados e configurações (recomendado)"** — padrão; `config.json`, biblioteca, logs, ícones e dados do Mark LVI ficam intactos;
+Ao desinstalar o Hub pelo botão, você escolhe uma das duas opções:
+
+- **"Manter meus dados e configurações (recomendado)"** — padrão; o que está em `%APPDATA%\kolnd-hub` fica intacto (config, biblioteca, logs, ícones, flag de primeira execução, `mark-lvi\`);
 - **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `mark-lvi\`, `game-icons\` e qualquer outra coisa que estiver lá). Não há como desfazer.
+
+Resumindo em uma linha: **`%APPDATA%\kolnd-hub` é preservado; o diretório de instalação é removido** (com o que o Mark LVI gravou ao lado do seu `.exe` que ainda não foi espelhado para `%APPDATA%\kolnd-hub\mark-lvi`). Se você usa o Mark LVI com a build atual, copie `config` e `memory` de `resources\programs\MarkLVI\` antes de desinstalar se quiser garantia total.
 
 Duas regras importantes:
 
-- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados.
+- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** — inclui o espelho `mark-lvi\` mantido pelo Hub, mas **não** cobre subpastas e não garante conter dados gravados ao lado do `MarkLVI.exe` desde o último boot; copie manualmente `resources\programs\MarkLVI\config` e `...\memory` se quiser garantia total.
 - Nada fora de `%APPDATA%\kolnd-hub` é apagado pelo Hub. O que remove a instalação do Kloud Games e a pasta do Hub são os desinstaladores oficiais (MSI e NSIS).
 
 Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`, em `config.json`) também fica em `%APPDATA%\kolnd-hub` — ela sobrevive à desinstalação se você mantiver os dados; quem decide apagá-la é a opção de apagar tudo.
@@ -84,8 +89,10 @@ Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launch
 ### Mark LVI
 
 - O Mark LVI é removido junto com a pasta do Hub, porque fica dentro dela.
-- Os dados **atuais** do assistente ficam em `%APPDATA%\kolnd-hub\mark-lvi` e seguem a regra acima (preservados por padrão; apagados só pela opção irreversível, e cobertos pelo backup).
-- Dados **antigos**, gravados ao lado do executável (builds antigas do Mark LVI), são perdidos com a pasta do Hub — faça backup antes de desinstalar se ainda usa esse formato.
+- **Build atual do Mark LVI (bundled)**: o `MarkLVI.exe` empacotado grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`) **ao lado do executável**, em `%LOCALAPPDATA%\Programs\Kolnd Hub\resources\programs\MarkLVI\` — ou seja, esses arquivos **vão junto com o diretório de instalação** na desinstalação.
+- O que sobrevive: a cada boot o Hub **espelha** (seed, sem apagar) os arquivos `config\` e `memory\` do executável para `%APPDATA%\kolnd-hub\mark-lvi` (arquivos mais novos ganham; só arquivos no nível superior das pastas). Esses espelhos seguem a regra acima (preservados por padrão; cobertos pelo backup).
+- O que **não** sobrevive: arquivos dentro de subpastas (`config\certs\`, `config\whatsapp_web\` etc.) nunca são espelhados; e dados gravados numa sessão cujo **último boot do Hub** foi anterior a essa gravação também ficam de fora. Nesse caso, copie manualmente os arquivos de `<instalação>\resources\programs\MarkLVI\config` e `<instalação>\resources\programs\MarkLVI\memory` antes de desinstalar.
+- **Rebuild do Mark LVI (tarefa 01-1.9)**: a build refeita passa a honrar `MARK_LVI_HOME=%APPDATA%\kolnd-hub\mark-lvi` (o Hub já define essa variável ao lançar o assistente); a partir daí o assistente grava direto na pasta de dados do usuário e esses casos de borda deixam de existir. Até lá, vale a regra da build atual.
 
 ### Desinstalação manual pelo Windows (alternativa)
 
@@ -96,7 +103,19 @@ Você também pode desinstalar pelo sistema, sem abrir o Hub: **Configurações 
 
 É equivalente ao que os botões do Hub fazem. Códigos de retorno **3010** e **1641** do `msiexec` significam "reinício necessário para concluir a remoção" — é sucesso com aviso, não erro.
 
-O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%APPDATA%\kolnd-hub` — a decisão de apagar ou manter é sempre sua, dentro da "Zona de perigo" do Hub.
+O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%APPDATA%\kolnd-hub` — a decisão de apagar ou manter seus dados é sempre sua, dentro da "Zona de perigo" do Hub. Por outro lado, ele **remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVI\` com os dados que a build atual do Mark LVI grava ao lado do executável**. Não existe opção de "manter a pasta do programa" — o NSIS sempre a remove.
+
+### Checklist de release: verificação da desinstalação
+
+Antes de publicar cada release, verifique em uma máquina/VM limpa com o instalador gerado:
+
+1. Instale o release e abra o Hub uma vez (conclua a primeira execução);
+2. Desinstale pela "Zona de perigo" **ou** pelo Windows (Configurações → Aplicativos → Kolnd Hub);
+3. **Confirme que `%APPDATA%\kolnd-hub` foi preservado**: `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log` e — se o rebuild 01-1.9 estiver no ar — `mark-lvi\`;
+4. Confirme que o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`) foi removido;
+5. (Esperado, build atual) Confirme que o espelho `%APPDATA%\kolnd-hub\mark-lvi` sobreviveu e que o conteúdo ao lado do `MarkLVI.exe` foi removido — documente na release note que a chave de API/memória migradas ficam no espelho e que subpastas (`certs\`, `whatsapp_web\`) **não** são espelhadas.
+
+O checklist completo de primeira execução/release pertence à tarefa 11-11.2; esta seção é o recorte de desinstalação enquanto o `docs/FIRST-RUN-CHECKLIST.md` não existe.
 
 ### Logs de desinstalação
 
