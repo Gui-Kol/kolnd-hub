@@ -227,7 +227,8 @@ app.whenReady().then(() => {
   // ── IPC: Kloud Games ─────────────────────────────
   // Abrir: procura o .exe (estado salvo → pasta do Hub → Program Files).
   // Se não encontrar, abre o MSI embutido para instalação (UAC), detecta o
-  // caminho do .exe e salva tudo em resources/programs/kloud-games/kloud-games.paths.json.
+  // caminho do .exe e salva tudo em %APPDATA%\kolnd-hub\kloud-games.paths.json (userData;
+  // o conteúdo legado em resources/programs/kloud-games é migrado automaticamente).
   ipcMain.handle('kloud-games:launch', async () => {
     const ensured = await ensureKloudGamesInstalled()
     if (!ensured.success || !ensured.exePath) {

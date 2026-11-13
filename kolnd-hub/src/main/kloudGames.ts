@@ -1,6 +1,14 @@
 import { app } from 'electron'
 import { spawn, execFile } from 'child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  writeFileSync
+} from 'fs'
 import { dirname, join } from 'path'
 import { promisify } from 'util'
 import { logger } from './logger'
@@ -33,7 +41,7 @@ export interface KloudGamesStatus {
   installed: boolean
   exePath: string | null
   msiPath: string | null
-  /** Pasta resources\programs\kloud-games do Kolnd Hub (onde o .paths.json vive). */
+  /** Pasta resources\programs\kloud-games do Kolnd Hub (onde ficam o MSI e o exe embutidos; o estado persiste em userData). */
   dir: string
   /** true quando KLOUD_GAMES.exe está em execução no sistema. */
   running: boolean
@@ -95,9 +103,67 @@ export function getKloudGamesDir(): string {
   return join(process.cwd(), 'resources', 'programs', 'kloud-games')
 }
 
-/** Caminho do arquivo JSON onde o Hub persiste os caminhos detectados. */
+/**
+ * Caminho do arquivo JSON onde o Hub persiste os caminhos detectados.
+ * Vive em %APPDATA%\\kolnd-hub (userData) — fora da pasta de instalação, para
+ * que o estado não dependa de a pasta de recursos ser gravável nem possa ser
+ * alterado por terceiros com acesso à árvore de instalação.
+ * (O conteúdo antigo em resources/programs/kloud-games é migrado por
+ * `migrateLegacyStateIfNeeded()` na primeira leitura/escrita.)
+ */
 export function getKloudGamesStatePath(): string {
+  return join(app.getPath('userData'), STATE_FILE)
+}
+
+/** Caminho do estado legado (dentro da pasta de instalação/recursos). Só usado na migração. */
+function getLegacyKloudGamesStatePath(): string {
   return join(getKloudGamesDir(), STATE_FILE)
+}
+
+/**
+ * Migração automática do caminho antigo para o novo (01-1.2): se o arquivo
+ * novo não existe e o legado existe, copia o conteúdo para o novo caminho e
+ * renomeia o legado para `kloud-games.paths.json.migrated` (nunca apaga —
+ * preserva exePath/installedAt/msiPath intactos). Best-effort: qualquer
+ * falha é apenas logada; jamais lança nem perde o estado legado.
+ */
+function migrateLegacyStateIfNeeded(): void {
+  try {
+    const statePath = getKloudGamesStatePath()
+    if (existsSync(statePath)) return // novo já existe — fonte de verdade
+    const legacyPath = getLegacyKloudGamesStatePath()
+    if (!existsSync(legacyPath)) return
+
+    const raw = readFileSync(legacyPath, 'utf8')
+    JSON.parse(raw) // valida antes de copiar — lixo/corrompido não migra
+
+    const dir = dirname(statePath)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+    writeFileSync(statePath, raw, 'utf8')
+
+    // Decisão de destino do legado: renomear para .migrated (não apagar).
+    try {
+      renameSync(legacyPath, `${legacyPath}.migrated`)
+      logger.info(
+        'kloud-games',
+        `Estado migrado de ${legacyPath} para ${statePath} (legado renomeado para .migrated).`
+      )
+    } catch (renameErr) {
+      logger.warn(
+        'kloud-games',
+        `Estado migrado para ${statePath}, mas não foi possível renomear o legado (${legacyPath}) — mantido como está:`,
+        renameErr instanceof Error ? renameErr.message : renameErr
+      )
+    }
+  } catch (err) {
+    logger.warn(
+      'kloud-games',
+      'Falha na migração do kloud-games.paths.json legado — seguindo sem migrar (arquivo legado preservado):',
+      err instanceof Error ? err.message : err
+    )
+  }
 }
 
 function emptyState(): KloudGamesPathsState {
@@ -120,8 +186,9 @@ function tryReadKloudGamesState(): KloudGamesPathsState | null {
   }
 }
 
-/** Lê o JSON de estado. Tolerante a arquivo ausente/corrompido. */
+/** Lê o JSON de estado. Migra o legado se necessário. Tolerante a arquivo ausente/corrompido. */
 export function readKloudGamesState(): KloudGamesPathsState {
+  migrateLegacyStateIfNeeded()
   return tryReadKloudGamesState() ?? emptyState()
 }
 
@@ -131,13 +198,15 @@ function statesSemanticallyEqual(a: KloudGamesPathsState, b: KloudGamesPathsStat
 }
 
 /**
- * Grava o JSON de estado. Best-effort: falha aqui nunca deve impedir o Hub
- * de abrir/fechar o Kloud Games. Só escreve quando algo mudou de fato
- * (comparação sem `updatedAt`) — chamadas repetidas sem mudança não tocam
- * o disco. Retorna true quando o estado está persistido (ou já estava).
+ * Persiste o JSON de estado em %APPDATA%\\kolnd-hub (userData). Best-effort:
+ * falha aqui nunca deve impedir o Hub de abrir/fechar o Kloud Games. Só
+ * escreve quando algo mudou de fato (comparação sem `updatedAt`) — chamadas
+ * repetidas sem mudança não tocam o disco. Retorna true quando o estado
+ * está persistido (ou já estava).
  */
 export function writeKloudGamesState(state: KloudGamesPathsState): boolean {
   try {
+    migrateLegacyStateIfNeeded()
     const statePath = getKloudGamesStatePath()
     // Só pula a escrita quando o arquivo existe, é parseável e o conteúdo
     // semântico é idêntico (updatedAt não força reescrita). Arquivo corrompido
@@ -282,9 +351,10 @@ export function findKloudGamesMsi(): string | null {
 }
 
 /**
- * Revalida todos os caminhos (exe/msi), atualiza o kloud-games.paths.json
- * (somente quando algo mudou) e retorna o que foi encontrado. Chamado pelo
- * handler de status; escritas idênticas são elididas por writeKloudGamesState.
+ * Revalida todos os caminhos (exe/msi), atualiza o kloud-games.paths.json em
+ * userData (somente quando algo mudou) e retorna o que foi encontrado.
+ * Chamado pelo handler de status; escritas idênticas são elididas por
+ * writeKloudGamesState.
  */
 export function refreshKloudGamesPaths(): { exePath: string | null; msiPath: string | null } {
   const saved = readKloudGamesState()
@@ -498,7 +568,7 @@ function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
  *     se encontrar, não reinstala — registra "[kloud-games] já instalado — pulando";
  *  2. Se não achar, abre o MSI embutido para instalação (UAC);
  *  3. Após instalar, confirma a existência real do .exe antes de reportar sucesso;
- *  4. Persiste tudo em resources/programs/kloud-games/kloud-games.paths.json.
+ *  4. Persiste tudo em %APPDATA%\\kolnd-hub\\kloud-games.paths.json (userData).
  */
 export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResult> {
   // O fluxo pode mudar a instalação em disco — força reconsulta do tasklist.

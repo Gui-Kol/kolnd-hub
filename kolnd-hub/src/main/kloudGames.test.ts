@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { mkdtempSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { existsSync, readFileSync } from 'fs'
 
 const mockPaths = vi.hoisted(() => ({ baseDir: 'C:\\fake-kg-base' }))
 
@@ -46,6 +47,7 @@ import {
   getKloudGamesStatus,
   invalidateKloudGamesRunningCache,
   isKloudGamesRunning,
+  readKloudGamesState,
   refreshKloudGamesPaths
 } from './kloudGames'
 
@@ -172,7 +174,94 @@ describe('getKloudGamesStatus — contrato IPC preservado', () => {
     })
   })
 
-  it('getKloudGamesStatePath continua dentro da pasta do Hub (05-5.5)', () => {
-    expect(getKloudGamesStatePath()).toBe(join(stateDir(), 'kloud-games.paths.json'))
+  it('getKloudGamesStatePath aponta para userData (01-1.2), não para a pasta do Hub', () => {
+    expect(getKloudGamesStatePath()).toBe(
+      join(mockPaths.baseDir, 'userData', 'kloud-games.paths.json')
+    )
+  })
+})
+
+describe('readKloudGamesState — migração do caminho legado (01-1.2)', () => {
+  const legacyState = (): Record<string, string | null> => ({
+    exePath: 'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe',
+    msiPath: 'C:\\hub\\resources\\programs\\kloud-games\\KLOUD_GAMES.msi',
+    installedAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-02T00:00:00.000Z'
+  })
+
+  function writeLegacy(content: string): string {
+    mkdirSync(stateDir(), { recursive: true })
+    const legacyPath = join(stateDir(), 'kloud-games.paths.json')
+    actualFs.writeFileSync(legacyPath, content, 'utf8')
+    return legacyPath
+  }
+
+  function newStatePath(): string {
+    return join(mockPaths.baseDir, 'userData', 'kloud-games.paths.json')
+  }
+
+  it('só o arquivo antigo existe → migra, lê e preserva exePath/installedAt', () => {
+    const legacyPath = writeLegacy(JSON.stringify(legacyState()))
+
+    const state = readKloudGamesState()
+    expect(state.exePath).toBe('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
+    expect(state.msiPath).toBe('C:\\hub\\resources\\programs\\kloud-games\\KLOUD_GAMES.msi')
+    expect(state.installedAt).toBe('2026-01-01T00:00:00.000Z')
+
+    // Novo arquivo criado com o conteúdo migrado; legado renomeado para .migrated.
+    expect(existsSync(newStatePath())).toBe(true)
+    const migrated = JSON.parse(readFileSync(newStatePath(), 'utf8')) as Record<string, unknown>
+    expect(migrated.exePath).toBe(state.exePath)
+    expect(existsSync(legacyPath)).toBe(false)
+    expect(existsSync(`${legacyPath}.migrated`)).toBe(true)
+  })
+
+  it('arquivo novo corrompido → tolerante (estado vazio, sem lançar, sem migrar o legado)', () => {
+    actualFs.mkdirSync(join(mockPaths.baseDir, 'userData'), { recursive: true })
+    actualFs.writeFileSync(newStatePath(), 'lixo{ corrompido', 'utf8')
+    const legacyPath = writeLegacy(JSON.stringify(legacyState()))
+
+    const state = readKloudGamesState()
+    expect(state).toEqual({ exePath: null, msiPath: null, installedAt: null, updatedAt: null })
+    // Novo (corrompido) existia → migração não dispara; legado preservado.
+    expect(existsSync(legacyPath)).toBe(true)
+  })
+
+  it('legado corrompido e novo ausente → não migra, não lança, legado preservado', () => {
+    const legacyPath = writeLegacy('{{{ não é json')
+
+    const state = readKloudGamesState()
+    expect(state).toEqual({ exePath: null, msiPath: null, installedAt: null, updatedAt: null })
+    expect(existsSync(newStatePath())).toBe(false)
+    expect(existsSync(legacyPath)).toBe(true)
+  })
+
+  it('nenhum arquivo → estado vazio', () => {
+    expect(readKloudGamesState()).toEqual({
+      exePath: null,
+      msiPath: null,
+      installedAt: null,
+      updatedAt: null
+    })
+  })
+
+  it('legado existe e novo já existe → novo é a fonte de verdade (sem migração)', () => {
+    writeLegacy(JSON.stringify(legacyState()))
+    actualFs.mkdirSync(join(mockPaths.baseDir, 'userData'), { recursive: true })
+    actualFs.writeFileSync(
+      newStatePath(),
+      JSON.stringify({
+        exePath: 'C:\\novo\\KLOUD_GAMES.exe',
+        msiPath: null,
+        installedAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: null
+      }),
+      'utf8'
+    )
+
+    const state = readKloudGamesState()
+    expect(state.exePath).toBe('C:\\novo\\KLOUD_GAMES.exe')
+    expect(state.installedAt).toBe('2026-06-01T00:00:00.000Z')
+    expect(existsSync(join(stateDir(), 'kloud-games.paths.json.migrated'))).toBe(false)
   })
 })

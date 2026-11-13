@@ -40,5 +40,7 @@ Notas:
   - Ao abrir o Kloud Games pelo Hub, ele procura o KLOUD_GAMES.exe nesta
     pasta (e em Program Files). Se não encontrar, abre o MSI acima para
     instalação (UAC). Os caminhos detectados (exe/msi) são salvos em
-    kloud-games.paths.json nesta pasta — arquivo gerado em runtime,
-    ignorado pelo git, não edite manualmente.
+    kloud-games.paths.json na pasta de dados do Hub (%APPDATA%\kolnd-hub) —
+    arquivo gerado em runtime. Uma cópia antiga aqui é migrada
+    automaticamente na primeira leitura (a antiga vira
+    kloud-games.paths.json.migrated).

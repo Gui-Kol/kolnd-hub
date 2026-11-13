@@ -52,7 +52,7 @@ export function isKloudGamesInstalled(): boolean {
 /**
  * Instala o Kloud Games a partir do MSI embutido no instalador do Hub.
  * Procura o .exe primeiro; se não encontrar, abre o MSI (UAC) e salva os
- * caminhos em resources/programs/kloud-games/kloud-games.paths.json.
+ * caminhos em %APPDATA%\\kolnd-hub\\kloud-games.paths.json (userData).
  */
 export async function installKloudGames(): Promise<InstallResult> {
   const result = await ensureKloudGamesInstalled()
