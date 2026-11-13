@@ -37,6 +37,24 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 const processManager = new ProcessManager()
 
+// Instância única: o lock é pedido antes de qualquer bootstrap. Se outra
+// instância já o segura, encerra imediatamente — sem criar janela/tray, sem
+// registrar handlers de limpeza/desinstalação e sem tocar no disco.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+    }
+  })
+} else {
+  app.quit()
+}
+
 /**
  * Allowlist de URLs para abrir no navegador externo.
  * https://http://mailto: são os únicos esquemas permitidos — bloqueia
@@ -158,6 +176,8 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
+  // Sem o lock, o app já recebeu app.quit() e não faz bootstrap nenhum.
+  if (!gotSingleInstanceLock) return
   electronApp.setAppUserModelId('com.kolnd.hub')
 
   // Relative paths in Settings resolve from the project root in dev and from
@@ -587,14 +607,18 @@ app.whenReady().then(() => {
   createTray()
 })
 
-app.on('window-all-closed', () => {
-  // Don't quit — hide to system tray
-})
+// Handlers de ciclo de vida: só quando esta é a instância primária. No
+// caminho de lock negado, app.quit() roda sem disparar before-quit/limpeza.
+if (gotSingleInstanceLock) {
+  app.on('window-all-closed', () => {
+    // Don't quit — hide to system tray
+  })
 
-app.on('before-quit', () => {
-  processManager.killAll()
-})
+  app.on('before-quit', () => {
+    processManager.killAll()
+  })
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+}
