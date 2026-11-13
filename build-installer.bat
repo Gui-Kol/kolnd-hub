@@ -10,7 +10,7 @@ rem        KLOUD_GAMES.msi (WiX/cpack), copiando-o para
 rem        kolnd-hub\resources\programs\kloud-games\
 rem    [2] Empacota o Kolnd Hub (electron-builder) com o MSI
 rem        embutido:
-rem        kolnd-hub\dist\Kolnd Hub Setup 1.0.0.exe
+rem        kolnd-hub\dist\Kolnd Hub Setup <versao>.exe
 rem
 rem  Requisitos (o script instala o que faltar via winget):
 rem    git, Node.js LTS, MSYS2 (C:\msys64), .NET SDK 8
@@ -93,12 +93,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem --- Le a versao do kolnd-hub\package.json para o resumo final ---
+rem (via arquivo temporario; fallback para 1.4.0 se o node falhar)
+set "HUB_VERSION="
+node -p "require('%HUB%/package.json').version" > "%TEMP%\kolnd-hub-version.txt" 2>nul
+set /p HUB_VERSION=< "%TEMP%\kolnd-hub-version.txt"
+del /q "%TEMP%\kolnd-hub-version.txt" >nul 2>&1
+if not defined HUB_VERSION set "HUB_VERSION=1.4.0"
+
 echo.
 echo =============================================================
 echo  [OK] Tudo pronto!
 echo =============================================================
 echo  Kloud Games MSI : %HUB%\resources\programs\kloud-games\KLOUD_GAMES.msi
-echo  Instalador Hub  : %HUB%\dist\Kolnd Hub Setup 1.0.0.exe
+echo  Instalador Hub  : %HUB%\dist\Kolnd Hub Setup %HUB_VERSION%.exe
 echo =============================================================
 echo.
 pause
