@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, cpSync, copyFileSync, renameSync, readdirSync, s
 import { join, dirname } from 'path'
 import { app } from 'electron'
 import { findKloudGamesExe, getKloudGamesDir } from './kloudGames'
+import { logger } from './logger'
 
 export interface ProgramDeployResult {
   id: string
@@ -88,18 +89,19 @@ export function seedMarkLviData(): void {
           renameSync(tmp, dest)
           copied++
         } catch (err) {
-          console.warn(`[programsDeployer] seed do Mark LVI: falha em ${src} → ${dest}:`, err)
+          logger.warn('programsDeployer', `seed do Mark LVI: falha em ${src} → ${dest}:`, err)
         }
       }
     }
 
     if (copied > 0) {
-      console.log(
-        `[programsDeployer] seed do Mark LVI: ${copied} arquivo(s) copiado(s) para ${dataDir}`
+      logger.info(
+        'programsDeployer',
+        `seed do Mark LVI: ${copied} arquivo(s) copiado(s) para ${dataDir}`
       )
     }
   } catch (err) {
-    console.warn('[programsDeployer] seed do Mark LVI falhou (não bloqueia o app):', err)
+    logger.warn('programsDeployer', 'seed do Mark LVI falhou (não bloqueia o app):', err)
   }
 }
 
@@ -123,8 +125,9 @@ function deployMarkLvi(): ProgramDeployResult {
 
     if (existsSync(sourceExe)) {
       try {
-        console.log(
-          `[programsDeployer] DEV fallback: copiando Mark LVI de ${sourceDir} para ${targetDir} (não ocorre em produção)`
+        logger.info(
+          'programsDeployer',
+          `DEV fallback: copiando Mark LVI de ${sourceDir} para ${targetDir} (não ocorre em produção)`
         )
         if (!existsSync(targetDir)) {
           mkdirSync(targetDir, { recursive: true })

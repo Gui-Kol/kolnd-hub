@@ -8,6 +8,7 @@ import {
   BigPicturePrefs,
   GamepadConfig
 } from './store'
+import { logger } from './logger'
 
 /**
  * Canais IPC do modo Big Picture (controle + preferências de sons).
@@ -45,7 +46,7 @@ export function registerGamepadIpc(): void {
     try {
       return { ok: true, config: getGamepadConfig() }
     } catch (err) {
-      console.error('[gamepad] Falha ao ler a configuração de controle:', err)
+      logger.error('gamepad', 'Falha ao ler a configuração de controle:', err)
       return { ok: false, config: null, error: toMessage(err) }
     }
   })
@@ -64,7 +65,7 @@ export function registerGamepadIpc(): void {
     try {
       return { ok: true, prefs: getBigPicturePrefs() }
     } catch (err) {
-      console.error('[gamepad] Falha ao ler as preferências do Big Picture:', err)
+      logger.error('gamepad', 'Falha ao ler as preferências do Big Picture:', err)
       return { ok: false, prefs: { sounds: true }, error: toMessage(err) }
     }
   })

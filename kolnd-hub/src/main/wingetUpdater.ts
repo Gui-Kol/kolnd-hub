@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import treeKill from 'tree-kill'
 import { isWingetAvailable } from './silentInstaller'
+import { logger } from './logger'
 
 export interface WingetUpgrade {
   name: string
@@ -443,8 +444,9 @@ export async function listUpgradable(): Promise<WingetUpgrade[]> {
     return parseUpgradeTable(run.output)
   } catch (err) {
     if (err instanceof WingetParseError && acceptFlagsWork !== false) {
-      console.log(
-        '[winget] saída degenerada com --accept-* no `winget upgrade`; tentando sem as flags'
+      logger.info(
+        'winget',
+        'saída degenerada com --accept-* no `winget upgrade`; tentando sem as flags'
       )
       const fallback = await runWinget(WINGET_LIST_ARGS)
       if (fallback.timedOut) throw wingetTimeoutError()

@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { resolve } from 'path'
 import treeKill from 'tree-kill'
 import { splitCommandLine, checkCommandLine } from './commandLine'
+import { logger } from './logger'
 
 interface ProcessInfo {
   process: ChildProcess
@@ -85,7 +86,7 @@ export class ProcessManager extends EventEmitter {
     for (const issue of checkCommandLine(trimmedCommand)) {
       // Nunca bloqueia (o comando é configurável de propósito), mas o aviso
       // fica no log do main para facilitar diagnóstico.
-      console.warn(`[processManager] appId=${appId} checagem: ${issue.level}: ${issue.message}`)
+      logger.warn('processManager', `appId=${appId} checagem: ${issue.level}: ${issue.message}`)
     }
 
     const workingDir = cwd.trim() ? resolvePath(cwd) : process.cwd()
@@ -100,8 +101,10 @@ export class ProcessManager extends EventEmitter {
         // Passar a string inteira para o shell preserva caminhos com aspas
         // e argumentos. ⚠️ O comando é interpretado pelo cmd.exe: quem tiver
         // o comando configurado decide o que executa.
-        console.log(
-          `[processManager] appId=${appId} launch via shell:true command="${trimmedCommand}" cwd="${workingDir}"` +
+        // Comando completo só em debug: pode conter segredos nos argumentos.
+        logger.debug(
+          'processManager',
+          `appId=${appId} launch via shell:true command="${trimmedCommand}" cwd="${workingDir}"` +
             ' (interpretação pelo cmd.exe — metacaracteres serão avaliados)'
         )
         child = spawn(trimmedCommand, {
@@ -116,8 +119,10 @@ export class ProcessManager extends EventEmitter {
         if (argv.length === 0) {
           return { success: false, error: 'Nenhum comando configurado' }
         }
-        console.log(
-          `[processManager] appId=${appId} launch via shell:false argv=${JSON.stringify(argv)} cwd="${workingDir}"` +
+        // argv completo só em debug: pode conter segredos nos argumentos.
+        logger.debug(
+          'processManager',
+          `appId=${appId} launch via shell:false argv=${JSON.stringify(argv)} cwd="${workingDir}"` +
             ' (sem interpretação de shell)'
         )
         child = spawn(argv[0], argv.slice(1), {

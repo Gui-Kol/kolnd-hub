@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process'
 import { existsSync } from 'fs'
 import { dirname, join } from 'path'
 import { findKloudGamesExe } from './kloudGames'
+import { logger } from './logger'
 
 /**
  * Detecção "pura" (só leitura) para os fluxos de desinstalação do Kloud Games
@@ -183,8 +184,9 @@ export function parseUninstallEntries(json: string): UninstallEntry[] {
   try {
     parsed = JSON.parse(raw)
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] JSON do registro inválido/corrompido — ignorando:',
+    logger.warn(
+      'uninstall-detection',
+      'JSON do registro inválido/corrompido — ignorando:',
       err instanceof Error ? err.message : err
     )
     return []
@@ -211,8 +213,9 @@ function queryUninstallHive(psPath: string): UninstallEntry[] | null {
     })
     return parseUninstallEntries(String(out ?? ''))
   } catch (err) {
-    console.warn(
-      `[uninstall-detection] Falha ao consultar ${psPath}:`,
+    logger.warn(
+      'uninstall-detection',
+      `Falha ao consultar ${psPath}:`,
       err instanceof Error ? err.message : err
     )
     return null
@@ -283,8 +286,9 @@ export function findKloudGamesUninstallEntry(): UninstallEntry | null {
     )
     return pickBestUninstallEntry(entries)
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] findKloudGamesUninstallEntry falhou:',
+    logger.warn(
+      'uninstall-detection',
+      'findKloudGamesUninstallEntry falhou:',
       err instanceof Error ? err.message : err
     )
     return null
@@ -306,8 +310,9 @@ export function findHubUninstallEntry(): UninstallEntry | null {
     const userEntries = entries.filter((entry) => entry.scope === 'user' || entry.scope === 'both')
     return pickBestUninstallEntry(userEntries.length > 0 ? userEntries : entries)
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] findHubUninstallEntry falhou:',
+    logger.warn(
+      'uninstall-detection',
+      'findHubUninstallEntry falhou:',
       err instanceof Error ? err.message : err
     )
     return null
@@ -356,8 +361,9 @@ export function findHubUninstaller(): HubUninstallDetection {
       }
     }
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] Não foi possível resolver o caminho padrão do desinstalador:',
+    logger.warn(
+      'uninstall-detection',
+      'Não foi possível resolver o caminho padrão do desinstalador:',
       err instanceof Error ? err.message : err
     )
   }
@@ -375,8 +381,9 @@ export function findHubUninstaller(): HubUninstallDetection {
     }
     return { available: false, uninstallerPath: null, source: null, entry }
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] findHubUninstaller (fallback registro) falhou:',
+    logger.warn(
+      'uninstall-detection',
+      'findHubUninstaller (fallback registro) falhou:',
       err instanceof Error ? err.message : err
     )
     return { available: false, uninstallerPath: null, source: null, entry: null }
@@ -455,8 +462,9 @@ export function detectKloudGames(): KloudGamesDetection {
   try {
     exePath = findKloudGamesExe()
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] findKloudGamesExe falhou:',
+    logger.warn(
+      'uninstall-detection',
+      'findKloudGamesExe falhou:',
       err instanceof Error ? err.message : err
     )
   }
@@ -465,8 +473,9 @@ export function detectKloudGames(): KloudGamesDetection {
   try {
     entry = findKloudGamesUninstallEntry()
   } catch (err) {
-    console.warn(
-      '[uninstall-detection] findKloudGamesUninstallEntry falhou:',
+    logger.warn(
+      'uninstall-detection',
+      'findKloudGamesUninstallEntry falhou:',
       err instanceof Error ? err.message : err
     )
   }

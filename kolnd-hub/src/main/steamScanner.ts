@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { addGame, extractIconPng, gameIconsDir, getGames } from './games'
+import { logger } from './logger'
 
 /**
  * Importação automática de jogos Steam para a Biblioteca do Kolnd Hub.
@@ -172,7 +173,7 @@ export function findSteamLibraries(steamRoot: string): string[] {
       candidates.push(...parseLibraryFolders(readFileSync(vdfPath, 'utf8')))
     }
   } catch (err) {
-    console.warn('[steam] Não foi possível ler libraryfolders.vdf:', err)
+    logger.warn('steam', 'Não foi possível ler libraryfolders.vdf:', err)
   }
 
   const seen = new Set<string>()
@@ -321,7 +322,7 @@ export async function importSteamGames(): Promise<SteamImportReport> {
   }
 
   const libraries = findSteamLibraries(steamRoot)
-  console.log(`[steam] ${libraries.length} biblioteca(s) encontrada(s) em ${steamRoot}`)
+  logger.info('steam', `${libraries.length} biblioteca(s) encontrada(s) em ${steamRoot}`)
 
   // Manifestos de todas as bibliotecas, deduplicados por appid (primeira ocorrência vence).
   const manifests = new Map<number, { manifest: SteamAppManifest; library: string }>()
@@ -331,7 +332,7 @@ export async function importSteamGames(): Promise<SteamImportReport> {
     try {
       entries = readdirSync(steamapps)
     } catch (err) {
-      console.warn(`[steam] Sem acesso a ${steamapps}:`, err)
+      logger.warn('steam', `Sem acesso a ${steamapps}:`, err)
       continue
     }
     for (const entry of entries) {
@@ -341,7 +342,7 @@ export async function importSteamGames(): Promise<SteamImportReport> {
         if (!parsed) continue
         if (!manifests.has(parsed.appId)) manifests.set(parsed.appId, { manifest: parsed, library })
       } catch (err) {
-        console.warn(`[steam] Falha ao ler ${entry}:`, err)
+        logger.warn('steam', `Falha ao ler ${entry}:`, err)
       }
     }
   }
@@ -409,8 +410,9 @@ export async function importSteamGames(): Promise<SteamImportReport> {
     }
   }
 
-  console.log(
-    `[steam] Importação concluída: ${report.imported} importado(s), ` +
+  logger.info(
+    'steam',
+    `Importação concluída: ${report.imported} importado(s), ` +
       `${report.alreadyInLibrary} já na biblioteca, ${report.ignoredTools} ignorado(s), ` +
       `${report.noExe} sem executável, ${report.errors.length} erro(s)`
   )

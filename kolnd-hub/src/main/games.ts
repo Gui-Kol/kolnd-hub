@@ -14,6 +14,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { getStoredGames, setStoredGames, normalizeGame, StoredGame, GameOrigin } from './store'
 import { listRunningProcesses } from './startupManager'
 import treeKill from 'tree-kill'
+import { logger } from './logger'
 
 /**
  * Biblioteca de jogos do Kolnd Hub.
@@ -224,7 +225,7 @@ function deleteStaleIcons(id: string, exceptPath: string | null): void {
     try {
       rmSync(candidate, { force: true })
     } catch (err) {
-      console.warn(`[games] Não foi possível apagar o ícone ${candidate}:`, err)
+      logger.warn('games', `Não foi possível apagar o ícone ${candidate}:`, err)
     }
   }
 }
@@ -284,7 +285,7 @@ export async function extractIconPng(exePath: string, pngPath: string): Promise<
     writeFileSync(pngPath, png)
     return true
   } catch (err) {
-    console.warn(`[games] Não foi possível extrair o ícone de ${exePath}:`, err)
+    logger.warn('games', `Não foi possível extrair o ícone de ${exePath}:`, err)
     return false
   }
 }
@@ -322,7 +323,7 @@ export function addGame(input: unknown): GameResult {
   if (!saved.success) {
     return { success: false, error: saved.error ?? 'Não foi possível salvar o jogo.' }
   }
-  console.log(`[games] Jogo adicionado: ${game.name} (${game.id})`)
+  logger.info('games', `Jogo adicionado: ${game.name} (${game.id})`)
   return { success: true }
 }
 
@@ -378,7 +379,7 @@ export async function addCustomGame(exePathInput: unknown): Promise<AddCustomGam
   if (!result.success) {
     return { success: false, error: result.error ?? 'Não foi possível adicionar o jogo.' }
   }
-  console.log(`[games] Jogo personalizado adicionado: ${name} (${exePath})`)
+  logger.info('games', `Jogo personalizado adicionado: ${name} (${exePath})`)
   return { success: true, id, name }
 }
 
@@ -432,7 +433,7 @@ export async function pickGameIcon(): Promise<PickIconResult> {
       dataUrl: `data:${iconMimeType(filePath)};base64,${buffer.toString('base64')}`
     }
   } catch (err) {
-    console.warn('[games] Falha ao escolher a imagem:', err)
+    logger.warn('games', 'Falha ao escolher a imagem:', err)
     return { success: false, error: 'Não foi possível abrir a imagem escolhida.' }
   }
 }
@@ -478,7 +479,7 @@ export function setGameIcon(id: unknown, dataUrl: unknown): IconPathResult {
     mkdirSync(dirname(iconPath), { recursive: true })
     writeFileSync(iconPath, buffer)
   } catch (err) {
-    console.warn(`[games] Não foi possível gravar o ícone ${iconPath}:`, err)
+    logger.warn('games', `Não foi possível gravar o ícone ${iconPath}:`, err)
     return { success: false, error: 'Não foi possível gravar a imagem na pasta de ícones.' }
   }
   return { success: true, iconPath }
@@ -507,7 +508,7 @@ export async function previewExeIcon(exePathInput: unknown): Promise<PreviewExeI
     }
     return { success: true, dataUrl: `data:image/png;base64,${png.toString('base64')}` }
   } catch (err) {
-    console.warn(`[games] Não foi possível extrair o ícone de ${exePath}:`, err)
+    logger.warn('games', `Não foi possível extrair o ícone de ${exePath}:`, err)
     return { success: false, error: 'O executável não tem um ícone utilizável.' }
   }
 }
@@ -657,12 +658,12 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
       try {
         rmSync(resolvedOld, { force: true })
       } catch (err) {
-        console.warn(`[games] Não foi possível apagar o ícone antigo ${resolvedOld}:`, err)
+        logger.warn('games', `Não foi possível apagar o ícone antigo ${resolvedOld}:`, err)
       }
     }
     deleteStaleIcons(updated.id, resolvedNew)
   }
-  console.log(`[games] Jogo atualizado: ${updated.name} (${updated.id})`)
+  logger.info('games', `Jogo atualizado: ${updated.name} (${updated.id})`)
   return { success: true }
 }
 
@@ -673,7 +674,7 @@ function deleteCachedIcon(game: StoredGame): void {
     try {
       rmSync(candidate, { force: true })
     } catch (err) {
-      console.warn(`[games] Não foi possível apagar o ícone ${candidate}:`, err)
+      logger.warn('games', `Não foi possível apagar o ícone ${candidate}:`, err)
     }
   }
   // Varre também as sobras `<base-do-id>.<ext>` (ex.: ícone trocado no modal de edição).
@@ -699,7 +700,7 @@ export function removeGame(id: unknown): GameResult {
 
   // Só apaga o ícone cacheado DEPOIS de persistir a remoção.
   deleteCachedIcon(removed)
-  console.log(`[games] Jogo removido: ${removed.name} (${removed.id})`)
+  logger.info('games', `Jogo removido: ${removed.name} (${removed.id})`)
   return { success: true }
 }
 
@@ -764,7 +765,7 @@ export function findGameProcesses(exePath: string): GameProcess[] {
   try {
     procs = listRunningProcesses()
   } catch (err) {
-    console.warn('[games] Não foi possível listar os processos para detectar o jogo:', err)
+    logger.warn('games', 'Não foi possível listar os processos para detectar o jogo:', err)
     return []
   }
   return procs
@@ -831,7 +832,7 @@ function focusProcessWindow(pid: number): boolean {
     )
     return true
   } catch (err) {
-    console.warn(`[games] Não foi possível focar a janela do processo ${pid}:`, err)
+    logger.warn('games', `Não foi possível focar a janela do processo ${pid}:`, err)
     return false
   }
 }
@@ -863,13 +864,13 @@ export function launchGame(id: unknown): Promise<LaunchGameResult> {
   if (running.length > 0) {
     for (const proc of running) {
       if (focusProcessWindow(proc.id)) {
-        console.log(`[games] Jogo já em execução — janela focada: ${game.name} (PID ${proc.id})`)
+        logger.info('games', `Jogo já em execução — janela focada: ${game.name} (PID ${proc.id})`)
         return Promise.resolve({ ok: true, focused: true })
       }
     }
     // Processo(s) existe(m), mas nenhum tem janela focável ainda (ex.: launcher
     // iniciando o jogo). Não abrir segunda instância — avisar o renderer.
-    console.log(`[games] Jogo em execução sem janela focável: ${game.name}`)
+    logger.info('games', `Jogo em execução sem janela focável: ${game.name}`)
     return Promise.resolve({ ok: true, alreadyRunning: true })
   }
 
@@ -898,7 +899,7 @@ export function launchGame(id: unknown): Promise<LaunchGameResult> {
 
     child.once('spawn', () => {
       child?.unref()
-      console.log(`[games] Jogo iniciado: ${game.name} (${game.exePath})`)
+      logger.info('games', `Jogo iniciado: ${game.name} (${game.exePath})`)
       finish({ ok: true })
     })
     child.once('error', (err: Error) => {
@@ -908,8 +909,9 @@ export function launchGame(id: unknown): Promise<LaunchGameResult> {
     // guarda para nunca deixar a promise pendente para sempre. Se ele disparar
     // sem 'spawn'/'error', o processo muito provavelmente já foi criado.
     const safety = setTimeout(() => {
-      console.warn(
-        `[games] Timeout aguardando evento de spawn para ${game.name} — assumindo iniciado.`
+      logger.warn(
+        'games',
+        `Timeout aguardando evento de spawn para ${game.name} — assumindo iniciado.`
       )
       finish({ ok: true })
     }, 5000)
@@ -952,7 +954,7 @@ export function stopGame(id: unknown): Promise<{ ok: boolean; error?: string; ki
         remaining -= 1
         if (remaining === 0) {
           if (killed > 0) {
-            console.log(`[games] Jogo encerrado pelo Hub: ${game.name} (${killed} processo(s))`)
+            logger.info('games', `Jogo encerrado pelo Hub: ${game.name} (${killed} processo(s))`)
             resolveStop({ ok: true, killed })
           } else {
             resolveStop({
@@ -1000,7 +1002,7 @@ export function runningGamesMap(idsInput: unknown): {
         .filter(Boolean)
     )
   } catch (err) {
-    console.warn('[games] running-map: não foi possível listar processos:', err)
+    logger.warn('games', 'running-map: não foi possível listar processos:', err)
     return { ok: false, running: {} }
   }
 

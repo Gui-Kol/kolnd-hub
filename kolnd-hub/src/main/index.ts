@@ -32,6 +32,7 @@ import {
 import { registerGamesIpc } from './games'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
+import { logger } from './logger'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -98,7 +99,7 @@ function createWindow(isFirstRunMode = false): void {
     if (isAllowedExternalUrl(details.url)) {
       shell.openExternal(details.url)
     } else {
-      console.warn(`[window] setWindowOpenHandler: bloqueado esquema não permitido: ${details.url}`)
+      logger.warn('window', `setWindowOpenHandler: bloqueado esquema não permitido: ${details.url}`)
     }
     return { action: 'deny' }
   })
@@ -118,7 +119,7 @@ function createWindow(isFirstRunMode = false): void {
       }
     }
     event.preventDefault()
-    console.warn(`[window] will-navigate bloqueado: ${url}`)
+    logger.warn('window', `will-navigate bloqueado: ${url}`)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -369,7 +370,7 @@ app.whenReady().then(() => {
   let boundsBeforeFullscreen: Electron.Rectangle | null = null
   ipcMain.handle('window:set-fullscreen', (_event, flag: unknown) => {
     if (typeof flag !== 'boolean') {
-      console.warn('[window] set-fullscreen: flag inválida (esperado boolean)')
+      logger.warn('window', 'set-fullscreen: flag inválida (esperado boolean)')
       return
     }
     if (!mainWindow) return
@@ -581,7 +582,7 @@ app.whenReady().then(() => {
   // ── IPC: Shell ──────────────────────────────────
   ipcMain.handle('shell:openExternal', (_event, url: unknown) => {
     if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
-      console.warn(`[shell] openExternal bloqueado (esquema não permitido): ${String(url)}`)
+      logger.warn('shell', `openExternal bloqueado (esquema não permitido): ${String(url)}`)
       return
     }
     void shell.openExternal(url)

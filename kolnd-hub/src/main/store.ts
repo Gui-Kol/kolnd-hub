@@ -1,5 +1,6 @@
 import Store from 'electron-store'
 import { ipcMain } from 'electron'
+import { logger } from './logger'
 
 /**
  * Configuração persistente do Kolnd Hub em `%APPDATA%/<app>/config.json`.
@@ -463,8 +464,9 @@ function createStore(): Store<HubStoreSchema> | null {
       }
     })
   } catch (err) {
-    console.error(
-      '[store] config.json inválido ou inacessível — modo fallback (localStorage):',
+    logger.error(
+      'store',
+      'config.json inválido ou inacessível — modo fallback (localStorage):',
       err
     )
     return null
@@ -490,7 +492,7 @@ export function getConfigSnapshot(): HubConfigSnapshot {
       startupImportance: Object.keys(importance).length > 0 ? importance : null
     }
   } catch (err) {
-    console.error('[store] Falha ao ler config.json:', err)
+    logger.error('store', 'Falha ao ler config.json:', err)
     return { apps: null, startupImportance: null }
   }
 }
@@ -500,11 +502,11 @@ export function setApps(apps: unknown): { success: boolean; error?: string } {
   if (!store) return { success: false, error: 'Store persistente indisponível' }
   try {
     store.set('apps', normalized)
-    console.log(`[store] ${normalized.length} app(s) salvos em config.json`)
+    logger.info('store', `${normalized.length} app(s) salvos em config.json`)
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar apps:', message)
+    logger.error('store', 'Falha ao salvar apps:', message)
     return { success: false, error: message }
   }
 }
@@ -516,7 +518,7 @@ export function setStartupImportance(importance: unknown): { success: boolean; e
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar startupImportance:', message)
+    logger.error('store', 'Falha ao salvar startupImportance:', message)
     return { success: false, error: message }
   }
 }
@@ -538,15 +540,16 @@ export function migrateFromLegacy(input: { apps?: unknown; startupImportance?: u
     if (input.startupImportance !== undefined) {
       store.set('startupImportance', normalizeStartupImportance(input.startupImportance))
     }
-    console.log(
-      `[store] Migração localStorage→electron-store concluída ` +
+    logger.info(
+      'store',
+      `Migração localStorage→electron-store concluída ` +
         `(apps: ${input.apps !== undefined ? 'sim' : 'não'}, ` +
         `importance: ${input.startupImportance !== undefined ? 'sim' : 'não'})`
     )
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Migração falhou:', message)
+    logger.error('store', 'Migração falhou:', message)
     return { success: false, error: message }
   }
 }
@@ -557,7 +560,7 @@ export function getStoredGames(): StoredGame[] {
   try {
     return normalizeGames(store.get('games', []))
   } catch (err) {
-    console.error('[store] Falha ao ler games:', err)
+    logger.error('store', 'Falha ao ler games:', err)
     return []
   }
 }
@@ -571,7 +574,7 @@ export function setStoredGames(games: unknown): { success: boolean; error?: stri
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar games:', message)
+    logger.error('store', 'Falha ao salvar games:', message)
     return { success: false, error: message }
   }
 }
@@ -582,7 +585,7 @@ export function getLaunchKloudOnStart(): boolean {
   try {
     return store.get('launchKloudOnStart', false) === true
   } catch (err) {
-    console.error('[store] Falha ao ler launchKloudOnStart:', err)
+    logger.error('store', 'Falha ao ler launchKloudOnStart:', err)
     return false
   }
 }
@@ -598,7 +601,7 @@ export function setLaunchKloudOnStart(value: unknown): { success: boolean; error
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar launchKloudOnStart:', message)
+    logger.error('store', 'Falha ao salvar launchKloudOnStart:', message)
     return { success: false, error: message }
   }
 }
@@ -609,7 +612,7 @@ export function getGamepadConfig(): GamepadConfig | null {
   try {
     return normalizeGamepadConfig(store.get('gamepad', null))
   } catch (err) {
-    console.error('[store] Falha ao ler gamepad:', err)
+    logger.error('store', 'Falha ao ler gamepad:', err)
     return null
   }
 }
@@ -635,13 +638,14 @@ export function setGamepadConfig(input: unknown): { success: boolean; error?: st
       config.configuredAt = current.configuredAt
     }
     store.set('gamepad', config)
-    console.log(
-      `[store] Controle configurado salvo: ${config.controllerName} (perfil ${config.profile})`
+    logger.info(
+      'store',
+      `Controle configurado salvo: ${config.controllerName} (perfil ${config.profile})`
     )
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar gamepad:', message)
+    logger.error('store', 'Falha ao salvar gamepad:', message)
     return { success: false, error: message }
   }
 }
@@ -651,11 +655,11 @@ export function resetGamepadConfig(): { success: boolean; error?: string } {
   if (!store) return { success: false, error: 'Store persistente indisponível' }
   try {
     store.delete('gamepad')
-    console.log('[store] Configuração de controle apagada')
+    logger.info('store', 'Configuração de controle apagada')
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao apagar gamepad:', message)
+    logger.error('store', 'Falha ao apagar gamepad:', message)
     return { success: false, error: message }
   }
 }
@@ -666,7 +670,7 @@ export function getBigPicturePrefs(): BigPicturePrefs {
   try {
     return normalizeBigPicturePrefs(store.get('bigPicture', { sounds: true }))
   } catch (err) {
-    console.error('[store] Falha ao ler bigPicture:', err)
+    logger.error('store', 'Falha ao ler bigPicture:', err)
     return { sounds: true }
   }
 }
@@ -686,7 +690,7 @@ export function setBigPicturePrefs(input: unknown): { success: boolean; error?: 
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[store] Falha ao salvar bigPicture:', message)
+    logger.error('store', 'Falha ao salvar bigPicture:', message)
     return { success: false, error: message }
   }
 }

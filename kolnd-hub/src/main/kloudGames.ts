@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { spawn, execFileSync } from 'child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { logger } from './logger'
 
 export interface KloudGamesPathsState {
   /** Caminho absoluto do KLOUD_GAMES.exe (null se ainda não detectado). */
@@ -59,8 +60,9 @@ function appendKloudGamesLog(entry: string): void {
     const stamp = new Date().toISOString()
     appendFileSync(logPath, `[${stamp}] ${entry}\n`, 'utf8')
   } catch (err) {
-    console.warn(
-      '[kloud-games] Não foi possível gravar o log de instalação:',
+    logger.warn(
+      'kloud-games',
+      'Não foi possível gravar o log de instalação:',
       err instanceof Error ? err.message : err
     )
   }
@@ -74,8 +76,9 @@ export function appendKloudGamesUninstallLog(entry: string): void {
     const stamp = new Date().toISOString()
     appendFileSync(logPath, `[${stamp}] ${entry}\n`, 'utf8')
   } catch (err) {
-    console.warn(
-      '[kloud-games] Não foi possível gravar o log de desinstalação:',
+    logger.warn(
+      'kloud-games',
+      'Não foi possível gravar o log de desinstalação:',
       err instanceof Error ? err.message : err
     )
   }
@@ -129,8 +132,9 @@ export function writeKloudGamesState(state: KloudGamesPathsState): boolean {
     writeFileSync(getKloudGamesStatePath(), JSON.stringify(state, null, 2) + '\n', 'utf8')
     return true
   } catch (err) {
-    console.warn(
-      `[kloud-games] Não foi possível salvar ${getKloudGamesStatePath()}:`,
+    logger.warn(
+      'kloud-games',
+      `Não foi possível salvar ${getKloudGamesStatePath()}:`,
       err instanceof Error ? err.message : err
     )
     return false
@@ -454,7 +458,7 @@ export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResul
   const alreadyInstalled = findKloudGamesExe()
   if (alreadyInstalled) {
     const msiPath = findKloudGamesMsi()
-    console.log('[kloud-games] já instalado — pulando')
+    logger.info('kloud-games', 'já instalado — pulando')
     appendKloudGamesLog(`Já instalado em ${alreadyInstalled} — instalação pulada.`)
     writeKloudGamesState({
       exePath: alreadyInstalled,
