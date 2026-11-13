@@ -4,7 +4,11 @@ import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, resolvePath, setBaseDir } from './processManager'
 import { killProcessesForCommand } from './processKiller'
-import { ensureKloudGamesInstalled, getKloudGamesStatus } from './kloudGames'
+import {
+  ensureKloudGamesInstalled,
+  getKloudGamesStatus,
+  invalidateKloudGamesRunningCache
+} from './kloudGames'
 import {
   listStartupItems,
   removeStartupItem,
@@ -233,6 +237,9 @@ app.whenReady().then(() => {
     const exePath = ensured.exePath
     const cwd = dirname(exePath)
     const launch = processManager.launch('kloud-games', `"${exePath}"`, cwd)
+    if (launch.success) {
+      invalidateKloudGamesRunningCache()
+    }
     return {
       success: launch.success,
       error: launch.error,
@@ -242,8 +249,10 @@ app.whenReady().then(() => {
     }
   })
 
-  // Status: revalida e retorna os caminhos salvos (usado pelo renderer ao abrir).
-  ipcMain.handle('kloud-games:status', () => {
+  // Status: retorna os caminhos salvos (usado pelo renderer ao abrir). O
+  // principal é barato: escritas idênticas são elididas e o tasklist fica
+  // cacheado por ~2 s (ver kloudGames.ts).
+  ipcMain.handle('kloud-games:status', async () => {
     return getKloudGamesStatus()
   })
 
@@ -284,6 +293,9 @@ app.whenReady().then(() => {
       return { success: false, error: 'Parâmetros inválidos para app:stop' }
     }
     const result = await processManager.stop(appId)
+    if (appId === 'kloud-games') {
+      invalidateKloudGamesRunningCache()
+    }
     if (result.success || !command) return result
     // O Hub só conhece processos que ele mesmo iniciou nesta sessão. Se o
     // programa está rodando em segundo plano (ex.: Hub reiniciado e o

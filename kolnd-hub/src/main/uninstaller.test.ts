@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
   }
 }))
 
-vi.mock('child_process', () => ({ execFileSync: vi.fn(), spawn: vi.fn() }))
+vi.mock('child_process', () => ({ execFileSync: vi.fn(), execFile: vi.fn(), spawn: vi.fn() }))
 
 describe('uninstaller.ts — mapMsiexecExitCode (reexportado da T1)', () => {
   const CASES: Array<[number | null, MsiexecExitCodeResult['kind']]> = [

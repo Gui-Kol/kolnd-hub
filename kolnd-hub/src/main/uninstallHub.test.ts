@@ -20,6 +20,7 @@ vi.mock('electron', () => ({
 
 vi.mock('child_process', () => ({
   execFileSync: vi.fn(),
+  execFile: vi.fn(),
   spawn: vi.fn()
 }))
 

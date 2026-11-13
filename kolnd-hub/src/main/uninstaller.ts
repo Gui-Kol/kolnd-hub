@@ -17,6 +17,7 @@ import {
   findKloudGamesExe,
   getKloudGamesUninstallLogPath,
   isKloudGamesRunning,
+  invalidateKloudGamesRunningCache,
   looksLikeUacDenied,
   resetKloudGamesState,
   appendKloudGamesUninstallLog
@@ -266,7 +267,8 @@ export class Uninstaller extends EventEmitter {
       log('[check] Instalação do Kloud Games verificada.\n')
 
       // ── Etapa kill (15) — só quando o processo está rodando ────────
-      if (isKloudGamesRunning()) {
+      if (await isKloudGamesRunning()) {
+        invalidateKloudGamesRunningCache()
         progress('kill', 'running', 15, 'Encerrando Kloud Games…')
         log('[kill] Kloud Games está em execução; encerrando processo…\n')
 

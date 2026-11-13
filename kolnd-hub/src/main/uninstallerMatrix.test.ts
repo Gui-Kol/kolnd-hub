@@ -63,6 +63,7 @@ vi.mock('./kloudGames', () => ({
   findKloudGamesMsi: vi.fn(() => null),
   getKloudGamesUninstallLogPath: getKloudGamesUninstallLogPathMock,
   isKloudGamesRunning: isKloudGamesRunningMock,
+  invalidateKloudGamesRunningCache: vi.fn(),
   looksLikeUacDenied: (output: string): boolean =>
     /cancelad|cancelled|canceled|1223|operation was canceled|operação foi cancelada/i.test(
       output ?? ''

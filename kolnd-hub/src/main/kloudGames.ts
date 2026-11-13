@@ -1,8 +1,11 @@
 import { app } from 'electron'
-import { spawn, execFileSync } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { promisify } from 'util'
 import { logger } from './logger'
+
+const execFileAsync = promisify(execFile)
 
 export interface KloudGamesPathsState {
   /** Caminho absoluto do KLOUD_GAMES.exe (null se ainda não detectado). */
@@ -101,8 +104,8 @@ function emptyState(): KloudGamesPathsState {
   return { exePath: null, msiPath: null, installedAt: null, updatedAt: null }
 }
 
-/** Lê o JSON de estado. Tolerante a arquivo ausente/corrompido. */
-export function readKloudGamesState(): KloudGamesPathsState {
+/** Tenta ler o estado do disco. Retorna null quando ausente ou corrompido. */
+function tryReadKloudGamesState(): KloudGamesPathsState | null {
   try {
     const raw = readFileSync(getKloudGamesStatePath(), 'utf8')
     const parsed = JSON.parse(raw) as Partial<KloudGamesPathsState>
@@ -113,23 +116,41 @@ export function readKloudGamesState(): KloudGamesPathsState {
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null
     }
   } catch {
-    return emptyState()
+    return null
   }
 }
 
+/** Lê o JSON de estado. Tolerante a arquivo ausente/corrompido. */
+export function readKloudGamesState(): KloudGamesPathsState {
+  return tryReadKloudGamesState() ?? emptyState()
+}
+
+/** Compara os campos semânticos de dois estados (ignora `updatedAt`). */
+function statesSemanticallyEqual(a: KloudGamesPathsState, b: KloudGamesPathsState): boolean {
+  return a.exePath === b.exePath && a.msiPath === b.msiPath && a.installedAt === b.installedAt
+}
+
 /**
- * Grava o JSON de estado em resources/programs/kloud-games. Best-effort:
- * em produção a pasta pode ser somente leitura (dentro de Program Files),
- * então falha aqui nunca deve impedir o Hub de abrir/fechar o Kloud Games.
- * Retorna true quando conseguiu gravar.
+ * Grava o JSON de estado. Best-effort: falha aqui nunca deve impedir o Hub
+ * de abrir/fechar o Kloud Games. Só escreve quando algo mudou de fato
+ * (comparação sem `updatedAt`) — chamadas repetidas sem mudança não tocam
+ * o disco. Retorna true quando o estado está persistido (ou já estava).
  */
 export function writeKloudGamesState(state: KloudGamesPathsState): boolean {
   try {
-    const dir = getKloudGamesDir()
+    const statePath = getKloudGamesStatePath()
+    // Só pula a escrita quando o arquivo existe, é parseável e o conteúdo
+    // semântico é idêntico (updatedAt não força reescrita). Arquivo corrompido
+    // é regravado normalmente.
+    const current = tryReadKloudGamesState()
+    if (current && statesSemanticallyEqual(current, state)) {
+      return true
+    }
+    const dir = dirname(statePath)
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
-    writeFileSync(getKloudGamesStatePath(), JSON.stringify(state, null, 2) + '\n', 'utf8')
+    writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8')
     return true
   } catch (err) {
     logger.warn(
@@ -153,6 +174,7 @@ export function resetKloudGamesState(): boolean {
     // após uma desinstalação, ensureKloudGamesInstalled() reinstale o MSI
     // normalmente na próxima abertura do Hub. Nenhum fluxo de desinstalação
     // pode deixar restos que impeçam a reinstalação — apenas zera os campos.
+    invalidateKloudGamesRunningCache()
     const state: KloudGamesPathsState = {
       exePath: null,
       msiPath: findKloudGamesMsi(),
@@ -260,8 +282,9 @@ export function findKloudGamesMsi(): string | null {
 }
 
 /**
- * Revalida todos os caminhos (exe/msi), atualiza o kloud-games.paths.json e
- * retorna o que foi encontrado. Chamado a cada abertura/consulta de status.
+ * Revalida todos os caminhos (exe/msi), atualiza o kloud-games.paths.json
+ * (somente quando algo mudou) e retorna o que foi encontrado. Chamado pelo
+ * handler de status; escritas idênticas são elididas por writeKloudGamesState.
  */
 export function refreshKloudGamesPaths(): { exePath: string | null; msiPath: string | null } {
   const saved = readKloudGamesState()
@@ -281,17 +304,38 @@ export function refreshKloudGamesPaths(): { exePath: string | null; msiPath: str
 /** Nome do processo do jogo no Gerenciador de Tarefas. */
 const RUNNING_PROCESS_NAME = 'KLOUD_GAMES.exe'
 
+/** TTL do cache do resultado de `isKloudGamesRunning()` (~2 s). */
+const RUNNING_CACHE_TTL_MS = 2000
+
+let runningCache: { value: boolean; at: number } | null = null
+
+/**
+ * Invalida o cache de execução. Chamado pelos fluxos de launch/stop/ensure
+ * do Hub (e pela desinstalação), para que a próxima consulta ao status
+ * reflita o processo real em vez do valor cacheado.
+ */
+export function invalidateKloudGamesRunningCache(): void {
+  runningCache = null
+}
+
 /**
  * Verifica (via `tasklist`, com argumentos em array e sem shell) se o
  * KLOUD_GAMES.exe está em execução — independente de quem o abriu (Hub ou
- * manualmente). Síncrono e barato; em qualquer falha retorna false para
- * nunca impedir o Hub de abrir. A saída do tasklist é localizada, então a
- * checagem apenas procura o nome da imagem (case-insensitive), sem depender
- * de mensagens do sistema.
+ * manualmente). Assíncrono: não bloqueia o event loop do main. O resultado
+ * fica cacheado por ~2 s (hits consecutivos não spawnam); em qualquer
+ * falha retorna false para nunca impedir o Hub de abrir. A saída do
+ * tasklist é localizada, então a checagem apenas procura o nome da imagem
+ * (case-insensitive), sem depender de mensagens do sistema.
  */
-export function isKloudGamesRunning(): boolean {
+export async function isKloudGamesRunning(): Promise<boolean> {
+  const now = Date.now()
+  if (runningCache && now - runningCache.at < RUNNING_CACHE_TTL_MS) {
+    return runningCache.value
+  }
+
+  let value: boolean
   try {
-    const out = execFileSync(
+    const { stdout } = await execFileAsync(
       'tasklist',
       ['/FI', `IMAGENAME eq ${RUNNING_PROCESS_NAME}`, '/FO', 'CSV', '/NH'],
       {
@@ -301,21 +345,24 @@ export function isKloudGamesRunning(): boolean {
         maxBuffer: 4 * 1024 * 1024
       }
     )
-    return out.toLowerCase().includes(RUNNING_PROCESS_NAME.toLowerCase())
+    value = String(stdout).toLowerCase().includes(RUNNING_PROCESS_NAME.toLowerCase())
   } catch {
-    return false
+    value = false
   }
+
+  runningCache = { value, at: Date.now() }
+  return value
 }
 
 /** Status consumido pelo renderer (tela de abrir do Hub). */
-export function getKloudGamesStatus(): KloudGamesStatus {
+export async function getKloudGamesStatus(): Promise<KloudGamesStatus> {
   const { exePath, msiPath } = refreshKloudGamesPaths()
   return {
     installed: Boolean(exePath),
     exePath,
     msiPath,
     dir: getKloudGamesDir(),
-    running: isKloudGamesRunning()
+    running: await isKloudGamesRunning()
   }
 }
 
@@ -454,6 +501,9 @@ function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
  *  4. Persiste tudo em resources/programs/kloud-games/kloud-games.paths.json.
  */
 export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResult> {
+  // O fluxo pode mudar a instalação em disco — força reconsulta do tasklist.
+  invalidateKloudGamesRunningCache()
+
   // Pular reinstalação: valida paths.json e/ou varre Program Files antes de instalar.
   const alreadyInstalled = findKloudGamesExe()
   if (alreadyInstalled) {
@@ -485,6 +535,7 @@ export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResul
 
   // Verificação pós-instalação: estado salvo → Program Files → varredura ≤ 3.
   const exePath = findKloudGamesExe()
+  invalidateKloudGamesRunningCache()
 
   if (exePath) {
     writeKloudGamesState({
