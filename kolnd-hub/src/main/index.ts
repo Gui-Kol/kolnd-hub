@@ -85,6 +85,24 @@ function createWindow(isFirstRunMode = false): void {
     return { action: 'deny' }
   })
 
+  // Bloqueia navegação in-window (clique em link, redirect, meta refresh,
+  // injeção de script): a janela seguiria com o preload exposto no contexto
+  // remoto. Em dev, permite apenas a origem do dev server (HMR do
+  // electron-vite); em produção (loadFile), bloqueia tudo.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      try {
+        if (new URL(url).origin === new URL(process.env['ELECTRON_RENDERER_URL']).origin) {
+          return
+        }
+      } catch {
+        // URL inválida: cai no bloqueio padrão abaixo.
+      }
+    }
+    event.preventDefault()
+    console.warn(`[window] will-navigate bloqueado: ${url}`)
+  })
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
     if (isFirstRunMode) url.searchParams.set('first-run', '1')
