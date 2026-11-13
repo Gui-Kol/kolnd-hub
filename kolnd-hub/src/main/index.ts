@@ -20,7 +20,15 @@ import { registerConfigIpc, registerPrefsIpc } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
-import { registerUninstallIpc, runHubUninstallSteps, isHubUninstallInProgress, uninstaller } from './uninstaller'
+import {
+  registerUninstallIpc,
+  runHubUninstallSteps,
+  isHubUninstallInProgress,
+  isAnyUninstallInProgress,
+  lockMainWindowForUninstall,
+  unlockMainWindowForUninstall,
+  uninstaller
+} from './uninstaller'
 import { registerGamesIpc } from './games'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
@@ -114,6 +122,9 @@ function createTray(): void {
     {
       label: 'Sair',
       click: (): void => {
+        // Durante uma desinstalação destrutiva, o tray não encerra o app
+        // (nem mata processos no meio do msiexec/wipe).
+        if (isAnyUninstallInProgress()) return
         processManager.killAll()
         app.quit()
       }
@@ -357,6 +368,14 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('app:shutdown', async () => {
+    // Trava de reentrância: durante uma desinstalação destrutiva nenhum
+    // caminho (Sair, tray, IPC direto) derruba o app no meio do msiexec/wipe.
+    if (isAnyUninstallInProgress()) {
+      return {
+        success: false,
+        error: 'Uma desinstalação está em andamento — aguarde o término.'
+      }
+    }
     await shutdownHub()
     return { success: true }
   })
@@ -374,24 +393,34 @@ app.whenReady().then(() => {
       }
     }
 
-    const result = await runHubUninstallSteps(rawArgs, (evt) => {
-      mainWindow?.webContents.send('uninstall:progress', evt)
-    })
+    // Janela travada durante TODA a sequência destrutiva (kloud → wipe → spawn).
+    // Só destrava na saída: spawn concluído (o app fecha em seguida), erro
+    // amigável, ou paused/choice (o usuário decide o próximo passo).
+    lockMainWindowForUninstall()
+    let result: Awaited<ReturnType<typeof runHubUninstallSteps>>
+    try {
+      result = await runHubUninstallSteps(rawArgs, (evt) => {
+        mainWindow?.webContents.send('uninstall:progress', evt)
+      })
 
-    if (result.ok && result.spawned) {
-      // O desinstalador NSIS já está desanexado rodando — agora encerramos o
-      // Hub exatamente como app:shutdown (killAll + destroy + app.quit).
-      await shutdownHub()
-      return { success: true }
-    }
+      if (result.ok && result.spawned) {
+        // O desinstalador NSIS já está desanexado rodando — agora encerramos o
+        // Hub exatamente como app:shutdown (killAll + destroy + app.quit).
+        await shutdownHub()
+        return { success: true }
+      }
 
-    // Erro amigável (desinstalador não encontrado, spawn falhou) ou pausa
-    // pedindo decisão ("desinstalar só o Hub?"): o app NÃO fecha e a UI
-    // continua mostrando a(s) fase(s) do modal.
-    return {
-      success: false,
-      paused: result.paused ?? false,
-      error: result.error
+      // Erro amigável (desinstalador não encontrado, spawn falhou) ou pausa
+      // pedindo decisão ("desinstalar só o Hub?"): o app NÃO fecha e a UI
+      // continua mostrando a(s) fase(s) do modal. Nada do wipe é desfeito.
+      return {
+        success: false,
+        paused: result.paused ?? false,
+        error: result.error,
+        wipeErrors: result.wipeErrors
+      }
+    } finally {
+      unlockMainWindowForUninstall()
     }
   })
 
@@ -402,6 +431,9 @@ app.whenReady().then(() => {
    */
   async function confirmAndQuit(): Promise<void> {
     if (!mainWindow) return
+    // Defesa extra: nunca abrir o fluxo de encerramento durante uma
+    // desinstalação destrutiva (os chamadores já travam, mas a função é exportada no IPC).
+    if (isAnyUninstallInProgress()) return
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: 'question',
       title: 'Encerrar Kolnd Hub',
@@ -419,13 +451,22 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('window:close', async () => {
+    // Durante uma desinstalação destrutiva, fechar pelo title bar é inerte.
+    if (isAnyUninstallInProgress()) {
+      return { success: false, error: 'Desinstalação em andamento — aguarde o término.' }
+    }
     await confirmAndQuit()
+    return { success: true }
   })
 
   // Intercepta o evento de fechamento da janela (X do SO, Alt+F4, etc.) para
   // também exibir o popup de confirmação em vez de apenas esconder a janela.
   mainWindow?.on('close', (event) => {
     event.preventDefault()
+    // Alt+F4 / X do title bar durante passos destrutivos: inerte (sem diálogo).
+    if (isAnyUninstallInProgress()) {
+      return
+    }
     void confirmAndQuit()
   })
 

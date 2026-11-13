@@ -31,10 +31,15 @@ import {
   findHubUninstallEntry,
   findHubUninstaller,
   combineKloudGamesDetection,
+  classifyKloudGamesPartial,
   detectKloudGames,
   mapMsiexecExitCode
 } from './uninstallDetection'
-import type { MsiexecExitCodeKind, UninstallEntry } from './uninstallDetection'
+import type {
+  KloudGamesPartialKind,
+  MsiexecExitCodeKind,
+  UninstallEntry
+} from './uninstallDetection'
 
 // ===== Fixtures de registro (forma real de Get-ItemProperty | ConvertTo-Json -Compress) =====
 
@@ -588,11 +593,94 @@ describe('mapMsiexecExitCode', () => {
   it('3010/1641 são sucesso com reinício necessário (não erro fatal)', () => {
     expect(mapMsiexecExitCode(3010).kind).toBe('needs-reboot')
     expect(mapMsiexecExitCode(1641).kind).toBe('needs-reboot')
-    expect(mapMsiexecExitCode(3010).message).toContain('reinici')
+    expect(mapMsiexecExitCode(3010).message).toBe('Reinicie o PC para concluir a remoção.')
   })
 
   it('código desconhecido/null menciona os logs', () => {
     expect(mapMsiexecExitCode(7777).message).toContain('logs')
     expect(mapMsiexecExitCode(null).message).toContain('logs')
+  })
+
+  it('mensagens pt-BR exatas exigidas pela matriz da T6', () => {
+    const EXACT: Array<[number | null, string]> = [
+      [1223, 'Você recusou a permissão (UAC). Nada foi removido.'],
+      [1618, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
+      [1500, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
+      [1603, 'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'],
+      [1625, 'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.'],
+      [3010, 'Reinicie o PC para concluir a remoção.'],
+      [1641, 'Reinicie o PC para concluir a remoção.'],
+      [1605, 'O Kloud Games já não constava como instalado — nada foi removido.'],
+      [1612, 'O Kloud Games já não constava como instalado — nada foi removido.'],
+      [1638, 'Já existe uma versão mais nova do Kloud Games instalada; nada foi removido.'],
+      [1602, 'Cancelado por você.']
+    ]
+    for (const [code, message] of EXACT) {
+      expect(mapMsiexecExitCode(code).message).toBe(message)
+    }
+  })
+})
+
+describe('classifyKloudGamesPartial — fixtures de órfãos (exe/registro/serviço)', () => {
+  const entry = {
+    productCode: KLOUD_GUID,
+    uninstallString: KLOUD_MSI_UNINSTALL_STRING,
+    displayName: 'Kloud Games',
+    scope: 'machine' as const
+  }
+  const exe = 'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe'
+
+  it.each([
+    ['installed', exe, entry, 'stopped', null],
+    ['missing', null, null, 'missing', null],
+    ['exe órfão: exe sem registro e sem serviço', exe, null, 'missing', 'exe-orphan'],
+    ['exe órfão: exe sem registro com serviço', exe, null, 'stopped', 'exe-orphan'],
+    ['registro órfão: registro sem exe', null, entry, 'missing', 'registry-orphan'],
+    ['registro órfão: registro sem exe com serviço', null, entry, 'running', 'registry-orphan'],
+    ['serviço órfão: só o serviço rodando', null, null, 'running', 'service-orphan'],
+    ['serviço órfão: só o serviço parado', null, null, 'stopped', 'service-orphan']
+  ] as Array<
+    [
+      string,
+      string | null,
+      UninstallEntry | null,
+      'running' | 'stopped' | 'missing',
+      KloudGamesPartialKind | null
+    ]
+  >)(
+    '%s',
+    (_name, exePath, regEntry, service, expected) => {
+      const status: 'installed' | 'partial' | 'missing' =
+        !exePath && !regEntry && service === 'missing'
+          ? 'missing'
+          : exePath && regEntry
+            ? 'installed'
+            : 'partial'
+      expect(
+        classifyKloudGamesPartial({ status, exePath, entry: regEntry, service })
+      ).toBe(expected)
+    }
+  )
+
+  it('detectKloudGames com exe-órfão mocado → partial com classification exe-orphan', () => {
+    findKloudGamesExeMock.mockReturnValue(exe)
+    stubEnvironment({ service: 'missing' })
+    const detection = detectKloudGames()
+    expect(detection.status).toBe('partial')
+    expect(classifyKloudGamesPartial(detection)).toBe('exe-orphan')
+  })
+
+  it('detectKloudGames com registro-órfão mocado → partial com classification registry-orphan', () => {
+    stubEnvironment({ hklm: JSON.stringify([KLOUD_ENTRY]) })
+    const detection = detectKloudGames()
+    expect(detection.status).toBe('partial')
+    expect(classifyKloudGamesPartial(detection)).toBe('registry-orphan')
+  })
+
+  it('detectKloudGames com serviço-órfão mocado → partial com classification service-orphan', () => {
+    stubEnvironment({ service: 'stopped' })
+    const detection = detectKloudGames()
+    expect(detection.status).toBe('partial')
+    expect(classifyKloudGamesPartial(detection)).toBe('service-orphan')
   })
 })

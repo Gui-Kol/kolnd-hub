@@ -27,6 +27,29 @@ export interface UninstallEntry {
   scope: 'machine' | 'user' | 'both' | 'unknown'
 }
 
+/**
+ * Classifica o motivo exato de uma detecção `partial` (função pura).
+ *
+ * - 'registry-orphan': registro consta, executável não foi encontrado
+ *   (desinstalação pelo registro ainda é possível);
+ * - 'exe-orphan': executável existe, registro não consta
+ *   (msiexec não é possível — só remoção manual dos arquivos);
+ * - 'service-orphan': nem exe nem registro, só o serviço KLOUD_GAMESsvc restou.
+ *
+ * Retorna null quando não é um `partial` reconhecido.
+ */
+export type KloudGamesPartialKind = 'registry-orphan' | 'exe-orphan' | 'service-orphan'
+
+export function classifyKloudGamesPartial(
+  detection: Pick<KloudGamesDetection, 'status' | 'exePath' | 'entry' | 'service'>
+): KloudGamesPartialKind | null {
+  if (detection.status !== 'partial') return null
+  if (detection.exePath) return 'exe-orphan'
+  if (detection.entry) return 'registry-orphan'
+  if (detection.service !== 'missing') return 'service-orphan'
+  return null
+}
+
 export type ServiceStatus = 'running' | 'stopped' | 'missing'
 
 export interface KloudGamesDetection {
@@ -466,11 +489,10 @@ export function mapMsiexecExitCode(code: number | null): MsiexecExitCodeResult {
     case 1641:
       return {
         kind: 'needs-reboot',
-        message:
-          'A desinstalação foi concluída, mas é necessário reiniciar o PC para finalizar a remoção de alguns arquivos.'
+        message: 'Reinicie o PC para concluir a remoção.'
       }
     case 1602:
-      return { kind: 'cancelled', message: 'Desinstalação cancelada por você.' }
+      return { kind: 'cancelled', message: 'Cancelado por você.' }
     case 1605:
       return {
         kind: 'already-absent',
@@ -479,15 +501,14 @@ export function mapMsiexecExitCode(code: number | null): MsiexecExitCodeResult {
     case 1612:
       return {
         kind: 'already-absent',
-        message:
-          'O Kloud Games já não constava como instalado (o instalador original não foi encontrado) — nada foi removido.'
+        message: 'O Kloud Games já não constava como instalado — nada foi removido.'
       }
     case 1618:
     case 1500:
       return {
         kind: 'other-install',
         message:
-          'Outra instalação do Windows está em andamento. Aguarde-a terminar (ou reinicie o PC) e tente de novo.'
+          'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
       }
     case 1625:
       return {
@@ -504,7 +525,7 @@ export function mapMsiexecExitCode(code: number | null): MsiexecExitCodeResult {
       return {
         kind: 'fatal',
         message:
-          'O Windows não conseguiu desinstalar o Kloud Games (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'
+          'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'
       }
     case 1604:
       return {

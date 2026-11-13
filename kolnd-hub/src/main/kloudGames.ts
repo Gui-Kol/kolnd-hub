@@ -145,6 +145,10 @@ export function writeKloudGamesState(state: KloudGamesPathsState): boolean {
  */
 export function resetKloudGamesState(): boolean {
   try {
+    // Estado zerado (exePath: null, installedAt: null) é o que garante que,
+    // após uma desinstalação, ensureKloudGamesInstalled() reinstale o MSI
+    // normalmente na próxima abertura do Hub. Nenhum fluxo de desinstalação
+    // pode deixar restos que impeçam a reinstalação — apenas zera os campos.
     const state: KloudGamesPathsState = {
       exePath: null,
       msiPath: findKloudGamesMsi(),

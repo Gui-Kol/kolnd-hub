@@ -9,6 +9,11 @@ import { motion } from 'framer-motion'
 import { Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { UninstallKloudGamesModal } from './UninstallKloudGamesModal'
 import { UninstallHubModal } from './UninstallHubModal'
+import {
+  getKloudPartialKind,
+  getKloudPartialStatusText,
+  type KloudDetectionLike
+} from '../lib/uninstall'
 
 export interface UninstallDangerZoneProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
@@ -131,13 +136,31 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
     setHubModalOpen(true)
   }, [])
 
+  const detectionLike: KloudDetectionLike | null = kloud.detection
+    ? {
+        status: kloud.detection.status,
+        exePath: kloud.detection.exePath,
+        service: kloud.detection.service,
+        entry: kloud.detection.entry
+          ? { productCode: kloud.detection.entry.productCode }
+          : null
+      }
+    : null
   const kloudRunning = kloud.detection?.service === 'running'
+  const partialKind = getKloudPartialKind(detectionLike)
   const kloudPartial = kloud.status === 'partial'
   const kloudMissing = kloud.status === 'missing'
   const kloudEnabled = (kloud.status === 'installed' || kloud.status === 'partial') && !uninstalling
   const buttonDisabled = !kloudEnabled
   // O Hub só pode ser desinstalado no app empacotado com o desinstalador NSIS presente.
   const hubEnabled = !uninstalling && !hub.loading && hub.isPackaged && hub.available === true
+  const kloudButtonLabel = uninstalling
+    ? 'Em execução'
+    : partialKind === 'registry-orphan'
+      ? 'Desinstalar pelo registro'
+      : kloudPartial
+        ? 'Instalação quebrada'
+        : 'Desinstalar Kloud Games'
 
   const statusText = (): string => {
     if (kloud.loading) return 'Carregando status…'
@@ -155,7 +178,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
       return `Instalado em ${loc} (versão ${ver}) · serviço KLOUD_GAMESsvc: ${svc}`
     }
     if (kloud.status === 'partial') {
-      return 'Instalação parcial detectada (exe sem registro) — a desinstalação tentará limpar o que for possível.'
+      return getKloudPartialStatusText(partialKind)
     }
     return 'Não instalado.'
   }
@@ -228,12 +251,14 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
                     ? 'Status indisponível'
                     : uninstalling
                       ? 'Desinstalação em andamento'
-                      : undefined
+                      : partialKind === 'registry-orphan'
+                        ? 'Desinstalação pelo registro — o programa consta no registro'
+                        : undefined
               }
               className={`btn-danger ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <Trash2 size={14} />
-              {uninstalling ? 'Em execução' : 'Desinstalar Kloud Games'}
+              {kloudButtonLabel}
             </button>
             {uninstalling && (
               <span className="badge bg-red-500/10 border border-red-500/20 text-red-400">
@@ -315,7 +340,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
         <UninstallKloudGamesModal
           open
           isRunning={kloudRunning}
-          isPartial={kloudPartial}
+          detection={detectionLike}
           onClose={handleModalClose}
           onRunningChange={setUninstalling}
           onToast={showToast}

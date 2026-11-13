@@ -23,6 +23,7 @@ import {
   Trash2,
   Zap
 } from 'lucide-react'
+import { buildSkipKloudHubArgs } from '../lib/uninstall'
 
 type Phase = 'confirm' | 'running' | 'choice'
 
@@ -70,6 +71,10 @@ export function UninstallHubModal({
   const [stepLabel, setStepLabel] = useState('')
   const [logs, setLogs] = useState<string[]>([])
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
+  // Itens do %APPDATA% que NÃO puderam ser apagados no wipe (travados) — o
+  // restante seguiu; o log lista tudo. Exibido na volta para a fase confirm
+  // (ex.: desinstalador NSIS falhou após o wipe).
+  const [wipeErrors, setWipeErrors] = useState<string[]>([])
   const [kloudError, setKloudError] = useState<string | null>(null)
   const [backupState, setBackupState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
   const [backupPath, setBackupPath] = useState<string | null>(null)
@@ -80,6 +85,9 @@ export function UninstallHubModal({
   const [hubStatusLoading, setHubStatusLoading] = useState(true)
   const panelRef = useRef<HTMLDivElement>(null)
   const unsubRef = useRef<(() => void)[]>([])
+  // Guarda síncrona contra clique duplo no mesmo frame (além da guarda de
+  // fase e do isBusy/isHubUninstallInProgress no main).
+  const clickingRef = useRef(false)
   const argsRef = useRef<HubUninstallArgsState>({
     wipeUserData: false,
     skipKloud: false,
@@ -133,6 +141,7 @@ export function UninstallHubModal({
       setLogs((prev) => [...prev.slice(-199), line])
     })
     const unsubComplete = window.api.onUninstallComplete((res) => {
+      clickingRef.current = false
       if (res.paused) {
         setKloudError(res.kloudError ?? res.error ?? 'motivo desconhecido')
         setPhase('choice')
@@ -141,6 +150,7 @@ export function UninstallHubModal({
       if (!res.success) {
         const message = res.error ?? 'Não foi possível desinstalar o Kolnd Hub.'
         setErrorBanner(message)
+        setWipeErrors(res.wipeErrors ?? [])
         showToast(`Falha ao desinstalar o Kolnd Hub: ${message}`, 'error')
         setPhase('confirm')
         return
@@ -157,6 +167,7 @@ export function UninstallHubModal({
         // cinto de segurança para rejeições/falhas sem evento.
         if (!res.success && !res.paused && res.error) {
           setErrorBanner(res.error)
+          setWipeErrors(res.wipeErrors ?? [])
           setPhase('confirm')
         }
       })
@@ -225,16 +236,22 @@ export function UninstallHubModal({
     setStepLabel('')
     setLogs([])
     setErrorBanner(null)
+    setWipeErrors([])
   }
 
   const handleConfirm = (): void => {
+    if (clickingRef.current || phase !== 'confirm') return // clique duplo não dispara duas vezes
+    clickingRef.current = true
     argsRef.current = { wipeUserData: wipe, skipKloud: false, backupPath }
     resetRunState()
     setPhase('running')
   }
 
   const handleHubOnly = (): void => {
-    argsRef.current = { wipeUserData: wipe, skipKloud: true, backupPath }
+    if (clickingRef.current || phase !== 'choice') return // clique duplo não dispara duas vezes
+    clickingRef.current = true
+    // Preserva a escolha de dados e o backup feitos na confirmação.
+    argsRef.current = buildSkipKloudHubArgs(wipe, backupPath)
     resetRunState()
     setPhase('running')
   }
@@ -360,6 +377,34 @@ export function UninstallHubModal({
                 className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300 text-left"
               >
                 ⚠ {errorBanner}
+                <br />
+                Nada do que já foi apagado será restaurado — o wipe é irreversível por sua escolha.
+                Se quiser sair de qualquer forma, feche esta janela e desinstale o Kolnd Hub pelo
+                aplicativo Configurações do Windows → Aplicativos → Kolnd Hub.
+              </div>
+            )}
+            {wipeErrors.length > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left">
+                <p className="text-[11px] text-amber-300 leading-relaxed">
+                  ⚠ {wipeErrors.length} {wipeErrors.length === 1 ? 'item não pôde' : 'itens não puderam'} ser
+                  apagados (travados por outro programa/antivírus) — o restante foi removido
+                  normalmente. Detalhes:
+                </p>
+                <ul className="mt-1 max-h-24 overflow-y-auto text-[10px] font-mono text-amber-200/80 space-y-0.5">
+                  {wipeErrors.map((item) => (
+                    <li key={item} className="break-all">
+                      • {item}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="btn-ghost text-xs mt-2"
+                  onClick={() => void window.api.openHubLogsFolder()}
+                  title="Abrir pasta de logs"
+                >
+                  <FolderOpen size={12} /> Abrir pasta de logs
+                </button>
               </div>
             )}
 

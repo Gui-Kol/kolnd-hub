@@ -160,6 +160,9 @@ src/
 
 ## Solução de problemas
 
+- **Desinstalação do Kloud Games (dev)**: os botões "Desinstalar Kloud Games" e "Desinstalar Kolnd Hub" ficam em Configurações → **Zona de perigo**. O Kloud Games pode ser desinstalado normalmente mesmo em `npm run dev`; o desinstalador do Hub (NSIS) **só funciona no app empacotado** (em dev o botão fica desabilitado de propósito). Após qualquer desinstalação do Kloud Games, na próxima abertura o Hub reinstala o MSI normalmente — o fluxo de 1ª execução não depende de nada além do estado zerado em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (`exePath: null` é gravado pelo `resetKloudGamesState()`, inclusive nos caminhos de erro de remoção manual parcial).
+- **Instalação quebrada do Kloud Games** (arquivos sem registro): o fluxo normal via MSI não funciona — a confirmação oferece **"Remover somente os arquivos restantes"** (apaga somente `C:\Program Files\KLOUD_GAMES` e zera o estado salvo; nunca altera o registro). Se o registro constar sem o executável, a desinstalação **pelo registro** funciona normalmente. Se só o serviço `KLOUD_GAMESsvc` restou, use o botão **"Remover serviço agora"** na tela de resultado (ação elevada, com confirmação própria).
+
 - **"Diretório não encontrado"**: confira o campo _Diretório de trabalho_ em Configurações. Variáveis como `%LOCALAPPDATA%` são expandidas automaticamente.
 - **Programa inicia e para com "Erro"**: abra o card e clique no ícone de logs para ver a saída do processo.
 - **Comando não encontrado**: confirme que o executável está no `PATH` ou use o caminho completo no campo _Comando_.

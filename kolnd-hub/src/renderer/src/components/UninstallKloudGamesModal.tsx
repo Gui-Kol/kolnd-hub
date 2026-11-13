@@ -9,7 +9,21 @@
 // Esc cancela apenas na confirmação e clique no backdrop não fecha durante a
 // execução.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Check, ChevronRight, FolderOpen, Trash2, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  ChevronRight,
+  Files,
+  FolderOpen,
+  Trash2,
+  Wrench,
+  X
+} from 'lucide-react'
+import {
+  getKloudPartialKind,
+  getParentDir,
+  type KloudDetectionLike
+} from '../lib/uninstall'
 
 type Phase = 'confirm' | 'running' | 'done' | 'error'
 
@@ -17,8 +31,8 @@ interface UninstallKloudGamesModalProps {
   open: boolean
   /** O Kloud Games está em execução (exibe aviso no confirm). */
   isRunning?: boolean
-  /** Instalação parcial detectada (exibe aviso no confirm). */
-  isPartial?: boolean
+  /** Detecção completa vinda do main (define o modo da confirmação). */
+  detection?: KloudDetectionLike | null
   onClose: () => void
   onRunningChange?: (running: boolean) => void
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
@@ -33,10 +47,71 @@ const STEP_LABELS: Record<string, string> = {
   done: 'Concluído'
 }
 
+/** Aviso + botão "Remover serviço agora" (elevado, com confirmação própria). */
+function ServiceRemovalSection({
+  serviceState,
+  serviceError,
+  onShowConfirm,
+  onCancelConfirm,
+  onConfirmRemove,
+  className = ''
+}: {
+  serviceState: 'idle' | 'confirm' | 'busy' | 'done' | 'error'
+  serviceError: string | null
+  onShowConfirm: () => void
+  onCancelConfirm: () => void
+  onConfirmRemove: () => void
+  className?: string
+}): JSX.Element | null {
+  if (serviceState === 'done') return null
+  return (
+    <div
+      className={`rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left ${className}`}
+    >
+      <p className="text-[11px] text-amber-300 leading-relaxed">
+        ⚠ O serviço <span className="font-mono">KLOUD_GAMESsvc</span> ainda está presente. Suporte:{' '}
+        <span className="font-mono">sc delete KLOUD_GAMESsvc</span> num Prompt de Comando elevado.
+      </p>
+      {serviceState === 'idle' && (
+        <button type="button" className="btn-ghost text-xs mt-2" onClick={onShowConfirm}>
+          <Wrench size={14} /> Remover serviço agora
+        </button>
+      )}
+      {serviceState === 'confirm' && (
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-amber-200/90">
+            Confirma a remoção do serviço <span className="font-mono">KLOUD_GAMESsvc</span>? A ação
+            é elevada e não pode ser desfeita sem reinstalar o Kloud Games.
+          </p>
+          <div className="flex gap-3">
+            <button type="button" className="btn-danger text-xs" onClick={onConfirmRemove}>
+              <Trash2 size={14} /> Confirmar remoção do serviço
+            </button>
+            <button type="button" className="btn-secondary text-xs" onClick={onCancelConfirm}>
+              Voltar
+            </button>
+          </div>
+        </div>
+      )}
+      {serviceState === 'busy' && (
+        <p className="mt-2 text-[11px] text-amber-200/90">Removendo o serviço…</p>
+      )}
+      {serviceState === 'error' && serviceError && (
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-red-300">⚠ {serviceError}</p>
+          <button type="button" className="btn-ghost text-xs" onClick={onCancelConfirm}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function UninstallKloudGamesModal({
   open,
   isRunning = false,
-  isPartial = false,
+  detection = null,
   onClose,
   onRunningChange,
   onToast
@@ -49,6 +124,7 @@ export function UninstallKloudGamesModal({
   )
 
   const [phase, setPhase] = useState<Phase>('confirm')
+  const [runKind, setRunKind] = useState<'normal' | 'orphan'>('normal')
   const [confirmCode, setConfirmCode] = useState('')
   const [progress, setProgress] = useState(0)
   const [stepLabel, setStepLabel] = useState('')
@@ -56,10 +132,23 @@ export function UninstallKloudGamesModal({
   const [result, setResult] = useState<{
     success: boolean
     error?: string
+    stage?: string
+    msiexecKind?: string
+    orphanManual?: boolean
+    cancelled?: boolean
+    needsReboot?: boolean
     report?: unknown
   } | null>(null)
+  // Remoção do serviço órfão (elevada, com confirmação própria).
+  const [serviceState, setServiceState] = useState<
+    'idle' | 'confirm' | 'busy' | 'done' | 'error'
+  >('idle')
+  const [serviceError, setServiceError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const unsubRef = useRef<(() => void)[]>([])
+  // Guarda síncrona contra clique duplo no mesmo frame (a guarda de `phase`
+  // só vale a partir do próximo render; o main ainda rejeitaria via isBusy).
+  const clickingRef = useRef(false)
 
   useEffect(() => {
     return (): void => {
@@ -89,29 +178,33 @@ export function UninstallKloudGamesModal({
       setLogs((prev) => [...prev.slice(-199), line])
     })
     const unsubComplete = window.api.onUninstallComplete((res) => {
+      clickingRef.current = false
       setResult(res)
       setPhase(res.success ? 'done' : 'error')
     })
 
     unsubRef.current = [unsubProgress, unsubLog, unsubComplete]
 
-    void window.api
-      .uninstallKloudGames()
-      .catch((err) => {
-        setResult({
-          success: false,
-          error:
-            err instanceof Error ? err.message : 'Falha inesperada ao iniciar a desinstalação.'
-        })
-        setPhase('error')
+    const start =
+      runKind === 'orphan'
+        ? window.api.uninstallKloudGamesOrphan()
+        : window.api.uninstallKloudGames()
+
+    void start.catch((err) => {
+      setResult({
+        success: false,
+        error:
+          err instanceof Error ? err.message : 'Falha inesperada ao iniciar a desinstalação.'
       })
+      setPhase('error')
+    })
 
     return (): void => {
       unsubProgress()
       unsubLog()
       unsubComplete()
     }
-  }, [phase])
+  }, [phase, runKind])
 
   // Toasts finais (mesmo padrão dos demais toasts do App, via onToast).
   useEffect(() => {
@@ -128,9 +221,12 @@ export function UninstallKloudGamesModal({
         showToast('Kloud Games desinstalado.', 'success')
       }
     } else if (phase === 'error') {
+      const neutral = result?.msiexecKind === 'cancelled'
       showToast(
-        `Falha ao desinstalar o Kloud Games: ${result.error ?? 'erro desconhecido'}`,
-        'error'
+        neutral
+          ? 'Desinstalação cancelada.'
+          : `Falha ao desinstalar o Kloud Games: ${result?.error ?? 'erro desconhecido'}`,
+        neutral ? 'info' : 'error'
       )
     }
   }, [phase, result, showToast])
@@ -151,11 +247,12 @@ export function UninstallKloudGamesModal({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): void => {
       if (e.key === 'Escape') {
-        if (phase === 'confirm') {
+        // running: ignora Esc (modal não-fechável durante passos destrutivos);
+        // demais fases são terminais/de confirmação — Esc fecha.
+        if (phase !== 'running') {
           e.preventDefault()
           onClose()
         }
-        // running: ignora Esc (modal não-fechável)
         return
       }
       if (e.key === 'Tab') {
@@ -192,6 +289,16 @@ export function UninstallKloudGamesModal({
   }, [])
 
   const handleConfirm = (): void => {
+    if (clickingRef.current || phase !== 'confirm') return // clique duplo não dispara duas vezes
+    clickingRef.current = true
+    setRunKind('normal')
+    setPhase('running')
+  }
+
+  const handleOrphan = (): void => {
+    if (clickingRef.current || phase !== 'confirm') return // clique duplo não dispara duas vezes
+    clickingRef.current = true
+    setRunKind('orphan')
     setPhase('running')
   }
 
@@ -202,6 +309,10 @@ export function UninstallKloudGamesModal({
     setProgress(0)
     setStepLabel('')
     setLogs([])
+    setRunKind('normal')
+    setServiceState('idle')
+    setServiceError(null)
+    clickingRef.current = false
   }
 
   const handleOpenLogs = async (): Promise<void> => {
@@ -212,7 +323,39 @@ export function UninstallKloudGamesModal({
     }
   }
 
+  const handleRemoveService = async (): Promise<void> => {
+    if (serviceState === 'busy') return // clique duplo não dispara duas vezes
+    setServiceState('busy')
+    setServiceError(null)
+    try {
+      const res = await window.api.removeKloudGamesService()
+      if (res.success) {
+        setServiceState('done')
+      } else {
+        setServiceError(res.error ?? 'Não foi possível remover o serviço KLOUD_GAMESsvc.')
+        setServiceState('error')
+      }
+    } catch (err) {
+      setServiceError(err instanceof Error ? err.message : 'Não foi possível remover o serviço.')
+      setServiceState('error')
+    }
+  }
+
   const errorMessage = result?.error ?? 'Não foi possível desinstalar o Kloud Games.'
+  const partialKind = getKloudPartialKind(detection)
+  const orphanTargetDir = detection?.exePath ? getParentDir(detection.exePath) : null
+  const isRegistryOrphan = partialKind === 'registry-orphan'
+  const isExeOrphan = partialKind === 'exe-orphan'
+  const isServiceOrphan = partialKind === 'service-orphan'
+  const orphanButtonLabel = isRegistryOrphan
+    ? 'Desinstalar pelo registro'
+    : isExeOrphan
+      ? 'Remover somente os arquivos restantes'
+      : 'Desinstalar'
+  // 1602 = cancelado pelo usuário → destaque neutro (não vermelho).
+  const isNeutralCancel = result?.msiexecKind === 'cancelled'
+  // taskkill falhou duas vezes → instrução manual, nunca chama o MSI.
+  const isKillFailure = result?.stage === 'kill'
   const report = result?.report as
     | {
         exeGone?: boolean
@@ -224,7 +367,13 @@ export function UninstallKloudGamesModal({
         logPath?: string
       }
     | undefined
-  const needsReboot = Boolean(result?.success && (result as { needsReboot?: boolean }).needsReboot)
+  // O botão de remover o serviço aparece quando o laudo (ou a detecção) indica
+  // que o KLOUD_GAMESsvc sobreviveu — sempre com confirmação própria.
+  const showServiceRemoval =
+    serviceState !== 'done' &&
+    ((phase === 'done' && report?.serviceGone === false) ||
+      (phase === 'confirm' && isServiceOrphan))
+  const needsReboot = Boolean(result?.success && result.needsReboot)
   const remaining = report?.remaining ?? []
 
   const checks = [
@@ -255,21 +404,86 @@ export function UninstallKloudGamesModal({
         {phase === 'confirm' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-              <AlertCircle size={30} className="text-red-400" />
+              {isExeOrphan || isServiceOrphan ? (
+                <Files size={30} className="text-red-400" />
+              ) : (
+                <AlertCircle size={30} className="text-red-400" />
+              )}
             </div>
             <h3 id="uninstall-modal-title" className="text-lg font-bold text-white">
-              Desinstalar o Kloud Games?
+              {isExeOrphan
+                ? 'Remover os arquivos restantes?'
+                : isServiceOrphan
+                  ? 'Só o serviço KLOUD_GAMESsvc restou'
+                  : isRegistryOrphan
+                    ? 'Desinstalar o Kloud Games pelo registro?'
+                    : 'Desinstalar o Kloud Games?'}
             </h3>
-            <p className="text-sm text-slate-400">Serão removidos:</p>
-            <ul className="text-left text-xs text-slate-400 space-y-1">
-              <li>
-                Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\
-              </li>
-              <li>Serviço KLOUD_GAMESsvc</li>
-              <li>Regras de firewall do Kloud Games</li>
-              <li>Entrada do PATH do sistema</li>
-              <li>Atalhos do Menu Iniciar</li>
-            </ul>
+            {isServiceOrphan ? (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-[11px] text-amber-300 leading-relaxed">
+                ⚠ Instalação quebrada detectada: não há programa para desinstalar nem arquivos para
+                remover — apenas o serviço <span className="font-mono">KLOUD_GAMESsvc</span> consta.
+                <br />
+                Nada do registro será alterado. Use o botão abaixo para remover o serviço (com
+                confirmação e elevação).
+              </div>
+            ) : isExeOrphan ? (
+              <>
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-[11px] text-red-300 leading-relaxed">
+                  ⚠ <strong>Instalação quebrada</strong>: os arquivos do Kloud Games ainda existem
+                  em <span className="break-all font-mono">{orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}</span>,
+                  mas o registro não consta — o Windows não consegue desinstalar pelo método normal
+                  (msiexec). <strong>Não use este caminho para uma instalação íntegra.</strong>
+                </div>
+                <div className="text-left text-[11px] text-slate-400 space-y-1 leading-relaxed">
+                  <p className="text-slate-300 font-semibold text-xs">O que acontecerá:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>
+                      Apaga SOMENTE a pasta de instalação{' '}
+                      <span className="font-mono break-all">{orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}</span>
+                    </li>
+                    <li>Zera o estado salvo do Hub (kloud-games.paths.json)</li>
+                    <li>Nada do registro será alterado — a entrada já não existe</li>
+                    <li>
+                      O serviço <span className="font-mono">KLOUD_GAMESsvc</span> e o firewall (se
+                      existissem) NÃO serão tocados — o laudo final dirá exatamente o que restou
+                    </li>
+                    <li>
+                      Por segurança, o Hub RECUSA apagar qualquer outra pasta (fora de
+                      C:\Program Files\KLOUD_GAMES)
+                    </li>
+                  </ul>
+                </div>
+                {detection?.service !== 'missing' && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-[11px] text-amber-300 leading-relaxed">
+                    ⚠ O serviço <span className="font-mono">KLOUD_GAMESsvc</span> ainda consta — a
+                    remoção dos arquivos NÃO remove o serviço. Use "Remover serviço agora" na tela
+                    final.
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {isRegistryOrphan ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-[11px] text-amber-300 leading-relaxed">
+                    ⚠ Instalação quebrada: o executável não foi encontrado, mas o registro consta
+                    como instalado. A desinstalação <strong>pelo registro</strong> será tentada
+                    normalmente e o laudo verificará o resultado.
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">Serão removidos:</p>
+                )}
+                <ul className="text-left text-xs text-slate-400 space-y-1">
+                  <li>
+                    Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\
+                  </li>
+                  <li>Serviço KLOUD_GAMESsvc</li>
+                  <li>Regras de firewall do Kloud Games</li>
+                  <li>Entrada do PATH do sistema</li>
+                  <li>Atalhos do Menu Iniciar</li>
+                </ul>
+              </>
+            )}
             {isRunning && (
               <>
                 <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
@@ -286,38 +500,47 @@ export function UninstallKloudGamesModal({
                 </button>
               </>
             )}
-            {isPartial && (
-              <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-                ⚠ Instalação quebrada detectada: tentaremos limpar mesmo assim.
+            {showServiceRemoval && (
+              <ServiceRemovalSection
+                serviceState={serviceState}
+                serviceError={serviceError}
+                onShowConfirm={() => setServiceState('confirm')}
+                onCancelConfirm={() => setServiceState('idle')}
+                onConfirmRemove={() => void handleRemoveService()}
+              />
+            )}
+            {!isServiceOrphan && (
+              <div className="mt-5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Digite <span className="text-red-400 font-mono">KLOUD_GAMES</span> para confirmar
+                </label>
+                <input
+                  type="text"
+                  value={confirmCode}
+                  onChange={(e) => setConfirmCode(e.target.value)}
+                  className="input-gamer text-center"
+                  placeholder="KLOUD_GAMES"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Não diferencia maiúsculas/minúsculas.
+                </p>
               </div>
             )}
-            <div className="mt-5">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Digite <span className="text-red-400 font-mono">KLOUD_GAMES</span> para confirmar
-              </label>
-              <input
-                type="text"
-                value={confirmCode}
-                onChange={(e) => setConfirmCode(e.target.value)}
-                className="input-gamer text-center"
-                placeholder="KLOUD_GAMES"
-              />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Não diferencia maiúsculas/minúsculas.
-              </p>
-            </div>
             <div className="mt-5 flex justify-center gap-3">
               <button type="button" className="btn-secondary" autoFocus onClick={onClose}>
                 Cancelar
               </button>
-              <button
-                type="button"
-                className="btn-danger"
-                disabled={!canConfirm}
-                onClick={handleConfirm}
-              >
-                <Trash2 size={14} /> Desinstalar
-              </button>
+              {!isServiceOrphan && (
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={!canConfirm}
+                  onClick={isExeOrphan ? handleOrphan : handleConfirm}
+                >
+                  {isExeOrphan ? <Files size={14} /> : <Trash2 size={14} />}
+                  {orphanButtonLabel}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -389,7 +612,7 @@ export function UninstallKloudGamesModal({
                 </ul>
                 <p className="mt-3 text-[10px] text-slate-500">
                   Orientação: use o Painel de Controle → Aplicativos ou remova manualmente os itens
-                  restantes.
+                  restantes. Nada é apagado sem você pedir.
                 </p>
               </>
             ) : (
@@ -406,12 +629,28 @@ export function UninstallKloudGamesModal({
                     </div>
                   ))}
                 </div>
-                {needsReboot && (
-                  <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-                    ⚠ Reinicie o PC para concluir a remoção de alguns arquivos.
-                  </div>
-                )}
               </>
+            )}
+            {/* Reinício pendente (3010/1641): banner persiste até fechar o modal. */}
+            {needsReboot && (
+              <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                ⚠ Reinicie o PC para concluir a remoção.
+              </div>
+            )}
+            {showServiceRemoval && (
+              <ServiceRemovalSection
+                className="mt-3"
+                serviceState={serviceState}
+                serviceError={serviceError}
+                onShowConfirm={() => setServiceState('confirm')}
+                onCancelConfirm={() => setServiceState('idle')}
+                onConfirmRemove={() => void handleRemoveService()}
+              />
+            )}
+            {serviceState === 'done' && (
+              <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
+                ✓ Serviço KLOUD_GAMESsvc removido.
+              </div>
             )}
             <div className="mt-5 flex justify-center gap-3">
               <button type="button" className="btn-secondary" onClick={() => onClose()}>
@@ -432,14 +671,50 @@ export function UninstallKloudGamesModal({
         {/* ── error ── */}
         {phase === 'error' && (
           <>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-              <AlertCircle size={30} className="text-red-400" />
+            <div
+              className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border ${
+                isNeutralCancel
+                  ? 'border-slate-500/30 bg-slate-500/10'
+                  : 'border-red-500/30 bg-red-500/10'
+              }`}
+            >
+              <AlertCircle
+                size={30}
+                className={isNeutralCancel ? 'text-slate-400' : 'text-red-400'}
+              />
             </div>
-            <h3 className="text-lg font-bold text-white">Falha ao desinstalar</h3>
-            <p className="text-sm text-slate-400 mt-1">{errorMessage}</p>
+            <h3 className="text-lg font-bold text-white">
+              {isNeutralCancel ? 'Cancelado por você.' : 'Falha ao desinstalar'}
+            </h3>
+            {!isNeutralCancel && <p className="text-sm text-slate-400 mt-1">{errorMessage}</p>}
+            {isKillFailure && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-[11px] text-amber-300 leading-relaxed">
+                ⚠ Não foi possível encerrar o processo{' '}
+                <span className="font-mono">KLOUD_GAMES.exe</span> automaticamente (as duas
+                tentativas de <span className="font-mono">taskkill</span> falharam). Por isso o MSI
+                não foi iniciado — nada foi removido.
+                <br />
+                <span className="text-amber-200/90">
+                  Para resolver: pressione{' '}
+                  <span className="font-mono">Ctrl + Shift + Esc</span>, vá na aba{' '}
+                  <span className="font-mono">Detalhes</span>, localize{' '}
+                  <span className="font-mono">KLOUD_GAMES.exe</span>, clique em{' '}
+                  <span className="font-mono">Finalizar tarefa</span> e tente de novo.
+                </span>
+              </div>
+            )}
             <div className="mt-5 flex justify-center gap-3">
-              <button type="button" className="btn-danger" onClick={handleRetry}>
-                <Trash2 size={14} /> Tentar novamente
+              <button
+                type="button"
+                className={isNeutralCancel ? 'btn-secondary' : 'btn-danger'}
+                onClick={handleRetry}
+              >
+                {isNeutralCancel ? (
+                  <ChevronRight size={14} />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                Tentar novamente
               </button>
               <button
                 type="button"

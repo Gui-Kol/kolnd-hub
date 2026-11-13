@@ -63,7 +63,8 @@ describe('uninstaller.ts — mapMsiexecExitCode (reexportado da T1)', () => {
   it('3010/1641 são sucesso com reinício necessário (não erro fatal)', () => {
     expect(mapMsiexecExitCode(3010).kind).toBe('needs-reboot')
     expect(mapMsiexecExitCode(1641).kind).toBe('needs-reboot')
-    expect(mapMsiexecExitCode(3010).message).toContain('reinici')
+    expect(mapMsiexecExitCode(3010).message).toBe('Reinicie o PC para concluir a remoção.')
+    expect(mapMsiexecExitCode(1641).message).toBe('Reinicie o PC para concluir a remoção.')
   })
 
   it('código desconhecido/null menciona os logs', () => {

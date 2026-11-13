@@ -458,7 +458,7 @@ function App(): JSX.Element {
       if (!result.success) {
         setNotice({
           id: Date.now(),
-          text: 'Não foi possível encerrar o Hub completamente.'
+          text: result.error ?? 'Não foi possível encerrar o Hub completamente.'
         })
       }
     } catch (err) {

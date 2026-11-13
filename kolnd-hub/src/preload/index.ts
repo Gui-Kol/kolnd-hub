@@ -113,7 +113,8 @@ const api = {
     ipcRenderer.invoke('window:set-fullscreen', flag),
 
   // ── Encerramento completo do Hub ────────────────
-  shutdownHub: (): Promise<{ success: boolean }> => ipcRenderer.invoke('app:shutdown'),
+  shutdownHub: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:shutdown'),
 
   // ── Inicialização do PC (startup) ───────────────
   startupList: (): Promise<
@@ -399,6 +400,15 @@ const api = {
   uninstallKloudGames: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('uninstall:kloud-games'),
 
+  uninstallKloudGamesOrphan: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('uninstall:kloud-orphan'),
+
+  removeKloudGamesService: (): Promise<{
+    success: boolean
+    error?: string
+    serviceStatus?: string
+  }> => ipcRenderer.invoke('uninstall:remove-kloud-service'),
+
   getHubUninstallStatus: (): Promise<{
     available: boolean
     uninstallerPath: string | null
@@ -418,6 +428,7 @@ const api = {
     success: boolean
     paused?: boolean
     error?: string
+    wipeErrors?: string[]
   }> => ipcRenderer.invoke('uninstall:hub', args),
 
   openHubLogsFolder: (): Promise<void> => ipcRenderer.invoke('uninstall:open-logs'),
@@ -459,6 +470,9 @@ const api = {
       stage?: string
       needsReboot?: boolean
       wipeErrors?: string[]
+      cancelled?: boolean
+      msiexecKind?: string
+      orphanManual?: boolean
     }) => void
   ): (() => void) => {
     const handler = (
@@ -472,6 +486,9 @@ const api = {
         stage?: string
         needsReboot?: boolean
         wipeErrors?: string[]
+        cancelled?: boolean
+        msiexecKind?: string
+        orphanManual?: boolean
       }
     ): void => callback(result)
     ipcRenderer.on('uninstall:complete', handler)

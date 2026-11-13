@@ -85,7 +85,7 @@ declare global {
       getAppLogs: (appId: string) => Promise<string>
 
       // ── Encerramento completo do Hub ────────────────
-      shutdownHub: () => Promise<{ success: boolean }>
+      shutdownHub: () => Promise<{ success: boolean; error?: string }>
 
       // ── Window controls ─────────────────────────────
       minimizeWindow: () => Promise<void>
@@ -295,6 +295,12 @@ declare global {
         error?: string
       }>
       uninstallKloudGames: () => Promise<{ success: boolean; error?: string }>
+      uninstallKloudGamesOrphan: () => Promise<{ success: boolean; error?: string }>
+      removeKloudGamesService: () => Promise<{
+        success: boolean
+        error?: string
+        serviceStatus?: string
+      }>
       getHubUninstallStatus: () => Promise<{
         available: boolean
         uninstallerPath: string | null
@@ -312,6 +318,7 @@ declare global {
         success: boolean
         paused?: boolean
         error?: string
+        wipeErrors?: string[]
       }>
       openHubLogsFolder: () => Promise<void>
       onUninstallProgress: (
@@ -333,6 +340,9 @@ declare global {
           stage?: string
           needsReboot?: boolean
           wipeErrors?: string[]
+          cancelled?: boolean
+          msiexecKind?: string
+          orphanManual?: boolean
         }) => void
       ) => () => void
     }
