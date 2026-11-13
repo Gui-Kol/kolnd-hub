@@ -604,10 +604,22 @@ describe('mapMsiexecExitCode', () => {
   it('mensagens pt-BR exatas exigidas pela matriz da T6', () => {
     const EXACT: Array<[number | null, string]> = [
       [1223, 'Você recusou a permissão (UAC). Nada foi removido.'],
-      [1618, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-      [1500, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-      [1603, 'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'],
-      [1625, 'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.'],
+      [
+        1618,
+        'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+      ],
+      [
+        1500,
+        'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+      ],
+      [
+        1603,
+        'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'
+      ],
+      [
+        1625,
+        'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.'
+      ],
       [3010, 'Reinicie o PC para concluir a remoção.'],
       [1641, 'Reinicie o PC para concluir a remoção.'],
       [1605, 'O Kloud Games já não constava como instalado — nada foi removido.'],
@@ -647,20 +659,15 @@ describe('classifyKloudGamesPartial — fixtures de órfãos (exe/registro/servi
       'running' | 'stopped' | 'missing',
       KloudGamesPartialKind | null
     ]
-  >)(
-    '%s',
-    (_name, exePath, regEntry, service, expected) => {
-      const status: 'installed' | 'partial' | 'missing' =
-        !exePath && !regEntry && service === 'missing'
-          ? 'missing'
-          : exePath && regEntry
-            ? 'installed'
-            : 'partial'
-      expect(
-        classifyKloudGamesPartial({ status, exePath, entry: regEntry, service })
-      ).toBe(expected)
-    }
-  )
+  >)('%s', (_name, exePath, regEntry, service, expected) => {
+    const status: 'installed' | 'partial' | 'missing' =
+      !exePath && !regEntry && service === 'missing'
+        ? 'missing'
+        : exePath && regEntry
+          ? 'installed'
+          : 'partial'
+    expect(classifyKloudGamesPartial({ status, exePath, entry: regEntry, service })).toBe(expected)
+  })
 
   it('detectKloudGames com exe-órfão mocado → partial com classification exe-orphan', () => {
     findKloudGamesExeMock.mockReturnValue(exe)

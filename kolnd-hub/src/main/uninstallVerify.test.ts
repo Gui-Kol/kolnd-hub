@@ -104,9 +104,7 @@ describe('uninstallVerify — checkExeGone', () => {
   })
 
   it('devolve false quando o exe ainda é encontrado', () => {
-    findKloudGamesExeMock.mockReturnValue(
-      'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe'
-    )
+    findKloudGamesExeMock.mockReturnValue('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
     expect(checkExeGone()).toBe(false)
   })
 })
@@ -245,9 +243,7 @@ describe('uninstallVerify — verifyKloudGamesRemoval', () => {
   })
 
   it('laudo com 1–3 remanescentes: booleanos e remaining corretos', () => {
-    findKloudGamesExeMock.mockReturnValue(
-      'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe'
-    )
+    findKloudGamesExeMock.mockReturnValue('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
     getKloudGamesServiceStatusMock.mockReturnValue('stopped')
     findKloudGamesUninstallEntryMock.mockReturnValue({
       productCode: '{22222222-2222-2222-2222-222222222222}',

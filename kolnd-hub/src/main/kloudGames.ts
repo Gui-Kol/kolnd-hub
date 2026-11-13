@@ -395,7 +395,8 @@ function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
         resolve({
           success: false,
           exitCode,
-          error: 'Instalação do Kloud Games cancelada no assistente. Você pode tentar de novo quando quiser.'
+          error:
+            'Instalação do Kloud Games cancelada no assistente. Você pode tentar de novo quando quiser.'
         })
         return
       }

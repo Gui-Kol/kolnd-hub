@@ -129,7 +129,9 @@ export function deleteKloudGamesOrphanFolder(
 
   let entries: string[]
   try {
-    entries = readdirSync(targetDir).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    entries = readdirSync(targetDir).sort((a, b) =>
+      a.localeCompare(b, 'en', { sensitivity: 'base' })
+    )
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (!existsSync(targetDir)) {
@@ -213,7 +215,12 @@ export class Uninstaller extends EventEmitter {
       logPath
     }
 
-    const progress = (stepId: UninstallProgress['stepId'], status: UninstallProgress['status'], progress: number, message?: string): void => {
+    const progress = (
+      stepId: UninstallProgress['stepId'],
+      status: UninstallProgress['status'],
+      progress: number,
+      message?: string
+    ): void => {
       const evt: UninstallProgress = { stepId, status, progress, message }
       emit(evt)
       this.emit('progress', evt)
@@ -232,7 +239,9 @@ export class Uninstaller extends EventEmitter {
 
       if (detection.status === 'missing') {
         progress('check', 'done', 100, 'Não instalado — nada a remover.')
-        log('[check] Kloud Games não está instalado (sem exe, sem registro, sem serviço) — idempotente.\n')
+        log(
+          '[check] Kloud Games não está instalado (sem exe, sem registro, sem serviço) — idempotente.\n'
+        )
         report.success = false
         report.error = 'O Kloud Games não está instalado.'
         report.stage = 'check'
@@ -242,9 +251,12 @@ export class Uninstaller extends EventEmitter {
 
       if (detection.entry?.productCode == null && detection.exePath == null) {
         progress('check', 'error', 0, 'Desinstalação pelo registro não encontrada.')
-        log('[check] Sem productCode do registro e sem exe: não é possível desinstalar via msiexec.\n')
+        log(
+          '[check] Sem productCode do registro e sem exe: não é possível desinstalar via msiexec.\n'
+        )
         report.success = false
-        report.error = 'Desinstalação pelo registro não encontrada — use Configurações do Windows → Aplicativos.'
+        report.error =
+          'Desinstalação pelo registro não encontrada — use Configurações do Windows → Aplicativos.'
         report.stage = 'check'
         attachLaudo(report, log)
         return report
@@ -276,7 +288,11 @@ export class Uninstaller extends EventEmitter {
           try {
             execFileSync(
               'powershell.exe',
-              ['-NoProfile', '-Command', `Start-Process taskkill -Verb RunAs -ArgumentList '/IM','${KLOUD_PROCESS_NAME}','/F' -Wait`],
+              [
+                '-NoProfile',
+                '-Command',
+                `Start-Process taskkill -Verb RunAs -ArgumentList '/IM','${KLOUD_PROCESS_NAME}','/F' -Wait`
+              ],
               { encoding: 'utf8', windowsHide: true, timeout: 30000 }
             )
             killed = true
@@ -288,7 +304,9 @@ export class Uninstaller extends EventEmitter {
 
         if (!killed) {
           progress('kill', 'error', 0, KLOUD_KILL_FAILED_MESSAGE)
-          log('[kill] Tentativa 2/2 (taskkill elevado) também falhou — abortando antes do msiexec.\n')
+          log(
+            '[kill] Tentativa 2/2 (taskkill elevado) também falhou — abortando antes do msiexec.\n'
+          )
           report.success = false
           report.error = KLOUD_KILL_FAILED_MESSAGE
           report.stage = 'kill'
@@ -341,7 +359,9 @@ export class Uninstaller extends EventEmitter {
       if (powerShellBlocked) {
         progress('msiexec', 'error', 0, POWERSHELL_BLOCKED_MESSAGE)
         log(`[msiexec] ${POWERSHELL_BLOCKED_MESSAGE}\n`)
-        appendKloudGamesUninstallLog(`PowerShell bloqueado por política de execução (código ${elevated.exitCode ?? 'desconhecido'})`)
+        appendKloudGamesUninstallLog(
+          `PowerShell bloqueado por política de execução (código ${elevated.exitCode ?? 'desconhecido'})`
+        )
         report.success = false
         report.error = POWERSHELL_BLOCKED_MESSAGE
         report.stage = 'msiexec'
@@ -415,7 +435,9 @@ export class Uninstaller extends EventEmitter {
       resetKloudGamesState()
       const exeStillExists = findKloudGamesExe() !== null
       if (exeStillExists) {
-        report.remaining.push('O executável KLOUD_GAMES.exe ainda foi detectado após a desinstalação.')
+        report.remaining.push(
+          'O executável KLOUD_GAMES.exe ainda foi detectado após a desinstalação.'
+        )
       }
       progress('verify', 'done', 100, 'Verificação concluída.')
       log('[verify] Verificação concluída.\n')
@@ -504,7 +526,12 @@ export class Uninstaller extends EventEmitter {
       orphanManual: true
     }
 
-    const progress = (stepId: UninstallProgress['stepId'], status: UninstallProgress['status'], progressValue: number, message?: string): void => {
+    const progress = (
+      stepId: UninstallProgress['stepId'],
+      status: UninstallProgress['status'],
+      progressValue: number,
+      message?: string
+    ): void => {
       const evt: UninstallProgress = { stepId, status, progress: progressValue, message }
       emit(evt)
       this.emit('progress', evt)
@@ -524,7 +551,9 @@ export class Uninstaller extends EventEmitter {
       if (detection.status === 'installed' || detection.entry?.productCode != null) {
         report.error =
           'O Kloud Games consta no registro — use a desinstalação normal (botão "Desinstalar pelo registro"). Nada foi removido.'
-        log('[orphan] Registro consta — a remoção manual foi recusada (o msiexec é o caminho correto).\n')
+        log(
+          '[orphan] Registro consta — a remoção manual foi recusada (o msiexec é o caminho correto).\n'
+        )
         attachLaudo(report, log)
         return report
       }
@@ -556,7 +585,12 @@ export class Uninstaller extends EventEmitter {
       let done = 0
       const wipe = deleteKloudGamesOrphanFolder(target, log, () => {
         done += 1
-        progress('cleanup', 'running', Math.min(90, 20 + done * 5), 'Removendo somente os arquivos restantes…')
+        progress(
+          'cleanup',
+          'running',
+          Math.min(90, 20 + done * 5),
+          'Removendo somente os arquivos restantes…'
+        )
       })
 
       for (const wipeError of wipe.errors) {
@@ -673,7 +707,9 @@ export async function removeKloudGamesService(): Promise<{
     appendKloudGamesUninstallLog('Serviço KLOUD_GAMESsvc ausente após a remoção (sucesso).')
     return { success: true, serviceStatus: status }
   }
-  appendKloudGamesUninstallLog(`Serviço KLOUD_GAMESsvc ainda presente após a tentativa (status: ${status}).`)
+  appendKloudGamesUninstallLog(
+    `Serviço KLOUD_GAMESsvc ainda presente após a tentativa (status: ${status}).`
+  )
   return {
     success: false,
     error: `O Windows não removeu o serviço KLOUD_GAMESsvc (código ${elevated.exitCode ?? 'desconhecido'}). Fale com o administrador ou use um Prompt de Comando ELEVADO: sc delete KLOUD_GAMESsvc.`,
@@ -952,7 +988,12 @@ export async function runHubUninstallSteps(
     progressValue: number,
     message?: string
   ): void => {
-    emit({ stepId, status, progress: Math.max(0, Math.min(100, Math.round(progressValue))), message })
+    emit({
+      stepId,
+      status,
+      progress: Math.max(0, Math.min(100, Math.round(progressValue))),
+      message
+    })
   }
   const complete = (result: HubUninstallComplete): void => {
     uninstaller.emit('complete', result)
@@ -989,8 +1030,7 @@ export async function runHubUninstallSteps(
         })
 
         if (!report.success) {
-          const kloudError =
-            report.error ?? 'Falha desconhecida ao desinstalar o Kloud Games.'
+          const kloudError = report.error ?? 'Falha desconhecida ao desinstalar o Kloud Games.'
           log(`[kloud] Falha ao desinstalar o Kloud Games: ${kloudError}\n`)
           appendKloudGamesUninstallLog(
             `Desinstalação do Kolnd Hub pausada na etapa kloud: ${kloudError}`
@@ -1275,11 +1315,7 @@ export function registerUninstallIpc(getWindow: () => BrowserWindow | null): voi
 
       const documents = app.getPath('documents')
       const now = new Date()
-      const stamp = now
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[-:]/g, '')
-        .replace('T', '-') // AAAAMMDD-HHmmss
+      const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-') // AAAAMMDD-HHmmss
       const baseName = `KolndHub-Backup-${stamp}`
 
       // Nunca sobrescreve um backup existente: adiciona -2, -3, …
@@ -1297,7 +1333,8 @@ export function registerUninstallIpc(getWindow: () => BrowserWindow | null): voi
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Não foi possível fazer o backup dos dados do Hub.'
+        error:
+          err instanceof Error ? err.message : 'Não foi possível fazer o backup dos dados do Hub.'
       }
     }
   })

@@ -7,11 +7,7 @@ import { BigPictureGames } from './BigPictureGames'
 import { BigPictureControls } from './BigPictureControls'
 import { GamepadSetup } from './GamepadSetup'
 import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPictureTransition'
-import {
-  BigPictureFocusProvider,
-  useBigPictureFocus,
-  useFocusable
-} from './BigPictureFocus'
+import { BigPictureFocusProvider, useBigPictureFocus, useFocusable } from './BigPictureFocus'
 import { useGamepad } from '../hooks/useGamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import type { GamepadAction, GamepadConfig } from '../lib/gamepad'
@@ -91,8 +87,8 @@ function SetupView({
             Nenhum controle configurado
           </h1>
           <p className="text-lg leading-relaxed text-slate-400">
-            Pressione qualquer botão do seu controle para detectar e configurar automaticamente —
-            ou configure com o mouse.
+            Pressione qualquer botão do seu controle para detectar e configurar automaticamente — ou
+            configure com o mouse.
           </p>
         </div>
         <button
@@ -107,11 +103,7 @@ function SetupView({
 
       {/* ── Tela de configuração de controles (compartilhada com a T5) ── */}
       <div className="min-h-0 flex-1 px-6 pb-6 pt-2 sm:px-10">
-        <GamepadSetup
-          layout="inline"
-          onSaved={() => onComplete()}
-          onClose={onExit}
-        />
+        <GamepadSetup layout="inline" onSaved={() => onComplete()} onClose={onExit} />
       </div>
     </div>
   )
@@ -178,9 +170,7 @@ function OptionsOverlay({
         className="w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-500">
-          Opções
-        </h2>
+        <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Opções</h2>
         <OverlayButton
           id="options:controls"
           icon={Gamepad}
@@ -228,8 +218,8 @@ function ExitOverlay({
         <div className="space-y-2">
           <h2 className="text-3xl font-black tracking-tight text-white">Sair do Big Picture?</h2>
           <p className="text-base leading-relaxed text-slate-400">
-            Você voltará ao Hub normal. Nada será fechado — seus programas e a bandeja
-            continuam exatamente como estão.
+            Você voltará ao Hub normal. Nada será fechado — seus programas e a bandeja continuam
+            exatamente como estão.
           </p>
         </div>
         <div className="flex gap-3">
@@ -267,7 +257,12 @@ function DisconnectOverlay(): JSX.Element {
       aria-label="Controle desconectado"
     >
       <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-[#0d0d14]/90 px-12 py-10 text-center shadow-2xl shadow-black/70 backdrop-blur-xl">
-        <Loader2 size={44} strokeWidth={1.75} className="animate-spin text-neon-cyan" aria-hidden="true" />
+        <Loader2
+          size={44}
+          strokeWidth={1.75}
+          className="animate-spin text-neon-cyan"
+          aria-hidden="true"
+        />
         <h2 className="text-3xl font-black tracking-tight text-white">Controle desconectado</h2>
         <p className="text-lg leading-relaxed text-slate-300">
           Reconecte o controle ou use o mouse
@@ -288,10 +283,7 @@ interface ActiveViewProps {
   inputEnabled?: boolean
 }
 
-function ActiveView({
-  onExit,
-  inputEnabled = true
-}: ActiveViewProps): JSX.Element {
+function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Element {
   const [section, setSectionState] = useState<BigPictureSection>('games')
   const [overlay, setOverlay] = useState<'options' | 'exit' | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
@@ -300,14 +292,8 @@ function ActiveView({
   const historyRef = useRef<BigPictureSection[]>([])
   const clock = useMinuteClock()
 
-  const {
-    focusedId,
-    setFocusedId,
-    moveFocus,
-    activateFocused,
-    setFocusScope,
-    focusFirstMatching
-  } = useBigPictureFocus()
+  const { focusedId, setFocusedId, moveFocus, activateFocused, setFocusScope, focusFirstMatching } =
+    useBigPictureFocus()
 
   const notify = useCallback((text: string): void => {
     setToast({ id: Date.now(), text })
@@ -385,8 +371,7 @@ function ActiveView({
   const cycleSection = useCallback(
     (direction: 1 | -1): void => {
       const index = SECTION_ORDER.indexOf(section)
-      const next =
-        SECTION_ORDER[(index + direction + SECTION_ORDER.length) % SECTION_ORDER.length]
+      const next = SECTION_ORDER[(index + direction + SECTION_ORDER.length) % SECTION_ORDER.length]
       if (!next || next === section) return
       // LB/RB são atalhos: não poluem o histórico de "voltar".
       setSectionState(next)
@@ -439,7 +424,9 @@ function ActiveView({
       // ── Overlays: navegação confinada aos botões do diálogo ──
       if (overlay) {
         const pair =
-          overlay === 'exit' ? (['exit:cancel', 'exit:quit'] as const) : (['options:controls', 'options:quit'] as const)
+          overlay === 'exit'
+            ? (['exit:cancel', 'exit:quit'] as const)
+            : (['options:controls', 'options:quit'] as const)
         if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
           setFocusedId(focusedId === pair[0] ? pair[1] : pair[0])
           playSfx('move')
@@ -579,9 +566,7 @@ function ActiveView({
       const target = event.target as HTMLElement | null
       if (
         target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       ) {
         return
       }
@@ -813,10 +798,7 @@ export function BigPicture({
             transition={{ duration: 0.4, ease: 'easeOut' }}
             style={{ visibility: ready ? 'visible' : 'hidden' }}
           >
-            <ActiveView
-              onExit={handleExit}
-              inputEnabled={ready && !leaving}
-            />
+            <ActiveView onExit={handleExit} inputEnabled={ready && !leaving} />
           </motion.div>
         )}
 

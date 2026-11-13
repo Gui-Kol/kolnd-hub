@@ -32,8 +32,16 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
   const [config, setConfig] = useState<GamepadConfig | null>(null)
   const [loaded, setLoaded] = useState(false)
 
-  const { ref: adjustRef, focused: adjustFocused, focus: focusAdjust } = useFocusable('control:adjust')
-  const { ref: detectRef, focused: detectFocused, focus: focusDetect } = useFocusable('control:detect')
+  const {
+    ref: adjustRef,
+    focused: adjustFocused,
+    focus: focusAdjust
+  } = useFocusable('control:adjust')
+  const {
+    ref: detectRef,
+    focused: detectFocused,
+    focus: focusDetect
+  } = useFocusable('control:detect')
 
   useEffect(() => {
     let mounted = true

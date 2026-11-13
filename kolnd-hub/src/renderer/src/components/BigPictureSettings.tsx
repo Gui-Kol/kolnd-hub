@@ -162,9 +162,7 @@ export function BigPictureSettings(): JSX.Element {
 
   return (
     <>
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
-        Big Picture
-      </p>
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">Big Picture</p>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -179,8 +177,8 @@ export function BigPictureSettings(): JSX.Element {
           <div className="min-w-0">
             <h3 className="text-sm font-bold text-white">Modo Big Picture</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Interface em tela cheia otimizada para gamepad e TV — navegação, lançamento de
-              jogos e controles do Hub.
+              Interface em tela cheia otimizada para gamepad e TV — navegação, lançamento de jogos e
+              controles do Hub.
             </p>
           </div>
         </div>
@@ -200,8 +198,8 @@ export function BigPictureSettings(): JSX.Element {
               'Lendo configuração…'
             ) : config ? (
               <>
-                Controle:{' '}
-                <span className="font-bold text-white">{config.controllerName}</span> · perfil{' '}
+                Controle: <span className="font-bold text-white">{config.controllerName}</span> ·
+                perfil{' '}
                 <span className="font-bold text-white">
                   {GAMEPAD_PROFILES[config.profile].label}
                 </span>{' '}

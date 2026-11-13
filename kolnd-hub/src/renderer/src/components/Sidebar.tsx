@@ -76,8 +76,7 @@ export function Sidebar({
                 'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
               inicializacao:
                 'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
-              biblioteca:
-                'text-steam-blue bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
+              biblioteca: 'text-steam-blue bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
               settings:
                 'text-neon-purple bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
             } as Record<string, string>

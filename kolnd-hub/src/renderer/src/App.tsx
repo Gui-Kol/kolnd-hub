@@ -443,12 +443,9 @@ function App(): JSX.Element {
   }, [])
 
   // Repassa o toast do App para a Zona de perigo (onToast opcional).
-  const onToast = useCallback(
-    (msg: string, kind: 'success' | 'error' | 'info'): void => {
-      setNotice({ id: Date.now(), text: msg, kind })
-    },
-    []
-  )
+  const onToast = useCallback((msg: string, kind: 'success' | 'error' | 'info'): void => {
+    setNotice({ id: Date.now(), text: msg, kind })
+  }, [])
 
   // Solicita ao processo principal que encerre tudo (processos, servidores,
   // segundo plano) e feche o Hub completamente.
@@ -542,7 +539,9 @@ function App(): JSX.Element {
           ) : (
             <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
           )}
-          <p className={`text-xs leading-relaxed ${notice.kind === 'success' ? 'text-emerald-100' : notice.kind === 'info' ? 'text-slate-100' : 'text-red-100'}`}>
+          <p
+            className={`text-xs leading-relaxed ${notice.kind === 'success' ? 'text-emerald-100' : notice.kind === 'info' ? 'text-slate-100' : 'text-red-100'}`}
+          >
             {notice.text}
           </p>
           <button
@@ -620,11 +619,7 @@ function App(): JSX.Element {
                 <Biblioteca />
               </ErrorBoundary>
             ) : (
-              <Settings
-                apps={apps}
-                onSave={handleSaveApps}
-                onToast={onToast}
-              />
+              <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
             )}
           </Layout>
 

@@ -14,14 +14,22 @@ const { spawnMock, execFileSyncMock } = vi.hoisted(() => ({
 
 const storeMock = vi.hoisted(() => ({
   getStoredGames: vi.fn(() => [] as StoredGame[]),
-  setStoredGames: vi.fn((games: StoredGame[]) => ({ success: true } as const))
+  setStoredGames: vi.fn((games: StoredGame[]) => ({ success: true }) as const)
 }))
 
-vi.mock('electron-store', () => ({ default: class { constructor() { return {} } } }))
+vi.mock('electron-store', () => ({
+  default: class {
+    constructor() {
+      return {}
+    }
+  }
+}))
 vi.mock('electron', () => ({
   app: {
     getPath: vi.fn(() => join(tmpdir(), 'kolnd-games-test-userdata')),
-    getFileIcon: vi.fn().mockResolvedValue({ isEmpty: () => false, toPNG: () => Buffer.from('png') })
+    getFileIcon: vi
+      .fn()
+      .mockResolvedValue({ isEmpty: () => false, toPNG: () => Buffer.from('png') })
   },
   dialog: { showOpenDialog: vi.fn() },
   nativeImage: {
@@ -36,16 +44,25 @@ vi.mock('child_process', () => ({
 }))
 vi.mock('./store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./store')>()
-  return { ...actual, getStoredGames: storeMock.getStoredGames, setStoredGames: storeMock.setStoredGames }
+  return {
+    ...actual,
+    getStoredGames: storeMock.getStoredGames,
+    setStoredGames: storeMock.setStoredGames
+  }
 })
 vi.mock('./startupManager', () => ({ listRunningProcesses: vi.fn() }))
 
-const treeKillMock = vi.hoisted(() => vi.fn((_pid: number, _sig: string, cb: (err?: Error) => void) => {
-  process.nextTick(() => cb(undefined))
-}))
+const treeKillMock = vi.hoisted(() =>
+  vi.fn((_pid: number, _sig: string, cb: (err?: Error) => void) => {
+    process.nextTick(() => cb(undefined))
+  })
+)
 vi.mock('tree-kill', () => ({ default: treeKillMock, __esModule: true }))
 
-const electronMod = electronApp as unknown as { getPath: ReturnType<typeof vi.fn>; getFileIcon: ReturnType<typeof vi.fn> }
+const electronMod = electronApp as unknown as {
+  getPath: ReturnType<typeof vi.fn>
+  getFileIcon: ReturnType<typeof vi.fn>
+}
 const mockedListRunningProcesses = listRunningProcesses as ReturnType<typeof vi.fn>
 
 import {
@@ -76,7 +93,10 @@ beforeEach(() => {
   treeKillMock.mockClear()
   userDataDir = mkdtempSync(join(tmpdir(), 'kolnd-games-test-'))
   electronMod.getPath.mockReturnValue(userDataDir)
-  electronMod.getFileIcon.mockResolvedValue({ isEmpty: () => false, toPNG: () => Buffer.from('png') })
+  electronMod.getFileIcon.mockResolvedValue({
+    isEmpty: () => false,
+    toPNG: () => Buffer.from('png')
+  })
 })
 
 afterEach(() => {
@@ -130,7 +150,9 @@ describe('formatGameName', () => {
   })
 
   it('trata separadores . _ - e múltiplos espaços', () => {
-    expect(formatGameName('unreal_tournament_win64-shipping')).toBe('Unreal Tournament Win64 Shipping')
+    expect(formatGameName('unreal_tournament_win64-shipping')).toBe(
+      'Unreal Tournament Win64 Shipping'
+    )
     expect(formatGameName('mass  effect')).toBe('Mass Effect')
   })
 
@@ -187,7 +209,9 @@ describe('findGameProcesses', () => {
 describe('runningGamesMap', () => {
   it('mapeia id → rodando para os ids da biblioteca', () => {
     mockedGetStoredGames.mockReturnValue([baseGame])
-    mockedListRunningProcesses.mockReturnValue([{ name: 'jogo', id: 1, path: 'C:\\Jogos\\Jogo Um\\jogo.exe' }])
+    mockedListRunningProcesses.mockReturnValue([
+      { name: 'jogo', id: 1, path: 'C:\\Jogos\\Jogo Um\\jogo.exe' }
+    ])
     const res = runningGamesMap(['game-1', 'desconhecido'])
     expect(res.ok).toBe(true)
     expect(res.running).toEqual({ 'game-1': true })
@@ -215,7 +239,10 @@ describe('addGame', () => {
 
   it('recusa id duplicado e exePath duplicado', () => {
     mockedGetStoredGames.mockReturnValue([baseGame])
-    expect(addGame(baseGame)).toEqual({ success: false, error: expect.stringContaining('identificador') })
+    expect(addGame(baseGame)).toEqual({
+      success: false,
+      error: expect.stringContaining('identificador')
+    })
     const outro = { ...baseGame, id: 'game-2', name: 'Outro' }
     expect(addGame(outro)).toEqual({ success: false, error: expect.stringContaining('executável') })
   })
@@ -225,9 +252,18 @@ describe('addGame', () => {
 
 describe('addCustomGame (validações sem disco)', () => {
   it('recusa caminho inválido, não absoluto e não .exe', async () => {
-    expect(await addCustomGame(null)).toEqual({ success: false, error: 'Caminho do executável inválido.' })
-    expect(await addCustomGame('relativo\\game.exe')).toEqual({ success: false, error: 'Escolha um caminho absoluto para o executável.' })
-    expect(await addCustomGame('C:\\Jogo\\jogo.txt')).toEqual({ success: false, error: 'Escolha um arquivo .exe do jogo.' })
+    expect(await addCustomGame(null)).toEqual({
+      success: false,
+      error: 'Caminho do executável inválido.'
+    })
+    expect(await addCustomGame('relativo\\game.exe')).toEqual({
+      success: false,
+      error: 'Escolha um caminho absoluto para o executável.'
+    })
+    expect(await addCustomGame('C:\\Jogo\\jogo.txt')).toEqual({
+      success: false,
+      error: 'Escolha um arquivo .exe do jogo.'
+    })
   })
 
   it('recusa arquivo inexistente (statSync lança)', async () => {
@@ -265,17 +301,32 @@ describe('updateGame', () => {
   })
 
   it('id inválido / não encontrado / patch inválido → erro', () => {
-    expect(updateGame('  ', { name: 'x' })).toEqual({ success: false, error: expect.stringContaining('Identificador') })
-    expect(updateGame('inexistente', { name: 'x' })).toEqual({ success: false, error: expect.stringContaining('não encontrado') })
+    expect(updateGame('  ', { name: 'x' })).toEqual({
+      success: false,
+      error: expect.stringContaining('Identificador')
+    })
+    expect(updateGame('inexistente', { name: 'x' })).toEqual({
+      success: false,
+      error: expect.stringContaining('não encontrado')
+    })
     expect(updateGame('game-1', null)).toEqual({ success: false, error: 'Alterações inválidas.' })
   })
 
   it('campos fora da whitelist são ignorados; nome vazio e origem inválida recusados', () => {
     const res = updateGame('game-1', { nome: 'qualquer', addedAt: '2020' } as never)
     expect(res.success).toBe(true)
-    expect(updateGame('game-1', { name: '' })).toEqual({ success: false, error: expect.stringContaining('vazio') })
-    expect(updateGame('game-1', { origin: 'invalido' as never })).toEqual({ success: false, error: expect.stringContaining('inválida') })
-    expect(updateGame('game-1', { steamAppId: -1 })).toEqual({ success: false, error: expect.stringContaining('steamAppId inválido') })
+    expect(updateGame('game-1', { name: '' })).toEqual({
+      success: false,
+      error: expect.stringContaining('vazio')
+    })
+    expect(updateGame('game-1', { origin: 'invalido' as never })).toEqual({
+      success: false,
+      error: expect.stringContaining('inválida')
+    })
+    expect(updateGame('game-1', { steamAppId: -1 })).toEqual({
+      success: false,
+      error: expect.stringContaining('steamAppId inválido')
+    })
   })
 })
 
@@ -286,13 +337,21 @@ describe('removeGame', () => {
     mockedGetStoredGames.mockReturnValue([baseGame])
     const res = removeGame('game-1')
     expect(res.success).toBe(true)
-    expect(((mockedSetStoredGames.mock.calls.at(-1)?.[0] as unknown as StoredGame[]) ?? []).length).toBe(0)
+    expect(
+      ((mockedSetStoredGames.mock.calls.at(-1)?.[0] as unknown as StoredGame[]) ?? []).length
+    ).toBe(0)
   })
 
   it('id inválido e não encontrado → erro', () => {
-    expect(removeGame('')).toEqual({ success: false, error: expect.stringContaining('Identificador') })
+    expect(removeGame('')).toEqual({
+      success: false,
+      error: expect.stringContaining('Identificador')
+    })
     mockedGetStoredGames.mockReturnValue([])
-    expect(removeGame('game-1')).toEqual({ success: false, error: expect.stringContaining('não encontrado') })
+    expect(removeGame('game-1')).toEqual({
+      success: false,
+      error: expect.stringContaining('não encontrado')
+    })
   })
 })
 
@@ -300,8 +359,14 @@ describe('removeGame', () => {
 
 describe('launchGame', () => {
   it('inválido / não encontrado → erro', async () => {
-    expect(await launchGame('')).toEqual({ ok: false, error: expect.stringContaining('Identificador') })
-    expect(await launchGame('inexistente')).toEqual({ ok: false, error: expect.stringContaining('não encontrado') })
+    expect(await launchGame('')).toEqual({
+      ok: false,
+      error: expect.stringContaining('Identificador')
+    })
+    expect(await launchGame('inexistente')).toEqual({
+      ok: false,
+      error: expect.stringContaining('não encontrado')
+    })
   })
 
   it('exe não existe no disco → erro', async () => {

@@ -17,8 +17,7 @@ interface BigPictureRailProps {
   connection?: BigPictureConnectionStatus
 }
 
-const focusRing =
-  'focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70'
+const focusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70'
 
 interface RailItemProps {
   id: string
@@ -36,14 +35,7 @@ interface RailItemProps {
  * Foco (gamepad, teclado ou hover): barra lateral neon à esquerda + ícone aceso
  * + leve fundo — idêntico independentemente da origem do foco.
  */
-function RailItem({
-  id,
-  icon: Icon,
-  label,
-  active,
-  onClick,
-  danger
-}: RailItemProps): JSX.Element {
+function RailItem({ id, icon: Icon, label, active, onClick, danger }: RailItemProps): JSX.Element {
   const { ref, focused, focus } = useFocusable(id)
   const lit = active || focused
 
@@ -150,7 +142,13 @@ export function BigPictureRail({
           </div>
         )}
         <div role="listbox" aria-label="Sair">
-          <RailItem id="rail:exit" icon={LogOut} label="Sair do Big Picture" onClick={onExit} danger />
+          <RailItem
+            id="rail:exit"
+            icon={LogOut}
+            label="Sair do Big Picture"
+            onClick={onExit}
+            danger
+          />
         </div>
         <p className="px-7 text-[10px] 3xl:text-base font-medium uppercase tracking-widest text-slate-500">
           B ou Esc para sair

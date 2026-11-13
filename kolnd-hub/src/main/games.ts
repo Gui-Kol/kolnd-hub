@@ -11,13 +11,7 @@ import {
   writeFileSync
 } from 'fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import {
-  getStoredGames,
-  setStoredGames,
-  normalizeGame,
-  StoredGame,
-  GameOrigin
-} from './store'
+import { getStoredGames, setStoredGames, normalizeGame, StoredGame, GameOrigin } from './store'
 import { listRunningProcesses } from './startupManager'
 import treeKill from 'tree-kill'
 
@@ -192,7 +186,10 @@ function resolveIconInsideGameIcons(iconPath: unknown): string | null {
  * (ids da Steam/custom são seguros, mas sanitizamos por defesa em profundidade).
  */
 function safeIconBase(id: string): string {
-  const base = id.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100)
+  const base = id
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 100)
   return base || 'game'
 }
 
@@ -295,7 +292,10 @@ export async function extractIconPng(exePath: string, pngPath: string): Promise<
 export function addGame(input: unknown): GameResult {
   const game = normalizeGame(input)
   if (!game) {
-    return { success: false, error: 'Dados do jogo inválidos (id, nome e executável são obrigatórios).' }
+    return {
+      success: false,
+      error: 'Dados do jogo inválidos (id, nome e executável são obrigatórios).'
+    }
   }
   if (game.iconPath) {
     // Ícone fora da pasta canônica seria uma leitura arbitrária via get-icon.
@@ -518,10 +518,7 @@ export async function previewExeIcon(exePathInput: unknown): Promise<PreviewExeI
  * Também NÃO persiste no store (o `games:update` seguinte resolve).
  * `exePath` opcional sobrepõe o gravado (permite restaurar do exe recém-trocado).
  */
-export async function restoreExeIcon(
-  id: unknown,
-  exePathInput?: unknown
-): Promise<IconPathResult> {
+export async function restoreExeIcon(id: unknown, exePathInput?: unknown): Promise<IconPathResult> {
   if (!isValidId(id)) {
     return { success: false, error: 'Identificador do jogo inválido.' }
   }
@@ -612,7 +609,10 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         {
           const resolved = resolveIconInsideGameIcons(value)
           if (!resolved) {
-            return { success: false, error: 'O ícone deve estar dentro da pasta de ícones do Kolnd Hub.' }
+            return {
+              success: false,
+              error: 'O ícone deve estar dentro da pasta de ícones do Kolnd Hub.'
+            }
           }
           merged.iconPath = resolved
         }
@@ -740,7 +740,10 @@ function gameExeBaseName(exePath: string): string {
 /** BaseName de um caminho sem extensão, minúsculo ('' quando vazio/inválido). */
 function pathBaseName(value: string): string {
   const base = (value ?? '').split(/[\\/]/).pop() ?? ''
-  return base.replace(/\.(exe|cmd|bat|ps1|com)$/i, '').trim().toLowerCase()
+  return base
+    .replace(/\.(exe|cmd|bat|ps1|com)$/i, '')
+    .trim()
+    .toLowerCase()
 }
 
 export interface GameProcess {
@@ -773,7 +776,8 @@ export function findGameProcesses(exePath: string): GameProcess[] {
     .filter(
       (p) =>
         p.id > 0 &&
-        (p.name.toLowerCase() === exeBase || (pathBaseName(p.path) !== '' && pathBaseName(p.path) === exeBase))
+        (p.name.toLowerCase() === exeBase ||
+          (pathBaseName(p.path) !== '' && pathBaseName(p.path) === exeBase))
     )
 }
 
@@ -904,7 +908,9 @@ export function launchGame(id: unknown): Promise<LaunchGameResult> {
     // guarda para nunca deixar a promise pendente para sempre. Se ele disparar
     // sem 'spawn'/'error', o processo muito provavelmente já foi criado.
     const safety = setTimeout(() => {
-      console.warn(`[games] Timeout aguardando evento de spawn para ${game.name} — assumindo iniciado.`)
+      console.warn(
+        `[games] Timeout aguardando evento de spawn para ${game.name} — assumindo iniciado.`
+      )
       finish({ ok: true })
     }, 5000)
     safety.unref?.()
@@ -965,9 +971,10 @@ export function stopGame(id: unknown): Promise<{ ok: boolean; error?: string; ki
  * ao PowerShell (lista de processos) emana o resultado de todos — evite
  * uma chamada por jogo. Ids desconhecidos simplesmente não aparecem no mapa.
  */
-export function runningGamesMap(
-  idsInput: unknown
-): { ok: boolean; running: Record<string, boolean> } {
+export function runningGamesMap(idsInput: unknown): {
+  ok: boolean
+  running: Record<string, boolean>
+} {
   if (!Array.isArray(idsInput)) return { ok: false, running: {} }
   const ids = new Set<string>()
   for (const entry of idsInput.slice(0, 500)) {
@@ -984,7 +991,9 @@ export function runningGamesMap(
     bases = new Set(
       procs
         .flatMap((p) => {
-          const byName = String(p?.name ?? '').trim().toLowerCase()
+          const byName = String(p?.name ?? '')
+            .trim()
+            .toLowerCase()
           const byPath = pathBaseName(String(p?.path ?? ''))
           return byPath && byPath !== byName ? [byName, byPath] : [byName]
         })
@@ -1008,9 +1017,8 @@ export function registerGamesIpc(): void {
 
   ipcMain.handle('games:add', (_event, input: unknown): GameResult => addGame(input))
 
-  ipcMain.handle(
-    'games:add-custom',
-    (_event, exePath: unknown): Promise<AddCustomGameResult> => addCustomGame(exePath)
+  ipcMain.handle('games:add-custom', (_event, exePath: unknown): Promise<AddCustomGameResult> =>
+    addCustomGame(exePath)
   )
 
   ipcMain.handle('games:update', (_event, id: unknown, patch: unknown): GameResult =>
@@ -1030,23 +1038,18 @@ export function registerGamesIpc(): void {
 
   ipcMain.handle(
     'games:restore-exe-icon',
-    (_event, id: unknown, exePath?: unknown): Promise<IconPathResult> =>
-      restoreExeIcon(id, exePath)
+    (_event, id: unknown, exePath?: unknown): Promise<IconPathResult> => restoreExeIcon(id, exePath)
   )
 
   ipcMain.handle('games:check-exes', (_event, paths: unknown): boolean[] => checkExePaths(paths))
 
   ipcMain.handle('games:remove', (_event, id: unknown): GameResult => removeGame(id))
 
-  ipcMain.handle(
-    'games:launch',
-    (_event, id: unknown): Promise<LaunchGameResult> => launchGame(id)
-  )
+  ipcMain.handle('games:launch', (_event, id: unknown): Promise<LaunchGameResult> => launchGame(id))
 
   ipcMain.handle(
     'games:stop',
-    (_event, id: unknown): Promise<{ ok: boolean; error?: string; killed?: number }> =>
-      stopGame(id)
+    (_event, id: unknown): Promise<{ ok: boolean; error?: string; killed?: number }> => stopGame(id)
   )
 
   ipcMain.handle('games:running-map', (_event, ids: unknown) => runningGamesMap(ids))

@@ -159,11 +159,7 @@ export function useGamepad({ config, onAction }: UseGamepadOptions): UseGamepadR
         lastPadId = pad.id
       }
 
-      publish(
-        true,
-        pad.id === cfg.controllerId ? cfg.controllerName : 'Controle conectado',
-        pad.id
-      )
+      publish(true, pad.id === cfg.controllerId ? cfg.controllerName : 'Controle conectado', pad.id)
 
       const axisX = axisToDirection(pad.axes[0] ?? 0)
       const axisY = axisToDirection(pad.axes[1] ?? 0)
@@ -203,7 +199,11 @@ export function useGamepad({ config, onAction }: UseGamepadOptions): UseGamepadR
           // Repetição apenas para direções, após o delay inicial.
           const held = now - track.pressedAt
           const sinceLast = now - track.lastFiredAt
-          if (DIRECTION_ACTIONS.has(action) && held > REPEAT_DELAY_MS && sinceLast >= REPEAT_INTERVAL_MS) {
+          if (
+            DIRECTION_ACTIONS.has(action) &&
+            held > REPEAT_DELAY_MS &&
+            sinceLast >= REPEAT_INTERVAL_MS
+          ) {
             track.lastFiredAt = now
             onActionRef.current(action)
           }

@@ -55,9 +55,8 @@ const api = {
   // ── Preferências do Hub ───────────────────────────
   getLaunchKloudOnStart: (): Promise<boolean> => ipcRenderer.invoke('prefs:get'),
 
-  setLaunchKloudOnStart: (
-    value: boolean
-  ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('prefs:set', value),
+  setLaunchKloudOnStart: (value: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('prefs:set', value),
 
   // ── Big Picture (modo tela cheia) ────────────────
   getGamepadConfig: (): Promise<{
@@ -66,9 +65,8 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('gamepad:get'),
 
-  setGamepadConfig: (
-    config: GamepadConfig
-  ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('gamepad:set', config),
+  setGamepadConfig: (config: GamepadConfig): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('gamepad:set', config),
 
   resetGamepadConfig: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('gamepad:reset'),
@@ -79,9 +77,8 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('bigpicture:get-prefs'),
 
-  setBigPicturePrefs: (prefs: {
-    sounds: boolean
-  }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('bigpicture:set-prefs', prefs),
+  setBigPicturePrefs: (prefs: { sounds: boolean }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('bigpicture:set-prefs', prefs),
 
   // ── App management ──────────────────────────────
   launchApp: (
@@ -244,7 +241,9 @@ const api = {
   checkGameExes: (exePaths: string[]): Promise<boolean[]> =>
     ipcRenderer.invoke('games:check-exes', exePaths),
 
-  launchGame: (id: string): Promise<{
+  launchGame: (
+    id: string
+  ): Promise<{
     ok: boolean
     error?: string
     focused?: boolean
@@ -259,7 +258,9 @@ const api = {
 
   getGameIcon: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-icon', id),
 
-  addCustomGame: (exePath: string): Promise<{
+  addCustomGame: (
+    exePath: string
+  ): Promise<{
     success: boolean
     id?: string
     name?: string
@@ -415,10 +416,8 @@ const api = {
     isPackaged: boolean
   }> => ipcRenderer.invoke('uninstall:hub-status'),
 
-  backupHubData: (): Promise<
-    | { success: true; path: string }
-    | { success: false; error: string }
-  > => ipcRenderer.invoke('uninstall:backup-data'),
+  backupHubData: (): Promise<{ success: true; path: string } | { success: false; error: string }> =>
+    ipcRenderer.invoke('uninstall:backup-data'),
 
   uninstallHub: (args: {
     wipeUserData?: boolean

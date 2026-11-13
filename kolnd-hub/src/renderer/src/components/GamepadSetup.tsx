@@ -21,16 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import {
-  Gamepad2,
-  X,
-  Mouse,
-  Undo2,
-  RotateCcw,
-  Check,
-  AlertCircle,
-  Cable
-} from 'lucide-react'
+import { Gamepad2, X, Mouse, Undo2, RotateCcw, Check, AlertCircle, Cable } from 'lucide-react'
 import {
   buildAutoConfig,
   GAMEPAD_ACTIONS,
@@ -369,9 +360,7 @@ export function GamepadSetup({
       })
       .catch((err: unknown) => {
         setSaving(false)
-        setSaveError(
-          err instanceof Error ? err.message : 'Não foi possível salvar a configuração.'
-        )
+        setSaveError(err instanceof Error ? err.message : 'Não foi possível salvar a configuração.')
       })
   }, [baseConfig, draft, saving, onSaved])
 
@@ -426,7 +415,11 @@ export function GamepadSetup({
         {step === 'detect' && (
           <div className="flex flex-col items-center gap-6 py-6 text-center">
             <div className="flex h-36 w-36 items-center justify-center rounded-[2.5rem] border border-neon-cyan/30 bg-neon-cyan/5 shadow-glow-cyan">
-              <Gamepad2 size={72} strokeWidth={1.25} className="animate-pulse-slow text-neon-cyan" />
+              <Gamepad2
+                size={72}
+                strokeWidth={1.25}
+                className="animate-pulse-slow text-neon-cyan"
+              />
             </div>
             <div className="max-w-md space-y-2">
               <h3 className="text-2xl font-black tracking-tight text-white">
@@ -456,8 +449,8 @@ export function GamepadSetup({
                 <AlertCircle size={16} className="mt-0.5 shrink-0" />
                 <span>
                   Este ambiente não expõe controles (Gamepad API indisponível). A detecção
-                  automática não é possível aqui — tente com o controle conectado ou configure
-                  com o mouse pelo ajuste manual.
+                  automática não é possível aqui — tente com o controle conectado ou configure com o
+                  mouse pelo ajuste manual.
                 </span>
               </div>
             )}
@@ -489,7 +482,8 @@ export function GamepadSetup({
                     type="button"
                     className="btn-secondary !px-4 !py-2 !text-[10px]"
                     onClick={() =>
-                      pendingAutoConfigRef.current && persistAutoConfig(pendingAutoConfigRef.current)
+                      pendingAutoConfigRef.current &&
+                      persistAutoConfig(pendingAutoConfigRef.current)
                     }
                   >
                     Tentar de novo
@@ -528,16 +522,17 @@ export function GamepadSetup({
                 <caption className="sr-only">Mapeamento dos 12 botões do controle</caption>
                 <thead>
                   <tr className="bg-white/[0.04] text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">
-                    <th scope="col" className="px-5 py-2.5">Ação</th>
-                    <th scope="col" className="px-5 py-2.5">Botão</th>
+                    <th scope="col" className="px-5 py-2.5">
+                      Ação
+                    </th>
+                    <th scope="col" className="px-5 py-2.5">
+                      Botão
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {GAMEPAD_ACTIONS.map((action) => (
-                    <tr
-                      key={action}
-                      className="border-t border-white/[0.05] odd:bg-white/[0.02]"
-                    >
+                    <tr key={action} className="border-t border-white/[0.05] odd:bg-white/[0.02]">
                       <td className="px-5 py-2 text-slate-300">{GAMEPAD_ACTION_LABELS[action]}</td>
                       <td className="px-5 py-2">
                         <span className="inline-flex min-w-[5.5rem] justify-center rounded-lg border border-neon-cyan/25 bg-neon-cyan/5 px-3 py-1 font-mono text-[11px] font-semibold text-neon-cyan">
@@ -674,11 +669,15 @@ export function GamepadSetup({
                   Este botão já está em "{GAMEPAD_ACTION_LABELS[conflict.owner]}".
                 </p>
                 <p className="text-xs leading-relaxed text-red-200/80">
-                  Substituir coloca o botão em "{GAMEPAD_ACTION_LABELS[conflict.action]}" e deixa
-                  "{GAMEPAD_ACTION_LABELS[conflict.owner]}" sem botão. Ou cancele e escolha outro.
+                  Substituir coloca o botão em "{GAMEPAD_ACTION_LABELS[conflict.action]}" e deixa "
+                  {GAMEPAD_ACTION_LABELS[conflict.owner]}" sem botão. Ou cancele e escolha outro.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn-danger !px-4 !py-2 !text-[10px]" onClick={resolveConflictReplace}>
+                  <button
+                    type="button"
+                    className="btn-danger !px-4 !py-2 !text-[10px]"
+                    onClick={resolveConflictReplace}
+                  >
                     Substituir
                   </button>
                   <button
@@ -693,9 +692,8 @@ export function GamepadSetup({
             )}
 
             <p className="text-[11px] leading-relaxed text-slate-600">
-              O stick esquerdo sempre navega, além do D-Pad (não remapeável) · o botão Guide
-              (16) é reservado e não pode ser mapeado · Esc cancela a escuta · Enter confirma
-              nos botões.
+              O stick esquerdo sempre navega, além do D-Pad (não remapeável) · o botão Guide (16) é
+              reservado e não pode ser mapeado · Esc cancela a escuta · Enter confirma nos botões.
             </p>
 
             {saveError && (
@@ -719,7 +717,12 @@ export function GamepadSetup({
                 <button type="button" className="btn-secondary" onClick={requestClose}>
                   Cancelar
                 </button>
-                <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
                   <Check size={16} />
                   {saving ? 'Salvando…' : 'Salvar'}
                 </button>
@@ -747,7 +750,10 @@ export function GamepadSetup({
     )
 
   return (
-    <div className={layout === 'inline' ? 'h-full min-h-0' : undefined} onKeyDownCapture={handleKeyDownCapture}>
+    <div
+      className={layout === 'inline' ? 'h-full min-h-0' : undefined}
+      onKeyDownCapture={handleKeyDownCapture}
+    >
       {overlayContent}
 
       {/* Confirmação de descarte de alterações (ajuste manual sujo) */}
@@ -773,7 +779,11 @@ export function GamepadSetup({
               </p>
             </div>
             <div className="flex justify-center gap-3">
-              <button type="button" className="btn-secondary" onClick={() => setConfirmDiscard(false)}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setConfirmDiscard(false)}
+              >
                 Continuar editando
               </button>
               <button

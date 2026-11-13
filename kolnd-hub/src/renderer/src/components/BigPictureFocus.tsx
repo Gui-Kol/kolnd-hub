@@ -9,14 +9,7 @@
 // - Mouse continua 100% operável: onMouseEnter/onFocus chamam `focus(id)` e
 //   o visual de foco é idêntico ao do gamepad.
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState
-} from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefCallback } from 'react'
 import { nearestInDirection } from '../lib/spatialNav'
 import type { SpatialDirection } from '../lib/spatialNav'
@@ -49,11 +42,7 @@ export function useBigPictureFocus(): BigPictureFocusContextValue {
   return ctx
 }
 
-export function BigPictureFocusProvider({
-  children
-}: {
-  children: ReactNode
-}): JSX.Element {
+export function BigPictureFocusProvider({ children }: { children: ReactNode }): JSX.Element {
   const [focusedId, setFocusedIdState] = useState<string | null>(null)
   const focusedIdRef = useRef<string | null>(null)
   const scopeRef = useRef<string | null>(null)
@@ -178,9 +167,7 @@ export function BigPictureFocusProvider({
     ]
   )
 
-  return (
-    <BigPictureFocusContext.Provider value={value}>{children}</BigPictureFocusContext.Provider>
-  )
+  return <BigPictureFocusContext.Provider value={value}>{children}</BigPictureFocusContext.Provider>
 }
 
 /**
@@ -192,8 +179,7 @@ export function useFocusable(id: string): {
   focused: boolean
   focus: () => void
 } {
-  const { focusedId, setFocusedId, registerFocusable } =
-    useBigPictureFocus()
+  const { focusedId, setFocusedId, registerFocusable } = useBigPictureFocus()
 
   // A callback ref é a única fonte da verdade: React chama com o nó no mount
   // e com `null` no unmount (remova a entrada do mapa). NÃO use um efeito

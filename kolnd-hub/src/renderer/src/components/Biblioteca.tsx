@@ -25,9 +25,7 @@ interface Toast {
 
 /** Estado do fluxo "Importar jogos da Steam" (menu Adicionar Games → modal). */
 type SteamImportState =
-  | { phase: 'idle' }
-  | { phase: 'importing' }
-  | { phase: 'done'; result: SteamImportResult }
+  { phase: 'idle' } | { phase: 'importing' } | { phase: 'done'; result: SteamImportResult }
 
 /**
  * Botão "Encerrar jogo" — só pode ser pressionado quando o jogo estiver
@@ -320,9 +318,7 @@ export function Biblioteca(): JSX.Element {
       await loadGames()
       showToast(`Jogo adicionado à sua biblioteca: ${result.name ?? 'jogo personalizado'}`)
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'Não foi possível adicionar o jogo.'
-      )
+      showToast(err instanceof Error ? err.message : 'Não foi possível adicionar o jogo.')
     } finally {
       setAddingCustom(false)
     }
@@ -347,10 +343,7 @@ export function Biblioteca(): JSX.Element {
           ignoredTools: 0,
           noExe: 0,
           errors: [],
-          error:
-            err instanceof Error
-              ? err.message
-              : 'Não foi possível importar os jogos da Steam.'
+          error: err instanceof Error ? err.message : 'Não foi possível importar os jogos da Steam.'
         }
       })
     }
@@ -565,7 +558,10 @@ export function Biblioteca(): JSX.Element {
                       draggable={false}
                     />
                   ) : (
-                    <Gamepad2 size={38} className="text-slate-600 group-hover:text-slate-500 transition-colors" />
+                    <Gamepad2
+                      size={38}
+                      className="text-slate-600 group-hover:text-slate-500 transition-colors"
+                    />
                   )}
                 </div>
 
@@ -630,9 +626,7 @@ export function Biblioteca(): JSX.Element {
                   <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
                     <AlertTriangle size={24} className="text-red-400" />
                   </div>
-                  <h3 className="text-base font-bold text-slate-100">
-                    Não foi possível importar
-                  </h3>
+                  <h3 className="text-base font-bold text-slate-100">Não foi possível importar</h3>
                   <p className="text-sm text-slate-400">
                     {steamImport.result.error ?? 'Ocorreu um erro inesperado.'}
                   </p>
@@ -807,11 +801,7 @@ function EditGameModal({
   const trimmedName = name.trim()
   const canSave = trimmedName.length > 0 && !busy
   const previewIcon =
-    iconSource === 'custom'
-      ? customDataUrl
-      : iconSource === 'exe'
-        ? exePreviewDataUrl
-        : currentIcon
+    iconSource === 'custom' ? customDataUrl : iconSource === 'exe' ? exePreviewDataUrl : currentIcon
 
   const requestClose = useCallback((): void => {
     // Não fecha durante uma operação em andamento.
@@ -862,9 +852,7 @@ function EditGameModal({
       setExePreviewDataUrl(preview.dataUrl)
       setIconSource('exe')
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'O executável não tem um ícone utilizável.'
-      )
+      showToast(err instanceof Error ? err.message : 'O executável não tem um ícone utilizável.')
     } finally {
       setIconBusy(false)
     }
@@ -935,16 +923,7 @@ function EditGameModal({
       showToast(err instanceof Error ? err.message : 'Não foi possível salvar as alterações.')
       setSaving(false)
     }
-  }, [
-    canSave,
-    iconSource,
-    customDataUrl,
-    exePath,
-    game.id,
-    trimmedName,
-    showToast,
-    onSaved
-  ])
+  }, [canSave, iconSource, customDataUrl, exePath, game.id, trimmedName, showToast, onSaved])
 
   const handleRemove = useCallback(async (): Promise<void> => {
     if (!confirmingRemove) {

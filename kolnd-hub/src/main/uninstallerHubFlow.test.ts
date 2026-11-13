@@ -171,7 +171,11 @@ describe('removeKloudGamesService (sc.exe elevado, com confirmação na UI)', ()
 
   it('UAC negado na elevação → mensagem de UAC, não derruba o processo', async () => {
     vi.mocked(spawn).mockImplementation(
-      () => fakeChildThatClosesWith(1, 'Start-Process : A operação foi cancelada pelo usuário.\r\n') as never
+      () =>
+        fakeChildThatClosesWith(
+          1,
+          'Start-Process : A operação foi cancelada pelo usuário.\r\n'
+        ) as never
     )
     const result = await removeKloudGamesService()
     expect(result.success).toBe(false)

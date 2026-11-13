@@ -19,11 +19,7 @@ import {
   Wrench,
   X
 } from 'lucide-react'
-import {
-  getKloudPartialKind,
-  getParentDir,
-  type KloudDetectionLike
-} from '../lib/uninstall'
+import { getKloudPartialKind, getParentDir, type KloudDetectionLike } from '../lib/uninstall'
 
 type Phase = 'confirm' | 'running' | 'done' | 'error'
 
@@ -140,9 +136,9 @@ export function UninstallKloudGamesModal({
     report?: unknown
   } | null>(null)
   // Remoção do serviço órfão (elevada, com confirmação própria).
-  const [serviceState, setServiceState] = useState<
-    'idle' | 'confirm' | 'busy' | 'done' | 'error'
-  >('idle')
+  const [serviceState, setServiceState] = useState<'idle' | 'confirm' | 'busy' | 'done' | 'error'>(
+    'idle'
+  )
   const [serviceError, setServiceError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const unsubRef = useRef<(() => void)[]>([])
@@ -193,8 +189,7 @@ export function UninstallKloudGamesModal({
     void start.catch((err) => {
       setResult({
         success: false,
-        error:
-          err instanceof Error ? err.message : 'Falha inesperada ao iniciar a desinstalação.'
+        error: err instanceof Error ? err.message : 'Falha inesperada ao iniciar a desinstalação.'
       })
       setPhase('error')
     })
@@ -213,10 +208,7 @@ export function UninstallKloudGamesModal({
       const report = result.report as { remaining?: string[] } | undefined
       const remaining = report?.remaining ?? []
       if (remaining.length > 0) {
-        showToast(
-          'Kloud Games desinstalado parcialmente. Alguns itens permaneceram.',
-          'success'
-        )
+        showToast('Kloud Games desinstalado parcialmente. Alguns itens permaneceram.', 'success')
       } else {
         showToast('Kloud Games desinstalado.', 'success')
       }
@@ -239,9 +231,7 @@ export function UninstallKloudGamesModal({
     const nodes = panel.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     )
-    return Array.from(nodes).filter(
-      (n) => n.offsetParent !== null || n.tagName === 'INPUT'
-    )
+    return Array.from(nodes).filter((n) => n.offsetParent !== null || n.tagName === 'INPUT')
   }
 
   const handleKeyDown = useCallback(
@@ -431,16 +421,22 @@ export function UninstallKloudGamesModal({
               <>
                 <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-[11px] text-red-300 leading-relaxed">
                   ⚠ <strong>Instalação quebrada</strong>: os arquivos do Kloud Games ainda existem
-                  em <span className="break-all font-mono">{orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}</span>,
-                  mas o registro não consta — o Windows não consegue desinstalar pelo método normal
-                  (msiexec). <strong>Não use este caminho para uma instalação íntegra.</strong>
+                  em{' '}
+                  <span className="break-all font-mono">
+                    {orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}
+                  </span>
+                  , mas o registro não consta — o Windows não consegue desinstalar pelo método
+                  normal (msiexec).{' '}
+                  <strong>Não use este caminho para uma instalação íntegra.</strong>
                 </div>
                 <div className="text-left text-[11px] text-slate-400 space-y-1 leading-relaxed">
                   <p className="text-slate-300 font-semibold text-xs">O que acontecerá:</p>
                   <ul className="list-disc list-inside space-y-1">
                     <li>
                       Apaga SOMENTE a pasta de instalação{' '}
-                      <span className="font-mono break-all">{orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}</span>
+                      <span className="font-mono break-all">
+                        {orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}
+                      </span>
                     </li>
                     <li>Zera o estado salvo do Hub (kloud-games.paths.json)</li>
                     <li>Nada do registro será alterado — a entrada já não existe</li>
@@ -449,8 +445,8 @@ export function UninstallKloudGamesModal({
                       existissem) NÃO serão tocados — o laudo final dirá exatamente o que restou
                     </li>
                     <li>
-                      Por segurança, o Hub RECUSA apagar qualquer outra pasta (fora de
-                      C:\Program Files\KLOUD_GAMES)
+                      Por segurança, o Hub RECUSA apagar qualquer outra pasta (fora de C:\Program
+                      Files\KLOUD_GAMES)
                     </li>
                   </ul>
                 </div>
@@ -474,9 +470,7 @@ export function UninstallKloudGamesModal({
                   <p className="text-sm text-slate-400">Serão removidos:</p>
                 )}
                 <ul className="text-left text-xs text-slate-400 space-y-1">
-                  <li>
-                    Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\
-                  </li>
+                  <li>Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\</li>
                   <li>Serviço KLOUD_GAMESsvc</li>
                   <li>Regras de firewall do Kloud Games</li>
                   <li>Entrada do PATH do sistema</li>
@@ -578,9 +572,7 @@ export function UninstallKloudGamesModal({
                   {logs.length === 0 ? (
                     <span className="text-slate-500">Aguardando log…</span>
                   ) : (
-                    logs.map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))
+                    logs.map((line, i) => <div key={i}>{line}</div>)
                   )}
                 </div>
               </details>
@@ -695,9 +687,8 @@ export function UninstallKloudGamesModal({
                 não foi iniciado — nada foi removido.
                 <br />
                 <span className="text-amber-200/90">
-                  Para resolver: pressione{' '}
-                  <span className="font-mono">Ctrl + Shift + Esc</span>, vá na aba{' '}
-                  <span className="font-mono">Detalhes</span>, localize{' '}
+                  Para resolver: pressione <span className="font-mono">Ctrl + Shift + Esc</span>, vá
+                  na aba <span className="font-mono">Detalhes</span>, localize{' '}
                   <span className="font-mono">KLOUD_GAMES.exe</span>, clique em{' '}
                   <span className="font-mono">Finalizar tarefa</span> e tente de novo.
                 </span>
@@ -709,11 +700,7 @@ export function UninstallKloudGamesModal({
                 className={isNeutralCancel ? 'btn-secondary' : 'btn-danger'}
                 onClick={handleRetry}
               >
-                {isNeutralCancel ? (
-                  <ChevronRight size={14} />
-                ) : (
-                  <Trash2 size={14} />
-                )}
+                {isNeutralCancel ? <ChevronRight size={14} /> : <Trash2 size={14} />}
                 Tentar novamente
               </button>
               <button

@@ -154,9 +154,18 @@ beforeEach(() => {
 describe('matriz msiexec — mensagens pt-BR exatas', () => {
   const EXACT: Array<[number | null, string]> = [
     [1223, 'Você recusou a permissão (UAC). Nada foi removido.'],
-    [1618, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-    [1500, 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-    [1603, 'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'],
+    [
+      1618,
+      'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+    ],
+    [
+      1500,
+      'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+    ],
+    [
+      1603,
+      'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'
+    ],
     [1625, 'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.'],
     [3010, 'Reinicie o PC para concluir a remoção.'],
     [1641, 'Reinicie o PC para concluir a remoção.'],
@@ -202,10 +211,26 @@ describe('fluxo uninstall — vertentes da matriz', () => {
   it.each([
     [1223, 'uac-denied', 'Você recusou a permissão (UAC). Nada foi removido.'],
     [1602, 'cancelled', 'Cancelado por você.'],
-    [1618, 'other-install', 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-    [1500, 'other-install', 'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'],
-    [1603, 'fatal', 'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'],
-    [1625, 'policy-blocked', 'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.']
+    [
+      1618,
+      'other-install',
+      'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+    ],
+    [
+      1500,
+      'other-install',
+      'Outra instalação do Windows está em andamento. Aguarde e tente de novo (ou reinicie o PC).'
+    ],
+    [
+      1603,
+      'fatal',
+      'O Windows não conseguiu desinstalar (código 1603). Reinicie o PC e tente de novo; se persistir, use Configurações → Aplicativos.'
+    ],
+    [
+      1625,
+      'policy-blocked',
+      'Esta máquina bloqueia desinstalações por política de grupo. Fale com o administrador.'
+    ]
   ] as Array<[number, MsiexecExitCodeResult['kind'], string]>)(
     'código %s → erro exato (msiexecKind %s)',
     async (code, kind, message) => {

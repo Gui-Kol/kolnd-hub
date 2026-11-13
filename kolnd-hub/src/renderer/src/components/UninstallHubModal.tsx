@@ -15,14 +15,7 @@
 // Em desenvolvimento (ou no app empacotado sem desinstalador NSIS), todo o
 // formulário fica desabilitado com aviso.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  AlertCircle,
-  Archive,
-  ChevronRight,
-  FolderOpen,
-  Trash2,
-  Zap
-} from 'lucide-react'
+import { AlertCircle, Archive, ChevronRight, FolderOpen, Trash2, Zap } from 'lucide-react'
 import { buildSkipKloudHubArgs } from '../lib/uninstall'
 
 type Phase = 'confirm' | 'running' | 'choice'
@@ -193,9 +186,7 @@ export function UninstallHubModal({
     const nodes = panel.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     )
-    return Array.from(nodes).filter(
-      (n) => n.offsetParent !== null || n.tagName === 'INPUT'
-    )
+    return Array.from(nodes).filter((n) => n.offsetParent !== null || n.tagName === 'INPUT')
   }
 
   const handleKeyDown = useCallback(
@@ -289,8 +280,7 @@ export function UninstallHubModal({
   const isPackaged = hubStatus?.isPackaged === true
   const available = hubStatus?.available === true
   const gateBlocked = hubStatusLoading || !isPackaged || !available
-  const canConfirm =
-    !gateBlocked && confirmCode.trim().toLowerCase() === 'kolnd hub'
+  const canConfirm = !gateBlocked && confirmCode.trim().toLowerCase() === 'kolnd hub'
 
   if (!open) return null
 
@@ -333,8 +323,10 @@ export function UninstallHubModal({
                 <span>
                   <strong className="text-slate-200">Kloud Games</strong> será desinstalado primeiro
                   (se estiver instalado) — suas{' '}
-                  <span className="text-slate-200">Streams Moonlight ativas serão interrompidas</span>.
-                  Se algo falhar, você decide se desinstala só o Hub.
+                  <span className="text-slate-200">
+                    Streams Moonlight ativas serão interrompidas
+                  </span>
+                  . Se algo falhar, você decide se desinstala só o Hub.
                 </span>
               </li>
               <li className="flex gap-2">
@@ -353,17 +345,17 @@ export function UninstallHubModal({
                 <span className="shrink-0 font-mono text-red-400">3.</span>
                 <span>
                   <strong className="text-slate-200">O que o Windows apaga</strong>: a pasta de
-                  instalação (<span className="font-mono">%LOCALAPPDATA%\Programs\Kolnd Hub</span>), os
-                  atalhos e a entrada em Aplicativos — pelo desinstalador do Kolnd Hub (NSIS, per-user —
-                  não exige administrador).
+                  instalação (<span className="font-mono">%LOCALAPPDATA%\Programs\Kolnd Hub</span>),
+                  os atalhos e a entrada em Aplicativos — pelo desinstalador do Kolnd Hub (NSIS,
+                  per-user — não exige administrador).
                 </span>
               </li>
             </ol>
 
             <p className="text-[11px] text-slate-500 leading-relaxed text-left">
-              O Mark LVI (assistente) será removido junto com a pasta do Kolnd Hub. Seus dados atuais
-              ficam em <span className="font-mono">%APPDATA%\kolnd-hub\mark-lvi</span> e seguem a
-              regra acima.
+              O Mark LVI (assistente) será removido junto com a pasta do Kolnd Hub. Seus dados
+              atuais ficam em <span className="font-mono">%APPDATA%\kolnd-hub\mark-lvi</span> e
+              seguem a regra acima.
             </p>
 
             {gateBlocked && (
@@ -386,9 +378,10 @@ export function UninstallHubModal({
             {wipeErrors.length > 0 && (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left">
                 <p className="text-[11px] text-amber-300 leading-relaxed">
-                  ⚠ {wipeErrors.length} {wipeErrors.length === 1 ? 'item não pôde' : 'itens não puderam'} ser
-                  apagados (travados por outro programa/antivírus) — o restante foi removido
-                  normalmente. Detalhes:
+                  ⚠ {wipeErrors.length}{' '}
+                  {wipeErrors.length === 1 ? 'item não pôde' : 'itens não puderam'} ser apagados
+                  (travados por outro programa/antivírus) — o restante foi removido normalmente.
+                  Detalhes:
                 </p>
                 <ul className="mt-1 max-h-24 overflow-y-auto text-[10px] font-mono text-amber-200/80 space-y-0.5">
                   {wipeErrors.map((item) => (
@@ -433,7 +426,8 @@ export function UninstallHubModal({
                       </span>
                     </span>
                     <span className="block text-[11px] text-slate-500 mt-1">
-                      %APPDATA%\kolnd-hub fica intacto (config, logs, Mark LVI, biblioteca e ícones).
+                      %APPDATA%\kolnd-hub fica intacto (config, logs, Mark LVI, biblioteca e
+                      ícones).
                     </span>
                   </span>
                 </label>
@@ -568,9 +562,7 @@ export function UninstallHubModal({
                   {logs.length === 0 ? (
                     <span className="text-slate-500">Aguardando log…</span>
                   ) : (
-                    logs.map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))
+                    logs.map((line, i) => <div key={i}>{line}</div>)
                   )}
                 </div>
               </details>
@@ -587,7 +579,9 @@ export function UninstallHubModal({
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10">
               <AlertCircle size={30} className="text-amber-400" />
             </div>
-            <h3 className="text-lg font-bold text-white">Não foi possível desinstalar o Kloud Games</h3>
+            <h3 className="text-lg font-bold text-white">
+              Não foi possível desinstalar o Kloud Games
+            </h3>
             <p className="text-sm text-slate-400 leading-relaxed">
               Não foi possível desinstalar o Kloud Games (motivo:{' '}
               <span className="text-amber-300">{kloudError ?? 'desconhecido'}</span>). Deseja
@@ -605,7 +599,12 @@ export function UninstallHubModal({
               >
                 <Trash2 size={14} /> Desinstalar só o Hub
               </button>
-              <button type="button" className="btn-secondary w-full justify-center" autoFocus onClick={onClose}>
+              <button
+                type="button"
+                className="btn-secondary w-full justify-center"
+                autoFocus
+                onClick={onClose}
+              >
                 Cancelar
               </button>
             </div>

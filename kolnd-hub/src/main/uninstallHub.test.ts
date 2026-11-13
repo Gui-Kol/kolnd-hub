@@ -3,11 +3,7 @@ import { EventEmitter } from 'events'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  normalizeHubUninstallArgs,
-  wipeKolndHubUserData,
-  spawnHubUninstaller
-} from './uninstaller'
+import { normalizeHubUninstallArgs, wipeKolndHubUserData, spawnHubUninstaller } from './uninstaller'
 
 // Evita carregar efeitos colaterais de electron no ambiente de teste node.
 vi.mock('electron', () => ({
@@ -36,7 +32,10 @@ vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>()
   return {
     ...actual,
-    rmSync: (target: Parameters<typeof actual.rmSync>[0], options?: Parameters<typeof actual.rmSync>[1]) => {
+    rmSync: (
+      target: Parameters<typeof actual.rmSync>[0],
+      options?: Parameters<typeof actual.rmSync>[1]
+    ) => {
       if (failWipeItem && String(target).endsWith('config.json')) {
         throw new Error('arquivo em uso')
       }
@@ -102,7 +101,9 @@ describe('normalizeHubUninstallArgs — validação do payload do uninstall:hub'
   it('backupPath inválido vira null; caminho gigante é truncado', () => {
     expect(normalizeHubUninstallArgs({ backupPath: 42 }).backupPath).toBeNull()
     expect(normalizeHubUninstallArgs({ backupPath: '   ' }).backupPath).toBeNull()
-    expect(normalizeHubUninstallArgs({ backupPath: 'x'.repeat(5000) }).backupPath).toHaveLength(1024)
+    expect(normalizeHubUninstallArgs({ backupPath: 'x'.repeat(5000) }).backupPath).toHaveLength(
+      1024
+    )
   })
 })
 
@@ -212,7 +213,10 @@ describe('spawnHubUninstaller — spawn desanexado do NSIS', () => {
   })
 
   it('resolve no evento "spawn", desanexa e usa as flags certas', async () => {
-    const em = new EventEmitter() as EventEmitter & { unref: () => void; removeListener: EventEmitter['removeListener'] }
+    const em = new EventEmitter() as EventEmitter & {
+      unref: () => void
+      removeListener: EventEmitter['removeListener']
+    }
     em.unref = vi.fn()
     vi.mocked(spawn).mockReturnValue(em as never)
 

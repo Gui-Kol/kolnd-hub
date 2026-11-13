@@ -66,9 +66,7 @@ declare global {
 
       // ── Preferências do Hub ───────────────────────────
       getLaunchKloudOnStart: () => Promise<boolean>
-      setLaunchKloudOnStart: (
-        value: boolean
-      ) => Promise<{ success: boolean; error?: string }>
+      setLaunchKloudOnStart: (value: boolean) => Promise<{ success: boolean; error?: string }>
 
       // ── App management ──────────────────────────────
       launchApp: (
@@ -307,8 +305,7 @@ declare global {
         isPackaged: boolean
       }>
       backupHubData: () => Promise<
-        | { success: true; path: string }
-        | { success: false; error: string }
+        { success: true; path: string } | { success: false; error: string }
       >
       uninstallHub: (args: {
         wipeUserData?: boolean

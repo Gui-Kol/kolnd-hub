@@ -8,15 +8,7 @@
 // `setSfxEnabled(...)` e deve ser reaplicado a cada troca do toggle (T5).
 
 export type SfxName =
-  | 'move'
-  | 'confirm'
-  | 'back'
-  | 'open'
-  | 'error'
-  | 'launch'
-  | 'zap'
-  | 'impact'
-  | 'wave'
+  'move' | 'confirm' | 'back' | 'open' | 'error' | 'launch' | 'zap' | 'impact' | 'wave'
 
 let audioContext: AudioContext | null = null
 let enabled = true
@@ -77,10 +69,7 @@ const NOTES: Record<SfxName, SfxNote[]> = {
   // Navegação: blip agudo e curtíssimo.
   move: [tone(740, 'square', 0, 0.055, 0.05)],
   // Confirmar: dois tons ascendentes.
-  confirm: [
-    tone(523.25, 'triangle', 0, 0.09, 0.2),
-    tone(783.99, 'triangle', 0.085, 0.16, 0.2)
-  ],
+  confirm: [tone(523.25, 'triangle', 0, 0.09, 0.2), tone(783.99, 'triangle', 0.085, 0.16, 0.2)],
   // Voltar: dois tons descendentes suaves.
   back: [tone(392.0, 'triangle', 0, 0.09, 0.16), tone(261.63, 'triangle', 0.08, 0.16, 0.16)],
   // Abrir (Big Picture pronto): acorde suave maior.

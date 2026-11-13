@@ -303,9 +303,7 @@ export function findHubUninstallEntry(): UninstallEntry | null {
     )
     if (entries.length === 0) return null
     // HKCU primeiro (instalação per-user do NSIS); depois o melhor de HKLM/both.
-    const userEntries = entries.filter(
-      (entry) => entry.scope === 'user' || entry.scope === 'both'
-    )
+    const userEntries = entries.filter((entry) => entry.scope === 'user' || entry.scope === 'both')
     return pickBestUninstallEntry(userEntries.length > 0 ? userEntries : entries)
   } catch (err) {
     console.warn(

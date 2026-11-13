@@ -36,10 +36,22 @@ describe('getKloudPartialKind', () => {
   })
 
   it.each([
-    ['exe sem registro e sem serviço', { exePath: 'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe' }, 'exe-orphan'],
-    ['exe sem registro com serviço parado', { exePath: 'C:\\KLOUD_GAMES\\KLOUD_GAMES.exe', service: 'stopped' as const }, 'exe-orphan'],
+    [
+      'exe sem registro e sem serviço',
+      { exePath: 'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe' },
+      'exe-orphan'
+    ],
+    [
+      'exe sem registro com serviço parado',
+      { exePath: 'C:\\KLOUD_GAMES\\KLOUD_GAMES.exe', service: 'stopped' as const },
+      'exe-orphan'
+    ],
     ['registro sem exe', { entry: { productCode: '{GUID}' } }, 'registry-orphan'],
-    ['registro sem exe e com serviço', { entry: { productCode: '{GUID}' }, service: 'running' as const }, 'registry-orphan'],
+    [
+      'registro sem exe e com serviço',
+      { entry: { productCode: '{GUID}' }, service: 'running' as const },
+      'registry-orphan'
+    ],
     ['só o serviço (rodando)', { service: 'running' as const }, 'service-orphan'],
     ['só o serviço (parado)', { service: 'stopped' as const }, 'service-orphan']
   ] as Array<[string, Partial<KloudDetectionLike>, string]>)(

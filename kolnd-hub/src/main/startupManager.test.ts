@@ -43,9 +43,7 @@ afterEach(() => {
 
 describe('listStartupItems', () => {
   it('saída em array do PowerShell → lista de itens (registro + pasta)', () => {
-    execFileSyncMock
-      .mockReturnValueOnce(REG_OUTPUT_ARRAY)
-      .mockReturnValueOnce('[]')
+    execFileSyncMock.mockReturnValueOnce(REG_OUTPUT_ARRAY).mockReturnValueOnce('[]')
     const items = listStartupItems()
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
@@ -92,7 +90,11 @@ describe('removeStartupItem / addStartupItem', () => {
     execFileSyncMock.mockReturnValue('ok')
     const res = removeStartupItem({ location: 'registro', scope: 'usuario', name: 'Kolnd Hub' })
     expect(res.success).toBe(true)
-    const [cmd, args, opts] = execFileSyncMock.mock.lastCall as [string, string[], { env: Record<string, string> }]
+    const [cmd, args, opts] = execFileSyncMock.mock.lastCall as [
+      string,
+      string[],
+      { env: Record<string, string> }
+    ]
     expect(cmd).toBe('powershell.exe')
     expect(args[4]).toContain('Remove-ItemProperty')
     expect(opts.env.KOLND_STARTUP_NAME).toBe('Kolnd Hub')
@@ -100,10 +102,18 @@ describe('removeStartupItem / addStartupItem', () => {
 
   it('remove da pasta de inicialização filtra por BaseName', () => {
     execFileSyncMock.mockReturnValue('ok')
-    const res = removeStartupItem({ location: 'pasta-inicializacao', scope: 'usuario', name: 'Atalho' })
+    const res = removeStartupItem({
+      location: 'pasta-inicializacao',
+      scope: 'usuario',
+      name: 'Atalho'
+    })
     expect(res.success).toBe(true)
-    const [cmd, args] = execFileSyncMock.mock.lastCall as [string, string[], { env: Record<string, string> }]
-    expect(args[4]).toContain("BaseName -eq")
+    const [cmd, args] = execFileSyncMock.mock.lastCall as [
+      string,
+      string[],
+      { env: Record<string, string> }
+    ]
+    expect(args[4]).toContain('BaseName -eq')
   })
 
   it('falha no powershell → {success: false, error}', () => {
@@ -119,7 +129,11 @@ describe('removeStartupItem / addStartupItem', () => {
     execFileSyncMock.mockReturnValue('ok')
     const res = addStartupItem({ name: 'App', path: 'C:\\App\\app.exe' })
     expect(res.success).toBe(true)
-    const [cmd, args, opts] = execFileSyncMock.mock.lastCall as [string, string[], { env: Record<string, string> }]
+    const [cmd, args, opts] = execFileSyncMock.mock.lastCall as [
+      string,
+      string[],
+      { env: Record<string, string> }
+    ]
     expect(args[4]).toContain('New-ItemProperty')
     expect(opts.env.KOLND_STARTUP_NAME).toBe('App')
     expect(opts.env.KOLND_STARTUP_PATH).toBe('C:\\App\\app.exe')

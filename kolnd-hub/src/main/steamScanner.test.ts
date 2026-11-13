@@ -2,11 +2,7 @@ import { describe, expect, it, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  parseLibraryFolders,
-  parseAppManifest,
-  findGameExecutable
-} from './steamScanner'
+import { parseLibraryFolders, parseAppManifest, findGameExecutable } from './steamScanner'
 
 // Fixture baseada na libraryfolders.vdf real desta máquina (formato novo).
 const LIBRARYFOLDERS_MODERN = `"libraryfolders"
@@ -74,9 +70,7 @@ describe('parseAppManifest', () => {
   })
 
   it('rejeita manifesto sem appid numérico', () => {
-    expect(
-      parseAppManifest('"appid"\t\t"abc"\n"name"\t\t"X"\n"installdir"\t\t"Y"\n')
-    ).toBeNull()
+    expect(parseAppManifest('"appid"\t\t"abc"\n"name"\t\t"X"\n"installdir"\t\t"Y"\n')).toBeNull()
   })
 })
 
@@ -120,9 +114,7 @@ describe('findGameExecutable', () => {
     const gameDir = join(dir, 'Game')
     mkdirSync(join(gameDir, 'bin', 'x64'), { recursive: true })
     writeFileSync(join(gameDir, 'bin', 'x64', 'Game-Win64-Shipping.exe'), 'x')
-    expect(findGameExecutable(gameDir)).toBe(
-      join(gameDir, 'bin', 'x64', 'Game-Win64-Shipping.exe')
-    )
+    expect(findGameExecutable(gameDir)).toBe(join(gameDir, 'bin', 'x64', 'Game-Win64-Shipping.exe'))
   })
 
   it('devolve null quando não há exe utilizável', () => {

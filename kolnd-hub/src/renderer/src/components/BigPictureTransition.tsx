@@ -114,7 +114,13 @@ export function BigPictureTransition({
   const t0Ref = useRef(0)
   const lastRef = useRef(0)
   const sizeRef = useRef({ w: 0, h: 0, maxR: 0 })
-  const flagsRef = useRef({ zap: false, impact: false, wave: false, home: false, maskCleared: false })
+  const flagsRef = useRef({
+    zap: false,
+    impact: false,
+    wave: false,
+    home: false,
+    maskCleared: false
+  })
   const sparksRef = useRef<Spark[]>([])
   const ringsRef = useRef<ShockRing[]>([])
   const arcsRef = useRef<SideArc[]>([])
@@ -203,13 +209,16 @@ export function BigPictureTransition({
         dark.style.transition = `opacity ${fadeMs}ms ease-out`
         dark.style.opacity = '0'
       }
-      const revealTimer = window.setTimeout(() => {
-        if (!flagsRef.current.home) {
-          flagsRef.current.home = true
-          playSfx('open')
-          callbacksRef.current.onHomeReveal()
-        }
-      }, Math.round(fadeMs * 0.4))
+      const revealTimer = window.setTimeout(
+        () => {
+          if (!flagsRef.current.home) {
+            flagsRef.current.home = true
+            playSfx('open')
+            callbacksRef.current.onHomeReveal()
+          }
+        },
+        Math.round(fadeMs * 0.4)
+      )
       const doneTimer = window.setTimeout(() => finish(), fadeMs + 40)
       return (): void => {
         window.clearTimeout(revealTimer)
@@ -321,9 +330,27 @@ export function BigPictureTransition({
       const minDim = Math.min(w, h)
       // 3 anéis de choque concêntricos desalinhados.
       ringsRef.current = [
-        { delay: 0, maxR: minDim * 0.52, lineWidth: 7, color: 'rgba(0, 243, 255, 0.9)', glow: '#00f3ff' },
-        { delay: 80, maxR: minDim * 0.68, lineWidth: 5, color: 'rgba(188, 19, 254, 0.85)', glow: '#bc13fe' },
-        { delay: 160, maxR: minDim * 0.4, lineWidth: 3.5, color: 'rgba(255, 255, 255, 0.9)', glow: '#ffffff' }
+        {
+          delay: 0,
+          maxR: minDim * 0.52,
+          lineWidth: 7,
+          color: 'rgba(0, 243, 255, 0.9)',
+          glow: '#00f3ff'
+        },
+        {
+          delay: 80,
+          maxR: minDim * 0.68,
+          lineWidth: 5,
+          color: 'rgba(188, 19, 254, 0.85)',
+          glow: '#bc13fe'
+        },
+        {
+          delay: 160,
+          maxR: minDim * 0.4,
+          lineWidth: 3.5,
+          color: 'rgba(255, 255, 255, 0.9)',
+          glow: '#ffffff'
+        }
       ]
       // 3–5 arcos laterais curtos partindo do centro.
       const arcCount = 3 + Math.floor(Math.random() * 3)
@@ -460,7 +487,14 @@ export function BigPictureTransition({
       if (front <= 2) return
       const fade = 1 - easeOutCubic(p) * 0.45
 
-      const strokeFront = (radius: number, width: number, style: string, blur: number, shadow: string, alpha: number): void => {
+      const strokeFront = (
+        radius: number,
+        width: number,
+        style: string,
+        blur: number,
+        shadow: string,
+        alpha: number
+      ): void => {
         ctx.save()
         ctx.globalAlpha = alpha
         ctx.strokeStyle = style
@@ -571,7 +605,8 @@ export function BigPictureTransition({
         callbacksRef.current.onHomeReveal()
       }
 
-      const decayFade = t > DECAY_START ? clamp01(1 - (t - DECAY_START) / (DECAY_END - DECAY_START)) : 1
+      const decayFade =
+        t > DECAY_START ? clamp01(1 - (t - DECAY_START) / (DECAY_END - DECAY_START)) : 1
 
       const { w, h } = sizeRef.current
       ctx.clearRect(0, 0, w, h)

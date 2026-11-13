@@ -194,18 +194,26 @@ export function normalizeGame(input: unknown): StoredGame | null {
   const exePath = typeof raw.exePath === 'string' ? raw.exePath.trim() : ''
   if (!id || !name || !exePath) return null
 
-  const origin = GAME_ORIGINS.includes(raw.origin as GameOrigin) ? (raw.origin as GameOrigin) : 'custom'
+  const origin = GAME_ORIGINS.includes(raw.origin as GameOrigin)
+    ? (raw.origin as GameOrigin)
+    : 'custom'
 
   const iconPath =
     typeof raw.iconPath === 'string' && raw.iconPath.trim() ? raw.iconPath.trim() : null
 
   let steamAppId: number | undefined
-  if (typeof raw.steamAppId === 'number' && Number.isInteger(raw.steamAppId) && raw.steamAppId >= 0) {
+  if (
+    typeof raw.steamAppId === 'number' &&
+    Number.isInteger(raw.steamAppId) &&
+    raw.steamAppId >= 0
+  ) {
     steamAppId = raw.steamAppId
   }
 
   const addedAt =
-    typeof raw.addedAt === 'string' && raw.addedAt.trim() ? raw.addedAt.trim() : new Date().toISOString()
+    typeof raw.addedAt === 'string' && raw.addedAt.trim()
+      ? raw.addedAt.trim()
+      : new Date().toISOString()
 
   const game: StoredGame = { id, name, exePath, iconPath, origin, addedAt }
   if (steamAppId !== undefined) game.steamAppId = steamAppId
@@ -299,7 +307,8 @@ export function normalizeGamepadConfig(input: unknown): GamepadConfig | null {
   }
 
   if (typeof raw.vendorId === 'string' && raw.vendorId.trim()) config.vendorId = raw.vendorId.trim()
-  if (typeof raw.productId === 'string' && raw.productId.trim()) config.productId = raw.productId.trim()
+  if (typeof raw.productId === 'string' && raw.productId.trim())
+    config.productId = raw.productId.trim()
 
   return config
 }
@@ -626,7 +635,9 @@ export function setGamepadConfig(input: unknown): { success: boolean; error?: st
       config.configuredAt = current.configuredAt
     }
     store.set('gamepad', config)
-    console.log(`[store] Controle configurado salvo: ${config.controllerName} (perfil ${config.profile})`)
+    console.log(
+      `[store] Controle configurado salvo: ${config.controllerName} (perfil ${config.profile})`
+    )
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

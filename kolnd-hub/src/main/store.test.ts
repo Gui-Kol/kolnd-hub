@@ -128,7 +128,11 @@ describe('normalizeAppConfig', () => {
   })
 
   it('categoria inválida vira "dev"', () => {
-    const out = normalizeAppConfig({ id: 'x', command: 'x.exe', category: 'invalido' as never }) as StoredAppConfig
+    const out = normalizeAppConfig({
+      id: 'x',
+      command: 'x.exe',
+      category: 'invalido' as never
+    }) as StoredAppConfig
     expect(out.category).toBe('dev')
   })
 
@@ -168,7 +172,9 @@ describe('normalizeStartupImportance', () => {
   it('filtra níveis inválidos e não-objetos', () => {
     expect(normalizeStartupImportance(null)).toEqual({})
     expect(normalizeStartupImportance([1] as never)).toEqual({})
-    expect(normalizeStartupImportance({ a: 'critico', b: 'invalido', c: 42 })).toEqual({ a: 'critico' })
+    expect(normalizeStartupImportance({ a: 'critico', b: 'invalido', c: 42 })).toEqual({
+      a: 'critico'
+    })
     expect(normalizeStartupImportance({})).toEqual({})
   })
 })
@@ -199,7 +205,12 @@ describe('normalizeGame', () => {
     expect(normalizeGame({ id: 'x', exePath: 'x.exe' })).toBeNull()
     expect(normalizeGame({ id: 'x', name: 'x' })).toBeNull()
     expect(normalizeGame(null)).toBeNull()
-    const out = normalizeGame({ id: 'x', name: 'x', exePath: 'x.exe', steamAppId: -5 }) as StoredGame
+    const out = normalizeGame({
+      id: 'x',
+      name: 'x',
+      exePath: 'x.exe',
+      steamAppId: -5
+    }) as StoredGame
     expect(out.steamAppId).toBeUndefined()
   })
 })
@@ -260,7 +271,9 @@ describe('normalizeGamepadConfig', () => {
   it('rejeita não-objeto, array, perfil inválido', () => {
     expect(normalizeGamepadConfig(null)).toBeNull()
     expect(normalizeGamepadConfig([1] as never)).toBeNull()
-    expect(normalizeGamepadConfig({ ...validGamepadInput, profile: 'invalido' as never })).toBeNull()
+    expect(
+      normalizeGamepadConfig({ ...validGamepadInput, profile: 'invalido' as never })
+    ).toBeNull()
   })
 
   it('exige controllerId, controllerName, configuredAt, autoMapped', () => {
@@ -278,13 +291,22 @@ describe('normalizeGamepadConfig', () => {
 
   it('índice 16 (Guide) e fora de 0-15 → null; null explícito é permitido', () => {
     expect(
-      normalizeGamepadConfig({ ...validGamepadInput, mapping: { ...validGamepadInput.mapping, confirm: 16 } })
+      normalizeGamepadConfig({
+        ...validGamepadInput,
+        mapping: { ...validGamepadInput.mapping, confirm: 16 }
+      })
     ).toBeNull()
     expect(
-      normalizeGamepadConfig({ ...validGamepadInput, mapping: { ...validGamepadInput.mapping, confirm: -1 } })
+      normalizeGamepadConfig({
+        ...validGamepadInput,
+        mapping: { ...validGamepadInput.mapping, confirm: -1 }
+      })
     ).toBeNull()
     expect(
-      normalizeGamepadConfig({ ...validGamepadInput, mapping: { ...validGamepadInput.mapping, confirm: null } })
+      normalizeGamepadConfig({
+        ...validGamepadInput,
+        mapping: { ...validGamepadInput.mapping, confirm: null }
+      })
     ).not.toBeNull()
   })
 
@@ -321,7 +343,21 @@ describe('getConfigSnapshot', () => {
   it('store com apps e importância → snapshot preenchido', () => {
     const h = holder()
     h.get.mockImplementation((key: string) => {
-      if (key === 'apps') return [{ id: 'a', command: 'a.exe', cwd: 'c', category: 'dev', name: 'A', description: '', icon: 'i', color: '#000', gradient: 'g', tags: [] } as StoredAppConfig]
+      if (key === 'apps')
+        return [
+          {
+            id: 'a',
+            command: 'a.exe',
+            cwd: 'c',
+            category: 'dev',
+            name: 'A',
+            description: '',
+            icon: 'i',
+            color: '#000',
+            gradient: 'g',
+            tags: []
+          } as StoredAppConfig
+        ]
       if (key === 'startupImportance') return { a: 'critico' }
       return undefined
     })
@@ -365,7 +401,9 @@ describe('migrateFromLegacy', () => {
 describe('getStoredGames / setStoredGames', () => {
   it('getStoredGames sempre normalizado; [] sem store', () => {
     expect(getStoredGames()).toEqual([])
-    holder().get.mockImplementation(() => [{ id: 'a', name: 'A', exePath: 'a.exe', origin: 'custom', addedAt: '2026' } as never])
+    holder().get.mockImplementation(() => [
+      { id: 'a', name: 'A', exePath: 'a.exe', origin: 'custom', addedAt: '2026' } as never
+    ])
     expect(getStoredGames().length).toBe(1)
   })
 
@@ -373,7 +411,9 @@ describe('getStoredGames / setStoredGames', () => {
     const res = setStoredGames(null)
     expect(res.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('games', [])
-    const res2 = setStoredGames([{ id: 'a', name: 'A', exePath: 'a.exe', origin: 'custom' } as never])
+    const res2 = setStoredGames([
+      { id: 'a', name: 'A', exePath: 'a.exe', origin: 'custom' } as never
+    ])
     expect(res2.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('games', expect.any(Array))
   })
@@ -387,7 +427,10 @@ describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
   })
 
   it('setLaunchKloudOnStart exige booleano', () => {
-    expect(setLaunchKloudOnStart('sim' as never)).toEqual({ success: false, error: 'Valor inválido para a preferência.' })
+    expect(setLaunchKloudOnStart('sim' as never)).toEqual({
+      success: false,
+      error: 'Valor inválido para a preferência.'
+    })
     const res = setLaunchKloudOnStart(true)
     expect(res.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('launchKloudOnStart', true)
@@ -397,7 +440,10 @@ describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
     expect(getGamepadConfig()).toBeNull()
     const res = setGamepadConfig(validGamepadInput)
     expect(res.success).toBe(true)
-    expect(holder().set).toHaveBeenCalledWith('gamepad', expect.objectContaining({ profile: 'xbox' }))
+    expect(holder().set).toHaveBeenCalledWith(
+      'gamepad',
+      expect.objectContaining({ profile: 'xbox' })
+    )
     expect(resetGamepadConfig().success).toBe(true)
     expect(holder().delete).toHaveBeenCalledWith('gamepad')
   })
@@ -414,10 +460,13 @@ describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
 
   it('getBigPicturePrefs / setBigPicturePrefs', () => {
     expect(getBigPicturePrefs()).toEqual({ sounds: true })
-    holder().get.mockImplementation(() => ({ sounds: false } as never))
+    holder().get.mockImplementation(() => ({ sounds: false }) as never)
     expect(getBigPicturePrefs()).toEqual({ sounds: false })
     expect(setBigPicturePrefs(null)).toEqual({ success: false, error: 'Preferências inválidas.' })
-    expect(setBigPicturePrefs({} as never)).toEqual({ success: false, error: 'Preferências inválidas: `sounds` deve ser booleano.' })
+    expect(setBigPicturePrefs({} as never)).toEqual({
+      success: false,
+      error: 'Preferências inválidas: `sounds` deve ser booleano.'
+    })
     const res = setBigPicturePrefs({ sounds: false })
     expect(res.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('bigPicture', { sounds: false })

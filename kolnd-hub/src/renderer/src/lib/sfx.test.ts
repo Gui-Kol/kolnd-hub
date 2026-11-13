@@ -30,8 +30,20 @@ function restoreWindow(): void {
 }
 
 type MockCtx = MockAudioContext & {
-  gain: { connect: ReturnType<typeof vi.fn>; gain: { setValueAtTime: ReturnType<typeof vi.fn>; exponentialRampToValueAtTime: ReturnType<typeof vi.fn> } }
-  osc: { connect: ReturnType<typeof vi.fn>; frequency: { setValueAtTime: ReturnType<typeof vi.fn> }; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; type: string }
+  gain: {
+    connect: ReturnType<typeof vi.fn>
+    gain: {
+      setValueAtTime: ReturnType<typeof vi.fn>
+      exponentialRampToValueAtTime: ReturnType<typeof vi.fn>
+    }
+  }
+  osc: {
+    connect: ReturnType<typeof vi.fn>
+    frequency: { setValueAtTime: ReturnType<typeof vi.fn> }
+    start: ReturnType<typeof vi.fn>
+    stop: ReturnType<typeof vi.fn>
+    type: string
+  }
 }
 
 const createdContexts: MockCtx[] = []
@@ -59,7 +71,12 @@ function mockContext(): MockCtx {
     createGain: vi.fn(() => gain),
     createOscillator: vi.fn(() => osc),
     createBuffer: vi.fn(() => ({ getChannelData: () => new Float32Array(0) })),
-    createBufferSource: vi.fn(() => ({ buffer: null, start: vi.fn(), stop: vi.fn(), connect: vi.fn() })),
+    createBufferSource: vi.fn(() => ({
+      buffer: null,
+      start: vi.fn(),
+      stop: vi.fn(),
+      connect: vi.fn()
+    })),
     destination: {},
     gain,
     osc

@@ -1,12 +1,7 @@
 import { ipcMain } from 'electron'
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync
-} from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { addGame, extractIconPng, gameIconsDir, getGames } from './games'
 

@@ -6,10 +6,7 @@ import {
   getKloudGamesUninstallLogPath,
   resetKloudGamesState
 } from './kloudGames'
-import {
-  findKloudGamesUninstallEntry,
-  getKloudGamesServiceStatus
-} from './uninstallDetection'
+import { findKloudGamesUninstallEntry, getKloudGamesServiceStatus } from './uninstallDetection'
 
 /** Nome da pasta de atalhos do Kloud Games dentro do Menu Iniciar. */
 const START_MENU_PARENT = 'LizardByte'
@@ -108,9 +105,7 @@ export function verifyKloudGamesRemoval(): KloudGamesUninstallReport {
 
   const registryGone = checkRegistryGone()
   if (!registryGone) {
-    remaining.push(
-      'A entrada de desinstalação do Kloud Games ainda está presente no registro.'
-    )
+    remaining.push('A entrada de desinstalação do Kloud Games ainda está presente no registro.')
   }
 
   const shortcutsGone = checkShortcutsGone()

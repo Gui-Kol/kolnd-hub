@@ -10,11 +10,9 @@ interface BigPictureGamesProps {
   notify: (text: string) => void
 }
 
-const focusRing =
-  'focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70'
+const focusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70'
 
-const focusedCard =
-  'ring-4 ring-neon-cyan shadow-glow-cyan scale-105 border-neon-cyan/40'
+const focusedCard = 'ring-4 ring-neon-cyan shadow-glow-cyan scale-105 border-neon-cyan/40'
 
 interface GameCardProps {
   game: Game
@@ -26,8 +24,7 @@ interface GameCardProps {
   onStop: (game: Game) => void
 }
 
-const stopFocusRing =
-  'focus:outline-none focus-visible:ring-4 focus-visible:ring-red-400/70'
+const stopFocusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-red-400/70'
 
 /** Botão "Encerrar" do card — focável pelo controle, mas só quando o jogo está aberto. */
 function CardStopButton({
@@ -73,7 +70,14 @@ function CardStopButton({
   )
 }
 
-function GameCard({ game, icon, launching, running, onLaunch, onStop }: GameCardProps): JSX.Element {
+function GameCard({
+  game,
+  icon,
+  launching,
+  running,
+  onLaunch,
+  onStop
+}: GameCardProps): JSX.Element {
   const { ref, focused, focus } = useFocusable(`game:${game.id}`)
   const { setFocusedId } = useBigPictureFocus()
   const [confirming, setConfirming] = useState(false)
@@ -119,7 +123,11 @@ function GameCard({ game, icon, launching, running, onLaunch, onStop }: GameCard
   return (
     <div className="relative">
       {running ? (
-        <CardStopButton id={`game:stop:${game.id}`} confirming={confirming} onActivate={handleStopClick} />
+        <CardStopButton
+          id={`game:stop:${game.id}`}
+          confirming={confirming}
+          onActivate={handleStopClick}
+        />
       ) : (
         <span
           aria-hidden="true"
@@ -226,9 +234,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
       const list = await window.api.getGames()
       setGames(list)
     } catch (err) {
-      setLoadError(
-        err instanceof Error ? err.message : 'Não foi possível carregar sua biblioteca.'
-      )
+      setLoadError(err instanceof Error ? err.message : 'Não foi possível carregar sua biblioteca.')
     } finally {
       setLoading(false)
     }
@@ -297,9 +303,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
         const result = await window.api.stopGame(game.id)
         if (!result.ok) {
           playSfx('error')
-          notify(
-            `Não foi possível encerrar ${game.name}: ${result.error ?? 'erro desconhecido'}`
-          )
+          notify(`Não foi possível encerrar ${game.name}: ${result.error ?? 'erro desconhecido'}`)
           return
         }
         playSfx('confirm')
@@ -321,9 +325,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
       <header className="flex items-end justify-between gap-6 pr-40">
         <div>
           <h2 className="text-5xl font-black tracking-tight text-white">Jogos</h2>
-          <p className="mt-2 text-lg text-slate-400">
-            Sua biblioteca, pronta para a TV
-          </p>
+          <p className="mt-2 text-lg text-slate-400">Sua biblioteca, pronta para a TV</p>
         </div>
         <div className="glass rounded-2xl px-5 py-3 flex items-center gap-3">
           <Gamepad2 size={18} className="text-neon-cyan" />
@@ -360,7 +362,11 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
             </div>
           </div>
         ) : (
-          <div role="listbox" aria-label="Jogos na sua biblioteca" className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-8">
+          <div
+            role="listbox"
+            aria-label="Jogos na sua biblioteca"
+            className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-8"
+          >
             {games.map((game) => (
               <GameCard
                 key={game.id}

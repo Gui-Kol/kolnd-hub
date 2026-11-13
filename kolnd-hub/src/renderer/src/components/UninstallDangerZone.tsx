@@ -23,11 +23,9 @@ type DetStatus = 'installed' | 'partial' | 'missing'
 
 interface KloudState {
   status: DetStatus | null
-  detection:
-    | NonNullable<
-        Awaited<ReturnType<typeof window.api.getKloudGamesUninstallStatus>>['detection']
-      >
-    | null
+  detection: NonNullable<
+    Awaited<ReturnType<typeof window.api.getKloudGamesUninstallStatus>>['detection']
+  > | null
   loading: boolean
 }
 
@@ -101,7 +99,8 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
     window.api
       .getHubUninstallStatus()
       .then((res) => {
-        if (mounted) setHub({ available: res.available, isPackaged: res.isPackaged, loading: false })
+        if (mounted)
+          setHub({ available: res.available, isPackaged: res.isPackaged, loading: false })
       })
       .catch(() => {
         if (mounted) setHub({ available: false, isPackaged: false, loading: false })
@@ -141,9 +140,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
         status: kloud.detection.status,
         exePath: kloud.detection.exePath,
         service: kloud.detection.service,
-        entry: kloud.detection.entry
-          ? { productCode: kloud.detection.entry.productCode }
-          : null
+        entry: kloud.detection.entry ? { productCode: kloud.detection.entry.productCode } : null
       }
     : null
   const kloudRunning = kloud.detection?.service === 'running'
@@ -170,11 +167,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
       const loc = d.entry?.installLocation ?? 'C:\\Program Files\\KLOUD_GAMES'
       const ver = d.entry?.displayVersion ?? '—'
       const svc =
-        d.service === 'running'
-          ? 'rodando'
-          : d.service === 'stopped'
-            ? 'parado'
-            : 'não encontrado'
+        d.service === 'running' ? 'rodando' : d.service === 'stopped' ? 'parado' : 'não encontrado'
       return `Instalado em ${loc} (versão ${ver}) · serviço KLOUD_GAMESsvc: ${svc}`
     }
     if (kloud.status === 'partial') {
@@ -281,9 +274,10 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-white">Desinstalar Kolnd Hub</h3>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Remove o Kolnd Hub <strong className="text-white">e também desinstala o Kloud
-                Games</strong> durante o processo (perguntaremos a cada passo). O Mark LVI é removido
-                junto com a pasta do Hub.
+                Remove o Kolnd Hub{' '}
+                <strong className="text-white">e também desinstala o Kloud Games</strong> durante o
+                processo (perguntaremos a cada passo). O Mark LVI é removido junto com a pasta do
+                Hub.
               </p>
             </div>
           </div>
