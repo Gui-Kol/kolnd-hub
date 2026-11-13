@@ -56,3 +56,6 @@ Mark-LVI/config/api_keys.json
 kolnd-hub/Mark-LVI/
 kolnd-hub-userdata-backups/
 resources/programs/MarkLVI/
+
+# Gerente agent working files (task tracking, not for commit)
+gerente/tasks/
