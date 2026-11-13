@@ -41,6 +41,70 @@ Na segunda abertura o app vai direto para o dashboard. O marcador fica em `%APPD
 
 > Playnite e o SteamGridDB Manager foram removidos do projeto por decisão do usuário.
 
+## Desinstalação
+
+### Pelo próprio Kolnd Hub (recomendado)
+
+Em **Configurações**, no fim da página, existe a zona **"Zona de perigo"** com dois botões. Nenhuma das duas desinstalações acontece sem confirmação digitada.
+
+**"Desinstalar Kloud Games"** → remove o Kloud Games **inteiro** pelo instalador oficial do Windows (`msiexec /x {ProductCode}`, elevado via UAC):
+
+- Programa e dados em `C:\Program Files\KLOUD_GAMES` (incluindo `config\`);
+- Serviço `KLOUD_GAMESsvc`;
+- Regras de firewall, `PATH` e atalhos do Menu Iniciar;
+- Pede para digitar `KLOUD_GAMES` antes de confirmar. Se o Kloud Games estiver em execução, o Hub encerra o processo antes (streams Moonlight em andamento serão interrompidas); se não conseguir encerrá-lo, a desinstalação é bloqueada com instrução para fechá-lo manualmente;
+- **Suas preferências do Hub (`%APPDATA%\kolnd-hub`) continuam salvas.** Nada fora disso é apagado (exceto pelos desinstaladores oficiais, que são quem remove o que é deles).
+- Se a instalação estiver quebrada, a confirmação oferece saídas honestas em vez de fingir que funcionou: "Remover somente os arquivos restantes", "Desinstalar pelo registro" ou, se só restou o serviço, "Remover serviço agora".
+
+**"Desinstalar Kolnd Hub"** → desinstala o Hub pelo desinstalador oficial do Windows (NSIS **per-user**, sem exigir administrador):
+
+1. Primeiro o Hub desinstala o **Kloud Games** (se estiver instalado) — mesmo fluxo do botão acima, com UAC. Se algo falhar, você decide a cada passo: **"Desinstalar só o Hub"** (segue sem o Kloud Games) ou **"Cancelar"** (nada é alterado). Se o Kloud Games não estiver instalado, essa etapa é pulada.
+2. Se você escolheu apagar seus dados, apaga a pasta `%APPDATA%\kolnd-hub` (ver abaixo).
+3. Por fim, o desinstalador do Windows abre e o Hub se encerra sozinho para ele assumir. O Hub não abre mais depois disso.
+
+- Pede para digitar `Kolnd Hub` antes de confirmar. Em `npm run dev` o botão fica desabilitado — só funciona no app instalado.
+- O **Mark LVI** (assistente) fica dentro da pasta do Hub em `resources/programs/MarkLVI` e **vai junto** com a desinstalação.
+
+### O que acontece com seus dados
+
+`%APPDATA%\kolnd-hub` é **preservado por padrão** em qualquer uma das duas desinstalações.
+
+Ao desinstalar o Hub você escolhe uma das duas opções:
+
+- **"Manter meus dados e configurações (recomendado)"** — padrão; `config.json`, biblioteca, logs, ícones e dados do Mark LVI ficam intactos;
+- **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `mark-lvi\`, `game-icons\` e qualquer outra coisa que estiver lá). Não há como desfazer.
+
+Duas regras importantes:
+
+- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados.
+- Nada fora de `%APPDATA%\kolnd-hub` é apagado pelo Hub. O que remove a instalação do Kloud Games e a pasta do Hub são os desinstaladores oficiais (MSI e NSIS).
+
+Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`, em `config.json`) também fica em `%APPDATA%\kolnd-hub` — ela sobrevive à desinstalação se você mantiver os dados; quem decide apagá-la é a opção de apagar tudo.
+
+### Mark LVI
+
+- O Mark LVI é removido junto com a pasta do Hub, porque fica dentro dela.
+- Os dados **atuais** do assistente ficam em `%APPDATA%\kolnd-hub\mark-lvi` e seguem a regra acima (preservados por padrão; apagados só pela opção irreversível, e cobertos pelo backup).
+- Dados **antigos**, gravados ao lado do executável (builds antigas do Mark LVI), são perdidos com a pasta do Hub — faça backup antes de desinstalar se ainda usa esse formato.
+
+### Desinstalação manual pelo Windows (alternativa)
+
+Você também pode desinstalar pelo sistema, sem abrir o Hub: **Configurações → Aplicativos**:
+
+- "Kloud Games" → Desinstalar (executa o MSI; pede UAC); e
+- "Kolnd Hub" → Desinstalar (executa o desinstalador NSIS; sem UAC).
+
+É equivalente ao que os botões do Hub fazem. Códigos de retorno **3010** e **1641** do `msiexec` significam "reinício necessário para concluir a remoção" — é sucesso com aviso, não erro.
+
+O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%APPDATA%\kolnd-hub` — a decisão de apagar ou manter é sempre sua, dentro da "Zona de perigo" do Hub.
+
+### Logs de desinstalação
+
+- `%APPDATA%\kolnd-hub\logs\kloud-games-uninstall.log` — log da desinstalação do Kloud Games (etapas, códigos de retorno do `msiexec`, laudo final). Se o fluxo do Hub for pausado na etapa do Kloud Games (falha/UAC negado), a causa também fica registrada aqui.
+- O fluxo completo do Hub é exibido **ao vivo** no modal de progresso (etapa, barra e log). Essas linhas não são gravadas em um arquivo próprio além do log acima.
+- O botão **"Abrir pasta de logs"** (nas telas de resultado do Kloud Games e nos erros) abre `%APPDATA%\kolnd-hub\logs` no Explorer.
+- Os logs ficam dentro de `%APPDATA%\kolnd-hub\logs\`, ou seja: só deixam de existir se você escolher "Apagar também meus dados e configurações".
+
 ## Build do instalador
 
 ### Um comando (recomendado)
@@ -108,10 +172,10 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 ## Segurança e distribuição
 
 - **Segredos nunca vão para o instalador**: `Mark-LVI/config/api_keys.json`, `config/certs/`, `config/whatsapp_web/` e `memory/` são excluídos via `extraResources` (veja o `filter` no `electron-builder.yml`).
-- Instalação **por usuário** mantém a pasta gravável. O Mark LVI (reconstruído com `core/paths.py`) grava a chave de API e a memória em `%APPDATA%\kolnd-hub\mark-lvi` (o Hub define `MARK_LVI_HOME` e semeia os dados ao lado do executável automaticamente). Enquanto o Mark LVI não for reconstruído, ele grava ao lado do próprio executável; nesses casos a instalação deve permanecer em `%LOCALAPPDATA%` (o instalador não permite trocar o diretório de propósito). O desinstalador remove o diretório da instalação inteiro — inclusive dados gravados ao lado do executável; o que estiver em `%APPDATA%\kolnd-hub` é preservado.
+- Instalação **por usuário** mantém a pasta gravável. O Mark LVI (reconstruído com `core/paths.py`) grava a chave de API e a memória em `%APPDATA%\kolnd-hub\mark-lvi` (o Hub define `MARK_LVI_HOME` e semeia os dados ao lado do executável automaticamente). Enquanto o Mark LVI não for reconstruído, ele grava ao lado do próprio executável; nesses casos a instalação deve permanecer em `%LOCALAPPDATA%` (o instalador não permite trocar o diretório de propósito). O desinstalador remove o diretório da instalação inteiro — inclusive dados gravados ao lado do executável; o que estiver em `%APPDATA%\kolnd-hub` é preservado (veja **Desinstalação**).
 - O instalador dispara UAC para instalar Python (se necessário) e o MSI do Kloud Games (serviço + firewall).
 - Por ser um `.exe` único que baixa/executa instaladores, pode ser sinalizado como falso positivo pelo Defender — para distribuição pública, assine o código (ver detalhes em `kolnd-hub/README.md`, seção "Primeira execução, UAC e antivírus").
-- A validação completa em máquina limpa (VM/Sandbox) ainda está pendente; a instalação de Python via winget e a instalação do MSI do Kloud Games não foram exercitadas em ambiente limpo.
+- A validação completa em máquina limpa (VM/Sandbox) ainda está pendente; a instalação de Python via winget e a instalação do MSI do Kloud Games não foram exercitadas em ambiente limpo. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot.
 
 ## Licenças
 

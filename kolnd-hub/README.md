@@ -80,7 +80,7 @@ Depois de rodar a build de um programa, rode `npm run package` de novo para que 
 **Segredos nunca vão para o instalador**: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`
 e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `electron-builder.yml`).
 
-> ⚠️ **Dados do Mark LVI e desinstalador**: o `MarkLVI.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVI/`). Ao desinstalar o Kolnd Hub, o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. Faça backup antes de desinstalar (ou copie `config/` e `memory/` para outro lugar).
+> ⚠️ **Dados do Mark LVI e desinstalador**: o `MarkLVI.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVI/`). Ao desinstalar o Kolnd Hub (botão **"Desinstalar Kolnd Hub"** nas Configurações → zona de perigo, ou pelo aplicativo Configurações do Windows), o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. Faça backup antes de desinstalar: o botão **"Fazer backup dos meus dados"** (na confirmação do Hub) copia todo o `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss`; ele não é automático.
 >
 > **Migração para a pasta de dados do usuário**: a partir da próxima reconstrução do Mark LVI (`scripts/build-mark-lvi.ps1`, com `core/paths.py` honrando `MARK_LVI_HOME`), o assistente passa a gravar em `%APPDATA%\kolnd-hub\mark-lvi`. O Hub define `MARK_LVI_HOME` automaticamente ao iniciar o `mark-lvi`, e **semeia** (copia, sem apagar) `config/` e `memory/` do bundle empacotado para essa pasta a cada boot — quem já usava a versão anterior não perde a chave de API nem a memória na troca. Dados já existentes ao lado do `.exe` continuam sendo uma cópia válida e só deixam de ser atualizados depois que o Mark LVI reconstruído assume.
 
@@ -136,6 +136,46 @@ Um `.exe` único que dispara outros instaladores pode ser sinalizado como suspei
 - Máquinas corporativas com políticas rígidas (AppLocker, bloqueio de `powershell.exe` com `-Verb RunAs`) podem impedir a instalação silenciosa do MSI — nesse caso, instale o MSI manualmente como administrador.
 
 Um `.exe` sinalizável também pode ser evitado compilando/assinando o instalador e o próprio `KLOUD_GAMES.msi` (WiX). Para distribuição pública, a assinatura de código é pré-requisito prático.
+
+## Desinstalação
+
+Em **Configurações**, no fim da página, a zona **"Zona de perigo"** tem dois botões. Nenhuma desinstalação acontece sem confirmação digitada (`KLOUD_GAMES` ou `Kolnd Hub`, sem diferenciar maiúsculas/minúsculas).
+
+### Desinstalar Kloud Games
+
+Fluxo elevado via UAC — o MSI é per-machine: `msiexec /x {ProductCode} /qn /norestart` através de PowerShell com `-Verb RunAs`. Remove:
+
+- Programa e dados em `C:\Program Files\KLOUD_GAMES` (incluindo `config\`);
+- Serviço `KLOUD_GAMESsvc`;
+- Regras de firewall, `PATH` e atalhos do Menu Iniciar.
+
+O Hub encerra o `KLOUD_GAMES.exe` antes de chamar o MSI — streams Moonlight em andamento são interrompidas; se não conseguir encerrá-lo (duas tentativas falharam), o MSI não é chamado e o erro aparece na tela com a instrução para fechar o Kloud Games manualmente. Se a desinstalação estiver em execução, a seção fica travada (sem clique duplo/segundo botão) e a janela não fecha até o fim.
+
+Se a instalação estiver quebrada, a confirmação oferece saídas honestas em vez de fingir que funcionou: "Remover somente os arquivos restantes" (apaga somente a pasta de instalação detectada — `C:\Program Files\KLOUD_GAMES` — nunca fora dela, com trava de alvo e de nome da pasta), "Desinstalar pelo registro" (o MSI ainda consta), ou, se só restou o serviço, "Remover serviço agora" (elevado, com confirmação própria).
+
+Este botão **nunca** apaga `%APPDATA%\kolnd-hub` — suas preferências do Hub continuam salvas. Erros/UAC negado aparecem na tela com a causa e a opção de tentar de novo; a desinstalação é idempotente (executar de novo após sucesso parcial converge).
+
+### Desinstalar Kolnd Hub
+
+Funciona **apenas no app empacotado** com desinstalador NSIS presente — em `npm run dev` o botão fica desabilitado de propósito. O desinstalador do Hub é **per-user e não exige administrador**.
+
+Sequência, nesta ordem:
+
+1. **Resolver o desinstalador** (antes de qualquer destruição); se ele não for encontrado, o erro aparece na hora e nada é apagado;
+2. **Kloud Games** — o mesmo fluxo do botão acima (com UAC). Se falhar ou você negar o UAC, a sequência pausa e pergunta: **"Desinstalar só o Hub"** (segue sem o Kloud Games) ou **"Cancelar"** (nada é alterado);
+3. **Backup** — se você clicou em "Fazer backup dos meus dados" antes de confirmar (opcional, manual), ele já aconteceu e o caminho é registrado no log do fluxo;
+4. **Wipe** — somente se você escolheu "Apagar também meus dados e configurações (irreversível)": apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (antivírus/arquivo travado) — os itens que falharem são listados no final;
+5. **Spawn** — inicia o desinstalador NSIS desanexado e o Hub se encerra sozinho (killAll + destroy + `app.quit`). Se o spawn falhar, o Hub **não** fecha e nada do wipe é desfeito (você escolheu) — o erro aparece na tela com a instrução: desinstale pelo aplicativo **Configurações do Windows → Aplicativos → Kolnd Hub**.
+
+O **NSIS não mudou**: `deleteAppDataOnUninstall: false` no `electron-builder.yml` permanece — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub` por conta própria. A decisão de apagar ou manter os dados é sempre sua, na confirmação do Hub. O Mark LVI fica dentro da pasta do Hub (`resources/programs/MarkLVI`) e é removido junto — dados legados gravados ao lado do executável são perdidos; dados atuais em `%APPDATA%\kolnd-hub\mark-lvi` seguem a regra do `%APPDATA%`.
+
+### Dados do usuário e logs
+
+- `%APPDATA%\kolnd-hub` é **preservado por padrão**. Apagado **somente** pela opção irreversível acima.
+- **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss`; execuções repetidas criam sufixos `-2`, `-3`, … — nunca sobrescreve um backup existente.
+- **Logs**: `%APPDATA%\kolnd-hub\logs\kloud-games-uninstall.log` registra o fluxo do Kloud Games (etapas, código de retorno do `msiexec`, laudo final) — inclusive a pausa da etapa do Kloud no fluxo do Hub (UAC negado etc.). O log completo do fluxo do Hub aparece **ao vivo** no modal de progresso; não há arquivo próprio para ele além desse. O botão **"Abrir pasta de logs"** (nas telas de resultado/erro) abre `%APPDATA%\kolnd-hub\logs` no Explorer.
+- A preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`) fica no `config.json` — sobrevive à desinstalação se os dados forem mantidos; quem decide apagá-la é a opção irreversível.
+- Códigos de retorno **3010** e **1641** do `msiexec` significam "reinício necessário" — sucesso com aviso, não erro.
 
 ## Programas gerenciados
 
