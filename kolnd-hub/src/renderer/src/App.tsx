@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, Check, X } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
@@ -26,6 +26,7 @@ import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConf
 interface Notice {
   id: number
   text: string
+  kind?: 'success' | 'error' | 'info'
 }
 
 function isFirstRunFromQuery(): boolean {
@@ -441,6 +442,14 @@ function App(): JSX.Element {
     void saveAppConfigs(updatedApps)
   }, [])
 
+  // Repassa o toast do App para a Zona de perigo (onToast opcional).
+  const onToast = useCallback(
+    (msg: string, kind: 'success' | 'error' | 'info'): void => {
+      setNotice({ id: Date.now(), text: msg, kind })
+    },
+    []
+  )
+
   // Solicita ao processo principal que encerre tudo (processos, servidores,
   // segundo plano) e feche o Hub completamente.
   const handleExit = useCallback(async (): Promise<void> => {
@@ -509,7 +518,9 @@ function App(): JSX.Element {
 
   const runningCount = Object.values(effectiveStates).filter((s) => s.status === 'running').length
 
-  // Toast de erro/aviso — compartilhado entre o shell normal e o Big Picture.
+  // Toast de aviso/erro/sucesso — compartilhado entre o shell normal,
+  // o Big Picture e a Zona de perigo (via onToast). Mantém o canto/posição
+  // já usados pelo app; muda cor/ícone conforme o tipo.
   const noticeToast = (
     <AnimatePresence>
       {notice && (
@@ -518,10 +529,22 @@ function App(): JSX.Element {
           initial={{ opacity: 0, y: 20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-          className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
+          className={`fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl ${
+            notice.kind === 'success'
+              ? 'border-emerald-500/25 bg-[#071510]/95'
+              : notice.kind === 'info'
+                ? 'border-slate-500/25 bg-[#0a0a0f]/95'
+                : 'border-red-500/25 bg-[#1a1014]/95'
+          }`}
         >
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-          <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
+          {notice.kind === 'success' ? (
+            <Check size={16} className="mt-0.5 shrink-0 text-emerald-400" />
+          ) : (
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
+          )}
+          <p className={`text-xs leading-relaxed ${notice.kind === 'success' ? 'text-emerald-100' : notice.kind === 'info' ? 'text-slate-100' : 'text-red-100'}`}>
+            {notice.text}
+          </p>
           <button
             onClick={() => setNotice(null)}
             className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
@@ -554,9 +577,6 @@ function App(): JSX.Element {
           {/* ── Big Picture: takeover em tela cheia (no lugar do Layout) ── */}
           <BigPicture
             mode={bigPicture}
-            apps={apps}
-            appStates={effectiveStates}
-            onLaunchTool={handleLaunch}
             onExit={exitBigPicture}
             onSetupComplete={handleBigPictureSetupComplete}
             onTransitionComplete={handleBigPictureTransitionComplete}
@@ -600,7 +620,11 @@ function App(): JSX.Element {
                 <Biblioteca />
               </ErrorBoundary>
             ) : (
-              <Settings apps={apps} onSave={handleSaveApps} />
+              <Settings
+                apps={apps}
+                onSave={handleSaveApps}
+                onToast={onToast}
+              />
             )}
           </Layout>
 

@@ -20,6 +20,7 @@ import { registerConfigIpc, registerPrefsIpc } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
+import { registerUninstallIpc } from './uninstaller'
 import { registerGamesIpc } from './games'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
@@ -157,6 +158,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC da importação de jogos da Steam.
   registerSteamIpc()
+
+  // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
+  registerUninstallIpc(() => mainWindow)
 
   // Seed dos dados do Mark LVI para %APPDATA%/kolnd-hub/mark-lvi
   // (migração transparente para quem já tinha config/memory ao lado do exe).

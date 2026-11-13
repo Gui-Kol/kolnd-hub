@@ -39,15 +39,25 @@
 
 ## 4. Estado de trabalho [ATUALIZAR após cada tarefa]
 
-- **Branch atual:** `Dev`
-- **Trabalho em andamento (Big Picture, não commitado em 13/11/2026):** modificados `kolnd-hub/src/main/index.ts`, `main/kloudGames.ts`, `preload/index.ts`, `preload/index.d.ts`, `renderer/src/App.tsx`, `components/BigPicture.tsx`, `BigPictureRail.tsx`; **novo** `games.test.ts`; **removido** `components/BigPictureTools.tsx`; `kolnd-hub/README.md` modificado; `task-desinstalar.md` modificado pelo usuário; submódulo `kloud-games/third-party/moonlight-common-c` modificado (patch do build).
-- Antes de delegar qualquer tarefa, rode `git status --short` e evite que duas sessões toquem os mesmos arquivos (Big Picture e Desinstalar se sobrepõem em `main/` e Configurações).
+- **Branch atual:** `Dev` (nunca `main` diretamente).
+- **Big Picture (gerente/tasks/task-big-picture.md):** T1–T8 todas marcadas `[X]` concluídas. Não commitado — working tree sujo com: `kolnd-hub/src/main/index.ts`, `kolnd-hub/src/main/kloudGames.ts`, `kolnd-hub/src/preload/index.ts`, `kolnd-hub/src/preload/index.d.ts`, `kolnd-hub/src/renderer/src/App.tsx`, `kolnd-hub/src/renderer/src/components/BigPicture.tsx`, `kolnd-hub/src/renderer/src/components/BigPictureRail.tsx`, `kolnd-hub/README.md` modificados; `kolnd-hub/src/renderer/src/components/BigPictureTools.tsx` removido; novos testes (`games.test.ts`, `startupManager.test.ts`, `store.test.ts`, `hubConfig.test.ts`, `sfx.test.ts`) não rastreados; submódulo `kloud-games/third-party/moonlight-common-c` modificado (patch do build).
+- **Desinstalar (gerente/tasks/task-desinstalar.md):** T1, T2, T3 e T4 concluídas (`uninstallDetection.ts`, `uninstaller.ts`, `uninstallVerify.ts`, `UninstallDangerZone.tsx`, `UninstallKloudGamesModal.tsx` + respectivos testes, não rastreados, não commitados). App.tsx ganhou campo `kind?` em Notice (toast colorido). **T5 é a próxima** (orquestração "Desinstalar Kolnd Hub": Kloud Games → backup → wipe opcional → NSIS). T6–T7 não iniciadas.
+- **Quota do plano Free (13/11/2026):** a sessão de subagente em background da T4 (`ses_e29438de8ffeRnVMrBgzSdWY6W`) morreu com "Free usage limit reached". A T4 foi concluída e verificada pela sessão de continuação (`ses_e2944a15effeyu5zz6yz3qUz6Z`) — arquivos revisados e tsc (node/web) ok após o erro. Subagentes futuros podem falhar se a cota gratuita estiver esgotada; a solução é conectar um provider/assinar OpenCode Go ou trocar de modelo (não configurável pelo gerente — decisão/ação do usuário).
+- Antes de delegar qualquer tarefa, rode `git status --short` e evite que duas sessões toquem os mesmos arquivos (Big Picture e Desinstalar se sobrepõem em `main/` e Configurações — T3/T4/T5 do Desinstalar tocam `uninstaller.ts`, `index.ts`, preload e `Settings.tsx`).
 - `gerente/` (este arquivo incluído) e `.opencode/` são **novos e ainda não commitados** — decisão pendente do usuário.
 
 ## 5. O gerente (este agente)
 
+- **Trigger permanente (decidido em 13/11/2026):** sempre que o usuário disser **"novo GERENTE"** (ou "novo gerente" / "crie um novo gerente") no chat, criar imediatamente uma sessão de gerente nova — sem pedir confirmação. Número = `max(N) + 1` sobre as sessões `GERENTE*` existentes (ex.: `GERENTE3`). Ver também `.opencode/agents/gerente.md`, seção "Trigger phrases".
+- **Criação de sessões de gerente (receita que funciona nesta máquina):**
+  - CLI do app desktop (NÃO está no PATH): `%LOCALAPPDATA%\Programs\ai.opencode.desktop\resources\opencode-cli.exe`; servidor OpenCode 2.3.0 em `http://127.0.0.1:28894`.
+  - `opencode-cli api post /api/session --data '<JSON>'` cria a sessão; corpo `{"title":"GERENTE<N>","agent":"gerente","location":{"directory":"C:\\Users\\TiffoDi\\desenv\\Kolnd Hub"}}`.
+  - O agente `gerente` só aparece em `/api/agent` quando a **location** é o projeto Kolnd Hub (`?location[directory]=...`); o global não o lista.
+  - HTTP direto (fetch) retorna **401 Authentication required** — o CLI cuida da autenticação; não tente bater na porta à mão.
+  - **PowerShell quebra os argumentos** (o JSON chega mutilado): invoque o CLI de dentro de um script Node com `spawnSync(cli, ['api','post','/api/session','--data', corpo], { windowsHide: true })`. Scripts prontos (ver temperatura): `%TEMP%\opencode\create-session2.js` (cria sessão) e `list-sessions.js` (lista com `--data` não; usa `api get "/api/session?search=<texto>"`).
+  - Verificação: `api get "/api/session?search=GERENTE"` — todas as sessões GERENTE* com `agent: "gerente"` e location no repo.
 - **System prompt real:** `.opencode/agents/gerente.md` (agente primário `gerente`, modo do agente = gerente). `gerente/agente-gerente.md` é apenas um ponteiro.
-- **Sessão GERENTE:** título `GERENTE` · ID `ses_e2cadde8affe14em4BsHZlcjsL` · diretório = raiz do repositório.
+- **Sessões de gerente** (todas com agente primário `gerente`, diretório = raiz do repositório): título `GERENTE` · ID `ses_e2cadde8affe14em4BsHZlcjsL` · título `GERENTE1` · ID `ses_e293c88d1ffeYmZz7JSM0602xz` · título `GERENTE2` · ID `ses_e293c7bceffe4LG8oVPJYHaxir`. Criadas em 2026-11-13.
 - **Pasta `gerente/`:** `agente-gerente.md` (ponteiro) · `task.md` (template de plano) · `tasks/` (um `task.md` por tarefa, ex.: `tasks/<nome>-task.md`) · `memory.md` (este arquivo).
 - **`gerente/tasks/` está no `.gitignore` do repo — nunca commitar.** Os demais arquivos de `gerente/` e `.opencode/` são commitáveis quando o usuário decidir.
 - **Ao finalizar QUALQUER tarefa:** 1) marque a tarefa como concluída no `task.md` correspondente; 2) **verifique se este `memory.md` precisa de atualização** (novos caminhos, decisões, estado de build/CI, estrutura); 3) atualize-o se necessário; 4) reporte ao usuário o que foi feito e o que mudou aqui.

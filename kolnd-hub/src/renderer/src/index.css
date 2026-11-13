@@ -107,6 +107,11 @@
       transition-all duration-200 active:scale-95;
   }
 
+  /* Skeleton discreto para estados de carregamento */
+  .skeleton {
+    @apply bg-white/[0.05] rounded animate-pulse;
+  }
+
   /* Badges estilo Steam/console */
   .badge {
     @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider;

@@ -2,10 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Gamepad2, Gamepad, LogOut, X, Mouse, Undo2, Loader2 } from 'lucide-react'
-import { AppConfig, AppState } from '../types'
 import { BigPictureRail, BigPictureSection } from './BigPictureRail'
 import { BigPictureGames } from './BigPictureGames'
-import { BigPictureTools } from './BigPictureTools'
 import { BigPictureControls } from './BigPictureControls'
 import { GamepadSetup } from './GamepadSetup'
 import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPictureTransition'
@@ -27,10 +25,6 @@ interface BigPictureProps {
    * 'active' = home pronta.
    */
   mode: BigPictureMode
-  apps: AppConfig[]
-  appStates: Record<string, AppState>
-  /** Mesmo handler de launch do Hub (App.tsx → handleLaunch). */
-  onLaunchTool: (app: AppConfig) => void
   /** Sai do Big Picture: restaura a janela e devolve ao shell normal. */
   onExit: () => void
   /** Chamado quando o setup do gate é concluído (config persistida): entra direto na home. */
@@ -44,10 +38,9 @@ interface Toast {
   text: string
 }
 
-const SECTION_ORDER: BigPictureSection[] = ['games', 'tools', 'controls']
+const SECTION_ORDER: BigPictureSection[] = ['games', 'controls']
 const SECTION_PREFIX: Record<BigPictureSection, string> = {
   games: 'game:',
-  tools: 'tool:',
   controls: 'control:'
 }
 
@@ -290,18 +283,12 @@ function DisconnectOverlay(): JSX.Element {
 const noopGamepadAction = (): void => undefined
 
 interface ActiveViewProps {
-  apps: AppConfig[]
-  appStates: Record<string, AppState>
-  onLaunchTool: (app: AppConfig) => void
   onExit: () => void
   /** false durante a transição (T7): nenhum input de controle/teclado age na home. */
   inputEnabled?: boolean
 }
 
 function ActiveView({
-  apps,
-  appStates,
-  onLaunchTool,
   onExit,
   inputEnabled = true
 }: ActiveViewProps): JSX.Element {
@@ -660,9 +647,6 @@ function ActiveView({
 
         <div className="h-full pt-2">
           {section === 'games' && <BigPictureGames notify={notify} />}
-          {section === 'tools' && (
-            <BigPictureTools apps={apps} appStates={appStates} onLaunch={onLaunchTool} />
-          )}
           {section === 'controls' && <BigPictureControls notify={notify} />}
         </div>
       </main>
@@ -766,9 +750,6 @@ const EXIT_FADE_MS = 200
 
 export function BigPicture({
   mode,
-  apps,
-  appStates,
-  onLaunchTool,
   onExit,
   onSetupComplete,
   onTransitionComplete
@@ -833,9 +814,6 @@ export function BigPicture({
             style={{ visibility: ready ? 'visible' : 'hidden' }}
           >
             <ActiveView
-              apps={apps}
-              appStates={appStates}
-              onLaunchTool={onLaunchTool}
               onExit={handleExit}
               inputEnabled={ready && !leaving}
             />

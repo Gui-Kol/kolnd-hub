@@ -274,6 +274,49 @@ declare global {
       onFirstRunComplete: (
         callback: (result: { success: boolean; error?: string }) => void
       ) => () => void
+
+      // ── Desinstalação (Kloud Games e Hub) ────────────────────────
+      getKloudGamesUninstallStatus: () => Promise<{
+        ok: boolean
+        detection?: {
+          status: 'installed' | 'partial' | 'missing'
+          exePath: string | null
+          service: 'running' | 'stopped' | 'missing'
+          entry: {
+            productCode: string | null
+            uninstallString: string
+            displayName: string
+            displayVersion?: string
+            installLocation?: string
+            publisher?: string
+            scope: 'machine' | 'user' | 'both' | 'unknown'
+          } | null
+        }
+        error?: string
+      }>
+      uninstallKloudGames: () => Promise<{ success: boolean; error?: string }>
+      getHubUninstallStatus: () => Promise<{
+        available: boolean
+        uninstallerPath: string | null
+        isPackaged: boolean
+      }>
+      backupHubData: () => Promise<
+        | { success: true; path: string }
+        | { success: false; error: string }
+      >
+      openHubLogsFolder: () => Promise<void>
+      onUninstallProgress: (
+        callback: (data: {
+          stepId: string
+          status: 'running' | 'done' | 'error'
+          progress: number
+          message?: string
+        }) => void
+      ) => () => void
+      onUninstallLog: (callback: (line: string) => void) => () => void
+      onUninstallComplete: (
+        callback: (result: { success: boolean; error?: string; report?: unknown }) => void
+      ) => () => void
     }
   }
 }

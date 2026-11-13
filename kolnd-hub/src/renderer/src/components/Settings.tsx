@@ -13,13 +13,15 @@ import {
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
+import { UninstallDangerZone } from './UninstallDangerZone'
 
 interface SettingsProps {
   apps: AppConfig[]
   onSave: (apps: AppConfig[]) => void
+  onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
 }
 
-export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
+export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
   const [editedApps, setEditedApps] = useState<AppConfig[]>(apps.map((a) => ({ ...a })))
   const [saved, setSaved] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
@@ -336,6 +338,9 @@ export function Settings({ apps, onSave }: SettingsProps): JSX.Element {
           <AlertCircle size={13} /> {pickError}
         </p>
       )}
+
+      {/* ── Zona de perigo: desinstalação ──────────────── */}
+      <UninstallDangerZone onToast={onToast} />
 
       {/* ── Nota informativa ─────────────────────────── */}
       <motion.div

@@ -39,10 +39,16 @@ const EXE_NAME = 'KLOUD_GAMES.exe'
 const MSI_NAME = 'KLOUD_GAMES.msi'
 const STATE_FILE = 'kloud-games.paths.json'
 const LOG_FILE = join('logs', 'kloud-games-install.log')
+const UNINSTALL_LOG_FILE = join('logs', 'kloud-games-uninstall.log')
 
 /** Caminho do log de instalação em %APPDATA%\\kolnd-hub\\logs\\kloud-games-install.log. */
 export function getKloudGamesInstallLogPath(): string {
   return join(app.getPath('userData'), LOG_FILE)
+}
+
+/** Caminho do log de desinstalação em %APPDATA%\\kolnd-hub\\logs\\kloud-games-uninstall.log. */
+export function getKloudGamesUninstallLogPath(): string {
+  return join(app.getPath('userData'), UNINSTALL_LOG_FILE)
 }
 
 /** Acrescenta uma entrada carimbada ao log de instalação. Best-effort: nunca lança. */
@@ -55,6 +61,21 @@ function appendKloudGamesLog(entry: string): void {
   } catch (err) {
     console.warn(
       '[kloud-games] Não foi possível gravar o log de instalação:',
+      err instanceof Error ? err.message : err
+    )
+  }
+}
+
+/** Acrescenta uma entrada carimbada ao log de desinstalação. Best-effort: nunca lança. */
+export function appendKloudGamesUninstallLog(entry: string): void {
+  try {
+    const logPath = getKloudGamesUninstallLogPath()
+    mkdirSync(dirname(logPath), { recursive: true })
+    const stamp = new Date().toISOString()
+    appendFileSync(logPath, `[${stamp}] ${entry}\n`, 'utf8')
+  } catch (err) {
+    console.warn(
+      '[kloud-games] Não foi possível gravar o log de desinstalação:',
       err instanceof Error ? err.message : err
     )
   }
@@ -112,6 +133,26 @@ export function writeKloudGamesState(state: KloudGamesPathsState): boolean {
       `[kloud-games] Não foi possível salvar ${getKloudGamesStatePath()}:`,
       err instanceof Error ? err.message : err
     )
+    return false
+  }
+}
+
+/**
+ * Zera os campos de instalação do Kloud Games no kloud-games.paths.json (exePath,
+ * installedAt) sem apagar o arquivo nem o msiPath — usado após a desinstalação para
+ * que o fluxo de 1ª execução (`ensureKloudGamesInstalled`) possa reinstalar normalmente.
+ * Retorna true quando conseguiu gravar.
+ */
+export function resetKloudGamesState(): boolean {
+  try {
+    const state: KloudGamesPathsState = {
+      exePath: null,
+      msiPath: findKloudGamesMsi(),
+      installedAt: null,
+      updatedAt: new Date().toISOString()
+    }
+    return writeKloudGamesState(state)
+  } catch {
     return false
   }
 }
@@ -278,7 +319,7 @@ interface MsiInstallOutcome {
 }
 
 /** Detecta cancelamento do UAC a partir da saída do PowerShell (pt-BR/en, código 1223). */
-function looksLikeUacDenied(output: string): boolean {
+export function looksLikeUacDenied(output: string): boolean {
   return /cancelad|cancelled|canceled|1223|operation was canceled|operação foi cancelada/i.test(
     output
   )

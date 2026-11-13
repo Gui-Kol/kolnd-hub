@@ -1,7 +1,7 @@
-import { Gamepad2, Wrench, Gamepad, LogOut } from 'lucide-react'
+import { Gamepad2, Gamepad, LogOut } from 'lucide-react'
 import { useFocusable } from './BigPictureFocus'
 
-export type BigPictureSection = 'games' | 'tools' | 'controls'
+export type BigPictureSection = 'games' | 'controls'
 
 export interface BigPictureConnectionStatus {
   connected: boolean
@@ -118,13 +118,6 @@ export function BigPictureRail({
           label="Jogos"
           active={section === 'games'}
           onClick={() => onSelectSection('games')}
-        />
-        <RailItem
-          id="rail:tools"
-          icon={Wrench}
-          label="Ferramentas"
-          active={section === 'tools'}
-          onClick={() => onSelectSection('tools')}
         />
         <RailItem
           id="rail:controls"

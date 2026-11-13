@@ -374,6 +374,80 @@ const api = {
     ): void => callback(result)
     ipcRenderer.on('firstRun:complete', handler)
     return () => ipcRenderer.removeListener('firstRun:complete', handler)
+  },
+
+  // ── Desinstalação (Kloud Games e Hub) ────────────────────────
+  getKloudGamesUninstallStatus: (): Promise<{
+    ok: boolean
+    detection?: {
+      status: 'installed' | 'partial' | 'missing'
+      exePath: string | null
+      service: 'running' | 'stopped' | 'missing'
+      entry: {
+        productCode: string | null
+        uninstallString: string
+        displayName: string
+        displayVersion?: string
+        installLocation?: string
+        publisher?: string
+        scope: 'machine' | 'user' | 'both' | 'unknown'
+      } | null
+    }
+    error?: string
+  }> => ipcRenderer.invoke('uninstall:kloud-status'),
+
+  uninstallKloudGames: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('uninstall:kloud-games'),
+
+  getHubUninstallStatus: (): Promise<{
+    available: boolean
+    uninstallerPath: string | null
+    isPackaged: boolean
+  }> => ipcRenderer.invoke('uninstall:hub-status'),
+
+  backupHubData: (): Promise<
+    | { success: true; path: string }
+    | { success: false; error: string }
+  > => ipcRenderer.invoke('uninstall:backup-data'),
+
+  openHubLogsFolder: (): Promise<void> => ipcRenderer.invoke('uninstall:open-logs'),
+
+  onUninstallProgress: (
+    callback: (data: {
+      stepId: string
+      status: 'running' | 'done' | 'error'
+      progress: number
+      message?: string
+    }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: {
+        stepId: string
+        status: 'running' | 'done' | 'error'
+        progress: number
+        message?: string
+      }
+    ): void => callback(data)
+    ipcRenderer.on('uninstall:progress', handler)
+    return () => ipcRenderer.removeListener('uninstall:progress', handler)
+  },
+
+  onUninstallLog: (callback: (line: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, line: string): void => callback(line)
+    ipcRenderer.on('uninstall:log', handler)
+    return () => ipcRenderer.removeListener('uninstall:log', handler)
+  },
+
+  onUninstallComplete: (
+    callback: (result: { success: boolean; error?: string; report?: unknown }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      result: { success: boolean; error?: string; report?: unknown }
+    ): void => callback(result)
+    ipcRenderer.on('uninstall:complete', handler)
+    return () => ipcRenderer.removeListener('uninstall:complete', handler)
   }
 }
 
