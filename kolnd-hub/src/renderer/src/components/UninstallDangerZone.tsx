@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { UninstallKloudGamesModal } from './UninstallKloudGamesModal'
+import { UninstallHubModal } from './UninstallHubModal'
 
 export interface UninstallDangerZoneProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
@@ -27,6 +28,7 @@ interface KloudState {
 
 interface HubState {
   available: boolean | null
+  isPackaged: boolean
   loading: boolean
 }
 
@@ -39,10 +41,12 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
   )
 
   const [kloud, setKloud] = useState<KloudState>({ status: null, detection: null, loading: true })
-  const [hub, setHub] = useState<HubState>({ available: null, loading: true })
+  const [hub, setHub] = useState<HubState>({ available: null, isPackaged: false, loading: true })
   const [uninstalling, setUninstalling] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [hubModalOpen, setHubModalOpen] = useState(false)
   const originRef = useRef<HTMLButtonElement | null>(null)
+  const originHubRef = useRef<HTMLButtonElement | null>(null)
 
   const loadKloud = useCallback(async (): Promise<void> => {
     try {
@@ -92,10 +96,10 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
     window.api
       .getHubUninstallStatus()
       .then((res) => {
-        if (mounted) setHub({ available: res.available, loading: false })
+        if (mounted) setHub({ available: res.available, isPackaged: res.isPackaged, loading: false })
       })
       .catch(() => {
-        if (mounted) setHub({ available: false, loading: false })
+        if (mounted) setHub({ available: false, isPackaged: false, loading: false })
       })
     return (): void => {
       mounted = false
@@ -117,11 +121,23 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
     setModalOpen(true)
   }, [])
 
+  const handleHubModalClose = useCallback((): void => {
+    setUninstalling(false)
+    setHubModalOpen(false)
+    originHubRef.current?.focus()
+  }, [])
+
+  const handleHubUninstallClick = useCallback((): void => {
+    setHubModalOpen(true)
+  }, [])
+
   const kloudRunning = kloud.detection?.service === 'running'
   const kloudPartial = kloud.status === 'partial'
   const kloudMissing = kloud.status === 'missing'
   const kloudEnabled = (kloud.status === 'installed' || kloud.status === 'partial') && !uninstalling
   const buttonDisabled = !kloudEnabled
+  // O Hub só pode ser desinstalado no app empacotado com o desinstalador NSIS presente.
+  const hubEnabled = !uninstalling && !hub.loading && hub.isPackaged && hub.available === true
 
   const statusText = (): string => {
     if (kloud.loading) return 'Carregando status…'
@@ -254,9 +270,11 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
               </div>
             ) : (
               <span className="text-xs font-mono text-slate-400">
-                {hub.available
-                  ? 'Disponível no app instalado'
-                  : 'Indisponível neste modo (desenvolvimento)'}
+                {!hub.isPackaged
+                  ? 'Disponível apenas no app instalado'
+                  : hub.available
+                    ? 'Disponível no app instalado'
+                    : 'Desinstalador não encontrado'}
               </span>
             )}
           </div>
@@ -264,14 +282,31 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled
-              aria-disabled={true}
-              title="Disponível na próxima etapa"
-              className="btn-danger opacity-50 cursor-not-allowed"
+              ref={originHubRef}
+              disabled={!hubEnabled}
+              aria-disabled={!hubEnabled}
+              title={
+                hub.loading
+                  ? 'Carregando status…'
+                  : !hub.isPackaged
+                    ? 'Disponível apenas no app instalado'
+                    : !hub.available
+                      ? 'Desinstalador não encontrado — desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub'
+                      : uninstalling
+                        ? 'Desinstalação em andamento'
+                        : undefined
+              }
+              className={`btn-danger ${!hubEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={handleHubUninstallClick}
             >
               <Trash2 size={14} />
-              Desinstalar Kolnd Hub
+              {uninstalling ? 'Em execução' : 'Desinstalar Kolnd Hub'}
             </button>
+            {uninstalling && (
+              <span className="badge bg-red-500/10 border border-red-500/20 text-red-400">
+                Em execução
+              </span>
+            )}
           </div>
         </motion.div>
       </div>
@@ -282,6 +317,15 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
           isRunning={kloudRunning}
           isPartial={kloudPartial}
           onClose={handleModalClose}
+          onRunningChange={setUninstalling}
+          onToast={showToast}
+        />
+      )}
+
+      {hubModalOpen && (
+        <UninstallHubModal
+          open
+          onClose={handleHubModalClose}
           onRunningChange={setUninstalling}
           onToast={showToast}
         />

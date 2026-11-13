@@ -304,6 +304,15 @@ declare global {
         | { success: true; path: string }
         | { success: false; error: string }
       >
+      uninstallHub: (args: {
+        wipeUserData?: boolean
+        skipKloud?: boolean
+        backupPath?: string | null
+      }) => Promise<{
+        success: boolean
+        paused?: boolean
+        error?: string
+      }>
       openHubLogsFolder: () => Promise<void>
       onUninstallProgress: (
         callback: (data: {
@@ -315,7 +324,16 @@ declare global {
       ) => () => void
       onUninstallLog: (callback: (line: string) => void) => () => void
       onUninstallComplete: (
-        callback: (result: { success: boolean; error?: string; report?: unknown }) => void
+        callback: (result: {
+          success: boolean
+          error?: string
+          report?: unknown
+          paused?: boolean
+          kloudError?: string
+          stage?: string
+          needsReboot?: boolean
+          wipeErrors?: string[]
+        }) => void
       ) => () => void
     }
   }

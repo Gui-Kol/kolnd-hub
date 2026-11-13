@@ -20,7 +20,7 @@ import { registerConfigIpc, registerPrefsIpc } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
-import { registerUninstallIpc } from './uninstaller'
+import { registerUninstallIpc, runHubUninstallSteps, isHubUninstallInProgress, uninstaller } from './uninstaller'
 import { registerGamesIpc } from './games'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
@@ -359,6 +359,40 @@ app.whenReady().then(() => {
   ipcMain.handle('app:shutdown', async () => {
     await shutdownHub()
     return { success: true }
+  })
+
+  // ── IPC: Desinstalar o Kolnd Hub (T5) ────────────
+  // Orquestra: Kloud Games (fluxo T2) → backup (log) → wipe opcional de
+  // %APPDATA%\kolnd-hub → spawn desanexado do desinstalador NSIS → encerramento
+  // do Hub. Os eventos (progress/log/complete) fluem para o renderer pelo
+  // registerUninstallIpc; aqui só validamos, executamos e decidimos o fechamento.
+  ipcMain.handle('uninstall:hub', async (_event, rawArgs: unknown) => {
+    if (uninstaller.isBusy() || isHubUninstallInProgress()) {
+      return {
+        success: false,
+        error: 'Desinstalação já em andamento. Aguarde o término e tente de novo.'
+      }
+    }
+
+    const result = await runHubUninstallSteps(rawArgs, (evt) => {
+      mainWindow?.webContents.send('uninstall:progress', evt)
+    })
+
+    if (result.ok && result.spawned) {
+      // O desinstalador NSIS já está desanexado rodando — agora encerramos o
+      // Hub exatamente como app:shutdown (killAll + destroy + app.quit).
+      await shutdownHub()
+      return { success: true }
+    }
+
+    // Erro amigável (desinstalador não encontrado, spawn falhou) ou pausa
+    // pedindo decisão ("desinstalar só o Hub?"): o app NÃO fecha e a UI
+    // continua mostrando a(s) fase(s) do modal.
+    return {
+      success: false,
+      paused: result.paused ?? false,
+      error: result.error
+    }
   })
 
   /**

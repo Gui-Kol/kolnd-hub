@@ -410,6 +410,16 @@ const api = {
     | { success: false; error: string }
   > => ipcRenderer.invoke('uninstall:backup-data'),
 
+  uninstallHub: (args: {
+    wipeUserData?: boolean
+    skipKloud?: boolean
+    backupPath?: string | null
+  }): Promise<{
+    success: boolean
+    paused?: boolean
+    error?: string
+  }> => ipcRenderer.invoke('uninstall:hub', args),
+
   openHubLogsFolder: (): Promise<void> => ipcRenderer.invoke('uninstall:open-logs'),
 
   onUninstallProgress: (
@@ -440,11 +450,29 @@ const api = {
   },
 
   onUninstallComplete: (
-    callback: (result: { success: boolean; error?: string; report?: unknown }) => void
+    callback: (result: {
+      success: boolean
+      error?: string
+      report?: unknown
+      paused?: boolean
+      kloudError?: string
+      stage?: string
+      needsReboot?: boolean
+      wipeErrors?: string[]
+    }) => void
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      result: { success: boolean; error?: string; report?: unknown }
+      result: {
+        success: boolean
+        error?: string
+        report?: unknown
+        paused?: boolean
+        kloudError?: string
+        stage?: string
+        needsReboot?: boolean
+        wipeErrors?: string[]
+      }
     ): void => callback(result)
     ipcRenderer.on('uninstall:complete', handler)
     return () => ipcRenderer.removeListener('uninstall:complete', handler)

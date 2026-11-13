@@ -1,8 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { EventEmitter } from 'events'
-import { execFileSync, spawn } from 'child_process'
-import { cpSync, existsSync, mkdirSync, rmSync } from 'fs'
-import { dirname, join } from 'path'
+import { execFileSync, spawn, type ChildProcess } from 'child_process'
+import { cpSync, existsSync, mkdirSync, readdirSync, rmdirSync, rmSync } from 'fs'
+import { basename, dirname, join } from 'path'
 import {
   detectKloudGames,
   findHubUninstaller,
@@ -295,6 +295,368 @@ export async function uninstallKloudGames(
   return uninstaller.uninstall(emit)
 }
 
+// ── Fluxo "Desinstalar Kolnd Hub" (T5) ─────────────────────────────────
+
+/** Argumentos do `uninstall:hub` — já normalizados por `normalizeHubUninstallArgs`. */
+export interface HubUninstallArgs {
+  /** Apagar %APPDATA%\kolnd-hub inteiro (irreversível). Default: false (nunca apaga). */
+  wipeUserData: boolean
+  /** Pular a etapa do Kloud Games (o usuário escolheu desinstalar só o Hub). Default: false. */
+  skipKloud: boolean
+  /** Caminho do backup feito antes da confirmação (só entra no log). Default: null. */
+  backupPath: string | null
+}
+
+/** Steps do fluxo do Hub reemitidos em `uninstall:progress`. */
+export const HUB_UNINSTALL_STEPS = ['kloud', 'backup', 'wipe', 'spawn', 'done'] as const
+
+/** Resultado retornado pelo `uninstall:hub` ao main (que decide o encerramento). */
+export interface HubUninstallResult {
+  ok: boolean
+  error?: string
+  /** true quando o desinstalador NSIS foi iniciado (app deve fechar em seguida). */
+  spawned?: boolean
+  /** true quando a etapa do Kloud Games falhou e a UI deve perguntar "só o Hub?". */
+  paused?: boolean
+  kloudError?: string
+  wipeErrors?: string[]
+}
+
+/** Payload de `uninstall:complete` emitido pelo fluxo do Hub. */
+export interface HubUninstallComplete {
+  success: boolean
+  error?: string
+  paused?: boolean
+  kloudError?: string
+  stage?: string
+  wipeErrors?: string[]
+}
+
+/** StepIds internos do fluxo do Kloud Games (não devem chegar crus à UI do Hub). */
+const KLOUD_SUBSTEP_IDS = new Set(['check', 'kill', 'msiexec', 'verify', 'cleanup', 'done'])
+
+/** Guarda de reentrância do fluxo completo do Hub (a T2 tem a dela no Uninstaller). */
+let hubUninstallInProgress = false
+
+export function isHubUninstallInProgress(): boolean {
+  return hubUninstallInProgress
+}
+
+/** Mantém o renderer livre de eventos crus do subfluxo do Kloud Games. */
+export function isKloudSubstepEvent(stepId: string): boolean {
+  return KLOUD_SUBSTEP_IDS.has(stepId)
+}
+
+/**
+ * Valida/normaliza o payload cru do IPC `uninstall:hub`.
+ * Default-safe: qualquer coisa fora do formato vira wipe=false / skipKloud=false / sem backup.
+ */
+export function normalizeHubUninstallArgs(raw: unknown): HubUninstallArgs {
+  const obj =
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {}
+  const wipeUserData = obj.wipeUserData === true
+  const skipKloud = obj.skipKloud === true
+  const backupPathRaw = obj.backupPath
+  const backupPath =
+    typeof backupPathRaw === 'string' && backupPathRaw.trim().length > 0
+      ? backupPathRaw.trim().slice(0, 1024)
+      : null
+  return { wipeUserData, skipKloud, backupPath }
+}
+
+export interface HubWipeItemError {
+  item: string
+  error: string
+}
+
+export interface HubWipeResult {
+  /** Entradas top-level encontradas ANTES de apagar (inventário). */
+  inventory: string[]
+  /** Entradas apagadas com sucesso. */
+  deleted: string[]
+  /** Falhas item a item (não impedem os demais). */
+  errors: HubWipeItemError[]
+}
+
+/**
+ * Apaga recursivamente o conteúdo de `rootDir`, tolerando falhas item a item.
+ *
+ * Segurança: só opera dentro de uma pasta chamada `kolnd-hub` — nunca toca em
+ * nada fora de %APPDATA%\kolnd-hub. O `rootDir` é sempre resolvido por quem
+ * chama; aqui há apenas uma trava extra de `basename`.
+ */
+export function wipeKolndHubUserData(
+  rootDir: string,
+  log: (line: string) => void,
+  onItem: (item: string, ok: boolean, error?: string) => void,
+  onInventory?: (count: number) => void
+): HubWipeResult {
+  const result: HubWipeResult = { inventory: [], deleted: [], errors: [] }
+
+  // Trava de segurança: nunca operar fora de ...\kolnd-hub.
+  if (basename(join(rootDir, '.')).toLowerCase() !== 'kolnd-hub') {
+    const message = `Recusando apagar pasta inesperada (esperado '...\\kolnd-hub'): ${rootDir}`
+    log(`[wipe] ${message}\n`)
+    result.errors.push({ item: rootDir, error: message })
+    return result
+  }
+
+  let entries: string[]
+  try {
+    entries = readdirSync(rootDir).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (existsSync(rootDir)) {
+      // Pasta existe mas não pôde ser lida (permissão/bloqueio).
+      log(`[wipe] Não foi possível ler o inventário de ${rootDir}: ${message}\n`)
+    } else {
+      log('[wipe] %APPDATA%\\kolnd-hub não existe — nada para apagar.\n')
+    }
+    result.errors.push({ item: rootDir, error: message })
+    return result
+  }
+
+  result.inventory = entries
+  onInventory?.(entries.length)
+  log(
+    `[wipe] Inventário de %APPDATA%\\kolnd-hub (${entries.length} ${entries.length === 1 ? 'item' : 'itens'}): ${entries.join(', ') || '(pasta vazia)'}\n`
+  )
+
+  for (const entry of entries) {
+    const target = join(rootDir, entry)
+    try {
+      rmSync(target, { recursive: true, force: true })
+      result.deleted.push(entry)
+      log(`[wipe] Apagado: ${entry}\n`)
+      onItem(entry, true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      result.errors.push({ item: entry, error: message })
+      log(`[wipe] Falha ao apagar ${entry}: ${message}\n`)
+      onItem(entry, false, message)
+    }
+  }
+
+  // Se sobrou alguma coisa (falhas), a pasta permanece com esses itens; senão, remove a raiz.
+  try {
+    rmdirSync(rootDir)
+  } catch {
+    // Não vazia ou indisponível — os itens com falha ficam para o laudo.
+  }
+
+  return result
+}
+
+/** Spawn desanexado do desinstalador NSIS; resolve no evento 'spawn', rejeita no 'error'. */
+export function spawnHubUninstaller(uninstallerPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let child: ChildProcess
+    try {
+      child = spawn(uninstallerPath, [], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false
+      })
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)))
+      return
+    }
+
+    const cleanup = (): void => {
+      child.removeListener('error', onError)
+      child.removeListener('spawn', onSpawn)
+    }
+    const onError = (err: Error): void => {
+      cleanup()
+      reject(err)
+    }
+    const onSpawn = (): void => {
+      cleanup()
+      try {
+        child.unref()
+      } catch {
+        // Melhor esforço: o processo desanexado já foi criado.
+      }
+      resolve()
+    }
+
+    child.on('error', onError)
+    child.on('spawn', onSpawn)
+  })
+}
+
+const HUB_UNINSTALLER_NOT_FOUND =
+  'Desinstalador não encontrado — desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub'
+
+/**
+ * Sequência completa "Desinstalar Kolnd Hub".
+ *
+ * ORDEM (obrigatória — não inverter):
+ *   0. resolver o desinstalador (findHubUninstaller) — ANTES de qualquer destruição;
+ *   1. kloud  — reusa o fluxo da T2 (`uninstallKloudGames`); falha ⇒ emite
+ *               `uninstall:complete` { paused: true, stage: 'kloud' } e PARA;
+ *   2. backup — apenas loga "backup já feito em <caminho>" (o backup é voluntário
+ *               e feito pela UI antes da confirmação, via `uninstall:backup-data`);
+ *   3. wipe   — só se `wipeUserData === true`; apagar a pasta inteira
+ *               %APPDATA%\kolnd-hub item a item, tolerando falhas;
+ *   4. spawn  — inicia o desinstalador NSIS desanexado;
+ *   5. quem chamou encerra o Hub (killAll + destroy + app.quit) se spawned.
+ *
+ * Nunca apaga nada fora de %APPDATA%\kolnd-hub. O guard de reentrância impede
+ * duas execuções simultâneas — o mesmo erro da T2.
+ */
+export async function runHubUninstallSteps(
+  rawArgs: unknown,
+  emit: (evt: UninstallProgress) => void
+): Promise<HubUninstallResult> {
+  if (hubUninstallInProgress) {
+    return {
+      ok: false,
+      error: 'Desinstalação já em andamento. Aguarde o término e tente de novo.'
+    }
+  }
+  hubUninstallInProgress = true
+
+  const args = normalizeHubUninstallArgs(rawArgs)
+  const log = (line: string): void => {
+    uninstaller.emit('log', line)
+  }
+  const progress = (
+    stepId: (typeof HUB_UNINSTALL_STEPS)[number],
+    status: UninstallProgress['status'],
+    progressValue: number,
+    message?: string
+  ): void => {
+    emit({ stepId, status, progress: Math.max(0, Math.min(100, Math.round(progressValue))), message })
+  }
+  const complete = (result: HubUninstallComplete): void => {
+    uninstaller.emit('complete', result)
+  }
+
+  try {
+    // ── Etapa 0 — resolver o desinstalador (antes de QUALQUER destruição) ──
+    log('[spawn] Resolvendo o caminho do desinstalador do Kolnd Hub…\n')
+    const hubUninstaller = findHubUninstaller()
+    if (!app.isPackaged || !hubUninstaller.available || !hubUninstaller.uninstallerPath) {
+      log(`[spawn] ${HUB_UNINSTALLER_NOT_FOUND}\n`)
+      progress('spawn', 'error', 0, HUB_UNINSTALLER_NOT_FOUND)
+      complete({ success: false, error: HUB_UNINSTALLER_NOT_FOUND, stage: 'spawn' })
+      return { ok: false, error: HUB_UNINSTALLER_NOT_FOUND }
+    }
+    log(
+      `[spawn] Desinstalador localizado: ${hubUninstaller.uninstallerPath} (fonte: ${hubUninstaller.source ?? 'desconhecida'})\n`
+    )
+
+    // ── Etapa kloud ─────────────────────────────────────────────────────
+    if (args.skipKloud) {
+      log('[kloud] Pulando o Kloud Games (você escolheu desinstalar só o Hub).\n')
+      progress('kloud', 'done', 70, 'Kloud Games pulado')
+    } else {
+      progress('kloud', 'running', 5, 'Verificando o Kloud Games…')
+      const detection = detectKloudGames()
+      if (detection.status === 'missing') {
+        log('[kloud] Kloud Games não instalado — pulando.\n')
+        progress('kloud', 'done', 70, 'Kloud Games não instalado — pulando')
+      } else {
+        const report = await uninstallKloudGames((evt: UninstallProgress) => {
+          // Mapeia o 0–100 do fluxo da T2 para a faixa kloud (0–70) do fluxo do Hub.
+          progress('kloud', evt.status, evt.progress * 0.7, evt.message)
+        })
+
+        if (!report.success) {
+          const kloudError =
+            report.error ?? 'Falha desconhecida ao desinstalar o Kloud Games.'
+          log(`[kloud] Falha ao desinstalar o Kloud Games: ${kloudError}\n`)
+          appendKloudGamesUninstallLog(
+            `Desinstalação do Kolnd Hub pausada na etapa kloud: ${kloudError}`
+          )
+          complete({ success: false, paused: true, kloudError, stage: 'kloud' })
+          return { ok: false, paused: true, kloudError }
+        }
+        progress('kloud', 'done', 70, 'Kloud Games desinstalado')
+      }
+    }
+
+    // ── Etapa backup — só loga (o backup é voluntário e já aconteceu, se houve) ──
+    if (args.backupPath) {
+      log(`[backup] Backup já feito em ${args.backupPath}\n`)
+      progress('backup', 'done', 78, `Backup salvo em ${args.backupPath}`)
+    } else {
+      log('[backup] Nenhum backup informado — seguindo sem cópia dos seus dados.\n')
+      progress('backup', 'done', 78, 'Sem backup (opcional)')
+    }
+
+    // ── Etapa wipe — só se o usuário escolheu apagar os dados ────────────
+    let wipeErrors: string[] | undefined
+    if (args.wipeUserData) {
+      progress('wipe', 'running', 80, 'Apagando seus dados em %APPDATA%\\kolnd-hub…')
+      const rootDir = join(app.getPath('appData'), 'kolnd-hub')
+      let wipeTotal = 1
+      let wipeDone = 0
+      const wipe = wipeKolndHubUserData(
+        rootDir,
+        log,
+        (_item, ok) => {
+          wipeDone += 1
+          if (ok) {
+            // Faixa do wipe: 80 → 92 (12 pontos distribuídos pelos itens).
+            progress('wipe', 'running', 80 + (wipeDone * 12) / wipeTotal)
+          }
+        },
+        (count) => {
+          if (count > 0) wipeTotal = count
+        }
+      )
+      wipeErrors = wipe.errors.map((e) => `${e.item}: ${e.error}`)
+      if (wipe.errors.length > 0) {
+        log(
+          `[wipe] ${wipe.errors.length} ${wipe.errors.length === 1 ? 'item falhou' : 'itens falharam'} — o desinstalador seguirá mesmo assim. Veja os itens acima.\n`
+        )
+        progress(
+          'wipe',
+          'done',
+          92,
+          `Dados apagados com ${wipe.errors.length} falha(s) — detalhes no log`
+        )
+      } else {
+        progress('wipe', 'done', 92, 'Seus dados foram apagados')
+      }
+    } else {
+      log('[wipe] wipeUserData=false — nada será apagado (dados e configurações preservados).\n')
+      progress('wipe', 'done', 92, 'Seus dados foram mantidos')
+    }
+
+    // ── Etapa spawn — inicia o desinstalador NSIS ────────────────────────
+    progress('spawn', 'running', 96, 'Iniciando o desinstalador do Kolnd Hub…')
+    log('[spawn] Iniciando o desinstalador (per-user, sem exigir admin)…\n')
+    try {
+      await spawnHubUninstaller(hubUninstaller.uninstallerPath)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const error = `Não foi possível iniciar o desinstalador do Kolnd Hub: ${message}. Desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub.`
+      log(`[spawn] ${error}\n`)
+      complete({ success: false, error, stage: 'spawn' })
+      return { ok: false, error }
+    }
+    log('[spawn] Desinstalador iniciado. O Kolnd Hub será encerrado para ele assumir.\n')
+    progress('spawn', 'done', 100, 'Desinstalador iniciado')
+    progress('done', 'done', 100, 'Concluído')
+    log('[done] Kolnd Hub sendo encerrado — o desinstalador do Windows conclui o resto.\n')
+    complete({ success: true, stage: 'spawn', wipeErrors })
+    return { ok: true, spawned: true, wipeErrors }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const error = `Falha inesperada na desinstalação do Kolnd Hub: ${message}`
+    log(`[hub] ${error}\n`)
+    complete({ success: false, error, stage: 'unknown' })
+    return { ok: false, error }
+  } finally {
+    hubUninstallInProgress = false
+  }
+}
+
 /** Reexporta a tabela pura de códigos do msiexec (T1) para uso/testes da T2/T6. */
 export { mapMsiexecExitCode }
 export type { MsiexecExitCodeResult }
@@ -338,14 +700,27 @@ function removeTempKloudGamesDir(): void {
   }
 }
 
+/** Completions emitidos pelo fluxo do Hub sempre carregam `stage` — distingue do laudo da T2. */
+function isHubUninstallComplete(result: unknown): boolean {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    typeof (result as { stage?: unknown }).stage === 'string'
+  )
+}
+
 /**
- * Registra os canais IPC de desinstalação do Kloud Games (e disponibilidade do
- * desinstalador do Hub). O fluxo completo "Desinstalar Kolnd Hub" (`uninstall:hub`)
- * fica para a T5.
+ * Registra os canais IPC de desinstalação do Kloud Games e do Kolnd Hub (T5).
+ * O canal `uninstall:hub` em si é registrado em `main/index.ts` (junto a
+ * `shutdownHub`); aqui ficam os ouvintes que reenviam os eventos.
  */
 export function registerUninstallIpc(getWindow: () => BrowserWindow | null): void {
   // Reencaminha eventos do Uninstaller para o renderer.
+  // Durante o fluxo do Hub (T5), os eventos crus do subfluxo do Kloud Games
+  // (check/kill/msiexec/… e o laudo final) são ignorados: o Hub reemite seus
+  // próprios eventos de progresso/complete com os steps do Hub.
   uninstaller.on('progress', (data: UninstallProgress) => {
+    if (isHubUninstallInProgress() && isKloudSubstepEvent(data.stepId)) return
     getWindow()?.webContents.send('uninstall:progress', data)
   })
 
@@ -354,6 +729,7 @@ export function registerUninstallIpc(getWindow: () => BrowserWindow | null): voi
   })
 
   uninstaller.on('complete', (result: UninstallReport) => {
+    if (isHubUninstallInProgress() && !isHubUninstallComplete(result)) return
     getWindow()?.webContents.send('uninstall:complete', result)
   })
 
