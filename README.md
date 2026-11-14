@@ -107,15 +107,7 @@ O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%
 
 ### Checklist de release: verificação da desinstalação
 
-Antes de publicar cada release, verifique em uma máquina/VM limpa com o instalador gerado:
-
-1. Instale o release e abra o Hub uma vez (conclua a primeira execução);
-2. Desinstale pela "Zona de perigo" **ou** pelo Windows (Configurações → Aplicativos → Kolnd Hub);
-3. **Confirme que `%APPDATA%\kolnd-hub` foi preservado**: `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log` e — se o rebuild 01-1.9 estiver no ar — `mark-lvi\`;
-4. Confirme que o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`) foi removido;
-5. (Esperado, build atual) Confirme que o espelho `%APPDATA%\kolnd-hub\mark-lvi` sobreviveu e que o conteúdo ao lado do `MarkLVI.exe` foi removido — documente na release note que a chave de API/memória migradas ficam no espelho e que subpastas (`certs\`, `whatsapp_web\`) **não** são espelhadas.
-
-O checklist completo de primeira execução/release pertence à tarefa 11-11.2; esta seção é o recorte de desinstalação enquanto o `docs/FIRST-RUN-CHECKLIST.md` não existe.
+A verificação da desinstalação em máquina/VM limpa faz parte do processo de release e **não é duplicada aqui**. A fonte única é o [`docs/RELEASE.md`](docs/RELEASE.md) — seção "Passo 5 — Verificar desinstalação". Em resumo: instale o release → desinstale (botão do Hub ou Windows) → confirme que `%APPDATA%\kolnd-hub` foi preservado (`config.json`, `first-run-complete.flag`, `logs\`) e que o diretório de instalação foi removido, incluindo `resources\programs\MarkLVI\`.
 
 ### Logs de desinstalação
 
@@ -125,6 +117,8 @@ O checklist completo de primeira execução/release pertence à tarefa 11-11.2; 
 - Os logs ficam dentro de `%APPDATA%\kolnd-hub\logs\`, ou seja: só deixam de existir se você escolher "Apagar também meus dados e configurações".
 
 ## Build do instalador
+
+> O processo completo de release — do bump de versão à publicação com checksum — está em [`docs/RELEASE.md`](docs/RELEASE.md) (fonte única do processo).
 
 ### Um comando (recomendado)
 
@@ -194,7 +188,7 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 - Instalação **por usuário** mantém a pasta gravável. O Mark LVI (reconstruído com `core/paths.py`) grava a chave de API e a memória em `%APPDATA%\kolnd-hub\mark-lvi` (o Hub define `MARK_LVI_HOME` e semeia os dados ao lado do executável automaticamente). Enquanto o Mark LVI não for reconstruído, ele grava ao lado do próprio executável; nesses casos a instalação deve permanecer em `%LOCALAPPDATA%` (o instalador não permite trocar o diretório de propósito). O desinstalador remove o diretório da instalação inteiro — inclusive dados gravados ao lado do executável; o que estiver em `%APPDATA%\kolnd-hub` é preservado (veja **Desinstalação**).
 - O instalador dispara UAC para instalar Python (se necessário) e o MSI do Kloud Games (serviço + firewall).
 - Por ser um `.exe` único que baixa/executa instaladores, pode ser sinalizado como falso positivo pelo Defender — para distribuição pública, assine o código (ver detalhes em `kolnd-hub/README.md`, seção "Primeira execução, UAC e antivírus").
-- A validação completa em máquina limpa (VM/Sandbox) ainda está pendente; a instalação de Python via winget e a instalação do MSI do Kloud Games não foram exercitadas em ambiente limpo. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot.
+- A validação completa em máquina limpa (VM/Sandbox) ainda está pendente; a instalação de Python via winget e a instalação do MSI do Kloud Games não foram exercitadas em ambiente limpo. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa").
 
 ## Licenças
 
@@ -207,6 +201,7 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 ## Documentação adicional
 
 - `kolnd-hub/README.md` — detalhes do aplicativo (comandos, qualidade/CI, primeira execução, UAC e antivírus, solução de problemas)
+- `docs/RELEASE.md` — guia/checklist de release passo a passo (fonte única do processo)
 - `Mark-LVI/readme.md` — documentação do assistente JARVIS
 - `kloud-games/AGENTS.md` — instruções de build/teste do Kloud Games
 - Repositório: [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub)

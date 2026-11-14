@@ -86,6 +86,8 @@ Nas próximas aberturas o app vai direto para o dashboard. A flag fica em `%APPD
 
 ## Gerando o instalador com tudo embutido
 
+> O processo completo de release — bump de versão, teste em máquina limpa, build, verificação da desinstalação e publicação com checksum — está em [`../docs/RELEASE.md`](../docs/RELEASE.md) (fonte única do processo; este README não o duplica).
+
 O instalador único (`Kolnd Hub Setup <versão>.exe`) embute os programas que o Hub precisa, via `extraResources` no `electron-builder.yml` (eles ficam em `<instalação>/resources/programs/...`):
 
 | Programa          | Origem                         | Status                                                                                                                                            |
@@ -139,7 +141,7 @@ As configurações são salvas no **electron-store** (`%APPDATA%\kolnd-hub\confi
 
 Por padrão os comandos rodam via **shell (cmd.exe)** — preserva aspas e argumentos. Desative "Executar via shell" em Configurações apenas para comandos simples, sem aspas/argumentos complexos: nesse caso a linha é separada em argv e o processo é executado **sem** interpretação de shell.
 
-> ⚠️ A instalação do MSI do Kloud Games na primeira execução **ainda não foi validada em máquina limpa** (sem Python/winget pré-instalados e com UAC aprovado). A validação ficou pendente — veja a seção de primeira execução acima.
+> ⚠️ A instalação do MSI do Kloud Games na primeira execução **ainda não foi validada em máquina limpa** (sem Python/winget pré-instalados e com UAC aprovado). A validação ficou pendente — veja a seção de primeira execução acima e o roteiro completo em [`../docs/RELEASE.md`](../docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa").
 
 ## Modo Big Picture
 
