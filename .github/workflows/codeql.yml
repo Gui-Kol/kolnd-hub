@@ -1,0 +1,31 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main, Dev]
+  pull_request:
+  schedule:
+    # Semanal (segunda-feira, 06:00 UTC)
+    - cron: "0 6 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      # Necessário para publicar resultados na aba Security
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript

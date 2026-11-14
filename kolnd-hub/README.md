@@ -35,7 +35,13 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
-- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → typecheck → lint → format:check → testes → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefato: `dist/Kolnd Hub Setup *.exe` (7 dias).
+- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefato: `dist/Kolnd Hub Setup *.exe` (7 dias).
+
+### Auditoria de dependências e segurança (CI)
+
+- **Audit (informativo)** — o step `npm audit --audit-level=high` roda em todo push/PR, mas tem `continue-on-error: true`: **não reprova o build**. Ele existe para dar visibilidade a CVEs conhecidas em dependências (ex.: Electron 28 fora de suporte); cada vulnerabilidade high/critical encontrada vira item/issue próprio, não é corrigida no CI. **Bloqueante é uma promoção futura**: só tornar o step bloqueante depois de zerar os highs atuais — até lá, falha de audit no log = sinal de atenção, não de build quebrado.
+- **Dependabot** (`.github/dependabot.yml`) — atualização semanal de dependências npm (`/kolnd-hub`) e de GitHub Actions (`/`), com limite de 5 PRs abertos e labels `dependencies`. Apenas minor/patch são propostos automaticamente; majors ficam para avaliação manual.
+- **CodeQL** (`.github/workflows/codeql.yml`) — análise estática `javascript-typescript` em push (`main`/`Dev`), PRs e schedule semanal. O repositório é **privado**: o CodeQL só executa se o GitHub Advanced Security estiver habilitado no repositório/organização; caso contrário, o workflow fica configurado mas não roda (sem custo nem bloqueio de CI). Resultados aparecem na aba **Security** quando disponível.
 
 ## Verificação pré-commit: `npm run verify`
 
