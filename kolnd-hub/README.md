@@ -26,6 +26,9 @@ npm run typecheck # tsc --noEmit nos projetos main e renderer
 npm test          # testes unitários (Vitest) de renderer/lib e main
 npm run lint      # ESLint (flat config, typescript-eslint + react-hooks)
 npm run format    # Prettier --write
+
+npm run verify    # typecheck → lint → format:check → testes (gate único pré-commit)
+npm run verify:build # verify + build (gate completo antes de empacotar)
 ```
 
 ## Qualidade e CI
@@ -33,6 +36,27 @@ npm run format    # Prettier --write
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
 - **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → typecheck → lint → format:check → testes → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefato: `dist/Kolnd Hub Setup *.exe` (7 dias).
+
+## Verificação pré-commit: `npm run verify`
+
+Um único comando roda toda a porta de qualidade local, na ordem:
+
+```bash
+npm run verify        # typecheck && lint && format:check && test
+npm run verify:build  # verify + build (gate completo antes de empacotar)
+```
+
+Falha no primeiro gate interrompe a sequência no lugar certo (typecheck antes de lint, lint antes de format, format antes dos testes). Exit code ≠ 0 se qualquer gate falhar.
+
+Checklist antes de **todo commit/PR**:
+
+- [ ] `npm run verify` verde (obrigatório)
+- [ ] `npm run verify:build` verde se você mexeu em build/empacotamento/dependências
+- [ ] README/docs atualizados quando o comportamento mudou
+
+> **Sessões de agente (OpenCode e afins):** nunca commite — nem declare uma tarefa concluída — sem `npm run verify` ter passado. É o gate único que substitui rodar os quatro comandos à mão e deve preceder qualquer `git commit`/`git push`.
+>
+> Não há husky/lint-staged configurados (decisão: zero dependência nova); o hook local é a disciplina de quem commita. Se o projeto quiser hooks automáticos no futuro, é uma decisão à parte (nova devDependency).
 
 ## Primeira execução
 
