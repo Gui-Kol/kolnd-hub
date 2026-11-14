@@ -15,8 +15,10 @@ type StoreMock = {
  */
 vi.mock('electron-store', () => ({
   default: class {
-    constructor() {
+    constructor(options?: unknown) {
       const g = globalThis as any
+      // Guarda as opções (inclui `migrations`) para os testes da cadeia de migração.
+      g.__kolndStoreOptions = options
       if (!g.__kolndStore) {
         g.__kolndStore = {
           get: vi.fn((_key: string, def: unknown) => def),
@@ -470,5 +472,232 @@ describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
     const res = setBigPicturePrefs({ sounds: false })
     expect(res.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('bigPicture', { sounds: false })
+  })
+})
+
+// ── config.json corrompido / fallbacks de erro ─────────────────
+
+describe('config.json corrompido (leitura lançando)', () => {
+  it('get* caem para defaults sem lançar; set reescreve válido depois', () => {
+    const h = holder()
+    h.get.mockImplementation(() => {
+      throw new Error('Unexpected token } in JSON at position 42')
+    })
+    // Nenhuma exceção pode vazar para o consumidor:
+    expect(getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
+    expect(getStoredGames()).toEqual([])
+    expect(getLaunchKloudOnStart()).toBe(false)
+    expect(getGamepadConfig()).toBeNull()
+    expect(getBigPicturePrefs()).toEqual({ sounds: true })
+
+    // Recuperação: a leitura volta a funcionar e o set reescreve um config válido.
+    h.get.mockImplementation((_key: string, def: unknown) => def)
+    const res = setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])
+    expect(res.success).toBe(true)
+    expect(h.set).toHaveBeenCalledWith('apps', expect.any(Array))
+  })
+
+  it('get* com JSON `null` literal no arquivo não degenera (fallbacks seguros)', () => {
+    // Arquivo com `null` literal: store.get('apps', []) devolve null →
+    // `apps.length` lançaria, mas cai no catch de getConfigSnapshot → defaults.
+    holder().get.mockImplementation(() => null)
+    expect(getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
+    expect(getStoredGames()).toEqual([])
+    expect(getLaunchKloudOnStart()).toBe(false)
+    expect(getGamepadConfig()).toBeNull()
+    expect(getBigPicturePrefs()).toEqual({ sounds: true })
+  })
+
+  it('set* com disco/escritura falhando → { success: false }, sem exceção crua', () => {
+    const h = holder()
+    h.set.mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    h.delete.mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never]).success).toBe(false)
+    expect(setStartupImportance({ a: 'critico' }).success).toBe(false)
+    expect(setStoredGames(null).success).toBe(false)
+    expect(setLaunchKloudOnStart(true).success).toBe(false)
+    expect(setGamepadConfig(validGamepadInput).success).toBe(false)
+    expect(setBigPicturePrefs({ sounds: false }).success).toBe(false)
+    expect(migrateFromLegacy({ apps: [] }).success).toBe(false)
+    expect(resetGamepadConfig().success).toBe(false)
+  })
+})
+
+// ── migrações de schema (cadeia 1.0.0 → 1.4.0) ─────────────────
+
+describe('migrações de schema (cadeia 1.0.0 → 1.4.0)', () => {
+  type FakeStore = {
+    data: Record<string, unknown>
+    get: (key: string, def?: unknown) => unknown
+    set: (key: string, value: unknown) => void
+  }
+
+  const makeFakeStore = (data: Record<string, unknown>): FakeStore => ({
+    data,
+    get: (key: string, def?: unknown) => (key in data ? data[key] : def),
+    set: (key: string, value: unknown) => {
+      data[key] = value
+    }
+  })
+
+  // As migrations são capturadas do mock do electron-store (opções passadas ao construtor).
+  const migrationsOf = (): Record<string, (s: FakeStore) => void> => {
+    const migrations = (globalThis as { __kolndStoreOptions?: { migrations?: unknown } })
+      .__kolndStoreOptions?.migrations
+    if (!migrations || typeof migrations !== 'object') {
+      throw new Error('migrations não capturadas do construtor do Store')
+    }
+    return migrations as Record<string, (s: FakeStore) => void>
+  }
+
+  const runChain = (s: FakeStore): void => {
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0']) {
+      migrationsOf()[version](s)
+    }
+  }
+
+  it('config 1.0.0 (sem games/launchKloudOnStart/gamepad/bigPicture) migra para o formato atual', () => {
+    const s = makeFakeStore({
+      // Formato pré-1.1.0: apps com campos faltantes e entradas inválidas.
+      apps: [
+        { id: 'meu-app', command: 'app.exe' }, // faltam cwd/category/name…
+        { id: '', command: 'sem-id.exe' }, // inválido → descartado
+        'lixo' // inválido → descartado
+      ],
+      startupImportance: { a: 'critico', b: 'urgente', c: 7 }
+      // sem `games`, `launchKloudOnStart`, `gamepad`, `bigPicture`
+    })
+    runChain(s)
+    // apps: normalizados; inválidos eliminados; campos preenchidos
+    expect(s.data.apps).toHaveLength(1)
+    expect(s.data.apps).toEqual([
+      expect.objectContaining({ id: 'meu-app', command: 'app.exe', category: 'dev' })
+    ])
+    // startupImportance: só níveis válidos sobrevivem
+    expect(s.data.startupImportance).toEqual({ a: 'critico' })
+    // 1.2.0 garantiu a chave games (lista normalizada)
+    expect(s.data.games).toEqual([])
+    // 1.3.0 garantiu launchKloudOnStart boolean
+    expect(s.data.launchKloudOnStart).toBe(false)
+    // 1.4.0 garantiu gamepad (null) e bigPicture (default)
+    expect(s.data.gamepad).toBeNull()
+    expect(s.data.bigPicture).toEqual({ sounds: true })
+  })
+
+  it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
+    const s = makeFakeStore({
+      apps: [{ id: 'a', command: 'a.exe', cwd: 'c', category: 'ai' }],
+      games: [
+        // Formato pré-1.2.0: sem origin e sem addedAt
+        { id: 'g1', name: 'Jogo Um', exePath: 'C:\\Games\\g1.exe' }
+      ]
+    })
+    runChain(s)
+    expect(s.data.games).toHaveLength(1)
+    expect(s.data.games).toEqual([
+      expect.objectContaining({
+        id: 'g1',
+        name: 'Jogo Um',
+        exePath: 'C:\\Games\\g1.exe',
+        origin: 'custom'
+      })
+    ])
+    const game = (s.data.games as Array<{ addedAt?: string }>)[0]
+    expect(game.addedAt).toMatch(/\d{4}-\d{2}-\d{2}/)
+  })
+
+  it('gamepad presente mas inválido volta a null; bigPicture inválida cai no default', () => {
+    const s = makeFakeStore({
+      // Objeto sem as chaves obrigatórias do GamepadConfig
+      gamepad: { profile: 'nao-existe' },
+      // Tipo errado para `sounds`
+      bigPicture: { sounds: 'sim' }
+    })
+    runChain(s)
+    expect(s.data.gamepad).toBeNull()
+    expect(s.data.bigPicture).toEqual({ sounds: true })
+  })
+
+  it('migrações não lançam mesmo com chaves ilegíveis (arquivo inconsistente)', () => {
+    const s: FakeStore = {
+      data: {},
+      get: () => {
+        throw new Error('arquivo inconsistente')
+      },
+      set: () => {
+        throw new Error('arquivo inconsistente')
+      }
+    }
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0']) {
+      expect(() => migrationsOf()[version](s)).not.toThrow()
+    }
+  })
+})
+
+// ── store indisponível (construtor lança) ──────────────────────
+
+describe('store indisponível (construtor do electron-store lança)', () => {
+  it('degrada para modo fallback: get* com defaults, set* com erro, log de erro emitido', async () => {
+    const loggerError = vi.fn()
+    const loggerInfo = vi.fn()
+
+    vi.resetModules()
+    vi.doMock('./logger', () => ({
+      logger: {
+        debug: vi.fn(),
+        info: loggerInfo,
+        warn: vi.fn(),
+        error: loggerError
+      }
+    }))
+    vi.doMock('electron-store', () => ({
+      default: class {
+        constructor() {
+          throw new Error('EPERM: operation not permitted, open config.json')
+        }
+      }
+    }))
+
+    try {
+      const mod = await import('./store')
+
+      // get* não lançam: caem para defaults / comportamento de fallback
+      expect(mod.getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
+      expect(mod.getStoredGames()).toEqual([])
+      expect(mod.getLaunchKloudOnStart()).toBe(false)
+      expect(mod.getGamepadConfig()).toBeNull()
+      expect(mod.getBigPicturePrefs()).toEqual({ sounds: true })
+
+      // set* reportam erro controlado — nunca exceção crua
+      expect(mod.setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])).toEqual({
+        success: false,
+        error: 'Store persistente indisponível'
+      })
+      expect(mod.setStartupImportance({ a: 'critico' })).toEqual({
+        success: false,
+        error: 'Store persistente indisponível'
+      })
+      expect(mod.setStoredGames(null).success).toBe(false)
+      expect(mod.setLaunchKloudOnStart(true).success).toBe(false)
+      expect(mod.setGamepadConfig(validGamepadInput).success).toBe(false)
+      expect(mod.setBigPicturePrefs({ sounds: false }).success).toBe(false)
+      expect(mod.migrateFromLegacy({ apps: [] }).success).toBe(false)
+      expect(mod.resetGamepadConfig().success).toBe(false)
+
+      // O erro de construção foi registrado no log (escopo 'store', modo fallback)
+      expect(loggerError).toHaveBeenCalled()
+      const fallbackLogged = loggerError.mock.calls.some(
+        (call) => String(call[0]) === 'store' && String(call[1]).includes('fallback')
+      )
+      expect(fallbackLogged).toBe(true)
+    } finally {
+      vi.doUnmock('electron-store')
+      vi.doUnmock('./logger')
+      vi.resetModules()
+    }
   })
 })
