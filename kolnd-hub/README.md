@@ -24,6 +24,7 @@ npm run package   # gera os bundles + instalador NSIS em dist/
 
 npm run typecheck # tsc --noEmit nos projetos main e renderer
 npm test          # testes unitários (Vitest) de renderer/lib e main
+npm run test:coverage # testes + relatório de cobertura (V8) em ./coverage
 npm run lint      # ESLint (flat config, typescript-eslint + react-hooks)
 npm run format    # Prettier --write
 
@@ -35,7 +36,14 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
-- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefato: `dist/Kolnd Hub Setup *.exe` (7 dias).
+- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefatos: `dist/Kolnd Hub Setup *.exe` e `coverage/` (ambos 7 dias).
+
+### Cobertura de testes (V8)
+
+- `npm run test:coverage` roda `vitest run --coverage` (provider **V8**, reporters `text`/`html`/`lcov`, saída em `kolnd-hub/coverage/`, gitignored).
+- **Medição atual (13/11/2026):** `src/main` ≈ **44,36%** linhas/statements, **79,36%** branches, **72,8%** functions; `renderer/src/lib` ≈ **98,87%** linhas; `renderer/src/lib/gamepad` ≈ **98,56%**; renderer de componentes e `preload` ≈ **0%** (não há testes de React/preload hoje). "All files" ≈ 17,9% porque a suíte só cobre lógica pura.
+- **Limiares** (`vitest.config.ts`, escopados a `src/main/**`): lines/statements **39**, functions **67**, branches **74** — ~5 p.p. abaixo da medição, conservadores de propósito. Hoje eles são **informativos**: o CI tem o step **Coverage (informativo)** com `continue-on-error: true`, que imprime o resumo e sobe o artifact `coverage/` (7 dias). Falha de limiar no log = sinal de regressão, **não** de build quebrado; promover para bloqueante é decisão futura, com a base já verde e medida.
+- `npm test` (sem coverage) permanece inalterado e é o gate de `npm run verify`.
 
 ### Auditoria de dependências e segurança (CI)
 

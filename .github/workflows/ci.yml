@@ -43,6 +43,21 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Informativo: exibe o resumo de cobertura e sobe o relatório como
+      # artifact, mas não reprova o build (ver README > Testes).
+      - name: Coverage (informativo)
+        run: npm run test:coverage
+        continue-on-error: true
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: kolnd-hub/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Build (electron-vite)
         run: npm run build
 
