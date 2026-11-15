@@ -378,6 +378,10 @@ const api = {
     return () => ipcRenderer.removeListener('firstRun:complete', handler)
   },
 
+  // ── Diagnóstico ─────────────────────────────────
+  exportDiagnostic: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('diagnostic:export'),
+
   // ── Desinstalação (Kloud Games e Hub) ────────────────────────
   getKloudGamesUninstallStatus: (): Promise<{
     ok: boolean

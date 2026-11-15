@@ -273,6 +273,9 @@ declare global {
         callback: (result: { success: boolean; error?: string }) => void
       ) => () => void
 
+      // ── Diagnóstico ─────────────────────────────────
+      exportDiagnostic: () => Promise<{ success: boolean; error?: string }>
+
       // ── Desinstalação (Kloud Games e Hub) ────────────────────────
       getKloudGamesUninstallStatus: () => Promise<{
         ok: boolean

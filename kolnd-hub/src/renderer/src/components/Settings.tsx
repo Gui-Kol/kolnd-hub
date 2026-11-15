@@ -9,7 +9,9 @@ import {
   FileSearch,
   FolderSearch,
   Gamepad2,
-  Check
+  Check,
+  ClipboardCopy,
+  Loader2
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -31,6 +33,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const [launchKloudOnStart, setLaunchKloudOnStart] = useState<boolean | null>(null)
   const [prefFeedback, setPrefFeedback] = useState<'saved' | 'error' | null>(null)
   const prefFeedbackTimer = useRef<number | null>(null)
+  const [exportingDiagnostic, setExportingDiagnostic] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -71,6 +74,22 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     } finally {
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
       prefFeedbackTimer.current = window.setTimeout(() => setPrefFeedback(null), 2500)
+    }
+  }
+
+  // Exportar diagnóstico sanitizado para a área de transferência (task 06-6.3).
+  const handleExportDiagnostic = async (): Promise<void> => {
+    if (exportingDiagnostic) return
+    setExportingDiagnostic(true)
+    try {
+      const result = await window.api.exportDiagnostic()
+      if (!result.success) throw new Error(result.error ?? 'erro desconhecido')
+      onToast?.('Diagnóstico copiado para a área de transferência.', 'success')
+    } catch (err) {
+      console.error('[settings] Falha ao exportar diagnóstico:', err)
+      onToast?.('Não foi possível copiar o diagnóstico. Tente de novo.', 'error')
+    } finally {
+      setExportingDiagnostic(false)
     }
   }
 
@@ -338,6 +357,45 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
           <AlertCircle size={13} /> {pickError}
         </p>
       )}
+
+      {/* ── Diagnóstico ─────────────────────────── */}
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">Diagnóstico</p>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+      >
+        <div className="flex items-center justify-between gap-6 flex-wrap">
+          <div className="flex items-start gap-4 min-w-0">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+              <ClipboardCopy size={20} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">Exportar diagnóstico</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Copia para a área de transferência um relatório sanitizado (versões do Hub,
+                contagens do Hub e últimas linhas dos logs) para abrir um ticket de suporte. Nenhum
+                comando, caminho ou nome de jogo é incluído.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void handleExportDiagnostic()}
+            disabled={exportingDiagnostic}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-kloud-500 to-nintendo-500 shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600 transition-all disabled:opacity-60 disabled:cursor-wait shrink-0"
+          >
+            {exportingDiagnostic ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <ClipboardCopy size={14} />
+            )}
+            {exportingDiagnostic ? 'Copiando…' : 'Copiar diagnóstico'}
+          </button>
+        </div>
+      </motion.div>
 
       {/* ── Zona de perigo: desinstalação ──────────────── */}
       <UninstallDangerZone onToast={onToast} />

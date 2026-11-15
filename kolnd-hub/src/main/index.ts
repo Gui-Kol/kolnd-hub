@@ -2,7 +2,17 @@
 // (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  Tray,
+  Menu,
+  nativeImage,
+  dialog,
+  clipboard
+} from 'electron'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -38,6 +48,7 @@ import {
   uninstaller
 } from './uninstaller'
 import { registerGamesIpc } from './games'
+import { buildDiagnosticReport } from './diagnostic'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
 import { logger } from './logger'
@@ -609,6 +620,24 @@ app.whenReady().then(() => {
     if (typeof path !== 'string' || path.trim().length === 0 || path.length > 1024) return
     // Settings may store relative paths (../Kloud Games) or %VAR% paths.
     void shell.openPath(resolvePath(path))
+  })
+
+  // ── Diagnóstico (task 06-6.3) ──────────────────
+  // Sem argumentos. Monta um relatório sanitizado (versões, contagens do
+  // store e últimas linhas dos logs — nunca comandos/cwd/URLs/nomes de
+  // jogos) e copia para a área de transferência. O renderer recebe apenas
+  // { success, error? }.
+  ipcMain.handle('diagnostic:export', () => {
+    try {
+      const report = buildDiagnosticReport()
+      clipboard.writeText(report)
+      logger.info('diagnostic', 'Diagnóstico copiado para a área de transferência')
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error('diagnostic', 'Falha ao exportar diagnóstico:', err)
+      return { success: false, error: message }
+    }
   })
 
   // ── Forward process events to renderer ──────────
