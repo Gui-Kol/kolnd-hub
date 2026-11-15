@@ -1,3 +1,7 @@
+// PRIMEIRO import: efeito colateral intencional — inicia o crashReporter local
+// (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
+// outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
+import './crashReporting'
 import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
