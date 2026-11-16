@@ -231,6 +231,18 @@ kolnd-hub\dist\Kolnd Hub Setup X.Y.Z.exe    (~360 MB)
 - [ ] Segredos ausentes do pacote: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`, `memory/` ficam fora pelo `filter` do `electron-builder.yml`. (Conferir o `.yml` se o empacotamento mudou.)
 - [ ] Após rodar build de qualquer programa (MSI ou Mark LVI), rodar `npm run package` **de novo** para o instalador pegar a versão nova.
 
+### Verificação pós-package (verify-release.ps1)
+
+Após o `npm run package`, confirme que o instalador leva o **bundle real** (não o placeholder) com:
+
+```powershell
+powershell -NoProfile -File kolnd-hub\scripts\verify-release.ps1
+```
+
+O script lista o payload do `.exe` com 7-Zip (sem extrair nada) e confere `programs/MarkLVI/MarkLVI.exe` e `programs/kloud-games/KLOUD_GAMES.msi` (e o `win-unpacked/`, se existir). Saída ≠ 0 se algo faltar; opções `-DistDir` (default `kolnd-hub\dist`), `-MinSizeMB` (default 100) e `-SevenZip <path>`. Não gera hash — isso é o `gen-sha256sums.ps1` (Passo 7) — e não substitui o Passo 2 (máquina limpa).
+
+- [ ] `verify-release.ps1` passou (exit 0) antes de seguir para o Passo 5.
+
 **Falha:** nome do `.exe` com versão errada = bump incompleto (Passo 1). Build quebrando por `extraResources` = Mark LVI não foi reconstruído/preparado.
 
 > Depois deste passo, volte ao **Passo 2** e execute o roteiro de máquina limpa com o instalador recém-gerado. Só prossiga ao Passo 5 com o Passo 2 registrado.

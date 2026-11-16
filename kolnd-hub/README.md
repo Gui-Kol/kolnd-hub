@@ -131,6 +131,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
 
 Depois de rodar a build de um programa, rode `npm run package` de novo para que o instalador pegue a versão nova.
 
+> Verificação pós-package (confere o payload do bundle real no instalador): `powershell -NoProfile -File scripts\verify-release.ps1` — ver [`../docs/RELEASE.md`](../docs/RELEASE.md).
+
 **Segredos nunca vão para o instalador**: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`
 e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `electron-builder.yml`).
 
