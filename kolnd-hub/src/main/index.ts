@@ -23,17 +23,11 @@ import {
   getKloudGamesStatus,
   invalidateKloudGamesRunningCache
 } from './kloudGames'
-import {
-  listStartupItems,
-  removeStartupItem,
-  addStartupItem,
-  removeStartupItemsBatch,
-  addStartupItemsBatch,
-  getPcName,
-  listRunningProcesses
-} from './startupManager'
-import { isFirstRun, markFirstRunComplete } from './firstRun'
-import { registerFirstRunIpc } from './firstRunInstaller'
+import { isFirstRun } from './firstRun'
+import { registerSystemIpc } from './ipc/system'
+import { registerStartupIpc } from './ipc/startup'
+import { registerFirstRunIpc as registerFirstRunStatusIpc } from './ipc/firstRun'
+import { registerFirstRunIpc as registerFirstRunInstallerIpc } from './firstRunInstaller'
 import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
@@ -217,7 +211,7 @@ app.whenReady().then(() => {
   setBaseDir(is.dev ? process.cwd() : dirname(app.getPath('exe')))
 
   // Registra os canais IPC da tela de primeira execução.
-  registerFirstRunIpc(() => mainWindow)
+  registerFirstRunInstallerIpc(() => mainWindow)
 
   // Registra os canais IPC da config persistente (electron-store).
   registerConfigIpc()
@@ -245,6 +239,15 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC de shell (abrir navegação externa/caminhos).
   registerShellIpc(ctx)
+
+  // Registra os canais IPC de sistema (nome do PC, processos em execução).
+  registerSystemIpc(ctx)
+
+  // Registra os canais IPC de inicialização do PC (startup).
+  registerStartupIpc(ctx)
+
+  // Registra os canais IPC de check/markComplete da primeira execução.
+  registerFirstRunStatusIpc(ctx)
 
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
@@ -346,55 +349,9 @@ app.whenReady().then(() => {
     return processManager.getAllStatus()
   })
 
-  // ── Sistema ─────────────────────────────────────
-  ipcMain.handle('system:pc-name', () => {
-    return getPcName()
-  })
-
-  ipcMain.handle('system:running-processes', () => {
-    return listRunningProcesses()
-  })
-
-  // ── Inicialização do PC (startup) ───────────────
-  ipcMain.handle('startup:list', () => {
-    return listStartupItems()
-  })
-
-  ipcMain.handle(
-    'startup:remove',
-    (_event, item: { location: string; scope: string; name: string }) => {
-      return removeStartupItem(item as Parameters<typeof removeStartupItem>[0])
-    }
-  )
-
-  ipcMain.handle('startup:add', (_event, item: { name: string; path: string }) => {
-    return addStartupItem(item as Parameters<typeof addStartupItem>[0])
-  })
-
-  ipcMain.handle(
-    'startup:removeBatch',
-    (_event, items: Array<{ location: string; scope: string; name: string }>) => {
-      return removeStartupItemsBatch(items as Parameters<typeof removeStartupItemsBatch>[0])
-    }
-  )
-
-  ipcMain.handle('startup:addBatch', (_event, items: Array<{ name: string; path: string }>) => {
-    return addStartupItemsBatch(items as Parameters<typeof addStartupItemsBatch>[0])
-  })
-
   ipcMain.handle('app:logs', async (_event, appId: unknown) => {
     if (typeof appId !== 'string') return ''
     return processManager.getLogs(appId)
-  })
-
-  // ── IPC: Primeira execução ──────────────────────
-  ipcMain.handle('firstRun:check', () => {
-    return isFirstRun()
-  })
-
-  ipcMain.handle('firstRun:markComplete', () => {
-    markFirstRunComplete()
-    return { success: true }
   })
 
   // ── IPC: Window controls ────────────────────────
