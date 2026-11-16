@@ -162,6 +162,25 @@ npm run package
 - .NET SDK 8 — instalado automaticamente pelo script (necessário para o WiX)
 - Python + PyInstaller apenas se você for reconstruir o Mark LVI (`kolnd-hub/scripts/build-mark-lvi.ps1`)
 
+## Build do Kloud Games no CI (manual/semanal)
+
+O `KLOUD_GAMES.msi` também pode ser gerado pelo GitHub Actions, sem a máquina do
+desenvolvedor, via o workflow
+[`.github/workflows/build-kloud-games.yml`](.github/workflows/build-kloud-games.yml):
+
+- **Quando roda:** apenas manualmente (`workflow_dispatch`) e semanalmente (domingo 04:00 UTC). **Não** roda por push/PR — o build leva ~30–60 min e é propositalmente fora do CI principal.
+- **Disparar manualmente** (com o workflow presente no branch default do repositório):
+
+  ```powershell
+  gh workflow run build-kloud-games.yml
+  ```
+
+- **Onde baixar o MSI:** Actions → run do workflow → seção **Artifacts** → `kloud-games-msi` (retenção de 30 dias). O artefato inclui `KLOUD_GAMES.msi` e `SHA256SUMS.txt` (hash SHA-256 gerado por `kolnd-hub/scripts/gen-sha256sums.ps1`).
+- **Duração esperada:** ~30–60 min na primeira execução (build C++ completo via MSYS2/UCRT64 + WiX). Um cache de `kloud-games/cmake-build-windows` (chaveado pelo SHA do HEAD) tende a reduzir as execuções seguintes.
+- **Primeira execução depende do usuário:** push e dispatch exigem permissão de escrita no repositório; a primeira validação real do workflow (e eventual ajuste do cache/checkout) é feita por quem disparar o `workflow_dispatch`. O passo **não** executa em `ci.yml`.
+- **Não assinado:** o MSI gerado pelo CI não é assinado (assinatura de código: tarefa 02-2.4).
+- Em caso de falha por tamanho/tempo do checkout recursivo (o fork é grande), a alternativa documentada no próprio workflow é reduzir `submodules` para `true` e deixar o `build-kloud-games.ps1` clonar apenas os aninhados necessários.
+
 ## Desenvolvimento do Hub
 
 ```powershell

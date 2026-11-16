@@ -1,0 +1,189 @@
+# Build manual/semanal do KLOUD_GAMES.msi (fork kloud-games/ — Sunshine) em CI.
+#
+# Objetivo (item 2.8 do relatório de melhorias): tornar o MSI reproduzível fora da
+# máquina do desenvolvedor. NÃO roda em push/PR — apenas workflow_dispatch e um
+# agendamento semanal (domingo 04:00 UTC). O build completo leva ~30–60 min
+# (primeira execução; o cache de cmake-build-windows pode reduzir as seguintes).
+#
+# A PRIMEIRA execução real (workflow_dispatch) é responsabilidade do usuário do
+# repositório (push/dispatch exigem permissão de escrita). Este workflow foi
+# validado apenas estaticamente (parse de YAML); nenhum build foi executado.
+#
+# Pré-requisitos replicados fielmente de kolnd-hub/scripts/build-kloud-games.ps1
+# (leia-o antes de alterar este arquivo — o CI DEVE espelhar o fluxo local):
+#   - MSYS2 em C:\msys64 com msys2_shell.cmd e subsistema UCRT64. O ps1 chama
+#     "C:\msys64\msys2_shell.cmd -defterm -here -no-start -ucrt64 -c ...".
+#     No runner windows-latest o MSYS2 já existe em C:\msys64; o setup-msys2
+#     abaixo fixa install-location=C:\msys64 exatamente por isso.
+#   - Pacotes ucrt64 mínimos: mingw-w64-ucrt-x86_64-toolchain,
+#     mingw-w64-ucrt-x86_64-cmake, mingw-w64-ucrt-x86_64-ninja (o ps1 instala a
+#     lista COMPLETA via `pacman -S --needed --noconfirm` — boost, qt6-static,
+#     nsis, openssl, etc. — então os três acima só bootstrapam o ambiente).
+#   - Node.js nativo no PATH (build da Web UI via vite). setup-node@v4, Node 22
+#     (mesma convenção do ci.yml). O ps1 exporta NODEJS_PATH a partir do PATH.
+#   - .NET SDK 8 (actions/setup-dotnet@v4) — necessário para o WiX/cpack gerar
+#     o .msi. O ps1 detecta o SDK via `dotnet --list-sdks` (e só recorre a
+#     winget se ausente; aqui o setup-dotnet garante a presença).
+#   - WiX Toolset: NÃO é instalado neste workflow nem pelo ps1. O CMake do fork
+#     instala o WiX 4.0.4 automaticamente no configure
+#     (`dotnet tool install --tool-path <build>/.wix wix --version 4.0.4` +
+#     extensões WixToolset.UI/Util.wixext 4.0.4; ver
+#     kloud-games/cmake/packaging/windows_wix.cmake). Requer apenas o .NET SDK 8
+#     no PATH (DOTNET_EXECUTABLE) — por isso não há step de WiX aqui.
+#   - git no PATH (presente no runner) — o ps1 usa git para configurar/aplicar
+#     o patch moonlight-stdatomic-guards.patch no third-party/moonlight-common-c.
+#
+# Etapas do ps1 replicadas pela ordem dos steps: preflight (git/node/MSYS2/
+# dotnet) → correções idempotentes de renomeação do snapshot → submódulos
+# (clone raso dos ausentes com --depth 1 + init aninhado, PULANDO
+# build-deps|flatpak e seus FFmpeg aninhados) → pacman ucrt64 → cmake -G Ninja
+# (RelWithDebInfo) + ninja → cpack -G WIX → cópia do MSI para
+# kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi.
+#
+# Saída: kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi (empacotado
+# como artefato `kloud-games-msi`, retenção de 30 dias) + SHA256SUMS.txt gerado
+# por kolnd-hub/scripts/gen-sha256sums.ps1 (-MsiPath), que é o dono da lógica
+# de hash do projeto (02-2.7).
+#
+# Trade-off de submódulos: `submodules: recursive` + `fetch-depth: 1`
+# (checkout@v4). fetch-depth aplica-se ao repo PRINCIPAL; para submódulos o
+# checkout tenta o mesmo depth, mas semântica por-submódulo não é suportada
+# diretamente. `recursive` TAMBÉM inicializa build-deps e seus submódulos
+# aninhados (FFmpeg, x265, SVT-AV1…), que o build NÃO usa — o ps1 pula o init
+# aninhado de build-deps|flatpak de propósito. Se o checkout ficar grande ou
+# lento demais no windows-latest (disco/tempo), troque para `submodules: true`
+# e deixe o ps1 clonar os aninhados (ele pula build-deps|flatpak sozinho).
+# kloud-games é uma ÁRVORE comum do monorepo (não é um gitlink), então o SHA do
+# HEAD do monorepo identifica corretamente todo o conteúdo do fork.
+#
+# Trade-off do cache de build: `kloud-games/cmake-build-windows` contém os
+# objetos C++ (RelWithDebInfo, facilmente >1 GB) e o .wix baixado pelo CMake
+# (o plano 2.8 o chamava de `kloud-games/build`; o diretório REAL, definido em
+# $BuildDir no ps1, é cmake-build-windows — renomear aqui quebraria o cache).
+# Limite de cache do repositório: 10 GB, evicção por LRU. A chave usa o SHA do
+# HEAD do monorepo + o hash do ps1; qualquer push invalida o cache — correto,
+# pois o build depende de todo o fork. CMakeCache.txt guarda caminhos
+# absolutos, estáveis entre runs (D:\a\<repo>\<repo>). Se a restauração vier de
+# um estado estranho, o ps1 detecta toolchain divergente (sem g++.exe no cache)
+# e APAGA o diretório para reconfigurar do zero — falha de cache é segura.
+# Se o cache não couber/não ajudar, este step pode ser removido (build sempre
+# do zero, ~30–60 min).
+#
+# Não altere `.github/workflows/ci.yml` por causa deste arquivo: o build do
+# Kloud Games é um job separado, sem push, registrado manualmente.
+name: build-kloud-games
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Domingo, 04:00 UTC
+    - cron: '0 4 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-kloud-games
+  cancel-in-progress: false
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+    # O build completo pode passar de 1h; o máximo de um runner hospedado é 6h.
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # SHA do HEAD do monorepo (kloud-games é árvore comum, não gitlink) —
+      # chaveia o cache de cmake-build-windows. Ver trade-off no cabeçalho.
+      - name: Chave do cache de build (SHA do HEAD)
+        id: kgsha
+        shell: pwsh
+        run: echo "sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+
+      - name: Cache do build incremental (cmake-build-windows)
+        uses: actions/cache@v4
+        with:
+          path: kloud-games/cmake-build-windows
+          key: kloud-games-cmake-build-${{ steps.kgsha.outputs.sha }}-${{ hashFiles('kolnd-hub/scripts/build-kloud-games.ps1') }}
+          restore-keys: |
+            kloud-games-cmake-build-
+
+      # Pré-requisito do ps1: Node.js NATIVO no PATH (build da Web UI via
+      # vite). Node 22 LTS, mesma convenção do ci.yml. Sem cache npm — não há
+      # `npm ci` no kolnd-hub neste job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Força C:\msys64 porque o ps1 assume esse caminho (msys2_shell.cmd).
+      # Pacotes: mínimos para bootstrap do ucrt64; a lista COMPLETA de deps é
+      # instalada pelo próprio ps1 via `pacman -S --needed --noconfirm`.
+      # `update` fica no default (false): atualizar o core do MSYS2 sem
+      # interação não é seguro; as deps ucrt64 são tratadas pelo ps1.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install-location: 'C:\msys64'
+          packages: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      # Pré-requisito do ps1 e do WiX: .NET SDK 8 (`dotnet --list-sdks`).
+      # WiX 4.0.4 é instalado pelo CMake do fork (tool-path dentro de
+      # cmake-build-windows/.wix) — não há step de WiX aqui de propósito.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Executa o mesmo script do fluxo local (build-installer.bat passo 2).
+      # O ps1 faz TODO o resto: fixes de renomeação (idempotentes), submódulos
+      # aninhados rasos (pulando build-deps|flatpak), patch do moonlight-
+      # common-c, pacman, cmake/ninja e cpack -G WIX. Falha aqui = falha o job.
+      - name: Build do Kloud Games (scripts/build-kloud-games.ps1)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File kolnd-hub/scripts/build-kloud-games.ps1
+
+      # Checksum reaproveitando o dono da lógica de hash (02-2.7): o gen-sha256sums.ps1
+      # aceita -MsiPath; o glob do Setup não casa nada no CI e é pulado com aviso.
+      - name: SHA256SUMS (gen-sha256sums.ps1 -MsiPath)
+        shell: pwsh
+        working-directory: kolnd-hub
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-sha256sums.ps1 -MsiPath 'resources\programs\kloud-games\KLOUD_GAMES.msi'
+
+      - name: Resumo do build no step summary
+        shell: pwsh
+        run: |
+          $msi = 'kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi'
+          if (-not (Test-Path $msi)) {
+            Write-Host '::error::MSI não encontrado em ' $msi
+            exit 1
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $msi).Hash.ToLower()
+          $sizeMB = [math]::Round((Get-Item $msi).Length / 1MB, 1)
+          $summary = @"
+          ## Kloud Games — MSI build
+          - **MSI:** ``$msi`` ($sizeMB MB)
+          - **SHA-256:** ``$hash``
+          - **Artefato:** ``kloud-games-msi`` (retenção de 30 dias, Actions > este run > Artifacts)
+          - **SHA256SUMS:** kolnd-hub/dist/SHA256SUMS.txt (incluído no artefato)
+          - **Duração esperada:** ~30–60 min na primeira execução (build C++ completo); cache de ``cmake-build-windows`` pode reduzir as seguintes
+          "@
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          Write-Host "MSI: $msi ($sizeMB MB)"
+          Write-Host "SHA-256: $hash"
+
+      - name: Upload do MSI (artefato)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kloud-games-msi
+          path: |
+            kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi
+            kolnd-hub/dist/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: error
