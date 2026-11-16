@@ -124,6 +124,14 @@ export function Sidebar({
             <span className="min-w-0 truncate">Big Picture</span>
           </button>
         )}
+        {/* Atalho da busca global — um único lugar, discreto */}
+        <p className="mb-3 text-center text-[9px] text-slate-600">
+          Pressione{' '}
+          <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1 font-bold text-slate-500">
+            /
+          </kbd>{' '}
+          para buscar
+        </p>
         <div className="text-center">
           <p className="text-[10px] font-bold text-slate-500 tracking-tight">Kolnd Hub</p>
           <p className="text-[9px] text-slate-600 mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>

@@ -7,6 +7,7 @@ import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
 import { Biblioteca } from './components/Biblioteca'
+import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
@@ -18,6 +19,7 @@ import {
   SystemProcess,
   ImportanceLevel,
   StartupItem,
+  Game,
   IMPORTANCE_LABELS
 } from './types'
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
@@ -56,6 +58,8 @@ function App(): JSX.Element {
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+  // Busca global (atalho "/"): overlay discreto com apps + jogos.
+  const [searchOpen, setSearchOpen] = useState<boolean>(false)
   // Modo Big Picture: 'hidden' = shell normal; 'setup' = gate (sem controle
   // configurado, exibe a tela de configuração antes da home); 'transitioning'
   // = transição cinematográfica (T7) antes da home liberar; 'active' = home.
@@ -437,6 +441,69 @@ function App(): JSX.Element {
     [apps]
   )
 
+  // Busca global: lançar um jogo pelo Enter/clique usa o mesmo caminho do
+  // card da Biblioteca (`window.api.launchGame`), com aviso discreto no lugar
+  // do toast local da grade (que não existe aqui).
+  const handleLaunchGame = useCallback(async (game: Game): Promise<void> => {
+    const result = await window.api.launchGame(game.id)
+    if (!result.ok) {
+      setNotice({
+        id: Date.now(),
+        text: `Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`,
+        kind: 'error'
+      })
+      return
+    }
+    setNotice({
+      id: Date.now(),
+      text: result.focused
+        ? `${game.name} já está aberto — trazendo a janela para frente.`
+        : result.alreadyRunning
+          ? `${game.name} já está em execução — aguarde a janela.`
+          : `Iniciando ${game.name}…`,
+      kind: 'info'
+    })
+  }, [])
+
+  // Atalhos da busca global: fecham o overlay e delegam ao fluxo de launch.
+  const handleSearchLaunchApp = useCallback(
+    (app: AppConfig): void => {
+      setSearchOpen(false)
+      void handleLaunch(app)
+    },
+    [handleLaunch]
+  )
+
+  const handleSearchLaunchGame = useCallback(
+    (game: Game): void => {
+      setSearchOpen(false)
+      void handleLaunchGame(game)
+    },
+    [handleLaunchGame]
+  )
+
+  // "/" abre a busca global — apenas fora de campos editáveis, sem modificadores,
+  // com o overlay fechado e fora do Big Picture (que tem navegação própria).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== '/') return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (searchOpen) return
+      if (bigPicture !== 'hidden' || isFirstRun || isLoading || exitModalOpen) return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+          return
+        }
+      }
+      event.preventDefault()
+      setSearchOpen(true)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return (): void => window.removeEventListener('keydown', onKeyDown, true)
+  }, [searchOpen, bigPicture, isFirstRun, isLoading, exitModalOpen])
+
   const handleSaveApps = useCallback((updatedApps: AppConfig[]): void => {
     setApps(updatedApps)
     void saveAppConfigs(updatedApps)
@@ -625,6 +692,16 @@ function App(): JSX.Element {
 
           {/* ── Error toast ──────────────────────────────── */}
           {noticeToast}
+
+          {/* ── Busca global (atalho "/") ───────────────── */}
+          {searchOpen && (
+            <GlobalSearch
+              apps={apps}
+              onClose={() => setSearchOpen(false)}
+              onLaunchApp={handleSearchLaunchApp}
+              onLaunchGame={handleSearchLaunchGame}
+            />
+          )}
 
           {/* ── Modal: confirmação de saída ──────────────── */}
           {exitModalOpen && (
