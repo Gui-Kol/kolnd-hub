@@ -2,7 +2,9 @@ import { motion } from 'framer-motion'
 import { Play, Square, ExternalLink } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 import { entranceProps, useReducedMotion } from '../lib/motion'
+import { Badge, Button, IconButton } from './ui'
 
+// API pública IDÊNTICA (AppCardProps) — Dashboard não muda.
 interface AppCardProps {
   app: AppConfig
   state?: AppState
@@ -12,11 +14,13 @@ interface AppCardProps {
   delay: number
 }
 
-const categoryBadge: Record<string, { label: string; className: string }> = {
-  ai: { label: 'IA', className: 'badge-neon-cyan' },
-  gaming: { label: 'JOGO', className: 'badge-neon-purple' },
-  streaming: { label: 'STREAM', className: 'badge-playstation' },
-  dev: { label: 'DEV', className: 'badge-kloud' }
+// Categorias mapeadas para tons do Badge (13-13.8): ai→accent, demais→neutro.
+// Nada de cor por marca (neon/playstation/kloud saíram na 13.4/13.6).
+const categoryBadge: Record<string, { label: string; tone: 'accent' | 'neutral' }> = {
+  ai: { label: 'IA', tone: 'accent' },
+  gaming: { label: 'JOGO', tone: 'neutral' },
+  streaming: { label: 'STREAM', tone: 'neutral' },
+  dev: { label: 'DEV', tone: 'neutral' }
 }
 
 export function AppCard({
@@ -30,84 +34,88 @@ export function AppCard({
   const isRunning = state?.status === 'running'
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
-  // Movimento decorativo (entrada com stagger, hover-lift, tap) some com reduce.
+  // Movimento decorativo (entrada com stagger, tap) some com reduce.
   const reduced = useReducedMotion()
 
   const badge = categoryBadge[app.category] ?? {
     label: app.category.toUpperCase(),
-    className: 'badge-steam'
+    tone: 'neutral' as const
   }
+
+  const statusLabel = isBackground
+    ? 'Ativo'
+    : isRunning
+      ? 'Executando'
+      : isError
+        ? 'Erro'
+        : 'Parado'
+
+  const statusDot = isRunning
+    ? 'bg-success animate-pulse'
+    : isError
+      ? 'bg-danger'
+      : 'bg-ink-tertiary'
+  const statusText = isRunning ? 'text-success' : isError ? 'text-danger' : 'text-ink-tertiary'
 
   return (
     <motion.div
       {...entranceProps(reduced, { y: 20, scale: 0.95 }, { delay, duration: 0.5, ease: 'easeOut' })}
-      whileHover={reduced ? undefined : { y: -6, transition: { duration: 0.3 } }}
-      whileTap={reduced ? undefined : { scale: 0.98 }}
-      className="glass-card cursor-pointer group relative overflow-hidden"
+      whileTap={reduced ? undefined : { scale: 0.99 }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${app.name} — ${
+        isRunning ? 'em execução' : isError ? 'com erro' : 'parado'
+      }. Abrir detalhes`}
+      onKeyDown={(e) => {
+        // Só ativa o card quando o foco está nele — Enter/Espaço em botões internos
+        // aciona o próprio botão (e o clique já para propagação).
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className="group relative flex cursor-pointer flex-col rounded-card border border-[var(--border-subtle)] bg-surface-1 p-5 pt-11 text-left shadow-elevation-1 transition-all duration-2 ease-standard hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2"
       onClick={onClick}
       data-testid="app-card"
     >
-      {/* Brilho de borda baseado no estado */}
-      <div
-        className="absolute inset-0 rounded-2xl border p-[1px] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{
-          borderImage: isRunning
-            ? `linear-gradient(135deg, ${app.color}, #ef4444) 1`
-            : `linear-gradient(135deg, ${app.color}80, transparent) 1`
-        }}
-      />
-
-      {/* Overlay de gradiente sutil */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
-
-      {/* Tag da categoria */}
-      <div className="absolute top-4 left-4 z-10">
-        <span className={`badge ${badge.className} shadow`}>{badge.label}</span>
+      {/* Tag da categoria (canto superior-esquerdo) */}
+      <div className="absolute left-4 top-4 z-10">
+        <Badge tone={badge.tone}>{badge.label}</Badge>
       </div>
 
-      {/* Status running overlay */}
+      {/* Pill Online (discreta, só quando rodando) */}
       {isRunning && (
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 backdrop-blur-sm">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[10px] font-bold text-emerald-400">Online</span>
+        <div className="absolute right-4 top-4 z-10">
+          <Badge tone="success" role="status">
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 rounded-pill bg-success animate-pulse"
+            />
+            Online
+          </Badge>
         </div>
       )}
 
       {/* Conteúdo do card */}
-      <div className="relative z-20 p-5 pt-10">
+      <div className="flex grow flex-col">
         {/* Cabeçalho com ícone e nome */}
-        <div className="flex items-start justify-between mb-3">
+        <div className="mb-3 flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-lg transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110"
-              style={{
-                background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
-                boxShadow: `0 0 20px ${app.color}40`
-              }}
-            >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2 text-xl transition-transform duration-2 ease-standard group-hover:scale-105">
               {app.icon}
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-tight group-hover:text-white transition-colors">
+              <h3 className="text-base font-semibold tracking-tight text-ink-primary">
                 {app.name}
               </h3>
-              <div className="flex items-center gap-1.5 mt-1">
-                <div
-                  className={`w-2 h-2 rounded-full transition-colors ${
-                    isRunning
-                      ? 'bg-emerald-400 animate-pulse'
-                      : isError
-                        ? 'bg-red-400'
-                        : 'bg-slate-700'
-                  }`}
-                />
+              <div className="mt-1 flex items-center gap-1.5">
+                <div className={`h-2 w-2 rounded-pill transition-colors ${statusDot}`} />
                 <span
-                  className={`text-[10px] font-bold ${
-                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-400'
-                  }`}
+                  className={`text-[10px] font-bold uppercase tracking-wider ${statusText}`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
-                  {isBackground ? 'Ativo' : isRunning ? 'Executando' : isError ? 'Erro' : 'Parado'}
+                  {statusLabel}
                 </span>
               </div>
             </div>
@@ -115,67 +123,65 @@ export function AppCard({
 
           {/* Atalho URL */}
           {app.url && isRunning && (
-            <button
+            <IconButton
+              variant="ghost"
+              size="sm"
               onClick={(e) => {
                 e.stopPropagation()
                 window.api.openExternal(app.url!)
               }}
-              className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+              className="opacity-0 transition-opacity duration-2 focus-visible:opacity-100 group-hover:opacity-100"
               title="Abrir no navegador"
+              aria-label="Abrir no navegador"
             >
-              <ExternalLink size={14} />
-            </button>
+              <ExternalLink size={14} aria-hidden="true" />
+            </IconButton>
           )}
         </div>
 
         {/* Descrição */}
-        <p className="text-[11px] text-slate-400 leading-relaxed mb-5 line-clamp-2 font-medium">
+        <p className="mb-5 line-clamp-2 text-[11px] font-medium leading-relaxed text-ink-secondary">
           {app.description}
         </p>
 
-        {/* Tags */}
-        <div className="flex items-center gap-2 mb-6">
+        {/* Tags (neutras, tokenizadas) */}
+        <div className="mb-6 flex flex-wrap items-center gap-2">
           {app.tags.map((tag) => (
             <span
               key={tag}
-              className="text-[9px] px-2 py-0.5 rounded-full font-bold border"
-              style={{
-                background: `${app.color}10`,
-                borderColor: `${app.color}30`,
-                color: `${app.color}cc`
-              }}
+              className="rounded-pill border border-[var(--border-subtle)] px-2 py-0.5 text-[9px] font-semibold text-ink-secondary"
             >
               {tag}
             </span>
           ))}
         </div>
 
-        {/* Barra de ação */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isRunning) {
-              onStop()
-            } else {
-              onLaunch()
-            }
-          }}
-          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow focus-visible:ring-2 focus-visible:ring-neon-cyan/70 ${
-            isRunning
-              ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40 hover:text-red-300 border border-red-500/30 shadow-glow-red'
-              : `text-white bg-gradient-to-r from-${app.color}/20 to-${app.color}/10 border border-${app.color}/40 hover:from-${app.color}/40 hover:to-${app.color}/20 hover:border-${app.color}/60 shadow-glow-orange`
-          }`}
-        >
-          {isRunning ? (
-            <>
-              <Square size={14} /> Parar
-            </>
-          ) : (
-            <>
-              <Play size={14} /> Iniciar
-            </>
-          )}
-        </button>
+        {/* Barra de ação — margin-top auto empurra para o rodapé do card */}
+        <div className="mt-auto">
+          <Button
+            variant={isRunning ? 'danger' : 'primary'}
+            size="md"
+            className="w-full"
+            onClick={(e) => {
+              e.stopPropagation()
+              if (isRunning) {
+                onStop()
+              } else {
+                onLaunch()
+              }
+            }}
+          >
+            {isRunning ? (
+              <>
+                <Square size={14} aria-hidden="true" /> Parar
+              </>
+            ) : (
+              <>
+                <Play size={14} aria-hidden="true" /> Iniciar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </motion.div>
   )
