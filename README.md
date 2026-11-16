@@ -17,15 +17,15 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | Programa                                                                | Como é distribuído                                                           | Instalação                                                                                        |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **Mark LVI (JARVIS)**                                                   | Embutido no instalador do Hub em `resources/programs/MarkLVI/` (PyInstaller) | Automática na primeira execução do Hub                                                            |
-| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (`msiexec /i … /quiet`), em `C:\Program Files\KLOUD_GAMES` |
+| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
 | **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                          |
 
 ## Instalação para o usuário final
 
-Baixe e execute `Kolnd Hub Setup <versao>.exe` (gerado em `kolnd-hub/dist/`; a versao atual esta em `kolnd-hub/package.json`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução dispara dois processos elevados via UAC:
+Baixe e execute `Kolnd Hub Setup <versao>.exe` (gerado em `kolnd-hub/dist/`; a versao atual esta em `kolnd-hub/package.json`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução pode disparar elevação via UAC:
 
-1. Instalação silenciosa do **Python 3.x** via `winget`, apenas se ele não estiver presente;
-2. Instalação do **Kloud Games** a partir do MSI embutido (serviço + firewall + autostart).
+1. Instalação do **Python 3.x** via `winget`, apenas se ele não estiver presente (o Hub não eleva o winget explicitamente; se um UAC aparecer, é do próprio winget/instalador do pacote);
+2. Instalação do **Kloud Games** a partir do MSI embutido (serviço + firewall + autostart) — sempre elevada via UAC, com assistente visível (sem `/quiet`).
 
 Durante a primeira execução o app mostra uma tela de progresso com as etapas:
 
@@ -188,7 +188,7 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 - Instalação **por usuário** mantém a pasta gravável. O Mark LVI (reconstruído com `core/paths.py`) grava a chave de API e a memória em `%APPDATA%\kolnd-hub\mark-lvi` (o Hub define `MARK_LVI_HOME` e semeia os dados ao lado do executável automaticamente). Enquanto o Mark LVI não for reconstruído, ele grava ao lado do próprio executável; nesses casos a instalação deve permanecer em `%LOCALAPPDATA%` (o instalador não permite trocar o diretório de propósito). O desinstalador remove o diretório da instalação inteiro — inclusive dados gravados ao lado do executável; o que estiver em `%APPDATA%\kolnd-hub` é preservado (veja **Desinstalação**).
 - O instalador dispara UAC para instalar Python (se necessário) e o MSI do Kloud Games (serviço + firewall).
 - Por ser um `.exe` único que baixa/executa instaladores, pode ser sinalizado como falso positivo pelo Defender — para distribuição pública, assine o código (ver detalhes em `kolnd-hub/README.md`, seção "Primeira execução, UAC e antivírus").
-- A validação completa em máquina limpa (VM/Sandbox) ainda está pendente; a instalação de Python via winget e a instalação do MSI do Kloud Games não foram exercitadas em ambiente limpo. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa").
+- **Validação em máquina limpa (VM/Sandbox) — status real: checklist preparado, execução PENDENTE.** O checklist reutilizável a cada release está em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md) (pré-requisitos da VM, passos com checkbox, cenários de falha/UAC negado, logs a observar, limitações — o bundle real do Mark LVI não está no git; CI só empacota com placeholder). A instalação de Python via winget e a instalação do MSI do Kloud Games **não foram exercitadas em ambiente limpo**; esta afirmação só pode ser removida/atualizada após uma execução registrada na VM. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa") e o checklist operacional em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md).
 
 ## Licenças
 
@@ -205,6 +205,7 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 - `kolnd-hub/AGENTS.md` — regras operacionais para agentes e contribuidores do Hub
 - `docs/architecture.md` — arquitetura técnica do Hub (processos, IPC, store + migrações, first-run, Big Picture, segurança)
 - `docs/RELEASE.md` — guia/checklist de release passo a passo (fonte única do processo)
+- `docs/FIRST-RUN-CHECKLIST.md` — checklist de validação em máquina limpa do fluxo de primeira execução (preparado; execução em VM pendente)
 - `Mark-LVI/readme.md` — documentação do assistente JARVIS
 - `kloud-games/AGENTS.md` — instruções de build/teste do Kloud Games
 - Repositório: [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub)

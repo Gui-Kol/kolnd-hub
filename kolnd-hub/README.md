@@ -90,11 +90,13 @@ Na primeira abertura, o app detecta a ausência do marcador `first-run-complete.
 
 1. **Verificação de dependências** — Python e pip;
 2. **Python** — instala silenciosamente via `winget` (`--silent --accept-package-agreements`), apenas se necessário;
-3. **Kloud Games** — instala o MSI embutido em `resources/programs/kloud-games/KLOUD_GAMES.msi` via UAC (`msiexec /i … /quiet /norestart`, elevado com `Start-Process -Verb RunAs`). Falha aqui **não bloqueia** o uso do Hub;
+3. **Kloud Games** — instala o MSI embutido em `resources/programs/kloud-games/KLOUD_GAMES.msi` via UAC (assistente visível: `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs` — não usa `/quiet`). Falha aqui **não bloqueia** o uso do Hub;
 4. **Programas** — verifica a implantação do Mark LVI e do Kloud Games;
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Nas próximas aberturas o app vai direto para o dashboard. A flag fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
+
+O roteiro de validação desse fluxo em máquina/VM limpa — pré-requisitos, passos com checkbox, cenários de falha (winget ausente, UAC negado), logs a observar e limitações — está em [`../docs/FIRST-RUN-CHECKLIST.md`](../docs/FIRST-RUN-CHECKLIST.md). **Status real: checklist preparado (15/11/2026); execução em VM pendente — o fluxo ainda não foi validado em ambiente limpo.**
 
 ## Gerando o instalador com tudo embutido
 
@@ -153,7 +155,7 @@ As configurações são salvas no **electron-store** (`%APPDATA%\kolnd-hub\confi
 
 Por padrão os comandos rodam via **shell (cmd.exe)** — preserva aspas e argumentos. Desative "Executar via shell" em Configurações apenas para comandos simples, sem aspas/argumentos complexos: nesse caso a linha é separada em argv e o processo é executado **sem** interpretação de shell.
 
-> ⚠️ A instalação do MSI do Kloud Games na primeira execução **ainda não foi validada em máquina limpa** (sem Python/winget pré-instalados e com UAC aprovado). A validação ficou pendente — veja a seção de primeira execução acima e o roteiro completo em [`../docs/RELEASE.md`](../docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa").
+> ⚠️ A instalação do MSI do Kloud Games na primeira execução **ainda não foi validada em máquina limpa** (sem Python/winget pré-instalados e com UAC aprovado). O checklist reutilizável para essa validação está em [`../docs/FIRST-RUN-CHECKLIST.md`](../docs/FIRST-RUN-CHECKLIST.md) — **preparado (15/11/2026); execução em VM pendente**. Até que ela seja executada e registrada, qualquer afirmação de que o fluxo foi validado seria falsa. O roteiro do processo de release está em [`../docs/RELEASE.md`](../docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa").
 
 ## Modo Big Picture
 
@@ -175,7 +177,7 @@ Pontos de atenção para quem instala ou distribui o app:
 A instalação do Hub em si (NSIS) é **por usuário** e não pede administrador. Mas a primeira execução dispara dois processos elevados:
 
 1. **Python** — instalado via `winget` (`--silent --accept-package-agreements`), apenas se faltar no sistema;
-2. **Kloud Games** — o MSI embutido é instalado com `msiexec /i … /quiet /norestart` elevado via `Start-Process -Verb RunAs` (instala o serviço `KLOUD_GAMESsvc`, regras de firewall e o autostart).
+2. **Kloud Games** — o MSI embutido é instalado com `msiexec /i … /norestart` elevado via `Start-Process -Verb RunAs` — assistente **visível**, sem `/quiet` (instala o serviço `KLOUD_GAMESsvc`, regras de firewall e o autostart).
 
 Se você **negar o UAC do Kloud Games**, a etapa falha mas não bloqueia o uso do Hub — o MSI continua disponível em `<instalação>/resources/programs/kloud-games/KLOUD_GAMES.msi` para instalação manual posterior (`msiexec /i …` como administrador). Se negar o UAC do Python (quando ele faltar), o Mark LVI não funciona até o Python ser instalado.
 
