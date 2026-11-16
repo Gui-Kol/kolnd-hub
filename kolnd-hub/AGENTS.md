@@ -37,7 +37,7 @@ arquivo de código alterado quando a tarefa é docs-only.
   (não ampliar): a flag de first-run, o logger e o estado do Kloud Games.
 - **IPC valida tudo.** Handlers recebem `unknown` e validam tipo, tamanho, formato e
   whitelists antes de usar qualquer argumento (exemplos: `isValidId`/`isValidExePath`
-  em `games.ts`, `isAllowedExternalUrl` em `index.ts`, normalizadores em `store.ts`).
+  em `games.ts`, `isAllowedExternalUrl` em `ipc/shell.ts`, normalizadores em `store.ts`).
   O renderer também valida o que recebe do main. Sem exceção — o renderer pode estar
   comprometido (XSS).
 - **Nunca reintroduzir Playnite/SteamGridDB.** Decisão registrada no projeto; o Hub

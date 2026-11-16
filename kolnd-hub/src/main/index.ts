@@ -2,7 +2,7 @@
 // (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard } from 'electron'
+import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, setBaseDir } from './processManager'
@@ -18,7 +18,6 @@ import { registerTempCleanerIpc } from './tempCleaner'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
-import { buildDiagnosticReport } from './diagnostic'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData } from './programsDeployer'
 import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
@@ -28,6 +27,7 @@ import { registerAppIpc } from './ipc/app'
 import { registerKloudGamesIpc } from './ipc/kloudGames'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
+import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
@@ -237,7 +237,7 @@ app.whenReady().then(() => {
   // Registra os canais IPC de controles de janela (minimize/maximize/fullscreen/close).
   registerWindowIpc(ctx)
 
-  // Registra os canais IPC de gestao de programas (launch/stop/status/logs/shutdown).
+  // Registra os canais IPC de gestão de programas (launch/stop/status/logs/shutdown).
   registerAppIpc(ctx)
 
   // Registra os canais IPC do Kloud Games (launch/status).
@@ -248,6 +248,9 @@ app.whenReady().then(() => {
 
   // Reencaminha os eventos do ProcessManager para o renderer (status/output).
   registerProcessEvents(ctx)
+
+  // Registra o canal IPC de exportação de diagnóstico (diagnostic:export).
+  registerDiagnosticIpc(ctx)
 
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
@@ -269,24 +272,6 @@ app.whenReady().then(() => {
       return
     }
     void confirmAndQuit(ctx)
-  })
-
-  // ── Diagnóstico (task 06-6.3) ──────────────────
-  // Sem argumentos. Monta um relatório sanitizado (versões, contagens do
-  // store e últimas linhas dos logs — nunca comandos/cwd/URLs/nomes de
-  // jogos) e copia para a área de transferência. O renderer recebe apenas
-  // { success, error? }.
-  ipcMain.handle('diagnostic:export', () => {
-    try {
-      const report = buildDiagnosticReport()
-      clipboard.writeText(report)
-      logger.info('diagnostic', 'Diagnóstico copiado para a área de transferência')
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error('diagnostic', 'Falha ao exportar diagnóstico:', err)
-      return { success: false, error: message }
-    }
   })
 
   const firstRun = isFirstRun()
