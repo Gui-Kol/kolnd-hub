@@ -40,6 +40,18 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      # 02-2.5: o rodape do app usa __APP_VERSION__ (define do electron.vite.config.ts,
+      # fonte unica = package.json). Falha se a string stale "v1.0.0" reaparecer em src/.
+      - name: Version consistency (no stale v1.0.0 in src)
+        shell: pwsh
+        run: |
+          $hits = Get-ChildItem -Recurse src -Include *.ts,*.tsx,*.js,*.jsx,*.css,*.html | Select-String -Pattern 'v1\.0\.0'
+          if ($hits) {
+            $hits | ForEach-Object { Write-Host $_ }
+            Write-Error 'Versao hardcoded "v1.0.0" encontrada em src/ - use __APP_VERSION__ (fonte unica: kolnd-hub/package.json).'
+            exit 1
+          }
+
       - name: Unit tests
         run: npm test
 

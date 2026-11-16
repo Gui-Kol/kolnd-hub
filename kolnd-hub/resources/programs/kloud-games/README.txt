@@ -26,7 +26,7 @@ O .bat executa, em ordem:
      - dependências MSYS2/ucrt64 (pacman --needed)
      - cmake + ninja (gcc/g++) e cpack -G WIX -> KLOUD_GAMES.msi
      - copia o MSI para cá
-  2. npm run package (electron-builder) -> dist\Kolnd Hub Setup 1.0.0.exe
+  2. npm run package (electron-builder) -> dist\Kolnd Hub Setup <versao>.exe  (versao = version em kolnd-hub\package.json)
 
 Pré-requisitos na máquina de build: git, Node.js LTS, ~2 GB de espaço em
 cmake-build-windows/ na primeira vez, e acesso à internet (submódulos,

@@ -56,7 +56,7 @@ Checklist:
 
 ## Passo 1 — Bump de versão
 
-Ordem obrigatória dos artefatos de versão. Versão atual de referência: **1.4.0**.
+Ordem obrigatória dos artefatos de versão. Fonte única da versão: **`version` em `kolnd-hub/package.json`** (referência em 15/11/2026: 1.4.0).
 
 ### 1.1 `kolnd-hub/package.json` + `package-lock.json`
 
@@ -73,19 +73,22 @@ Alternativa manual: editar `"version": "1.4.0"` em `kolnd-hub/package.json` e ro
 
 ### 1.2 Rodapé da Sidebar — `kolnd-hub/src/renderer/src/components/Sidebar.tsx`
 
-- [ ] Atualizar o texto do rodapé (hoje **stale** em `v1.0.0 · Gamer Edition`, linha ~129) para `vX.Y.Z · Gamer Edition`.
+Desde a tarefa 02-2.5 (15/11/2026) o rodapé é **dinâmico**: renderiza `v{__APP_VERSION__} · Gamer Edition`, com `__APP_VERSION__` injetado via `define` no `electron.vite.config.ts` a partir do `version` do `package.json` (declarado em `src/renderer/src/env.d.ts`).
+
+- [ ] Nada a atualizar no bump — a versão do rodapé acompanha `package.json` automaticamente. Apenas confirme que o define está presente no build (`__APP_VERSION__` substituído no bundle do renderer).
 - [ ] **Decisão do usuário (item 2.5 / versionamento):** manter ou remover o sufixo `· Gamer Edition` — não decidido; registrar o que foi feito no release notes.
 
 ### 1.3 `build-installer.bat` (raiz)
 
-Desde a tarefa 11-11.3 (concluída, commit `e7e9bf3b`), o `.bat` **lê a versão de `kolnd-hub/package.json` em runtime** (`node -p "require('%HUB%/package.json').version"`) para exibir no resumo final — não há mais versão citada no fluxo normal. Único resquício com valor fixo:
+Desde a tarefa 11-11.3 (concluída, commit `e7e9bf3b`) e a tarefa 02-2.5 (15/11/2026), o `.bat` **lê a versão de `kolnd-hub/package.json` em runtime** (`node -p "require('%HUB%/package.json').version"`) para exibir no resumo final — não há mais versão fixa no arquivo. Se o node falhar, o fallback é o genérico `*` (`Kolnd Hub Setup *.exe`), nunca uma versão velha.
 
-- [ ] Atualizar o **fallback** para a versão nova: o comentário `rem (via arquivo temporario; fallback para 1.4.0 se o node falhar)` e a linha `if not defined HUB_VERSION set "HUB_VERSION=1.4.0"` (bloco perto do fim do arquivo).
-- [ ] Nada mais no `.bat` precisa mudar — se você encontrar outra versão literal, trate como bug do 11-11.3 e corrija citando a tarefa.
+- [ ] Nada a atualizar no `.bat` no bump — nenhuma versão literal permanece no fluxo. Se você encontrar outra versão literal, trate como bug da 02-2.5 e corrija citando a tarefa.
 
 ### 1.4 READMEs que citam a versão
 
-- [ ] `README.md` (raiz): nome do instalador citado em **dois** lugares — na seção "Instalação para o usuário final" (`Kolnd Hub Setup 1.4.0.exe`) e em "Build do instalador" (`kolnd-hub/dist/Kolnd Hub Setup 1.4.0.exe`). Atualizar ambos.
+Desde a tarefa 02-2.5 (15/11/2026), o `README.md` (raiz) cita o instalador como `Kolnd Hub Setup <versao>.exe` (placeholder) e aponta para `version` em `kolnd-hub/package.json` — não há versão literal nos dois lugares ("Instalação para o usuário final" e "Build do instalador").
+
+- [ ] Nada a atualizar nos READMEs no bump — o placeholder é proposital. Só ajeitar se a política de nomenclatura mudar.
 - [ ] `kolnd-hub/README.md`: hoje **não** cita o nome do instalador com versão. As menções a `'1.4.0'` que existem lá referem-se à **migração do schema do electron-store** — não são a versão do produto e **não** devem ser tocadas neste passo (ver 1.5).
 
 ### 1.5 `store.ts` / migração — só se o schema mudar
@@ -95,7 +98,9 @@ Desde a tarefa 11-11.3 (concluída, commit `e7e9bf3b`), o `.bat` **lê a versão
 
 ### 1.6 `electron-builder.yml`
 
-- [ ] Confirmar que **não** há versão explícita (hoje não há — `productName`/`appId` são fixos; a versão vem de `package.json`). Se uma versão literal for adicionada no futuro, ela entra nesta lista.
+Desde a tarefa 02-2.5 (15/11/2026), `win.artifactName` está definido explicitamente como `Kolnd Hub Setup ${version}.exe` (macro resolvida a partir do `package.json`; o default do electron-builder 24.x já era esse padrão, aqui fixado para não depender de default). Não há versão literal no arquivo.
+
+- [ ] Nada a fazer no bump — a macro `${version}` resolve a partir de `package.json`. Se uma versão literal for adicionada no futuro, ela entra nesta lista.
 
 ### 1.7 Varredura final por versões antigas
 
@@ -389,7 +394,7 @@ Este guia **não decide** por nenhum destes itens — apenas os referencia:
 | 2.1         | Auto-update do app                                            | Usuário                      | Fora de escopo (tarefa própria)                                   |
 | 2.2         | Validação em máquina limpa (roteiro no Passo 2)               | Usuário/execução             | **Pendente — nunca executada**                                    |
 | 2.4         | Assinatura de código (OV/EV vs. Azure Trusted Signing)        | **Usuário — decisão**        | Pendente; release sai com risco SmartScreen se aceito por escrito |
-| 2.5         | Versionamento/rodapé "Gamer Edition" (Sidebar stale `v1.0.0`) | Usuário                      | Pendente; bump corrige a versão, não o sufixo                     |
+| 2.5         | Versionamento/rodapé "Gamer Edition" (rodapé agora dinâmico via `__APP_VERSION__`) | Feito (02-2.5, 15/11/2026)  | Versão unificada no `package.json`; sufixo "Gamer Edition" permanece (decisão do usuário)     |
 | 2.6         | Desinstalação preserva `%APPDATA%\kolnd-hub`                  | Feito                        | Documentado nos READMEs e na `electron-builder.yml`               |
 | 2.7         | Checksums / formato de publicação                             | Usuário — decisão (em parte) | Passo 7 assume GitHub Release + SHA-256                           |
 | 2.7 / nº 15 | Formato de release público                                    | **Usuário — decisão**        | Passo 7 assume GitHub Release; confirmar                          |

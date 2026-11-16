@@ -126,7 +126,7 @@ export function Sidebar({
         )}
         <div className="text-center">
           <p className="text-[10px] font-bold text-slate-500 tracking-tight">Kolnd Hub</p>
-          <p className="text-[9px] text-slate-600 mt-0.5">v1.0.0 · Gamer Edition</p>
+          <p className="text-[9px] text-slate-600 mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>
         </div>
       </div>
     </aside>

@@ -22,7 +22,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Instalação para o usuário final
 
-Baixe e execute `Kolnd Hub Setup 1.4.0.exe` (gerado em `kolnd-hub/dist/`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução dispara dois processos elevados via UAC:
+Baixe e execute `Kolnd Hub Setup <versao>.exe` (gerado em `kolnd-hub/dist/`; a versao atual esta em `kolnd-hub/package.json`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução dispara dois processos elevados via UAC:
 
 1. Instalação silenciosa do **Python 3.x** via `winget`, apenas se ele não estiver presente;
 2. Instalação do **Kloud Games** a partir do MSI embutido (serviço + firewall + autostart).
@@ -132,7 +132,7 @@ O script:
 
 1. Garante o Node.js no PATH e instala pré-requisitos via `winget` (Git, MSYS2 em `C:\msys64` e .NET SDK 8, necessários para o WiX/cpack);
 2. Roda `kolnd-hub/scripts/build-kloud-games.ps1` — correções idempotentes de renomeação do snapshot, submódulos (incluindo aninhados e o fix aplicado via `scripts/patches/moonlight-stdatomic-guards.patch`), dependências ucrt64, `cmake + ninja` com gcc, `cpack -G WIX` e cópia do MSI para `kolnd-hub/resources/programs/kloud-games/`;
-3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup 1.4.0.exe` (~360 MB).
+3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~360 MB).
 
 Se o Kloud Games já estiver compilado, apenas o passo 3 é necessário:
 

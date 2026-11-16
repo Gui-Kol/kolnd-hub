@@ -31,6 +31,10 @@ extraResources:
       - '!MarkLVI/memory/**'
 win:
   icon: resources/icon.ico
+  # Nome explicito e estavel do artefato (NSIS respeita ${version}; o default
+  # do electron-builder 24.x ja e "${productName} Setup ${version}.exe", aqui
+  # fixamos para nao depender de default). Fonte unica da versao: package.json.
+  artifactName: Kolnd Hub Setup ${version}.exe
   target:
     - nsis
 nsis:

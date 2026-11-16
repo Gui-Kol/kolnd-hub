@@ -94,12 +94,13 @@ if errorlevel 1 (
 )
 
 rem --- Le a versao do kolnd-hub\package.json para o resumo final ---
-rem (via arquivo temporario; fallback para 1.4.0 se o node falhar)
+rem (via arquivo temporario; se o node falhar, cai para um fallback
+rem  generico com * e o resumo aponta o padrao de nome, nunca uma versao velha)
 set "HUB_VERSION="
 node -p "require('%HUB%/package.json').version" > "%TEMP%\kolnd-hub-version.txt" 2>nul
 set /p HUB_VERSION=< "%TEMP%\kolnd-hub-version.txt"
 del /q "%TEMP%\kolnd-hub-version.txt" >nul 2>&1
-if not defined HUB_VERSION set "HUB_VERSION=1.4.0"
+if not defined HUB_VERSION set "HUB_VERSION=*"
 
 echo.
 echo =============================================================
