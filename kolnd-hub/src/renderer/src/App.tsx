@@ -690,14 +690,12 @@ function App(): JSX.Element {
             />
           )}
 
-          {/* ── Modal: confirmação de saída ──────────────── */}
-          {/* Sem Esc (closeOnEsc={false}); backdrop e botões fecham — comportamento
-              idêntico ao modal inline anterior. Textos intactos. */}
+          {/* Modal: confirmação de saída — Esc/backdrop/botões fecham (comportamento
+              restaurado em 16/11/2026 após decisão do usuário). Textos intactos. */}
           {exitModalOpen && (
             <Modal
               title="Encerrar Kolnd Hub?"
               onClose={closeExitModal}
-              closeOnEsc={false}
               closeLabel="Fechar confirmação de saída"
               footer={
                 <>
