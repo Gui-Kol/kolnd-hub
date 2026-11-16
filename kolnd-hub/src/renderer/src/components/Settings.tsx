@@ -15,7 +15,10 @@ import {
   AlertTriangle,
   FlaskConical,
   Bell,
-  Power
+  Power,
+  Archive,
+  Download,
+  Upload
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -53,6 +56,29 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const [autostartFeedback, setAutostartFeedback] = useState<'saved' | 'error' | null>(null)
   const autostartFeedbackTimer = useRef<number | null>(null)
   const [exportingDiagnostic, setExportingDiagnostic] = useState(false)
+  // Backup e restauração (07-7.6): exportar/importar a configuração do Hub.
+  // O import acontece em DOIS passos no main (prévia → confirmação → aplicar);
+  // aqui ficam apenas os estados da UI.
+  const [exportingConfig, setExportingConfig] = useState(false)
+  const [exportFeedback, setExportFeedback] = useState<{
+    kind: 'done' | 'error'
+    message: string
+  } | null>(null)
+  const exportFeedbackTimer = useRef<number | null>(null)
+  const [importFlow, setImportFlow] = useState<'idle' | 'previewing' | 'confirm' | 'applying'>(
+    'idle'
+  )
+  const [importSummary, setImportSummary] = useState<{
+    apps: number
+    games: number
+    sections: string[]
+    rejected: Array<{ section: string; error: string }>
+  } | null>(null)
+  const [importFeedback, setImportFeedback] = useState<{
+    kind: 'done' | 'partial' | 'error'
+    message: string
+  } | null>(null)
+  const importFeedbackTimer = useRef<number | null>(null)
   // Issues inline do campo de comando, por id de app (debounce de ~300 ms no
   // efeito abaixo) + resultado do botão "Testar comando" (clique explícito).
   const [commandIssues, setCommandIssues] = useState<Record<string, CommandIssue[]>>({})
@@ -143,6 +169,8 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
       if (notifyFeedbackTimer.current) window.clearTimeout(notifyFeedbackTimer.current)
       if (autostartFeedbackTimer.current) window.clearTimeout(autostartFeedbackTimer.current)
+      if (exportFeedbackTimer.current) window.clearTimeout(exportFeedbackTimer.current)
+      if (importFeedbackTimer.current) window.clearTimeout(importFeedbackTimer.current)
     },
     []
   )
@@ -220,6 +248,118 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       onToast?.('Não foi possível copiar o diagnóstico. Tente de novo.', 'error')
     } finally {
       setExportingDiagnostic(false)
+    }
+  }
+
+  // Agenda a limpeza de um feedback de backup/restauração (mensagens podem
+  // ser longas — 6 s para dar tempo de ler o caminho do arquivo).
+  const scheduleFeedbackClear = (
+    setter: (value: null) => void,
+    timerRef: { current: number | null }
+  ): void => {
+    if (timerRef.current) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => setter(null), 6000)
+  }
+
+  // Exportar configuração para um JSON (07-7.6).
+  const handleExportConfig = async (): Promise<void> => {
+    if (exportingConfig) return
+    setExportingConfig(true)
+    setExportFeedback(null)
+    try {
+      const result = await window.api.exportConfig()
+      if (!result.success) {
+        // Cancelar o diálogo "salvar como" não é erro — não mostra feedback.
+        if (result.canceled) return
+        throw new Error(result.error ?? 'erro desconhecido')
+      }
+      setExportFeedback({
+        kind: 'done',
+        message: `Configuração exportada para ${result.path ?? 'arquivo JSON'}`
+      })
+    } catch (err) {
+      console.error('[settings] Falha ao exportar configuração:', err)
+      setExportFeedback({
+        kind: 'error',
+        message: 'Não foi possível exportar a configuração. Tente de novo.'
+      })
+    } finally {
+      setExportingConfig(false)
+      scheduleFeedbackClear(setExportFeedback, exportFeedbackTimer)
+    }
+  }
+
+  // Importar, passo 1: abre o diálogo, valida o arquivo e devolve o resumo
+  // do que será substituído. Nada é aplicado nesta etapa.
+  const handleImportPreview = async (): Promise<void> => {
+    if (importFlow !== 'idle') return
+    setImportFlow('previewing')
+    setImportFeedback(null)
+    setImportSummary(null)
+    try {
+      const result = await window.api.importConfigPreview()
+      if (result.ok) {
+        setImportSummary({ ...result.summary, rejected: result.rejected })
+        setImportFlow('confirm')
+        return
+      }
+      if ('canceled' in result && result.canceled) {
+        setImportFlow('idle')
+        return
+      }
+      const errors = 'errors' in result ? result.errors : ['Erro desconhecido.']
+      setImportFeedback({ kind: 'error', message: errors.join(' ') })
+      setImportFlow('idle')
+      scheduleFeedbackClear(setImportFeedback, importFeedbackTimer)
+    } catch (err) {
+      console.error('[settings] Falha ao importar configuração:', err)
+      setImportFeedback({
+        kind: 'error',
+        message: 'Não foi possível ler o arquivo. Tente de novo.'
+      })
+      setImportFlow('idle')
+      scheduleFeedbackClear(setImportFeedback, importFeedbackTimer)
+    }
+  }
+
+  const handleImportCancel = (): void => {
+    setImportFlow('idle')
+    setImportSummary(null)
+  }
+
+  // Importar, passo 2: aplica a prévia guardada no main (com backup prévio).
+  const handleImportApply = async (): Promise<void> => {
+    if (importFlow !== 'confirm') return
+    setImportFlow('applying')
+    try {
+      const result = await window.api.importConfigApply()
+      if (!result.success) {
+        setImportFeedback({ kind: 'error', message: result.error })
+      } else if (result.failed.length > 0) {
+        setImportFeedback({
+          kind: 'partial',
+          message: `Importação concluída com problemas em: ${result.failed
+            .map((f) => f.section)
+            .join(', ')}. O restante foi aplicado. Backup salvo em ${result.backupPath}.`
+        })
+      } else {
+        setImportFeedback({
+          kind: 'done',
+          message:
+            `Configuração importada. Backup automático salvo em ${result.backupPath}. ` +
+            'Reinicie o Hub para ver os valores importados.'
+        })
+      }
+    } catch (err) {
+      console.error('[settings] Falha ao aplicar importação:', err)
+      setImportFeedback({
+        kind: 'error',
+        message: 'Não foi possível aplicar a importação. Tente de novo.'
+      })
+    } finally {
+      setImportFlow('idle')
+      setImportSummary(null)
+      scheduleFeedbackClear(setImportFeedback, importFeedbackTimer)
     }
   }
 
@@ -809,6 +949,146 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
             {exportingDiagnostic ? 'Copiando…' : 'Copiar diagnóstico'}
           </button>
         </div>
+      </motion.div>
+
+      {/* ── Backup e restauração (07-7.6) ────────────── */}
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+        Backup e restauração
+      </p>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+      >
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+            <Archive size={20} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-white">Backup e restauração</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Leve apps, biblioteca de jogos, importâncias e preferências de um PC para outro com um
+              arquivo JSON. A importação substitui as configurações atuais — um backup automático é
+              feito antes.
+            </p>
+          </div>
+        </div>
+
+        {/* Aviso permanente */}
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
+          <p className="text-[11px] leading-relaxed text-amber-200/90">
+            O arquivo de backup contém seus comandos e caminhos configurados. Não o compartilhe
+            publicamente. Chaves de API do Mark LVI não estão incluídas (ficam fora do Hub).
+          </p>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleExportConfig()}
+            disabled={exportingConfig}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-kloud-500 to-nintendo-500 shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600 transition-all disabled:opacity-60 disabled:cursor-wait"
+          >
+            {exportingConfig ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Download size={14} />
+            )}
+            {exportingConfig ? 'Exportando…' : 'Exportar configuração'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleImportPreview()}
+            disabled={importFlow !== 'idle'}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-200 border border-white/10 bg-white/5 hover:border-kloud-500/50 hover:text-white transition-all disabled:opacity-60 disabled:cursor-wait"
+          >
+            {importFlow === 'previewing' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Upload size={14} />
+            )}
+            {importFlow === 'previewing' ? 'Lendo arquivo…' : 'Importar configuração'}
+          </button>
+        </div>
+
+        {exportFeedback && (
+          <p
+            className={`mt-3 text-[11px] leading-relaxed break-all flex items-start gap-1.5 ${
+              exportFeedback.kind === 'done' ? 'text-emerald-400' : 'text-red-400'
+            }`}
+            role="status"
+          >
+            {exportFeedback.kind === 'done' && <Check size={12} className="mt-0.5 shrink-0" />}
+            <span>{exportFeedback.message}</span>
+          </p>
+        )}
+
+        {/* Confirmação inline: o que será substituído (resumo vindo do main) */}
+        {importSummary && (importFlow === 'confirm' || importFlow === 'applying') && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+            <p className="text-xs leading-relaxed text-amber-100">
+              Isto substituirá{' '}
+              <strong>
+                {importSummary.apps} {importSummary.apps === 1 ? 'app' : 'apps'} e{' '}
+                {importSummary.games} {importSummary.games === 1 ? 'jogo' : 'jogos'}
+              </strong>{' '}
+              pelas versões do arquivo. Um backup automático será feito antes. Continuar?
+            </p>
+            {importSummary.rejected.length > 0 && (
+              <div className="text-[11px] leading-relaxed text-amber-200/80">
+                <p className="font-semibold">Seções recusadas (serão mantidas como estão):</p>
+                <ul className="list-disc list-inside">
+                  {importSummary.rejected.map((r) => (
+                    <li key={r.section}>
+                      {r.section}: {r.error}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => void handleImportApply()}
+                disabled={importFlow === 'applying'}
+              >
+                {importFlow === 'applying' ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Upload size={14} />
+                )}
+                {importFlow === 'applying' ? 'Importando…' : 'Importar'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleImportCancel}
+                disabled={importFlow === 'applying'}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {importFeedback && (
+          <p
+            className={`mt-3 text-[11px] leading-relaxed break-all flex items-start gap-1.5 ${
+              importFeedback.kind === 'done'
+                ? 'text-emerald-400'
+                : importFeedback.kind === 'partial'
+                  ? 'text-amber-300'
+                  : 'text-red-400'
+            }`}
+            role="status"
+          >
+            {importFeedback.kind === 'done' && <Check size={12} className="mt-0.5 shrink-0" />}
+            <span>{importFeedback.message}</span>
+          </p>
+        )}
       </motion.div>
 
       {/* ── Zona de perigo: desinstalação ──────────────── */}

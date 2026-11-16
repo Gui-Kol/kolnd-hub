@@ -30,6 +30,7 @@ import { registerKloudGamesIpc } from './ipc/kloudGames'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
+import { registerConfigTransferIpc } from './ipc/configTransfer'
 import { confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
@@ -225,6 +226,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
   registerPrefsIpc()
+
+  // Registra os canais IPC de exportação/importação da configuração (07-7.6).
+  registerConfigTransferIpc(ctx)
 
   // Registra os canais IPC do autostart do próprio Hub no Windows (--hidden).
   registerLoginItemIpc()

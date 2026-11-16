@@ -266,6 +266,32 @@ declare global {
       // ── Diagnóstico ─────────────────────────────────
       exportDiagnostic: () => Promise<{ success: boolean; error?: string }>
 
+      // ── Backup e restauração (07-7.6) ──────────────
+      exportConfig: () => Promise<{
+        success: boolean
+        path?: string
+        canceled?: boolean
+        error?: string
+      }>
+      importConfigPreview: () => Promise<
+        | {
+            ok: true
+            summary: { apps: number; games: number; sections: string[] }
+            rejected: Array<{ section: string; error: string }>
+          }
+        | { ok: false; canceled: true }
+        | { ok: false; errors: string[] }
+      >
+      importConfigApply: () => Promise<
+        | {
+            success: true
+            applied: string[]
+            failed: Array<{ section: string; error: string }>
+            backupPath: string
+          }
+        | { success: false; error: string }
+      >
+
       // ── Desinstalação (Kloud Games e Hub) ────────────────────────
       getKloudGamesUninstallStatus: () => Promise<{
         ok: boolean

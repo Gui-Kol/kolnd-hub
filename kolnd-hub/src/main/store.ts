@@ -473,6 +473,15 @@ function createStore(): Store<HubStoreSchema> | null {
 
 const store = createStore()
 
+/**
+ * `true` quando o electron-store foi aberto (config.json legível).
+ * IPC de importação usa isto para abortar antes de qualquer escrita
+ * quando o app está no modo fallback (localStorage).
+ */
+export function isStoreAvailable(): boolean {
+  return store !== null
+}
+
 export interface HubConfigSnapshot {
   apps: StoredAppConfig[] | null
   startupImportance: Record<string, ImportanceLevelName> | null

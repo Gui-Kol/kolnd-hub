@@ -381,6 +381,34 @@ const api = {
   exportDiagnostic: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('diagnostic:export'),
 
+  // ── Backup e restauração (07-7.6) ──────────────
+  exportConfig: (): Promise<{
+    success: boolean
+    path?: string
+    canceled?: boolean
+    error?: string
+  }> => ipcRenderer.invoke('config:export'),
+
+  importConfigPreview: (): Promise<
+    | {
+        ok: true
+        summary: { apps: number; games: number; sections: string[] }
+        rejected: Array<{ section: string; error: string }>
+      }
+    | { ok: false; canceled: true }
+    | { ok: false; errors: string[] }
+  > => ipcRenderer.invoke('config:import', { mode: 'preview' }),
+
+  importConfigApply: (): Promise<
+    | {
+        success: true
+        applied: string[]
+        failed: Array<{ section: string; error: string }>
+        backupPath: string
+      }
+    | { success: false; error: string }
+  > => ipcRenderer.invoke('config:import', { mode: 'apply' }),
+
   // ── Desinstalação (Kloud Games e Hub) ────────────────────────
   getKloudGamesUninstallStatus: (): Promise<{
     ok: boolean
