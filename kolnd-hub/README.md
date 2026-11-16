@@ -41,6 +41,8 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
 - **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git) → **Generate SHA256SUMS** (informativo; gera `dist/SHA256SUMS.txt`). Artefatos: `dist/Kolnd Hub Setup *.exe` + `dist/SHA256SUMS.txt` e `coverage/` (ambos 7 dias).
 
+- **Baseline de bundle do renderer (16/11/2026)**: números e comando de reprodução (`$env:BUNDLE_ANALYZE='1'; npm run build`, gera `dist/bundle-report.html`, gitignored) em [`../docs/bundle-baseline.md`](../docs/bundle-baseline.md).
+
 ### Cobertura de testes (V8)
 
 - `npm run test:coverage` roda `vitest run --coverage` (provider **V8**, reporters `text`/`html`/`lcov`, saída em `kolnd-hub/coverage/`, gitignored).
@@ -277,6 +279,8 @@ src/
 
 - **"Diretório não encontrado"**: confira o campo _Diretório de trabalho_ em Configurações. Variáveis como `%LOCALAPPDATA%` são expandidas automaticamente.
 - **Programa inicia e para com "Erro"**: abra o card e clique no ícone de logs para ver a saída do processo.
+- **Logs persistentes por app (opt-in)**: em Configurações → Gerenciador de títulos, o toggle **"Gravar logs em arquivo para este app"** grava a saída do processo em `%APPDATA%\kolnd-hub\logs\<appId>.log` (um arquivo por app, acumulado entre sessões). Rotação automática em 1 MB — o arquivo atual vira `<appId>.log.1` (no máximo 2 arquivos por app). O botão **"Abrir pasta de logs"** no detalhe do app abre `%APPDATA%\kolnd-hub\logs` no Explorer.
+- Os arquivos de log de app podem conter dados do próprio app (inclusive conteúdo sensível que ele imprima). Estão no seu disco, visíveis a qualquer processo local — revise antes de anexá-los em bug reports.
 - **Comando não encontrado**: confirme que o executável está no `PATH` ou use o caminho completo no campo _Comando_.
 - **Kloud Games não inicia**: confirme que o MSI foi instalado na primeira execução (`%ProgramFiles%\KLOUD_GAMES`). Se necessário, execute `msiexec /i resources\programs\kloud-games\KLOUD_GAMES.msi` manualmente como administrador.
 - **Instalador sinalizado como falso positivo**: o `.exe` instala outros programas na primeira execução; veja a seção **Primeira execução, UAC e antivírus** acima antes de distribuir.
