@@ -286,6 +286,8 @@ Formato assumido (padrão de fato do projeto, pendente de confirmação do usuá
 > ```
 >
 > Prefira esse arquivo; os comandos manuais abaixo ficam como fallback/conferência.
+>
+> A verificação de autenticidade do MSI (Authenticode + SHA-256 impressos no log do `build-kloud-games.ps1` e SHA-256 no log de runtime do Hub antes do `msiexec` elevado) é **informativa** até a assinatura de código (02-2.4) — falhas de verificação não bloqueiam build nem instalação.
 
 ```powershell
 Get-FileHash -Algorithm SHA256 "kolnd-hub\dist\Kolnd Hub Setup X.Y.Z.exe" |

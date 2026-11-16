@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { spawn, execFile } from 'child_process'
 import {
   appendFileSync,
+  createReadStream,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -9,6 +10,7 @@ import {
   renameSync,
   writeFileSync
 } from 'fs'
+import { createHash } from 'crypto'
 import { dirname, join } from 'path'
 import { promisify } from 'util'
 import { logger } from './logger'
@@ -455,12 +457,44 @@ const MSIEXEC_USER_CANCEL = 1602 // ERROR_INSTALL_USEREXIT (assistente fechado/c
 const MSIEXEC_OTHER_INSTALL_IN_PROGRESS = new Set([1500, 1618]) // outra instalação em andamento
 const MSIEXEC_SUSPENDED_INSTALL = new Set([1704, 1705]) // instalação suspensa/pendente
 
+/** Calcula o SHA-256 de um arquivo via stream (não bloqueia o event loop). */
+function sha256File(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('data', (chunk: Buffer | string) => hash.update(chunk))
+    stream.on('error', reject)
+    stream.on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+/**
+ * Registra no log o SHA-256 do MSI embutido antes da instalação elevada.
+ * Best-effort: qualquer falha é apenas logada e a instalação segue — a
+ * verificação é informativa até a assinatura de código (tarefa 02-2.4).
+ * Nunca bloqueia nem altera o fluxo da instalação.
+ */
+async function logMsiSha256BestEffort(msiPath: string): Promise<void> {
+  try {
+    const hash = await sha256File(msiPath)
+    logger.info('kloud-games', `SHA-256 do MSI embutido: ${hash}`)
+  } catch (err) {
+    logger.info(
+      'kloud-games',
+      'Não foi possível calcular o SHA-256 do MSI (seguindo mesmo assim):',
+      err instanceof Error ? err.message : err
+    )
+  }
+}
+
 /**
  * Abre o assistente de instalação do MSI de forma visível (a pessoa instala
  * manualmente). Elevamos via PowerShell (RunAs) e aguardamos o fim.
  * A saída do processo e o resultado ficam em %APPDATA%\\kolnd-hub\\logs\\kloud-games-install.log.
  */
-function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
+async function launchInstallerElevated(msiPath: string): Promise<MsiInstallOutcome> {
+  await logMsiSha256BestEffort(msiPath)
+
   const logPath = getKloudGamesInstallLogPath()
   // O MSI é per-machine: sem privilégios administrativos, o Windows abre o
   // prompt do UAC. Aqui NÃO usamos /quiet — a pessoa vê e conclui o assistente.

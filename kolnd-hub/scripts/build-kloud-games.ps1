@@ -10,6 +10,7 @@
 #   4. Build (cmake + ninja, gcc/g++)
 #   5. Package (cpack -G WIX -> KLOUD_GAMES.msi)
 #   6. Copy the MSI into kolnd-hub/resources/programs/kloud-games/
+#   7. Verificacao de autenticidade do MSI (informativa - nao bloqueia o build)
 #
 # Re-runnable: everything is idempotent; incremental builds reuse the
 # cmake-build-windows directory.
@@ -291,5 +292,35 @@ if (-not (Test-Path $BundleDir)) { New-Item -ItemType Directory -Force $BundleDi
 Copy-Item -Force $msi (Join-Path $BundleDir 'KLOUD_GAMES.msi')
 $sizeMB = [math]::Round((Get-Item (Join-Path $BundleDir 'KLOUD_GAMES.msi')).Length / 1MB, 1)
 Write-Host ("    bundle: {0} ({1} MB)" -f (Join-Path $BundleDir 'KLOUD_GAMES.msi'), $sizeMB)
+
+# ---------------------------------------------------------------
+# 8. Verificacao de autenticidade do MSI (informativa)
+#    O MSI ainda nao e assinado (assinatura de codigo: tarefa 02-2.4), entao
+#    aqui apenas REGISTRAMOS no log de build - nunca falhamos o build:
+#    status Authenticode (+ subject/issuer quando assinado) e o SHA-256 do
+#    artefato empacotado. Quando o certificado existir, esta checagem pode
+#    passar de informativa para bloqueante.
+#    O SHA256SUMS.txt dos artefatos finais e gerado pelo build-installer.bat /
+#    CI via scripts\gen-sha256sums.ps1 (dono da logica de hash) - nao duplicar aqui.
+# ---------------------------------------------------------------
+Step 'Verificando autenticidade do MSI (informativa)...'
+$bundleMsi = Join-Path $BundleDir 'KLOUD_GAMES.msi'
+try {
+    $sig = Get-AuthenticodeSignature -FilePath $bundleMsi
+    Write-Host "    Authenticode: $($sig.Status)"
+    if ($sig.SignerCertificate) {
+        Write-Host "    subject: $($sig.SignerCertificate.Subject)"
+        Write-Host "    issuer : $($sig.SignerCertificate.Issuer)"
+    }
+    if ($sig.Status -ne 'Valid') {
+        Write-Host ('    [aviso] MSI sem assinatura valida ({0}) - registro apenas; a checagem vira bloqueante quando a assinatura (02-2.4) estiver em vigor.' -f $sig.Status) -ForegroundColor Yellow
+    }
+    $msiHash = (Get-FileHash -Algorithm SHA256 -Path $bundleMsi).Hash.ToLower()
+    Write-Host "    SHA-256: $msiHash  KLOUD_GAMES.msi"
+    Write-Host '    (o SHA256SUMS.txt final e gerado por scripts\gen-sha256sums.ps1 - build-installer.bat/CI)'
+} catch {
+    # Informativa: qualquer falha na verificacao so avisa - o build segue.
+    Write-Host "    [aviso] nao foi possivel verificar o MSI ($($_.Exception.Message)) - o build continua." -ForegroundColor Yellow
+}
 
 Step 'Kloud Games MSI pronto. Rode agora o npm run package (ou build-installer.bat) para gerar o instalador do Hub.'

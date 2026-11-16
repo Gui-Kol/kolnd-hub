@@ -140,7 +140,7 @@ e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `e
 
 ## Verificar integridade
 
-O build (`build-installer.bat`, passo final) e o CI geram `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais — `KLOUD_GAMES.msi` e `Kolnd Hub Setup <versão>.exe` — uma linha por arquivo presente, no formato `<hash>  <nome do arquivo>`. Na release, anexe o `SHA256SUMS.txt` junto com os binários (ver [`../docs/RELEASE.md`](../docs/RELEASE.md), Passo 7). Para gerar/regerar manualmente:
+O build (`build-installer.bat`, passo final) e o CI geram `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais — `KLOUD_GAMES.msi` e `Kolnd Hub Setup <versão>.exe` — uma linha por arquivo presente, no formato `<hash>  <nome do arquivo>`. A verificação de autenticidade do MSI (Authenticode + SHA-256 no log de build, e SHA-256 no log do app antes do `msiexec` elevado) é **informativa** até a assinatura de código (02-2.4) — não bloqueia build nem instalação. Na release, anexe o `SHA256SUMS.txt` junto com os binários (ver [`../docs/RELEASE.md`](../docs/RELEASE.md), Passo 7). Para gerar/regerar manualmente:
 
 ```powershell
 powershell -NoProfile -File scripts\gen-sha256sums.ps1
