@@ -1,5 +1,6 @@
 import { Gamepad2, Gamepad, LogOut } from 'lucide-react'
 import { useFocusable } from './BigPictureFocus'
+import { formatFocusItem } from '../lib/useAnnouncer'
 
 export type BigPictureSection = 'games' | 'controls'
 
@@ -26,6 +27,10 @@ interface RailItemProps {
   active?: boolean
   onClick: () => void
   danger?: boolean
+  /** Posição 1-based no rail (para o anúncio de leitor de tela). */
+  position: number
+  /** Total de itens focáveis do rail (para o anúncio de leitor de tela). */
+  total: number
 }
 
 /**
@@ -35,8 +40,19 @@ interface RailItemProps {
  * Foco (gamepad, teclado ou hover): barra lateral neon à esquerda + ícone aceso
  * + leve fundo — idêntico independentemente da origem do foco.
  */
-function RailItem({ id, icon: Icon, label, active, onClick, danger }: RailItemProps): JSX.Element {
-  const { ref, focused, focus } = useFocusable(id)
+function RailItem({
+  id,
+  icon: Icon,
+  label,
+  active,
+  onClick,
+  danger,
+  position,
+  total
+}: RailItemProps): JSX.Element {
+  const { ref, focused, focus } = useFocusable(id, () =>
+    formatFocusItem('Menu', position, total, label)
+  )
   const lit = active || focused
 
   const palette = danger
@@ -110,6 +126,8 @@ export function BigPictureRail({
           label="Jogos"
           active={section === 'games'}
           onClick={() => onSelectSection('games')}
+          position={1}
+          total={3}
         />
         <RailItem
           id="rail:controls"
@@ -117,6 +135,8 @@ export function BigPictureRail({
           label="Controle"
           active={section === 'controls'}
           onClick={() => onSelectSection('controls')}
+          position={2}
+          total={3}
         />
       </div>
 
@@ -127,6 +147,7 @@ export function BigPictureRail({
             className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 min-h-[3rem]"
             role="status"
             aria-live="polite"
+            aria-atomic="true"
           >
             <span
               aria-hidden="true"
@@ -148,6 +169,8 @@ export function BigPictureRail({
             label="Sair do Big Picture"
             onClick={onExit}
             danger
+            position={3}
+            total={3}
           />
         </div>
         <p className="px-7 text-[10px] 3xl:text-base font-medium uppercase tracking-widest text-slate-400">

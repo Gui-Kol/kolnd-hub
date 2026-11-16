@@ -4,6 +4,7 @@ import { Game } from '../types'
 import { useBigPictureFocus, useFocusable } from './BigPictureFocus'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { playSfx } from '../lib/sfx'
+import { announce, formatFocusItem } from '../lib/useAnnouncer'
 
 interface BigPictureGamesProps {
   /** Notificação amigável exibida no canto (toast local do Big Picture). */
@@ -22,6 +23,10 @@ interface GameCardProps {
   running: boolean
   onLaunch: (game: Game) => void
   onStop: (game: Game) => void
+  /** Posição 1-based na grade (para o anúncio de leitor de tela). */
+  position: number
+  /** Total de jogos na grade (para o anúncio de leitor de tela). */
+  total: number
 }
 
 const stopFocusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-red-400/70'
@@ -30,13 +35,17 @@ const stopFocusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:rin
 function CardStopButton({
   id,
   confirming,
+  gameName,
   onActivate
 }: {
   id: string
   confirming: boolean
+  gameName: string
   onActivate: () => void
 }): JSX.Element {
-  const { ref, focused, focus } = useFocusable(id)
+  const { ref, focused, focus } = useFocusable(id, () =>
+    confirming ? `Confirmar encerramento de ${gameName}` : `Jogos, Encerrar ${gameName}`
+  )
 
   return (
     <button
@@ -76,9 +85,13 @@ function GameCard({
   launching,
   running,
   onLaunch,
-  onStop
+  onStop,
+  position,
+  total
 }: GameCardProps): JSX.Element {
-  const { ref, focused, focus } = useFocusable(`game:${game.id}`)
+  const { ref, focused, focus } = useFocusable(`game:${game.id}`, () =>
+    formatFocusItem('Jogos', position, total, game.name)
+  )
   const { setFocusedId } = useBigPictureFocus()
   const [confirming, setConfirming] = useState(false)
   const confirmTimeoutRef = useRef<number | null>(null)
@@ -104,6 +117,7 @@ function GameCard({
       playSfx('move')
       setConfirming(true)
       confirmTimeoutRef.current = window.setTimeout(() => setConfirming(false), 4000)
+      announce(`Pressione de novo para encerrar ${game.name}`)
       return
     }
     if (confirmTimeoutRef.current !== null) {
@@ -126,6 +140,7 @@ function GameCard({
         <CardStopButton
           id={`game:stop:${game.id}`}
           confirming={confirming}
+          gameName={game.name}
           onActivate={handleStopClick}
         />
       ) : (
@@ -194,7 +209,7 @@ function GameCard({
 
 /** Botão "Tentar novamente" do estado de erro — focável pelo controle. */
 function RetryButton({ onClick }: { onClick: () => void }): JSX.Element {
-  const { ref, focused, focus } = useFocusable('games:retry')
+  const { ref, focused, focus } = useFocusable('games:retry', () => 'Jogos, Tentar novamente')
   return (
     <button
       ref={ref}
@@ -277,17 +292,19 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
         const result = await window.api.launchGame(game.id)
         if (!result.ok) {
           playSfx('error')
-          notify(`Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`)
+          const message = `Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`
+          notify(message)
+          announce(message)
           return
         }
         playSfx('launch')
-        notify(
-          result.focused
-            ? `${game.name} já está aberto — trazendo a janela para frente.`
-            : result.alreadyRunning
-              ? `${game.name} já está em execução — aguarde a janela.`
-              : `Iniciando ${game.name}…`
-        )
+        const message = result.focused
+          ? `${game.name} já está aberto — trazendo a janela para frente.`
+          : result.alreadyRunning
+            ? `${game.name} já está em execução — aguarde a janela.`
+            : `Iniciando ${game.name}…`
+        notify(message)
+        announce(message)
         void refreshRunning()
       } finally {
         setLaunchingId(null)
@@ -303,17 +320,21 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
         const result = await window.api.stopGame(game.id)
         if (!result.ok) {
           playSfx('error')
-          notify(`Não foi possível encerrar ${game.name}: ${result.error ?? 'erro desconhecido'}`)
+          const message = `Não foi possível encerrar ${game.name}: ${result.error ?? 'erro desconhecido'}`
+          notify(message)
+          announce(message)
           return
         }
         playSfx('confirm')
-        notify(`Encerrando ${game.name}…`)
+        const message = `Encerrando ${game.name}…`
+        notify(message)
+        announce(message)
         void refreshRunning()
       } catch (err) {
         playSfx('error')
-        notify(
-          `Não foi possível encerrar ${game.name}: ${err instanceof Error ? err.message : String(err)}`
-        )
+        const message = `Não foi possível encerrar ${game.name}: ${err instanceof Error ? err.message : String(err)}`
+        notify(message)
+        announce(message)
       }
     },
     [notify, refreshRunning]
@@ -367,7 +388,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
             aria-label="Jogos na sua biblioteca"
             className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-8"
           >
-            {games.map((game) => (
+            {games.map((game, index) => (
               <GameCard
                 key={game.id}
                 game={game}
@@ -376,6 +397,8 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
                 running={runningIds.has(game.id)}
                 onLaunch={(g) => void handleLaunch(g)}
                 onStop={(g) => void handleStop(g)}
+                position={index + 1}
+                total={games.length}
               />
             ))}
           </div>

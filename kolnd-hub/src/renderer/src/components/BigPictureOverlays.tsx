@@ -6,6 +6,7 @@
 import { memo } from 'react'
 import { Gamepad, LogOut, Undo2, Loader2 } from 'lucide-react'
 import { useFocusable } from './BigPictureFocus'
+import { formatFocusItem } from '../lib/useAnnouncer'
 
 /** Botão de overlay — mesma anatomia do foco (mouse = gamepad = teclado). */
 const OverlayButton = memo(function OverlayButton({
@@ -13,15 +14,24 @@ const OverlayButton = memo(function OverlayButton({
   icon: Icon,
   label,
   danger,
-  onClick
+  onClick,
+  area,
+  position,
+  total
 }: {
   id: string
   icon: typeof LogOut
   label: string
   danger?: boolean
   onClick: () => void
+  /** Área do anúncio (ex.: "Opções", "Sair do Big Picture"). */
+  area: string
+  position: number
+  total: number
 }): JSX.Element {
-  const { ref, focused, focus } = useFocusable(id)
+  const { ref, focused, focus } = useFocusable(id, () =>
+    formatFocusItem(area, position, total, label)
+  )
 
   const palette = danger
     ? focused
@@ -76,6 +86,9 @@ export const OptionsOverlay = memo(function OptionsOverlay({
           icon={Gamepad}
           label="Configuração de controle"
           onClick={onOpenControls}
+          area="Opções"
+          position={1}
+          total={2}
         />
         <OverlayButton
           id="options:quit"
@@ -83,6 +96,9 @@ export const OptionsOverlay = memo(function OptionsOverlay({
           label="Sair do Big Picture"
           danger
           onClick={onQuit}
+          area="Opções"
+          position={2}
+          total={2}
         />
         <p className="px-1 pt-1 text-[11px] 3xl:text-base font-medium uppercase tracking-widest text-slate-400">
           Esc também fecha
@@ -130,6 +146,9 @@ export const ExitOverlay = memo(function ExitOverlay({
             icon={Undo2}
             label="Continuar no Big Picture"
             onClick={onCancel}
+            area="Sair do Big Picture"
+            position={1}
+            total={2}
           />
           <OverlayButton
             id="exit:quit"
@@ -137,6 +156,9 @@ export const ExitOverlay = memo(function ExitOverlay({
             label="Sair do Big Picture"
             danger
             onClick={onConfirm}
+            area="Sair do Big Picture"
+            position={2}
+            total={2}
           />
         </div>
       </div>

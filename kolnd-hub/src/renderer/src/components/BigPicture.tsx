@@ -11,6 +11,7 @@ import { BigPictureFocusProvider, useBigPictureFocus } from './BigPictureFocus'
 import { OptionsOverlay, ExitOverlay, DisconnectOverlay } from './BigPictureOverlays'
 import { useGamepad } from '../hooks/useGamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
+import { announce, useAnnouncer } from '../lib/useAnnouncer'
 import type { GamepadAction, GamepadConfig } from '../lib/gamepad'
 
 export type BigPictureMode = 'setup' | 'transitioning' | 'active'
@@ -39,6 +40,10 @@ const SECTION_ORDER: BigPictureSection[] = ['games', 'controls']
 const SECTION_PREFIX: Record<BigPictureSection, string> = {
   games: 'game:',
   controls: 'control:'
+}
+const SECTION_LABEL: Record<BigPictureSection, string> = {
+  games: 'Jogos',
+  controls: 'Controle'
 }
 
 function formatClock(date: Date): string {
@@ -130,8 +135,15 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
   const historyRef = useRef<BigPictureSection[]>([])
   const clock = useMinuteClock()
 
-  const { focusedId, setFocusedId, moveFocus, activateFocused, setFocusScope, focusFirstMatching } =
-    useBigPictureFocus()
+  const {
+    focusedId,
+    setFocusedId,
+    moveFocus,
+    activateFocused,
+    setFocusScope,
+    focusFirstMatching,
+    describeId
+  } = useBigPictureFocus()
 
   const notify = useCallback((text: string): void => {
     setToast({ id: Date.now(), text })
@@ -191,6 +203,35 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
     focusSectionFirst('games')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── Anúncios para leitor de tela ─────────────────────
+  // Mudança de seção anuncia "Seção: X" — pulada na montagem (a entrada
+  // anuncia "Modo Big Picture"). Declarada ANTES do efeito de foco: quando os
+  // dois disparam no mesmo commit, o anúncio de foco (mais específico)
+  // substitui o de seção no debounce.
+  const skipInitialSectionAnnounce = useRef(true)
+  useEffect(() => {
+    if (skipInitialSectionAnnounce.current) {
+      skipInitialSectionAnnounce.current = false
+      return
+    }
+    announce(`Seção: ${SECTION_LABEL[section]}`)
+  }, [section])
+
+  // Cada mudança de foco (gamepad, teclado ou mouse) anuncia o item focado
+  // via descritor registrado pelo componente dono do id. Na montagem o foco
+  // inicial é pulado — a fala de entrada ("Modo Big Picture") já cobre o
+  // contexto, e o debounce de substituição descartaria uma das duas.
+  const skipInitialFocusAnnounce = useRef(true)
+  useEffect(() => {
+    if (!focusedId) return
+    if (skipInitialFocusAnnounce.current) {
+      skipInitialFocusAnnounce.current = false
+      return
+    }
+    const description = describeId(focusedId)
+    if (description) announce(description)
+  }, [focusedId, describeId])
 
   const goToSection = useCallback(
     (next: BigPictureSection): void => {
@@ -492,6 +533,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
         <div
           className="pointer-events-none absolute bottom-5 left-1/2 z-[55] flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-white/[0.08] bg-black/60 px-5 py-2 backdrop-blur-md"
           role="status"
+          aria-atomic="true"
         >
           <Mouse size={14} className="shrink-0 text-slate-400" aria-hidden="true" />
           <p className="text-xs 3xl:text-base font-medium text-slate-400">
@@ -520,6 +562,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             className="fixed bottom-8 right-8 z-[70] flex max-w-md items-start gap-3 rounded-2xl border border-neon-cyan/25 bg-[#050f14]/95 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-xl"
             role="status"
+            aria-atomic="true"
           >
             <Gamepad2 size={18} className="mt-0.5 shrink-0 text-neon-cyan" />
             <p className="text-sm leading-relaxed text-slate-100">{toast.text}</p>
@@ -582,6 +625,8 @@ export function BigPicture({
   const [leaving, setLeaving] = useState(false)
   const backgroundRef = useRef<HTMLDivElement>(null)
   const leaveTimerRef = useRef<number | null>(null)
+  // Fala da região aria-live do Big Picture (sr-only, no contêiner).
+  const announcement = useAnnouncer()
 
   // Quando o App troca para 'active' após a transição, garante home liberada.
   // (Ajuste de estado durante o render — padrão oficial "you might not need an
@@ -599,7 +644,16 @@ export function BigPicture({
     []
   )
 
+  // Entrada no modo (montagem ou setup concluído → home liberada). Pulada
+  // durante a transição cinematográfica — anuncia quando o modo muda de fato.
+  useEffect(() => {
+    if (mode !== 'transitioning') announce('Modo Big Picture')
+  }, [mode])
+
   const handleExit = useCallback((): void => {
+    // A região live ainda está montada neste momento — best effort para o
+    // leitor de tela anunciar a saída antes do desmonte do modo.
+    announce('Saindo do Modo Big Picture')
     setLeaving(true)
     if (leaveTimerRef.current !== null) window.clearTimeout(leaveTimerRef.current)
     leaveTimerRef.current = window.setTimeout(() => onExit(), EXIT_FADE_MS)
@@ -616,6 +670,13 @@ export function BigPicture({
         animate={{ opacity: leaving ? 0 : 1 }}
         transition={{ duration: EXIT_FADE_MS / 1000, ease: 'easeIn' }}
       >
+        {/* ── Região aria-live única dos anúncios do Big Picture (sr-only) ── */}
+        {/* Cobre home, setup (GamepadSetup) e overlays — texto substituído,
+            nunca enfileirado (ver lib/useAnnouncer). */}
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {announcement}
+        </div>
+
         {/* ── Fundo do Big Picture — revelado pela máscara radial (T7) ── */}
         <BigPictureBackdrop
           refProp={backgroundRef}

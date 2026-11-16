@@ -13,6 +13,7 @@ import { GAMEPAD_PROFILES } from '../lib/gamepad'
 import type { GamepadConfig } from '../lib/gamepad'
 import { useFocusable } from './BigPictureFocus'
 import { GamepadSetup } from './GamepadSetup'
+import { announce, formatFocusItem } from '../lib/useAnnouncer'
 
 function formatConfiguredDate(iso: string): string {
   const date = new Date(iso)
@@ -32,16 +33,28 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
   const [config, setConfig] = useState<GamepadConfig | null>(null)
   const [loaded, setLoaded] = useState(false)
 
+  // Sem config, só existe o botão de detecção (item 1 de 1); com config,
+  // "Ajustar botões" é 1 de 2 e "Refazer detecção" é 2 de 2.
+  const actionTotal = config ? 2 : 1
   const {
     ref: adjustRef,
     focused: adjustFocused,
     focus: focusAdjust
-  } = useFocusable('control:adjust')
+  } = useFocusable('control:adjust', () =>
+    formatFocusItem('Controle', 1, actionTotal, 'Ajustar botões')
+  )
   const {
     ref: detectRef,
     focused: detectFocused,
     focus: focusDetect
-  } = useFocusable('control:detect')
+  } = useFocusable('control:detect', () =>
+    formatFocusItem(
+      'Controle',
+      config ? 2 : 1,
+      actionTotal,
+      config ? 'Refazer detecção automática' : 'Configurar controle'
+    )
+  )
 
   useEffect(() => {
     let mounted = true
@@ -66,6 +79,7 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
       setConfig(cfg)
       setView('overview')
       notify('Configuração de controle salva')
+      announce('Configuração de controle salva')
     },
     [notify]
   )

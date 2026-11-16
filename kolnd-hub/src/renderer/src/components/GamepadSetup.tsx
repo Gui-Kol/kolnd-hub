@@ -31,6 +31,7 @@ import {
 } from '../lib/gamepad'
 import type { GamepadAction, GamepadButtonMapping, GamepadConfig } from '../lib/gamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
+import { announce } from '../lib/useAnnouncer'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { GamepadMappingRow } from './gamepad/GamepadMappingRow'
 
@@ -141,6 +142,27 @@ export function GamepadSetup({
       })
   }, [])
 
+  // ── Anúncios de etapa para leitor de tela (Big Picture monta a região) ──
+  // Dispara na montagem e em cada transição de etapa. Fora do Big Picture
+  // (Configurações) não há região live montada — announce() vira no-op mudo.
+  useEffect(() => {
+    if (step === 'detect') {
+      announce('Pressione qualquer botão no controle…')
+      return
+    }
+    if (step === 'review') {
+      announce(`Controle detectado: ${baseConfig?.controllerName ?? 'modelo desconhecido'}`)
+      return
+    }
+    announce('Ajuste manual do mapeamento')
+  }, [step, baseConfig])
+
+  // Escuta de botão ("Remapear"): avisa que o próximo botão pressionado vira
+  // o novo binding. Sair da escuta não anuncia — o anúncio de foco cobre.
+  useEffect(() => {
+    if (listeningAction !== null) announce('Pressione o novo botão…')
+  }, [listeningAction])
+
   /** Persiste a config auto-detectada (passo 1). Erros ficam na própria tela. */
   const persistAutoConfig = useCallback((config: GamepadConfig): void => {
     pendingAutoConfigRef.current = config
@@ -152,6 +174,7 @@ export function GamepadSetup({
         setDetecting(false)
         if (!result.ok) {
           setDetectError(result.error ?? 'Não foi possível salvar a configuração.')
+          announce('Não foi possível salvar a configuração.')
           return
         }
         if (soundsRef.current) playSfx('confirm')
@@ -164,6 +187,7 @@ export function GamepadSetup({
         setDetectError(
           err instanceof Error ? err.message : 'Não foi possível salvar a configuração.'
         )
+        announce('Não foi possível salvar a configuração.')
       })
   }, [])
 
@@ -372,6 +396,7 @@ export function GamepadSetup({
         setSaving(false)
         if (!result.ok) {
           setSaveError(result.error ?? 'Não foi possível salvar a configuração.')
+          announce('Não foi possível salvar a configuração.')
           return
         }
         if (soundsRef.current) playSfx('confirm')
@@ -380,6 +405,7 @@ export function GamepadSetup({
       .catch((err: unknown) => {
         setSaving(false)
         setSaveError(err instanceof Error ? err.message : 'Não foi possível salvar a configuração.')
+        announce('Não foi possível salvar a configuração.')
       })
   }, [baseConfig, draft, saving, onSaved])
 

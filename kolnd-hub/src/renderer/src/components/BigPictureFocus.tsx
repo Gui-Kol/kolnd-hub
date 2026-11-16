@@ -9,12 +9,15 @@
 // - Mouse continua 100% operável: onMouseEnter/onFocus chamam `focus(id)` e
 //   o visual de foco é idêntico ao do gamepad.
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefCallback } from 'react'
 import { nearestInDirection } from '../lib/spatialNav'
 import type { SpatialDirection } from '../lib/spatialNav'
 
 export type { SpatialDirection }
+
+/** Descreve um focável para anúncio de leitor de tela (formato curto pt-BR). */
+export type FocusDescriber = () => string | null
 
 export interface BigPictureFocusContextValue {
   /** Id do focável atualmente com foco (mouse ou controle). */
@@ -30,6 +33,10 @@ export interface BigPictureFocusContextValue {
   setFocusScope: (scope: string | null) => void
   /** Foca o primeiro focável registrado com o prefixo. Retorna true se focou. */
   focusFirstMatching: (prefix: string) => boolean
+  /** Registra (ou remove, com `null`) o descritor de anúncio de um id. */
+  registerDescribe: (id: string, describe: FocusDescriber | null) => void
+  /** Fala atual do id (chamada na mudança de foco) ou `null` se sem descritor/erro. */
+  describeId: (id: string) => string | null
 }
 
 const BigPictureFocusContext = createContext<BigPictureFocusContextValue | null>(null)
@@ -48,6 +55,9 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
   const scopeRef = useRef<string | null>(null)
   // id → nó (callback refs). A ordem de inserção reflete a ordem do mount.
   const nodesRef = useRef(new Map<string, HTMLElement>())
+  // id → descritor de anúncio (useFocusable passa o segundo argumento).
+  // Closures sobre estado vivo do componente — re-registradas a cada render.
+  const describersRef = useRef(new Map<string, FocusDescriber>())
 
   const setFocusedId = useCallback((id: string | null): void => {
     focusedIdRef.current = id
@@ -144,6 +154,26 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
     [visibleEntries, setFocusedId]
   )
 
+  const registerDescribe = useCallback((id: string, describe: FocusDescriber | null): void => {
+    if (describe) {
+      describersRef.current.set(id, describe)
+    } else {
+      describersRef.current.delete(id)
+    }
+  }, [])
+
+  const describeId = useCallback((id: string): string | null => {
+    const describe = describersRef.current.get(id)
+    if (!describe) return null
+    // Um descritor que lança (ex.: lista trocada no meio do render) não pode
+    // derrubar a navegação — nesse caso, simplesmente não fala nada.
+    try {
+      return describe()
+    } catch {
+      return null
+    }
+  }, [])
+
   const value = useMemo<BigPictureFocusContextValue>(
     () => ({
       focusedId,
@@ -153,7 +183,9 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
       moveFocus,
       activateFocused,
       setFocusScope,
-      focusFirstMatching
+      focusFirstMatching,
+      registerDescribe,
+      describeId
     }),
     [
       focusedId,
@@ -163,7 +195,9 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
       moveFocus,
       activateFocused,
       setFocusScope,
-      focusFirstMatching
+      focusFirstMatching,
+      registerDescribe,
+      describeId
     ]
   )
 
@@ -173,13 +207,20 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
 /**
  * Registra um elemento como focável (callback ref + foco via mouse/hover).
  * O visual de foco é idêntico para mouse e gamepad (`focused`).
+ *
+ * `describe` (opcional) alimenta o anúncio de leitor de tela quando este
+ * elemento ganha foco — ver lib/useAnnouncer. É chamado no momento da mudança
+ * de foco, então pode ler estado vivo do componente (lista, índice, total).
  */
-export function useFocusable(id: string): {
+export function useFocusable(
+  id: string,
+  describe?: FocusDescriber
+): {
   ref: RefCallback<HTMLElement>
   focused: boolean
   focus: () => void
 } {
-  const { focusedId, setFocusedId, registerFocusable } = useBigPictureFocus()
+  const { focusedId, setFocusedId, registerFocusable, registerDescribe } = useBigPictureFocus()
 
   // A callback ref é a única fonte da verdade: React chama com o nó no mount
   // e com `null` no unmount (remova a entrada do mapa). NÃO use um efeito
@@ -192,6 +233,18 @@ export function useFocusable(id: string): {
     },
     [id, registerFocusable]
   )
+
+  // Descritor re-registrado a cada render (on purpose): a closure passa a
+  // enxergar o estado vivo mais recente (ex.: lista de jogos e índice).
+  // Efeito sem array de dependências + cleanup que remove — nunca fica
+  // descritor obsoleto no mapa.
+  useEffect(() => {
+    if (!describe) return undefined
+    registerDescribe(id, describe)
+    return (): void => {
+      registerDescribe(id, null)
+    }
+  })
 
   const focus = useCallback((): void => setFocusedId(id), [id, setFocusedId])
 
