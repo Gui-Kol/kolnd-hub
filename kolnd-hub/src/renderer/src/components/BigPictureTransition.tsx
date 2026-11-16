@@ -75,7 +75,7 @@ interface Spark {
   life: number
   size: number
   gravity: number
-  cyan: boolean
+  warm: boolean
 }
 
 interface ShockRing {
@@ -302,8 +302,8 @@ export function BigPictureTransition({
       }
 
       const passes: { width: number; style: string; blur: number; shadow: string }[] = [
-        { width: 9, style: 'rgba(188, 19, 254, 0.55)', blur: 42, shadow: '#bc13fe' }, // halo violeta
-        { width: 4.5, style: 'rgba(0, 243, 255, 0.7)', blur: 28, shadow: '#00f3ff' }, // halo cyan
+        { width: 9, style: 'rgba(102, 192, 244, 0.55)', blur: 42, shadow: '#66c0f4' }, // halo acento
+        { width: 4.5, style: 'rgba(143, 211, 255, 0.7)', blur: 28, shadow: '#8fd3ff' }, // halo acento-hover
         { width: 2.1, style: 'rgba(255, 255, 255, 0.95)', blur: 16, shadow: '#ffffff' } // núcleo branco
       ]
       ctx.save()
@@ -334,15 +334,15 @@ export function BigPictureTransition({
           delay: 0,
           maxR: minDim * 0.52,
           lineWidth: 7,
-          color: 'rgba(0, 243, 255, 0.9)',
-          glow: '#00f3ff'
+          color: 'rgba(102, 192, 244, 0.9)',
+          glow: '#66c0f4'
         },
         {
           delay: 80,
           maxR: minDim * 0.68,
           lineWidth: 5,
-          color: 'rgba(188, 19, 254, 0.85)',
-          glow: '#bc13fe'
+          color: 'rgba(143, 211, 255, 0.85)',
+          glow: '#8fd3ff'
         },
         {
           delay: 160,
@@ -378,7 +378,7 @@ export function BigPictureTransition({
             life: 650 + Math.random() * 550,
             size: 1.4 + Math.random() * 2.6,
             gravity: 380,
-            cyan: Math.random() < 0.6
+            warm: Math.random() < 0.4
           }
         })
       )
@@ -397,8 +397,8 @@ export function BigPictureTransition({
         const lifeP = 1 - age / spark.life
         const alpha = Math.pow(lifeP, 1.3) * decayFade
         ctx.globalAlpha = alpha
-        ctx.fillStyle = spark.cyan ? '#a8fbff' : '#ffffff'
-        ctx.shadowColor = spark.cyan ? '#00f3ff' : '#ffffff'
+        ctx.fillStyle = spark.warm ? '#e3b341' : '#ffffff'
+        ctx.shadowColor = spark.warm ? '#e3b341' : '#ffffff'
         ctx.shadowBlur = 7
         ctx.beginPath()
         ctx.arc(spark.x, spark.y, spark.size, 0, Math.PI * 2)
@@ -422,8 +422,8 @@ export function BigPictureTransition({
         const alpha = (1 - p) * 0.95
         const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
         gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`)
-        gradient.addColorStop(0.35, `rgba(220, 245, 255, ${alpha * 0.75})`)
-        gradient.addColorStop(1, 'rgba(160, 220, 255, 0)')
+        gradient.addColorStop(0.35, `rgba(213, 233, 245, ${alpha * 0.75})`)
+        gradient.addColorStop(1, 'rgba(102, 192, 244, 0)')
         ctx.save()
         ctx.fillStyle = gradient
         ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
@@ -457,9 +457,9 @@ export function BigPictureTransition({
         const steps = arc.offsets.length + 1
         ctx.save()
         ctx.globalAlpha = alpha
-        ctx.strokeStyle = 'rgba(210, 250, 255, 0.95)'
+        ctx.strokeStyle = 'rgba(214, 234, 246, 0.95)'
         ctx.lineWidth = 1.8
-        ctx.shadowColor = '#00f3ff'
+        ctx.shadowColor = '#66c0f4'
         ctx.shadowBlur = 18
         ctx.beginPath()
         ctx.moveTo(cx, cy)
@@ -507,12 +507,12 @@ export function BigPictureTransition({
         ctx.restore()
       }
 
-      // Frente principal: borda cyan cromática + núcleo branco.
-      strokeFront(front, 11, 'rgba(0, 243, 255, 0.85)', 46, '#00f3ff', 0.8 * fade)
+      // Frente principal: borda acento + núcleo branco.
+      strokeFront(front, 11, 'rgba(102, 192, 244, 0.85)', 46, '#66c0f4', 0.8 * fade)
       strokeFront(front, 4.2, 'rgba(255, 255, 255, 0.95)', 22, '#ffffff', 0.95 * fade)
       // Frente secundária (eco) atrasada e mais fraca.
       if (front > maxR * 0.14) {
-        strokeFront(front * 0.8, 6, 'rgba(188, 19, 254, 0.7)', 32, '#bc13fe', 0.45 * fade)
+        strokeFront(front * 0.8, 6, 'rgba(74, 168, 224, 0.55)', 32, '#4aa8e0', 0.45 * fade)
       }
 
       // Partículas adensadas na borda da frente de onda.
@@ -528,7 +528,7 @@ export function BigPictureTransition({
           life: 380 + Math.random() * 220,
           size: 1.1 + Math.random() * 2.1,
           gravity: 0,
-          cyan: Math.random() < 0.75
+          warm: Math.random() < 0.3
         })
       }
     }
