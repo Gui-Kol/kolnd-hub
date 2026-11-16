@@ -58,6 +58,8 @@ Checklist:
 
 Ordem obrigatória dos artefatos de versão. Fonte única da versão: **`version` em `kolnd-hub/package.json`** (referência em 15/11/2026: 1.4.0).
 
+> Expectativa: o `CHANGELOG.md` da raiz acompanha o bump — a seção **[Não lançado]** vira a seção da versão nova (ver Passo 8 e "Como manter" no próprio arquivo). Toda mudança relevante deve entrar no changelog no commit/PR em que acontece.
+
 ### 1.1 `kolnd-hub/package.json` + `package-lock.json`
 
 Forma recomendada (atualiza os dois de uma vez), em `kolnd-hub/`:
@@ -312,13 +314,9 @@ gh release create vX.Y.Z `
 
 ## Passo 8 — Release notes
 
-As notas do release partem do **`CHANGELOG.md`** — que ainda **não existe** (tarefa **11-11.4**, pendente — apenas referenciada aqui, **não criar o changelog neste release**).
+As notas do release partem do **`CHANGELOG.md`** (na raiz). A tarefa **11-11.4** criou o arquivo em 15/11/2026 (Keep a Changelog + SemVer, pt-BR); **a revisão do usuário (T4) ainda está pendente** — até lá, trate o conteúdo como rascunho fiel ao git, sujeito à aprovação do usuário.
 
-Enquanto o `CHANGELOG.md` não existe, monte as notas manualmente:
-
-```powershell
-git log --oneline --no-merges vX.Y.Z-1..HEAD
-```
+Monte as notas copiando a seção da versão de `CHANGELOG.md` e completando o obrigatório abaixo. Se uma seção da versão estiver incompleta, complemente a partir do `git log --oneline --no-merges <anterior>..HEAD`:
 
 Conteúdo obrigatório das notas:
 
@@ -328,8 +326,7 @@ Conteúdo obrigatório das notas:
 - [ ] **Riscos e pendências conhecidas**: assinatura pendente (2.4) / SmartScreen provável; máquina limpa executada ou pendente (2.2) com o resultado registrado; migração de schema (se houve) e o que ela faz.
 - [ ] SHA-256 dos artefatos (ou referência ao `SHA256SUMS.txt` anexado).
 - [ ] Instruções mínimas de atualização (instalar o novo por cima? desinstalar antes? — hoje: instalar por cima, que é o comportamento suportado pelo NSIS per-user).
-
-Quando a 11-11.4 for executada: substituir a geração manual por "copiar a seção da versão de `CHANGELOG.md`" — e atualizar este guia.
+- [ ] O `CHANGELOG.md` na raiz está atualizado: a seção **[Não lançado]** foi movida para `## [X.Y.Z] - AAAA-MM-DD` e a seção vazia foi recriada no topo (ver "Como manter" no próprio arquivo). Toda mudança relevante entra no changelog no commit/PR em que acontece, não no dia do release.
 
 ---
 
@@ -400,7 +397,7 @@ Este guia **não decide** por nenhum destes itens — apenas os referencia:
 | 2.7 / nº 15 | Formato de release público                                    | **Usuário — decisão**        | Passo 7 assume GitHub Release; confirmar                          |
 | 03-3.x      | CI (audit/CodeQL informativos)                                | Feito (runs verdes)          | Docs-only também dispara CI                                       |
 | 11-11.3     | `build-installer.bat` lê versão do `package.json`             | Feito (`e7e9bf3b`)           | Passo 1.3                                                         |
-| 11-11.4     | `CHANGELOG.md`                                                | Pendente                     | Passo 8 referencia — **não criado aqui**                          |
+| 11-11.4     | `CHANGELOG.md`                                                | Criado (15/11/2026); **revisão do usuário (T4) pendente** | Passo 8 referencia a seção da versão a copiar           |
 | 11-11.5     | NOTICE no instalador (conformidade de licenças)               | Pendente                     | Candidato a entrar no release que o incluir                       |
 | 01-1.9      | Rebuild Mark LVI com `MARK_LVI_HOME`                          | Pendente                     | Enquanto não sai, vale a regra da build atual no Passo 5          |
 

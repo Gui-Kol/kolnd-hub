@@ -2,7 +2,7 @@
 
 Hub centralizado para iniciar, parar e monitorar os programas do ecossistema Kolnd, com interface desktop moderna (glassmorphism), bandeja do sistema e logs ao vivo.
 
-> Contribuidores e agentes: regras operacionais em [AGENTS.md](AGENTS.md) e arquitetura técnica (processos, IPC, store, first-run, Big Picture, segurança) em [../docs/architecture.md](../docs/architecture.md).
+> Contribuidores e agentes: regras operacionais em [AGENTS.md](AGENTS.md) e arquitetura técnica (processos, IPC, store, first-run, Big Picture, segurança) em [../docs/architecture.md](../docs/architecture.md). O histórico de mudanças fica em [../CHANGELOG.md](../CHANGELOG.md) (atualizado a cada release — ver "Como manter" lá).
 
 ## Stack
 
