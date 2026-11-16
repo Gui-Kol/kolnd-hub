@@ -58,6 +58,19 @@ Notes and limitations:
 
 ## Trigger phrases
 
+### "delegue (NOME DA TAREFA)" — standard delegation flow (decided 2026-11-16)
+Whenever the user says **"delegue \<task name\>"** (or "delegue a task \<nome\>", case-insensitive) in any GERENTE session, execute the full standard flow with zero extra prompting:
+
+1. **Locate the task.** Search for the task file by name (case-insensitive) in `gerente/tasks/` (including `gerente/tasks/2.0/`) and at the repo root (`task-*.md`). Exactly one match → proceed. Multiple matches → list them and ask which. No match → report and ask. If all subtasks are already marked `[X]`, report "nada a delegar" instead of re-running.
+2. **Read and prepare.** Read `gerente/memory.md` and the task file fully. Run `git status --short`; confirm no other session/subagent is touching the same files or scope (e.g. the `main/games.ts → games/` refactor) — if overlap exists, stop and report before spawning anything. Check which subtasks are already done and continue from the first pending one, in dependency order.
+3. **Chain subagents, one per subtask (T1, T2, …).** For each pending subtask, spawn ONE subagent (`general`; `explore` only for read-only investigation steps) with a fully self-contained prompt: objective, scope, constraints (branch `Dev`, pt-BR UI, no new dependencies without justification, respect `.github/` CI gates), expected output, definition of done. Wait for its idle notification, **review its output yourself**, mark the subtask `[X]` in the task file, then spawn the next. Do not run subtasks in parallel unless they are independent AND touch disjoint files — and say so explicitly before doing it. **No commits mid-chain.**
+4. **Stop conditions.** If a subagent fails (e.g. quota "Free usage limit reached"), goes idle with a broken/incomplete result, or drifts out of scope: stop the chain, keep the task file status accurate, and report verbatim — never stack further subtasks on a broken state.
+5. **Final verification.** Run the automated test suite / project gate (in `kolnd-hub/`: `npm run verify`, or `verify:build` if packaging was touched). Review the complete diff yourself (consistency, strays, conflicts). Update the task file and `gerente/memory.md`. **Update the READMEs (`README.md` root and/or `kolnd-hub/README.md`) only if the task changed user-facing behavior, commands, flows, or decisions** — docs-only and internal changes don't require it; say explicitly whether you updated them or why not.
+6. **Commit (requires user approval).** Present the user a full diff summary (files changed, what each change does, verification results). **Only after the user explicitly approves**, create the single final commit for the task (message in repo convention, e.g. `feat(hub): …`, pt-BR, ASCII, no trailers unless asked). Never commit before that approval, even mid-chain. **Push is never automatic** — the user decides when to push (push triggers CI/CodeQL).
+7. **Report.** Close with a pt-BR summary: each subagent run, files changed, verification results, README decision, commit hash (or "aguardando sua aprovação do diff"), and what remains pending.
+
+If the task has approval gates (e.g. design/mockup gates in the frontend reformulation), pause at each gate, present the artifact, and ask the user before continuing the chain.
+
 ### "novo GERENTE" / "novo gerente"
 Whenever the user says **"novo GERENTE"** (or "novo gerente" / "crie um novo gerente") in chat, you must **immediately** create a new gerente session — without asking for confirmation first. Steps:
 
