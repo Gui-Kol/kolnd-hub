@@ -367,7 +367,7 @@ export function UninstallKloudGamesModal({
       />
       <div
         ref={trapRef}
-        className="relative w-full max-w-md space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
+        className="relative w-full max-w-md space-y-4 rounded-3xl border border-white/[0.08] bg-surface-sunken/95 p-6 text-center shadow-2xl shadow-black/60"
       >
         {/* ── confirm ── */}
         {phase === 'confirm' && (

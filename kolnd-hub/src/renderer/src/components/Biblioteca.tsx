@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, AlertTriangle } from 'lucide-react'
+import { Gamepad2, Plus, ChevronDown, Download, FilePlus2 } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
-import { Badge, Button, Card, Spinner, Skeleton, Toast } from './ui'
+import { Badge, Button, Skeleton, Toast, EmptyState, ErrorState, LoadingState } from './ui'
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { SteamImportModal, SteamImportState } from './biblioteca/SteamImportModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
@@ -346,11 +346,8 @@ export function Biblioteca(): JSX.Element {
 
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
-        <div className="flex flex-col gap-6" aria-busy="true">
-          <div className="flex flex-col items-center justify-center gap-3 py-10 text-ink-secondary">
-            <Spinner size={32} label="Carregando sua biblioteca…" />
-            <p className="text-sm">Carregando sua biblioteca…</p>
-          </div>
+        <div aria-busy="true" className="flex flex-col gap-6">
+          <LoadingState label="Carregando sua biblioteca…" className="pb-0" />
           {/* Grade fantasma — skeleton dos tiles, mesmo layout da grade real */}
           <div
             aria-hidden="true"
@@ -372,31 +369,30 @@ export function Biblioteca(): JSX.Element {
           </div>
         </div>
       ) : loadError ? (
-        <Card className="flex flex-col items-center gap-3 p-10 text-center">
-          <AlertTriangle size={32} aria-hidden="true" className="text-danger" />
-          <p className="text-sm text-ink-primary">Não foi possível carregar sua biblioteca.</p>
-          <p className="text-xs text-ink-secondary">{loadError}</p>
-          <Button variant="secondary" onClick={() => void loadGames()} className="mt-2">
-            Tentar novamente
-          </Button>
-        </Card>
+        <ErrorState
+          title="Não foi possível carregar sua biblioteca."
+          message={loadError ?? 'Tente novamente em instantes.'}
+          onRetry={() => void loadGames()}
+        />
       ) : games.length === 0 ? (
-        <Card className="flex flex-col items-center gap-4 p-16 text-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded-card border border-accent-border bg-accent-muted">
-            <Gamepad2 size={32} aria-hidden="true" className="text-accent" />
-          </div>
-          <h3 className="text-lg font-bold tracking-tight text-ink-primary">
-            Sua biblioteca está vazia
-          </h3>
-          <p className="max-w-md text-sm text-ink-secondary">
-            Clique em <span className="font-semibold text-ink-primary">Adicionar Games</span> para
-            começar
-          </p>
-          <Button variant="primary" onClick={() => setMenuOpen(true)} className="mt-2">
-            <Plus size={16} aria-hidden="true" />
-            Adicionar Games
-          </Button>
-        </Card>
+        <EmptyState
+          icon={Gamepad2}
+          tone="accent"
+          title="Sua biblioteca está vazia"
+          hint={
+            <>
+              Clique em <span className="font-semibold text-ink-primary">Adicionar Games</span> para
+              começar
+            </>
+          }
+          action={
+            <Button variant="primary" onClick={() => setMenuOpen(true)}>
+              <Plus size={16} aria-hidden="true" />
+              Adicionar Games
+            </Button>
+          }
+          className="p-16"
+        />
       ) : (
         /* ── Grade de jogos ─────────────────────────── */
         <BibliotecaGrid

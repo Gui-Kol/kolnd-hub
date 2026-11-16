@@ -42,8 +42,9 @@ function CardStopButton({
     confirming ? `Confirmar encerramento de ${gameName}` : `Jogos, Encerrar ${gameName}`
   )
 
-  // Tinta danger-muted assada sobre surface-1 (#2f252a, opaca): a translúcida
-  // ficaria abaixo de 4.5 para o rótulo "Confirmar?" (10px bold) sobre surface-2/3.
+  // Tinta danger-muted assada sobre surface-1 (danger 12% + surface-1, opaca) —
+  // equivalente exato ao valor que ficava hardcoded antes; a translúcida ficaria
+  // abaixo de 4.5 para o rótulo "Confirmar?" (10px bold).
   return (
     <button
       ref={ref}
@@ -59,9 +60,9 @@ function CardStopButton({
       aria-pressed={confirming}
       className={`absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 items-center justify-center rounded-control border px-2 transition-all duration-2 ease-standard cursor-pointer focus:outline-none ${BP_FOCUS_RING} ${
         confirming
-          ? 'border-danger-border bg-[#2f252a] text-danger'
+          ? 'border-danger-border bg-[color-mix(in_srgb,var(--danger)_12%,var(--surface-1))] text-danger'
           : focused
-            ? `border-danger-border bg-[#2f252a] text-danger ${BP_FOCUSED_RING}`
+            ? `border-danger-border bg-[color-mix(in_srgb,var(--danger)_12%,var(--surface-1))] text-danger ${BP_FOCUSED_RING}`
             : 'border-[var(--border-subtle)] bg-surface-2 text-ink-secondary hover:border-danger-border hover:text-danger'
       }`}
     >

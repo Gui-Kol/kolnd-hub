@@ -4,7 +4,8 @@
 // com o relógio/foco da home.
 
 import { memo } from 'react'
-import { Gamepad, LogOut, Undo2, Loader2 } from 'lucide-react'
+import { Gamepad, LogOut, Undo2 } from 'lucide-react'
+import { Spinner } from './ui'
 import { useFocusable } from './BigPictureFocus'
 import { formatFocusItem } from '../lib/useAnnouncer'
 
@@ -38,7 +39,7 @@ const OverlayButton = memo(function OverlayButton({
       ? 'border-red-400/60 bg-red-500/15 text-red-200 ring-4 ring-red-400/50'
       : 'border-red-500/25 bg-red-500/5 text-red-300 hover:bg-red-500/10'
     : focused
-      ? 'border-neon-cyan/50 bg-neon-cyan/10 text-neon-cyan ring-4 ring-neon-cyan/40'
+      ? 'border-accent-border bg-accent-muted text-accent ring-4 ring-accent-border'
       : 'border-white/[0.08] bg-white/[0.04] text-slate-200 hover:bg-white/[0.06]'
 
   return (
@@ -79,7 +80,7 @@ export const OptionsOverlay = memo(function OptionsOverlay({
         className="absolute inset-0 cursor-default"
         onClick={onClose}
       />
-      <div className="relative w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60">
+      <div className="relative w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-surface-sunken/95 p-6 shadow-2xl shadow-black/60">
         <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-400">Opções</h2>
         <OverlayButton
           id="options:controls"
@@ -129,7 +130,7 @@ export const ExitOverlay = memo(function ExitOverlay({
         className="absolute inset-0 cursor-default"
         onClick={onCancel}
       />
-      <div className="relative w-[32rem] max-w-[90vw] space-y-6 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-8 text-center shadow-2xl shadow-black/60">
+      <div className="relative w-[32rem] max-w-[90vw] space-y-6 rounded-3xl border border-white/[0.08] bg-surface-sunken/95 p-8 text-center shadow-2xl shadow-black/60">
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10">
           <LogOut size={36} strokeWidth={1.5} className="text-red-400" />
         </div>
@@ -180,13 +181,8 @@ export const DisconnectOverlay = memo(function DisconnectOverlay(): JSX.Element 
       aria-live="assertive"
       aria-label="Controle desconectado"
     >
-      <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-[#0d0d14]/90 px-12 py-10 text-center shadow-2xl shadow-black/70 backdrop-blur-xl">
-        <Loader2
-          size={44}
-          strokeWidth={1.75}
-          className="animate-spin text-neon-cyan"
-          aria-hidden="true"
-        />
+      <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-surface-sunken/90 px-12 py-10 text-center shadow-2xl shadow-black/70 backdrop-blur-xl">
+        <Spinner size={44} label="Reconectando controle" className="[&_svg]:text-accent" />
         <h2 className="text-3xl font-black tracking-tight text-white">Controle desconectado</h2>
         <p className="text-lg leading-relaxed text-slate-300">
           Reconecte o controle ou use o mouse

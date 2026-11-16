@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, Check, X } from 'lucide-react'
-import { entranceProps, exitProps, useReducedMotion } from './lib/motion'
+import { AlertTriangle } from 'lucide-react'
+import { useReducedMotion } from './lib/motion'
+import { Button, Modal, Toast } from './components/ui'
 import { Layout } from './components/Layout'
 import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
@@ -12,7 +13,6 @@ import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
-import { useFocusTrap } from './lib/useFocusTrap'
 import { apps as defaultApps } from './config/apps'
 import {
   AppConfig,
@@ -74,10 +74,9 @@ function App(): JSX.Element {
   // sessão (StrictMode invoca os efeitos duas vezes em dev).
   const kloudAutoLaunchTriedRef = useRef(false)
   const closeExitModal = useCallback((): void => setExitModalOpen(false), [])
-  const exitTrapRef = useFocusTrap<HTMLDivElement>({
-    active: exitModalOpen,
-    onEscape: closeExitModal
-  })
+  // Fechar o toast é estável (o primitivo <Toast/> gerencia o timer de 7 s;
+  // identidade estável evita resetar o auto-dismiss a cada render do App).
+  const closeNotice = useCallback((): void => setNotice(null), [])
 
   // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
   // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
@@ -90,13 +89,6 @@ function App(): JSX.Element {
       return next
     })
   }, [])
-
-  // Auto-dismiss launch/stop error toasts.
-  useEffect(() => {
-    if (!notice) return
-    const timer = setTimeout(() => setNotice(null), 7000)
-    return (): void => clearTimeout(timer)
-  }, [notice])
 
   // Load saved app configs (electron-store via IPC, com migração única do
   // legado localStorage e fallback para ele se o store estiver indisponível).
@@ -592,43 +584,17 @@ function App(): JSX.Element {
   const runningCount = Object.values(effectiveStates).filter((s) => s.status === 'running').length
 
   // Toast de aviso/erro/sucesso — compartilhado entre o shell normal,
-  // o Big Picture e a Zona de perigo (via onToast). Mantém o canto/posição
-  // já usados pelo app; muda cor/ícone conforme o tipo.
-  const noticeToast = (
-    <AnimatePresence>
-      {notice && (
-        <motion.div
-          key={notice.id}
-          {...entranceProps(reduced, { y: 20, scale: 0.95 })}
-          exit={exitProps(reduced, { y: 10, scale: 0.95 })}
-          className={`fixed bottom-6 right-6 z-toast flex max-w-md items-start gap-3 rounded-xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl ${
-            notice.kind === 'success'
-              ? 'border-success-border bg-surface-3'
-              : notice.kind === 'info'
-                ? 'border-white/10 bg-surface-3'
-                : 'border-danger-border bg-surface-3'
-          }`}
-        >
-          {notice.kind === 'success' ? (
-            <Check size={16} className="mt-0.5 shrink-0 text-emerald-400" />
-          ) : (
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-          )}
-          <p
-            className={`text-xs leading-relaxed ${notice.kind === 'success' ? 'text-emerald-100' : notice.kind === 'info' ? 'text-slate-100' : 'text-red-100'}`}
-          >
-            {notice.text}
-          </p>
-          <button
-            onClick={() => setNotice(null)}
-            className="ml-2 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-white"
-            aria-label="Fechar aviso"
-          >
-            <X size={14} />
-          </button>
-        </motion.div>
-      )}
-    </AnimatePresence>
+  // o Big Picture e a Zona de perigo (via onToast). Mesmo canto inferior
+  // direito e 7 s do aviso anterior, agora via primitivo <Toast/> (cores/ícones
+  // tokenizados). `kind` ausente vira 'error' — mesmo tom vermelho de antes;
+  // `key` por id reinicia o timer de 7 s e reanuncia a cada aviso novo.
+  const noticeToast = notice && (
+    <Toast
+      key={notice.id}
+      kind={notice.kind ?? 'error'}
+      message={notice.text}
+      onClose={closeNotice}
+    />
   )
 
   return (
@@ -667,35 +633,48 @@ function App(): JSX.Element {
             onExit={() => setExitModalOpen(true)}
             onEnterBigPicture={enterBigPicture}
           >
-            {currentPage === 'dashboard' ? (
-              <Dashboard
-                apps={apps}
-                appStates={effectiveStates}
-                onLaunch={handleLaunch}
-                onStop={handleStop}
-              />
-            ) : currentPage === 'inicializacao' ? (
-              <ErrorBoundary>
-                <Inicializacao
-                  pcName={pcName ?? ''}
-                  items={startupItems}
-                  importance={startupImportance}
-                  labels={IMPORTANCE_LABELS}
-                  onRemove={handleRemoveStartup}
-                  onRemoveBatch={handleRemoveBatchStartup}
-                  onAdd={handleAddStartup}
-                  onAddBatch={handleAddBatchStartup}
-                  onReload={loadStartupItems}
-                  appsNotInStartup={appsNotInStartup}
-                />
-              </ErrorBoundary>
-            ) : currentPage === 'biblioteca' ? (
-              <ErrorBoundary>
-                <Biblioteca />
-              </ErrorBoundary>
-            ) : (
-              <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
-            )}
+            {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
+                easing --ease-standard; uma camada por página. Com reduce: 0 ms.
+                O <main> rolável vem do Layout; o wrapper anima só a troca. ── */}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={currentPage}
+                initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: reduced ? 0 : -8 }}
+                transition={reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {currentPage === 'dashboard' ? (
+                  <Dashboard
+                    apps={apps}
+                    appStates={effectiveStates}
+                    onLaunch={handleLaunch}
+                    onStop={handleStop}
+                  />
+                ) : currentPage === 'inicializacao' ? (
+                  <ErrorBoundary>
+                    <Inicializacao
+                      pcName={pcName ?? ''}
+                      items={startupItems}
+                      importance={startupImportance}
+                      labels={IMPORTANCE_LABELS}
+                      onRemove={handleRemoveStartup}
+                      onRemoveBatch={handleRemoveBatchStartup}
+                      onAdd={handleAddStartup}
+                      onAddBatch={handleAddBatchStartup}
+                      onReload={loadStartupItems}
+                      appsNotInStartup={appsNotInStartup}
+                    />
+                  </ErrorBoundary>
+                ) : currentPage === 'biblioteca' ? (
+                  <ErrorBoundary>
+                    <Biblioteca />
+                  </ErrorBoundary>
+                ) : (
+                  <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </Layout>
 
           {/* ── Error toast ──────────────────────────────── */}
@@ -712,55 +691,37 @@ function App(): JSX.Element {
           )}
 
           {/* ── Modal: confirmação de saída ──────────────── */}
+          {/* Sem Esc (closeOnEsc={false}); backdrop e botões fecham — comportamento
+              idêntico ao modal inline anterior. Textos intactos. */}
           {exitModalOpen && (
-            <div
-              className="fixed inset-0 z-modal flex items-center justify-center"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="exit-hub-title"
-            >
-              <button
-                type="button"
-                aria-label="Fechar confirmação de saída"
-                className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm"
-                onClick={closeExitModal}
-              />
-              <div
-                ref={exitTrapRef}
-                className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-surface-3 p-6 shadow-2xl backdrop-blur-xl"
-              >
-                <div className="flex items-start gap-3">
-                  <AlertTriangle
-                    size={24}
-                    className="mt-0.5 shrink-0 text-red-400"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <h2 id="exit-hub-title" className="text-lg font-bold text-white">
-                      Encerrar Kolnd Hub?
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                      Todos os programas e servidores iniciados pelo Hub serão fechados, incluindo o
-                      que estiver rodando em segundo plano. Nada do Kolnd Hub permanecerá aberto.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-6 flex justify-end gap-3">
-                  <button
-                    onClick={() => setExitModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors"
-                  >
+            <Modal
+              title="Encerrar Kolnd Hub?"
+              onClose={closeExitModal}
+              closeOnEsc={false}
+              closeLabel="Fechar confirmação de saída"
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setExitModalOpen(false)}>
                     Não
-                  </button>
-                  <button
-                    onClick={handleExit}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-600 hover:bg-red-500 shadow-glow-red transition-colors"
-                  >
+                  </Button>
+                  <Button variant="danger" onClick={handleExit}>
                     Sim, encerrar
-                  </button>
-                </div>
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  size={24}
+                  className="mt-0.5 shrink-0 text-danger"
+                  aria-hidden="true"
+                />
+                <p className="text-sm leading-relaxed text-ink-secondary">
+                  Todos os programas e servidores iniciados pelo Hub serão fechados, incluindo o que
+                  estiver rodando em segundo plano. Nada do Kolnd Hub permanecerá aberto.
+                </p>
               </div>
-            </div>
+            </Modal>
           )}
         </>
       )}

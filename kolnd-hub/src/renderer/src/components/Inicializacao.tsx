@@ -1,19 +1,10 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import {
-  Monitor,
-  Trash2,
-  RefreshCw,
-  Plus,
-  Play,
-  AlertTriangle,
-  ArrowUpCircle,
-  Trash
-} from 'lucide-react'
+import { Monitor, Trash2, RefreshCw, Plus, Play, ArrowUpCircle, Trash } from 'lucide-react'
 import { PcUpdates } from './PcUpdates'
 import { PcCleanup } from './PcCleanup'
-import { Badge, Button, Card } from './ui'
+import { Badge, Button, Card, EmptyState } from './ui'
 import {
   StartupItem,
   ImportanceLevel,
@@ -275,16 +266,12 @@ export function Inicializacao({
             </Card>
 
             {items.length === 0 ? (
-              <Card className="border-dashed p-10 text-center">
-                <AlertTriangle
-                  size={32}
-                  className="mx-auto mb-3 text-ink-tertiary"
-                  aria-hidden="true"
-                />
-                <p className="text-[12px] font-medium text-ink-secondary">
-                  Nenhum título configurado para iniciar com o {pcName}.
-                </p>
-              </Card>
+              <EmptyState
+                icon={Monitor}
+                tone="muted"
+                title={`Nenhum título configurado para iniciar com o ${pcName}.`}
+                className="border-dashed p-10"
+              />
             ) : (
               <div className="space-y-3">
                 {items.map((item) => {
@@ -421,12 +408,12 @@ export function Inicializacao({
             </Card>
 
             {appsNotInStartup.length === 0 ? (
-              <Card className="border-dashed p-10 text-center">
-                <Play size={32} className="mx-auto mb-3 text-success" aria-hidden="true" />
-                <p className="text-[12px] font-semibold text-success">
-                  Todos os títulos já iniciam com o {pcName}! 🎮
-                </p>
-              </Card>
+              <EmptyState
+                icon={Play}
+                tone="success"
+                title={`Todos os títulos já iniciam com o ${pcName}! 🎮`}
+                className="border-dashed border-success-border p-10"
+              />
             ) : (
               <div className="space-y-3">
                 {appsNotInStartup.map((app) => {

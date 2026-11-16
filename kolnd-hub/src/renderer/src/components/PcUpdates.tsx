@@ -15,7 +15,7 @@ import {
   X
 } from 'lucide-react'
 import { WingetListResult } from '../types'
-import { Button, Card } from './ui'
+import { Button, Card, EmptyState, ErrorState, LoadingState } from './ui'
 
 /** Link da página do App Installer na Microsoft Store (para quem não tem winget). */
 const APP_INSTALLER_STORE_URL = 'https://apps.microsoft.com/detail/9NBLGGH4NNS1'
@@ -114,7 +114,6 @@ export function PcUpdates(): JSX.Element {
   const reduced = useReducedMotion()
   const [loading, setLoading] = useState(true)
   const [result, setResult] = useState<WingetListResult | null>(null)
-  const [showRawLog, setShowRawLog] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>({})
   const [running, setRunning] = useState(false)
@@ -138,7 +137,6 @@ export function PcUpdates(): JSX.Element {
   const check = useCallback((): void => {
     if (running) return
     setLoading(true)
-    setShowRawLog(false)
     setSummary(null)
     setItemStates({})
     setExpandedLogs(new Set())
@@ -296,12 +294,12 @@ export function PcUpdates(): JSX.Element {
 
   if (loading && !result) {
     body = (
-      <Card className="p-12 text-center">
-        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-accent" aria-hidden="true" />
-        <p className="text-sm font-semibold text-ink-primary">Verificando atualizações…</p>
-        <p className="mt-1.5 text-[12px] text-ink-secondary">
-          Isso pode levar alguns segundos na primeira vez.
-        </p>
+      <Card className="p-12">
+        <LoadingState
+          label="Verificando atualizações…"
+          hint="Isso pode levar alguns segundos na primeira vez."
+          className="py-0"
+        />
       </Card>
     )
   } else if (result && !result.ok && result.wingetMissing) {
@@ -326,59 +324,30 @@ export function PcUpdates(): JSX.Element {
     )
   } else if (result && !result.ok) {
     body = (
-      <Card className="border-danger-border p-10 text-center" role="alert">
-        <AlertTriangle size={32} className="mx-auto mb-4 text-danger" aria-hidden="true" />
-        <p className="text-sm font-semibold text-ink-primary">
-          Não foi possível verificar as atualizações
-        </p>
-        <p className="mx-auto mt-2 max-w-lg text-[12px] leading-relaxed text-ink-secondary">
-          {result.error ?? 'Algo deu errado ao consultar o winget.'}
-        </p>
-
-        {result.rawLog && (
-          <div className="mx-auto mt-5 max-w-2xl text-left">
-            <button
-              onClick={() => setShowRawLog((v) => !v)}
-              className="mx-auto flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary transition-colors duration-2 hover:text-ink-primary"
-              aria-expanded={showRawLog}
-            >
-              {showRawLog ? (
-                <ChevronDown size={12} aria-hidden="true" />
-              ) : (
-                <ChevronRight size={12} aria-hidden="true" />
-              )}
-              Detalhes técnicos
-            </button>
-            {showRawLog && (
-              <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-3 font-mono text-[10px] leading-relaxed text-ink-secondary">
-                {result.rawLog}
-              </pre>
-            )}
-          </div>
-        )}
-
-        <div className="mt-6">
-          <Button variant="primary" size="md" onClick={check}>
-            <RefreshCw size={14} aria-hidden="true" /> Verificar novamente
-          </Button>
-        </div>
-      </Card>
+      <ErrorState
+        className="p-10"
+        title="Não foi possível verificar as atualizações"
+        message={result.error ?? 'Algo deu errado ao consultar o winget.'}
+        technical={result.rawLog ?? undefined}
+        onRetry={check}
+        retryLabel="Verificar novamente"
+      />
     )
   } else if (result?.ok && items.length === 0) {
     body = (
-      <Card className="border-success-border p-12 text-center">
-        <CheckCircle2 size={32} className="mx-auto mb-4 text-success" aria-hidden="true" />
-        <p className="text-sm font-semibold text-success">Nenhuma atualização disponível 🎉</p>
-        <p className="mt-1.5 text-[12px] text-ink-secondary">
-          Tudo certo por aqui — seus programas estão em dia.
-        </p>
-        <div className="mt-6">
+      <EmptyState
+        icon={CheckCircle2}
+        tone="success"
+        title="Nenhuma atualização disponível 🎉"
+        hint="Tudo certo por aqui — seus programas estão em dia."
+        className="border-success-border p-12"
+        action={
           <Button variant="secondary" size="md" onClick={check} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
             {loading ? 'Verificando…' : 'Verificar novamente'}
           </Button>
-        </div>
-      </Card>
+        }
+      />
     )
   } else {
     body = (

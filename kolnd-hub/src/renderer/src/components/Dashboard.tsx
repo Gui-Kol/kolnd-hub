@@ -5,7 +5,7 @@ import { Activity, Cpu, Gamepad2, Wifi, Code, Clock, LayoutGrid, AppWindow } fro
 import type { LucideIcon } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
-import { Badge } from './ui'
+import { Badge, EmptyState } from './ui'
 import { AppConfig, AppState } from '../types'
 
 interface DashboardProps {
@@ -152,17 +152,12 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
 
       {/* ── Estado vazio (apps não configurados) ────────── */}
       {apps.length === 0 && (
-        <div className="rounded-card border border-[var(--border-subtle)] bg-surface-1 px-6 py-16 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
-            <AppWindow size={20} className="text-ink-secondary" aria-hidden="true" />
-          </div>
-          <h3 className="mt-4 text-base font-semibold text-ink-primary">
-            Nenhum programa configurado
-          </h3>
-          <p className="mt-1 text-sm text-ink-secondary">
-            Configure em Configurações para adicionar os programas do ecossistema.
-          </p>
-        </div>
+        <EmptyState
+          icon={AppWindow}
+          tone="muted"
+          title="Nenhum programa configurado"
+          hint="Configure em Configurações para adicionar os programas do ecossistema."
+        />
       )}
 
       {/* ── Grupos por categoria ─────────────────────────── */}

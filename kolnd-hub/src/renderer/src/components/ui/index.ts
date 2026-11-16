@@ -2,7 +2,7 @@
 // Exports nomeados apenas — importe sempre de 'components/ui' (ou '../ui'):
 //   import { Button, Modal, Toast } from '../ui'
 //
-// 12 famílias de primitivos + tipos públicos de cada uma.
+// 15 famílias de primitivos + tipos públicos de cada uma.
 // Sem lógica de negócio, sem dependências novas; estilo 100% via tokens.
 //
 // ScrollArea (item 11 do plano 13-13.6) NÃO é um componente JS — é a estilização
@@ -48,3 +48,12 @@ export type { SkeletonProps, SkeletonRounded } from './Skeleton'
 
 export { Switch } from './Switch'
 export type { SwitchProps } from './Switch'
+
+export { EmptyState } from './EmptyState'
+export type { EmptyStateProps, EmptyStateTone } from './EmptyState'
+
+export { ErrorState } from './ErrorState'
+export type { ErrorStateProps } from './ErrorState'
+
+export { LoadingState } from './LoadingState'
+export type { LoadingStateProps } from './LoadingState'

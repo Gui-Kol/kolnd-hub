@@ -363,13 +363,6 @@
     @apply bg-clip-text text-transparent;
   }
 
-  /* @deprecated(13.7+) — usado ao vivo por Layout/Sidebar/LoadingScreen/FirstRunInstall;
-     remover junto com o redesign das telas (o texto ficaria invisível sem ele) */
-  .gradient-kloud {
-    background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-    -webkit-background-clip: text;
-  }
-
   /* Inputs — tokens (renomear para .input na 13.6; nome legado mantido) */
   .input-gamer {
     @apply w-full rounded-control px-4 py-3 text-sm font-mono transition-all duration-200 focus:outline-none;

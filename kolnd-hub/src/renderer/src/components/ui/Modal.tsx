@@ -13,6 +13,9 @@
 //   - Esc fecha; clique no backdrop fecha — EXCETO com `disableClose` (modais
 //     destrutivos: Esc/backdrop/botão X são ignorados). O trap já recebe onEscape só
 //     quando !disableClose.
+//   - `closeOnEsc={false}` (fluxos críticos sem affordance de teclado/X, ex.: exit
+//     modal): Esc e o botão X são desligados/ocultados — o backdrop CONTINUA
+//     fechando e os botões do rodapé permanecem. Default: true.
 //
 // Montagem: o pai renderiza condicionalmente ({aberto && <Modal onClose={…}>});
 // a SAÍDA é instantânea (este componente não é motion; AnimatePresence não se aplica).
@@ -37,6 +40,8 @@ export type ModalProps = ModalA11y & {
   onClose: () => void
   /** Desativa Esc, clique no backdrop e o botão X (modais destrutivos/fluxos críticos). */
   disableClose?: boolean
+  /** Permite fechar com Esc (e exibe o X). Padrão: true. false = só backdrop + botões (ex.: exit modal). */
+  closeOnEsc?: boolean
   /** Slot de rodapé — tipicamente os botões de ação. */
   footer?: ReactNode
   /** aria-label do backdrop e do botão fechar. Padrão: "Fechar". */
@@ -53,6 +58,7 @@ const BACKDROP_CLASSES =
 export function Modal({
   onClose,
   disableClose = false,
+  closeOnEsc = true,
   footer,
   closeLabel = 'Fechar',
   className = '',
@@ -69,9 +75,10 @@ export function Modal({
     return (): void => cancelAnimationFrame(raf)
   }, [])
 
+  // Esc só entra no trap quando o fluxo permite saída por teclado.
   const trapRef = useFocusTrap<HTMLDivElement>({
     active: true,
-    onEscape: disableClose ? undefined : onClose
+    onEscape: disableClose || !closeOnEsc ? undefined : onClose
   })
 
   const handleBackdropClose = disableClose ? undefined : onClose
@@ -113,7 +120,7 @@ export function Modal({
         aria-label={hasTitle ? undefined : a11y.ariaLabel}
         className={panelClasses}
       >
-        {!disableClose && (
+        {!disableClose && closeOnEsc && (
           <IconButton
             variant="ghost"
             size="sm"
@@ -126,7 +133,9 @@ export function Modal({
         )}
 
         {hasTitle && (
-          <header className="border-b border-[var(--border-subtle)] px-6 py-4 pr-14">
+          <header
+            className={`border-b border-[var(--border-subtle)] px-6 py-4 ${!disableClose && closeOnEsc ? 'pr-14' : ''}`}
+          >
             <h2 id={titleId} className="text-lg font-semibold tracking-tight text-ink-primary">
               {a11y.title}
             </h2>
