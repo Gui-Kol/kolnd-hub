@@ -103,3 +103,25 @@ jobs:
             kolnd-hub/dist/Kolnd Hub Setup *.exe
             kolnd-hub/dist/SHA256SUMS.txt
           retention-days: 7
+
+  # 03-3.2: porta de qualidade mínima para Mark-LVI/ (Python 3.11–3.13, ver
+  # Mark-LVI/setup.py). Apenas verificação de sintaxe + instalação das deps;
+  # o self-test providers/_tests.py NÃO roda aqui (importa PyQt6/UI e escreve
+  # no config real) e ruff não é adotado no projeto.
+  mark-lvi:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: Mark-LVI/requirements.txt
+
+      - name: Compile check (syntax)
+        run: python -m compileall Mark-LVI
+
+      - name: Install dependencies
+        run: pip install -r Mark-LVI/requirements.txt

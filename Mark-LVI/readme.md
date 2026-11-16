@@ -707,6 +707,26 @@ Your voice is streamed to Google's Gemini Live API while a session is open; that
 
 ---
 
+## ✅ Verificação (CI e local)
+
+O CI do monorepo roda estas checagens no job `mark-lvi` (push e PR em `main`/`master`/`Dev`). Para rodar as mesmas checagens localmente, na raiz do repositório:
+
+```sh
+# Verificação de sintaxe de todo o código Python (não executa nada)
+python -m compileall Mark-LVI
+
+# Garante que as dependências continuam instaláveis (bounds solucionáveis)
+pip install -r Mark-LVI/requirements.txt
+```
+
+Observações:
+
+- Python suportado: **3.11–3.13** (ver `MIN_PY`/`MAX_PY` em `setup.py`); o CI usa 3.12.
+- `providers/_tests.py` **não** roda no CI: é um self-test pesado (importa PyQt6/UI e escreve no `config/api_keys.json` real, restaurando-o ao final) e não é uma verificação de sintaxe. Rode-o manualmente quando mexer em `providers/`, com `QT_QPA_PLATFORM=offscreen python -m providers._tests` a partir de `Mark-LVI/` — confira antes se ele se aplica ao seu ambiente.
+- Ruff não é adotado no projeto — não há etapa de lint no CI.
+
+---
+
 ## ⚠️ License
 
 Personal and non-commercial use only.

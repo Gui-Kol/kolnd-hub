@@ -1,0 +1,77 @@
+# Verificação mínima do fork kloud-games/ (C++ — fork do Sunshine).
+#
+# Por que SEM build completo: o build do kloud-games exige MSYS2/UCRT64 +
+# toolchain completo (e o pacote/instalador exige WiX), ~30–60 min por run.
+# Isso está fora desta leva — fica para o item 2.8 do relatório. Este workflow
+# existe para garantir, de forma barata e periódica, que a árvore do fork e o
+# submódulo obrigatório moonlight-common-c estão pinados e que o patch
+# obrigatório está presente no repositório.
+#
+# Roda apenas manualmente (workflow_dispatch) e semanalmente (segunda 06:00 UTC).
+# NÃO roda em push/PR. Em repositório privado com cota de Actions limitada,
+# prefira remover o `schedule` e usar só o dispatch — o custo do schedule é
+# pequeno (checkout + submodules, sem build), mas não é zero.
+name: kloud-games
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Segunda-feira, 06:00 UTC
+    - cron: '0 6 * * 1'
+
+jobs:
+  verify:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Submodule pin check (.gitmodules consistente)
+        shell: pwsh
+        run: |
+          $status = git submodule status
+          $status | ForEach-Object { Write-Host $_ }
+          # Entradas iniciadas com '-' (não inicializadas) ou '+' (gitlink
+          # divergente do registrado) indicam inconsistência: falhar.
+          $bad = $status | Where-Object { $_.Substring(0, 1) -ne ' ' }
+          if ($bad) {
+            Write-Host '::error::Submódulo não inicializado ou divergente do gitlink:'
+            $bad | ForEach-Object { Write-Host $_ }
+            exit 1
+          }
+
+      - name: moonlight-common-c (submódulo do patch) presente e pinado
+        shell: pwsh
+        run: |
+          $line = git submodule status -- kloud-games/third-party/moonlight-common-c
+          Write-Host $line
+          if (-not $line -or $line.Substring(0, 1) -ne ' ') {
+            Write-Host '::error::kloud-games/third-party/moonlight-common-c não está pinado/inicializado.'
+            exit 1
+          }
+          if (-not (Test-Path 'kloud-games/third-party/moonlight-common-c')) {
+            Write-Host '::error::Diretório kloud-games/third-party/moonlight-common-c ausente após checkout.'
+            exit 1
+          }
+
+      - name: Patch obrigatório presente
+        shell: pwsh
+        run: |
+          $patch = 'kolnd-hub/scripts/patches/moonlight-stdatomic-guards.patch'
+          if (-not (Test-Path $patch)) {
+            Write-Host "::error::Patch obrigatório ausente: $patch"
+            exit 1
+          }
+          Write-Host "Patch encontrado: $patch ($((Get-Item $patch).Length) bytes)"
+
+      - name: CMakeLists.txt raiz do fork presente
+        shell: pwsh
+        run: |
+          $cmake = 'kloud-games/CMakeLists.txt'
+          if (-not (Test-Path $cmake)) {
+            Write-Host "::error::$cmake ausente — fork kloud-games não está íntegro."
+            exit 1
+          }
+          Write-Host "Encontrado: $cmake"
