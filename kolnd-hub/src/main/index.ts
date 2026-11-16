@@ -4,6 +4,7 @@
 import './crashReporting'
 import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join, dirname } from 'path'
+import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, setBaseDir } from './processManager'
 import { isFirstRun } from './firstRun'
@@ -147,14 +148,30 @@ function createWindow(isFirstRunMode = false): void {
   }
 }
 
+/**
+ * Caminho do ícone da bandeja (resources/tray-icon.png, 32×32).
+ * Mesmo padrão de `getKloudGamesDir()`: resourcesPath em produção (o arquivo
+ * chega à raiz de resources/ via extraResources no electron-builder.yml),
+ * cwd/resources em dev.
+ */
+function trayIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'tray-icon.png')
+  }
+  return join(process.cwd(), 'resources', 'tray-icon.png')
+}
+
 function createTray(): void {
-  // 32x32 lightning icon (generated from resources/icon.png)
-  const icon = nativeImage.createFromBuffer(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAM+SURBVFhHvddLTxNRFAfwLln6EVy6ZOnSJV8AUCidaTutWEBAIIA8WrBY6gNFAgUEeWiigqELTWpiVAQfiQESWeACEkQT42PRdu6dmb6PnukD24S2dxo8ydnO7z+3Z85Mdbo8ZRP85Y1CkG8yBx3YzaluVZs42ozJ7jASR2equ1Pdg80RRy8X5O0cLc+99pFltYqnbELQ2yCI0CiI0CSIcFEQodksQotZhFazCJfMBNpMBNpNBDpMBDpNBLqMBLqNBC4bCfQYCfTyBPp4Av08ATtPwcFRGDAQn50Lns41M3Ve8PM2S1A5FpyjMMhRcHIUrhokl52DsizcKgTqbRYRjhsfMmAACi4D9RzieOwl3vmkU2bBYbiOgquWnFED2Czi61Jwu5XAzmaUCXfXUbimp/s6joOyUnA89o+vImoARhyu6yno6oXg6VLw2WEZsNaehZnxG3oJdA1CsEUr7rRRIIGEGmDZE2LGb9ZKoMMFowXHgdtaj6g41sygzIyPpANowZc8SgbHcl+QmPFbGABXKyvubqagSMmjx8KfQQt+Ox2ABcdHbXc7lnX3e9sxTfhojQQ6fLGw4E8XQlk41o+DOKx5I7Ce6rcryX63EoEHDvlI/E4yAHEUi4+0SxA9nLuCFfidgDGrfCQ+hgHwdVoMjkvm214818hbj4dCefHxGjkZoBj8xXI49/p56/1KpCA+cU4GnfoxUQD39MtMR/99Nw6jfGHcgwHwKyYfjuv1yUQIVr0ReOONqMOWHriDz9lPAxYGnetQisIn0wHy4fnW69bLaK4Pz6fCReNTGAC/37Tg+Jz/PMgeyt2NGBM+fTYVQAuOS+bfuaCBBIxbZCb8LgbAr1ct+HxP8jWcriVniBmfUQNwxMGK43r1TR1uxE1fVBM+iwH6OLGLFcfdvuFLDuCvL3EY47Xh96rVEwhUsOK427/uxNQZWOhQNONzGMDO+U+w4rjhQlICVu+HS8LnMQDWgIHus+AzLTLsf4qVjC9WyYoa4ApHK4rF8Tl/ZFdg2iaXhlcrsFApd2X+nAwZpLlicK3TnosvViofMjgWzoLLQHz/C39YrZzMCpAul57y7lrqPxa8Slayjv1v/QHnqTkMuvP76QAAAABJRU5ErkJggg==',
-      'base64'
-    )
-  )
+  // Ícone da bandeja como asset em disco (não mais blob base64 inline). Se o
+  // arquivo não existir, usa imagem vazia + aviso no log — o app nunca cai
+  // por causa do ícone.
+  const iconPath = trayIconPath()
+  let icon = nativeImage.createEmpty()
+  if (existsSync(iconPath)) {
+    icon = nativeImage.createFromPath(iconPath)
+  } else {
+    logger.warn('tray', `ícone da bandeja não encontrado em ${iconPath}; usando imagem vazia`)
+  }
 
   tray = new Tray(icon)
 

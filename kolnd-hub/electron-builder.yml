@@ -29,6 +29,10 @@ extraResources:
       - '!MarkLVI/config/certs/**'
       - '!MarkLVI/config/whatsapp_web/**'
       - '!MarkLVI/memory/**'
+  # O ícone da bandeja (lido via nativeImage.createFromPath em src/main/index.ts)
+  # fica na raiz de resources/ em produção.
+  - from: resources/tray-icon.png
+    to: tray-icon.png
 win:
   icon: resources/icon.ico
   # Nome explicito e estavel do artefato (NSIS respeita ${version}; o default
