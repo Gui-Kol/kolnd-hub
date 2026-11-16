@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useReducedMotion, entranceProps, exitProps } from '../../lib/motion'
 import { useFocusTrap } from '../../lib/useFocusTrap'
 import {
   Gamepad2,
@@ -43,6 +44,8 @@ export const EditGameModal = memo(function EditGameModal({
   onSaved,
   onRemoved
 }: EditGameModalProps): JSX.Element {
+  // Entrada/saída do modal viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const [name, setName] = useState(game.name)
   const [exePath, setExePath] = useState(game.exePath)
   const [localExeMissing, setLocalExeMissing] = useState(exeMissing)
@@ -225,10 +228,8 @@ export const EditGameModal = memo(function EditGameModal({
         role="dialog"
         aria-modal="true"
         aria-label="Editar Game"
-        initial={{ opacity: 0, scale: 0.95, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.18 }}
+        {...entranceProps(reduced, { y: 12, scale: 0.95 }, { duration: 0.18 })}
+        exit={exitProps(reduced, { y: 8, scale: 0.97 })}
         className="relative glass-card border border-white/[0.08] shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto p-6"
       >
         {/* ── Cabeçalho ─────────────────────────────── */}

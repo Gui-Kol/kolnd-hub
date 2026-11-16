@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, exitProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
 import { Zap, Loader2, CheckCircle, Clock, Monitor, Database } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -53,6 +54,8 @@ interface LoadingScreenProps {
 
 export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  // Entradas decorativas (card, etapas, rodapé) viram fade curto com reduce.
+  const reduced = useReducedMotion()
 
   // Progresso derivado da etapa atual: sem estado duplicado para dessincronizar.
   const progress = Math.round(((currentStepIndex + 1) / STEPS.length) * 100)
@@ -96,10 +99,8 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
 
       {/* ── Conteúdo central ────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.9 }}
-        transition={{ duration: 0.4 }}
+        {...entranceProps(reduced, { scale: 0.95 }, { duration: 0.4 })}
+        exit={exitProps(reduced, { scale: 0.9 })}
         className="glass rounded-3xl p-8 md:p-12 w-full max-w-sm text-center border border-white/[0.1] shadow-2xl shadow-black/60 relative"
       >
         {/* Logo Kolnd Hub */}
@@ -121,12 +122,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
         </div>
 
         {/* Mensagem da etapa atual */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-6"
-        >
+        <motion.div {...entranceProps(reduced, { y: 10 }, { delay: 0.2 })} className="mb-6">
           <div className="flex items-center justify-center gap-2 mb-2">
             <ActiveIcon size={18} className={activeStep.color} />
             <span className="text-sm font-semibold text-slate-200">{activeStep.label}</span>
@@ -143,7 +139,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+            transition={reduced ? fadeOnlyTransition : { duration: 0.5, ease: 'easeOut' }}
             className="h-full bg-gradient-to-r from-kloud-500 to-nintendo-500 rounded-full shadow-glow-orange shadow-glow-red relative overflow-hidden"
           >
             {/* Faixa brilhante móvel na barra */}
@@ -163,9 +159,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
             return (
               <motion.div
                 key={step.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 + i * 0.08 }}
+                {...entranceProps(reduced, { x: -10 }, { delay: 0.1 + i * 0.08 })}
                 className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors duration-300"
                 style={{
                   background: isActive
@@ -202,9 +196,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
 
       {/* Rodapé discreto */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.8 }}
+        {...entranceProps(reduced, {}, { delay: 0.8 })}
         className="absolute bottom-8 text-[10px] text-slate-400 uppercase tracking-widest font-bold"
       >
         Kolnd Hub • Carregamento seguro

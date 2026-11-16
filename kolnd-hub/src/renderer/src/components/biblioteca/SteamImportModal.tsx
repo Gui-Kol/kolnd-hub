@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useReducedMotion, entranceProps, exitProps } from '../../lib/motion'
 import { Download, Loader2, AlertTriangle } from 'lucide-react'
 import type { SteamImportResult } from '../../types'
 import { useFocusTrap } from '../../lib/useFocusTrap'
@@ -18,6 +19,8 @@ export const SteamImportModal = memo(function SteamImportModal({
   state,
   onClose
 }: SteamImportModalProps): JSX.Element {
+  // Entrada/saída do modal viram fade curto com reduce.
+  const reduced = useReducedMotion()
   // Prende o foco no modal. Esc aciona onClose — o pai (Biblioteca) ignora o
   // fechamento durante a importação, então o comportamento do backdrop se repete.
   const trapRef = useFocusTrap({ onEscape: onClose })
@@ -38,10 +41,8 @@ export const SteamImportModal = memo(function SteamImportModal({
             role="dialog"
             aria-modal="true"
             aria-label="Importar jogos da Steam"
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 8 }}
-            transition={{ duration: 0.18 }}
+            {...entranceProps(reduced, { y: 12, scale: 0.95 }, { duration: 0.18 })}
+            exit={exitProps(reduced, { y: 8, scale: 0.97 })}
             className="relative glass-card border border-white/[0.08] shadow-2xl w-full max-w-md p-6"
           >
             {state.phase === 'importing' ? (

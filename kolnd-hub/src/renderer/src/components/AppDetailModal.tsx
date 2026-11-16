@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useReducedMotion, entranceProps, exitProps, fadeOnlyTransition } from '../lib/motion'
 import {
   X,
   Play,
@@ -32,6 +33,8 @@ export function AppDetailModal({
   const isRunning = state?.status === 'running'
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
+  // Entradas decorativas do modal (scale/spring) viram fade curto com reduce.
+  const reduced = useReducedMotion()
 
   // Fecha com Escape — mesmo padrão dos demais modais do Hub
   // (Biblioteca, UninstallKloudGamesModal, UninstallHubModal).
@@ -76,6 +79,7 @@ export function AppDetailModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      transition={reduced ? fadeOnlyTransition : undefined}
       className="fixed inset-0 z-50 flex items-center justify-center p-8"
       onClick={onClose}
     >
@@ -88,10 +92,12 @@ export function AppDetailModal({
         role="dialog"
         aria-modal="true"
         aria-label={app.name}
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+        {...entranceProps(
+          reduced,
+          { y: 20, scale: 0.9 },
+          { type: 'spring', damping: 25, stiffness: 400 }
+        )}
+        exit={exitProps(reduced, { y: 20, scale: 0.9 })}
         className="relative w-full max-w-2xl glass rounded-[2rem] overflow-hidden shadow-2xl shadow-black/60 border border-white/[0.08]"
         onClick={(e) => e.stopPropagation()}
         data-testid="app-detail-modal"

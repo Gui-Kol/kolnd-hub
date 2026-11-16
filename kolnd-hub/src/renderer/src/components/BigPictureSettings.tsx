@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
 import {
   Gamepad2,
   Volume2,
@@ -30,6 +31,8 @@ function formatConfiguredDate(iso: string): string {
 }
 
 export function BigPictureSettings(): JSX.Element {
+  // Entradas decorativas (card de seção, toast) viram fade curto com reduce.
+  const reduced = useReducedMotion()
   // `null` = carregando; `undefined` nunca é usado — ausência de config vira `null` no state.
   const [config, setConfig] = useState<GamepadConfig | null>(null)
   const [configLoaded, setConfigLoaded] = useState(false)
@@ -166,8 +169,7 @@ export function BigPictureSettings(): JSX.Element {
       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Big Picture</p>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: 20 })}
         className="glass rounded-2xl p-6 border-l-4 border-neon-cyan"
       >
         {/* Título + descrição */}
@@ -318,9 +320,8 @@ export function BigPictureSettings(): JSX.Element {
         {toast && (
           <motion.div
             key={toast}
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            {...entranceProps(reduced, { y: 20, scale: 0.95 })}
+            exit={exitProps(reduced, { y: 10, scale: 0.95 })}
             role="status"
             className="fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-2xl border border-emerald-500/25 bg-[#071510]/95 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-xl"
           >

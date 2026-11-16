@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import React from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
 import {
   Zap,
   Loader2,
@@ -64,6 +65,8 @@ interface FirstRunInstallProps {
 }
 
 export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Element {
+  // Entradas decorativas (card, rodapé) viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const [steps, setSteps] = useState<FirstRunStep[]>(INITIAL_STEPS.map((s) => ({ ...s })))
   const [logs, setLogs] = useState<string[]>(['[KolndHub] Iniciando instalação automática…\n'])
   const [completed, setCompleted] = useState(false)
@@ -161,9 +164,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
 
       {/* ── Conteúdo central ────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
+        {...entranceProps(reduced, { scale: 0.95 }, { duration: 0.4 })}
         className="glass rounded-3xl p-6 md:p-10 w-full max-w-2xl border border-white/[0.1] shadow-2xl shadow-black/60 relative mx-4"
       >
         {/* Logo e título */}
@@ -191,7 +192,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+            transition={reduced ? fadeOnlyTransition : { duration: 0.5, ease: 'easeOut' }}
             className="h-full bg-gradient-to-r from-kloud-500 to-nintendo-500 rounded-full shadow-glow-orange"
           />
         </div>
@@ -303,9 +304,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
 
       {/* Rodapé */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.8 }}
+        {...entranceProps(reduced, {}, { delay: 0.8 })}
         className="absolute bottom-6 text-[10px] text-slate-400 uppercase tracking-widest font-bold"
       >
         Kolnd Hub • Instalação automática

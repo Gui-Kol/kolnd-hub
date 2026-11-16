@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
 import {
   Gamepad2,
   Plus,
@@ -30,6 +31,8 @@ interface Toast {
  * abrir outra instância.
  */
 export function Biblioteca(): JSX.Element {
+  // Movimento decorativo (entradas, menu, toast) vira fade curto com reduce.
+  const reduced = useReducedMotion()
   const [games, setGames] = useState<Game[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -262,8 +265,7 @@ export function Biblioteca(): JSX.Element {
     <div className="max-w-7xl mx-auto space-y-6">
       {/* ── Header ─────────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: -10 })}
         className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
@@ -309,10 +311,8 @@ export function Biblioteca(): JSX.Element {
                   />
                   <motion.div
                     role="menu"
-                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                    transition={{ duration: 0.15 }}
+                    {...entranceProps(reduced, { y: -6, scale: 0.96 }, { duration: 0.15 })}
+                    exit={exitProps(reduced, { y: -6, scale: 0.96 })}
                     className="absolute right-0 z-20 mt-2 w-72 glass-card border border-white/[0.08] shadow-2xl overflow-hidden"
                   >
                     <button
@@ -423,9 +423,8 @@ export function Biblioteca(): JSX.Element {
         {toast && (
           <motion.div
             key={toast.id}
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            {...entranceProps(reduced, { y: 20, scale: 0.95 })}
+            exit={exitProps(reduced, { y: 10, scale: 0.95 })}
             className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-steam-blue/25 bg-[#0d1420]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
           >
             <Gamepad2 size={16} className="mt-0.5 shrink-0 text-steam-blue" />

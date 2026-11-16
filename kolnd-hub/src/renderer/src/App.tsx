@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, Check, X } from 'lucide-react'
+import { entranceProps, exitProps, useReducedMotion } from './lib/motion'
 import { Layout } from './components/Layout'
 import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
@@ -42,6 +43,8 @@ function isFirstRunFromQuery(): boolean {
 }
 
 function App(): JSX.Element {
+  // Toast de aviso decorativo vira fade curto com reduce.
+  const reduced = useReducedMotion()
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
   const [appStates, setAppStates] = useState<Record<string, AppState>>({})
   const [apps, setApps] = useState<AppConfig[]>(defaultApps)
@@ -596,9 +599,8 @@ function App(): JSX.Element {
       {notice && (
         <motion.div
           key={notice.id}
-          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+          {...entranceProps(reduced, { y: 20, scale: 0.95 })}
+          exit={exitProps(reduced, { y: 10, scale: 0.95 })}
           className={`fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl ${
             notice.kind === 'success'
               ? 'border-emerald-500/25 bg-[#071510]/95'

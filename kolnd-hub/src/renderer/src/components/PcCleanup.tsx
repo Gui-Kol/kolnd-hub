@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { entranceProps, exitProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
 import { AlertTriangle, FolderOpen, Loader2, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import { CleanResult } from '../types'
 
@@ -17,6 +18,8 @@ function formatBytes(bytes: number): string {
 }
 
 export function PcCleanup(): JSX.Element {
+  // Entradas decorativas (cards, modal de confirmação) viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const [showConfirm, setShowConfirm] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const [result, setResult] = useState<CleanResult | null>(null)
@@ -63,8 +66,7 @@ export function PcCleanup(): JSX.Element {
     <div className="space-y-4">
       {/* ── Cartão principal ─────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: 10 })}
         className="glass rounded-2xl p-6 md:p-8 text-center space-y-5"
       >
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-kloud-500/20 to-nintendo-500/10 border border-kloud-500/20 flex items-center justify-center mx-auto">
@@ -111,8 +113,7 @@ export function PcCleanup(): JSX.Element {
       {result &&
         (result.ok ? (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+            {...entranceProps(reduced, { y: 10 })}
             role="status"
             className="glass rounded-2xl p-5 border-emerald-500/25 bg-emerald-500/5 space-y-3"
           >
@@ -133,8 +134,7 @@ export function PcCleanup(): JSX.Element {
           </motion.div>
         ) : (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+            {...entranceProps(reduced, { y: 10 })}
             role="alert"
             className="glass rounded-2xl p-5 border-red-500/25 bg-red-500/5 flex items-start gap-3"
           >
@@ -158,6 +158,7 @@ export function PcCleanup(): JSX.Element {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={reduced ? fadeOnlyTransition : undefined}
             className="fixed inset-0 z-50 flex items-center justify-center p-6"
             onClick={closeConfirm}
           >
@@ -165,10 +166,12 @@ export function PcCleanup(): JSX.Element {
             <div className="absolute inset-0 bg-black/70 backdrop-blur-xl" />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 16 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+              {...entranceProps(
+                reduced,
+                { y: 16, scale: 0.95 },
+                { type: 'spring', damping: 25, stiffness: 400 }
+              )}
+              exit={exitProps(reduced, { y: 16, scale: 0.95 })}
               className="relative w-full max-w-md glass rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/60 p-6 space-y-5"
               role="dialog"
               aria-modal="true"

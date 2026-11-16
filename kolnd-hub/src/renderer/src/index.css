@@ -44,10 +44,12 @@
   /* Acessibilidade: quem pediu menos movimento recebe menos movimento (T8) */
   @media (prefers-reduced-motion: reduce) {
     .scanlines,
+    .animate-pulse,
     .animate-pulse-slow,
     .animate-glow,
     .animate-float,
-    .animate-skew {
+    .animate-skew,
+    .skeleton {
       animation: none !important;
     }
   }

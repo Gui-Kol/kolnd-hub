@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 import {
   Monitor,
   Trash2,
@@ -67,6 +68,8 @@ export function Inicializacao({
   onReload,
   appsNotInStartup
 }: InicializacaoProps): JSX.Element {
+  // Entradas decorativas (header, seções, itens de lista) viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const [refreshing, setRefreshing] = useState(false)
   const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set())
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set())
@@ -160,8 +163,7 @@ export function Inicializacao({
     <div className="max-w-7xl mx-auto space-y-8">
       {/* ── Header ───────────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: -10 })}
         className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div className="space-y-1">
@@ -219,11 +221,7 @@ export function Inicializacao({
       {activeTab === 'inicializacao' && (
         <>
           {/* ── Seção: iniciam com o PC ──────────────────── */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
-          >
+          <motion.div {...entranceProps(reduced, { y: 10 })} className="space-y-3">
             {/* Cabeçalho com controles de lote */}
             <div
               className={`glass rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
@@ -289,8 +287,7 @@ export function Inicializacao({
                   return (
                     <motion.div
                       key={item.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
+                      {...entranceProps(reduced, { y: 10 })}
                       className={`glass rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
                         isSelected ? 'border-red-500/30 bg-red-500/5 ring-1 ring-red-500/20' : ''
                       }`}
@@ -372,11 +369,7 @@ export function Inicializacao({
           </motion.div>
 
           {/* ── Seção: não iniciam com o PC ────────────────── */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
-          >
+          <motion.div {...entranceProps(reduced, { y: 10 })} className="space-y-3">
             <div
               className={`glass rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                 selectedToAdd.size > 0
@@ -441,8 +434,7 @@ export function Inicializacao({
                   return (
                     <motion.div
                       key={app.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
+                      {...entranceProps(reduced, { y: 10 })}
                       className={`glass rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
                         isSelected
                           ? 'border-emerald-500/30 bg-emerald-500/5 ring-1 ring-emerald-500/20'
@@ -526,8 +518,7 @@ export function Inicializacao({
 
           {/* ── Legenda de importância ───────────────────── */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            {...entranceProps(reduced)}
             className="glass rounded-2xl p-5 flex flex-wrap gap-3 items-center border-l-4 border-neon-purple/50"
           >
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-3">

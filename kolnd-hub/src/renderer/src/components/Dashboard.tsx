@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Activity, Cpu, Gamepad2, Wifi, Code, Clock } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
@@ -41,6 +42,8 @@ const categoryMeta: Record<string, { label: string; icon: any; color: string; gl
 
 export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps): JSX.Element {
   const [selectedApp, setSelectedApp] = useState<AppConfig | null>(null)
+  // Entradas decorativas (header, grupos em cascata, cards) viram fade curto com reduce.
+  const reduced = useReducedMotion()
 
   const runningCount = Object.values(appStates).filter((s) => s.status === 'running').length
   const stoppedCount = apps.length - runningCount
@@ -57,11 +60,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       {/* ── Header estilo perfil Steam ───────────────── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-3"
-      >
+      <motion.div {...entranceProps(reduced, { y: -10 })} className="space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
@@ -115,9 +114,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
         return (
           <motion.div
             key={group.category}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + gi * 0.08 }}
+            {...entranceProps(reduced, { y: 20 }, { delay: 0.1 + gi * 0.08 })}
             className="space-y-3"
           >
             {/* Cabeçalho da categoria estilo Steam */}

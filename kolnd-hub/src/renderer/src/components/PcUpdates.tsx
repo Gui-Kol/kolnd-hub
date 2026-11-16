@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 import {
   AlertTriangle,
   ArrowRight,
@@ -115,6 +116,8 @@ function StatusBadge({ state }: { state: ItemState }): JSX.Element {
 }
 
 export function PcUpdates(): JSX.Element {
+  // Entrada decorativa dos itens da lista vira fade curto com reduce.
+  const reduced = useReducedMotion()
   const [loading, setLoading] = useState(true)
   const [result, setResult] = useState<WingetListResult | null>(null)
   const [showRawLog, setShowRawLog] = useState(false)
@@ -469,8 +472,7 @@ export function PcUpdates(): JSX.Element {
             return (
               <motion.div
                 key={item.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                {...entranceProps(reduced, { y: 10 })}
                 className={`glass rounded-xl p-4 transition-colors ${
                   isChecked ? 'border-kloud-500/30 bg-kloud-500/5' : ''
                 } ${state?.status === 'erro' ? 'border-red-500/20' : ''}`}

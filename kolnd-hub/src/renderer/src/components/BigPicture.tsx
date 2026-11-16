@@ -9,6 +9,7 @@ import { GamepadSetup } from './GamepadSetup'
 import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPictureTransition'
 import { BigPictureFocusProvider, useBigPictureFocus } from './BigPictureFocus'
 import { OptionsOverlay, ExitOverlay, DisconnectOverlay } from './BigPictureOverlays'
+import { entranceProps, exitProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
 import { useGamepad } from '../hooks/useGamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import { announce, useAnnouncer } from '../lib/useAnnouncer'
@@ -128,6 +129,8 @@ interface ActiveViewProps {
 
 function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Element {
   const [section, setSectionState] = useState<BigPictureSection>('games')
+  // Movimento decorativo (toast) vira fade curto com reduce.
+  const reduced = useReducedMotion()
   const [overlay, setOverlay] = useState<'options' | 'exit' | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [config, setConfig] = useState<GamepadConfig | null>(null)
@@ -557,9 +560,8 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
         {toast && (
           <motion.div
             key={toast.id}
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            {...entranceProps(reduced, { y: 20, scale: 0.95 })}
+            exit={exitProps(reduced, { y: 10, scale: 0.95 })}
             className="fixed bottom-8 right-8 z-[70] flex max-w-md items-start gap-3 rounded-2xl border border-neon-cyan/25 bg-[#050f14]/95 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-xl"
             role="status"
             aria-atomic="true"
@@ -620,6 +622,8 @@ export function BigPicture({
   onTransitionComplete
 }: BigPictureProps): JSX.Element {
   const isTransitioning = mode === 'transitioning'
+  // Reveal decorativo da home vira fade curto com reduce.
+  const reduced = useReducedMotion()
   // Home montada por baixo da transição (fase 6) e invisível até a fase 7.
   const [ready, setReady] = useState<boolean>(() => mode !== 'transitioning')
   const [leaving, setLeaving] = useState(false)
@@ -692,8 +696,14 @@ export function BigPicture({
           <motion.div
             className={`absolute inset-0 z-10 ${ready && !leaving ? '' : 'pointer-events-none select-none'}`}
             initial={false}
-            animate={ready ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
+            animate={
+              reduced
+                ? { opacity: ready ? 1 : 0 }
+                : ready
+                  ? { opacity: 1, y: 0 }
+                  : { opacity: 0, y: 24 }
+            }
+            transition={reduced ? fadeOnlyTransition : { duration: 0.4, ease: 'easeOut' }}
             style={{ visibility: ready ? 'visible' : 'hidden' }}
           >
             <ActiveView onExit={handleExit} inputEnabled={ready && !leaving} />

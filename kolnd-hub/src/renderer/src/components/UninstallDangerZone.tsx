@@ -6,6 +6,7 @@
 // — tudo flui via window.api.*.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { UninstallKloudGamesModal } from './UninstallKloudGamesModal'
 import { UninstallHubModal } from './UninstallHubModal'
@@ -36,6 +37,8 @@ interface HubState {
 }
 
 export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.Element {
+  // Entradas decorativas dos cards de perigo viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const showToast = useCallback(
     (msg: string, kind: 'success' | 'error' | 'info' = 'info'): void => {
       onToast?.(msg, kind)
@@ -191,8 +194,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
       <div className={uninstalling ? 'pointer-events-none opacity-70' : ''}>
         {/* ── Kloud Games ───────────────────────────── */}
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+          {...entranceProps(reduced, { y: 10 })}
           className="glass rounded-2xl p-6 border-l-4 border-red-500/60"
         >
           <div className="flex items-start gap-4">
@@ -263,8 +265,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
 
         {/* ── Kolnd Hub ─────────────────────────────── */}
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+          {...entranceProps(reduced, { y: 10 })}
           className="glass rounded-2xl p-6 border-l-4 border-red-500/60"
         >
           <div className="flex items-start gap-4">

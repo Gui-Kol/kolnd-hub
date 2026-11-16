@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Play, Square, ExternalLink } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 
 interface AppCardProps {
   app: AppConfig
@@ -29,6 +30,8 @@ export function AppCard({
   const isRunning = state?.status === 'running'
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
+  // Movimento decorativo (entrada com stagger, hover-lift, tap) some com reduce.
+  const reduced = useReducedMotion()
 
   const badge = categoryBadge[app.category] ?? {
     label: app.category.toUpperCase(),
@@ -37,11 +40,9 @@ export function AppCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay, duration: 0.5, ease: 'easeOut' }}
-      whileHover={{ y: -6, transition: { duration: 0.3 } }}
-      whileTap={{ scale: 0.98 }}
+      {...entranceProps(reduced, { y: 20, scale: 0.95 }, { delay, duration: 0.5, ease: 'easeOut' })}
+      whileHover={reduced ? undefined : { y: -6, transition: { duration: 0.3 } }}
+      whileTap={reduced ? undefined : { scale: 0.98 }}
       className="glass-card cursor-pointer group relative overflow-hidden"
       onClick={onClick}
       data-testid="app-card"

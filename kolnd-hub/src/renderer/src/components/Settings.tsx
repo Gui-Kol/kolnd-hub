@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { entranceProps, useReducedMotion } from '../lib/motion'
 import {
   Save,
   RotateCcw,
@@ -34,6 +35,8 @@ interface SettingsProps {
 type CommandIssue = { level: 'error' | 'warning'; message: string }
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
+  // Entradas decorativas das seções (incl. cascata dos cards de apps) viram fade curto com reduce.
+  const reduced = useReducedMotion()
   const [editedApps, setEditedApps] = useState<AppConfig[]>(apps.map((a) => ({ ...a })))
   const [saved, setSaved] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
@@ -449,8 +452,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     <div className="max-w-5xl mx-auto space-y-8">
       {/* ── Header ───────────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: -10 })}
         className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
@@ -488,8 +490,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
 
       <div className="space-y-4">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          {...entranceProps(reduced, { y: 20 })}
           className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
         >
           <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -535,8 +536,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
 
         {/* ── Autostart do Hub no Windows (07-7.3) ────── */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          {...entranceProps(reduced, { y: 20 })}
           className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
         >
           <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -592,8 +592,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       </p>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: 20 })}
         className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
       >
         <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -654,9 +653,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
           return (
             <motion.div
               key={app.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.04 }}
+              {...entranceProps(reduced, { y: 20 }, { delay: index * 0.04 })}
               className="glass rounded-2xl p-6 border-l-4 border-transparent hover:border-kloud-500/50 transition-all"
             >
               {/* Cabeçalho do app */}
@@ -918,8 +915,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Diagnóstico</p>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: 20 })}
         className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
       >
         <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -959,8 +955,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       </p>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        {...entranceProps(reduced, { y: 20 })}
         className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
       >
         <div className="flex items-start gap-4">
@@ -1098,9 +1093,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
 
       {/* ── Nota informativa ─────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
+        {...entranceProps(reduced, {}, { delay: 0.3 })}
         className="glass rounded-2xl p-6 flex items-start gap-4 border-l-4 border-kloud-500/50"
       >
         <AlertCircle size={22} className="text-kloud-500 shrink-0 mt-0.5" />
