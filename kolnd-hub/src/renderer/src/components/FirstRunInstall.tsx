@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import React from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
+import { Button } from './ui'
 import {
   Zap,
   Loader2,
-  CheckCircle,
-  AlertCircle,
+  Check,
+  X,
   Download,
   Shield,
   Settings,
@@ -151,60 +151,60 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
   const hasError = error !== null || steps.some((s) => s.status === 'error')
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#050508] flex flex-col items-center justify-center overflow-hidden">
+    <div className="fixed inset-0 z-modal bg-surface-base flex flex-col items-center justify-center overflow-hidden">
       {/* ── Fundo decorativo ─────────────────────────── */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-kloud-500/10 rounded-full blur-[120px] animate-pulse" />
-        <div
-          className="absolute bottom-[-20%] right-[-20%] w-[50%] h-[50%] bg-nintendo-500/10 rounded-full blur-[120px] animate-pulse"
-          style={{ animationDelay: '2s' }}
-        />
+      {/* Overlay arcade legado — remoção final na migração das telas (ver index.css) */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
         <div className="scanlines" />
       </div>
 
-      {/* ── Conteúdo central ────────────────────────── */}
+      {/* ── Conteúdo central ─────────────────────────── */}
       <motion.div
         {...entranceProps(reduced, { scale: 0.95 }, { duration: 0.4 })}
-        className="glass rounded-3xl p-6 md:p-10 w-full max-w-2xl border border-white/[0.1] shadow-2xl shadow-black/60 relative mx-4"
+        className="bg-surface-1 rounded-card p-6 md:p-10 w-full max-w-2xl border border-[var(--border-subtle)] shadow-elevation-3 relative mx-4"
       >
         {/* Logo e título */}
         <div className="flex items-center justify-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange">
-            <Zap size={24} className="text-white" />
+          <div className="w-12 h-12 rounded-card bg-accent flex items-center justify-center">
+            <Zap size={24} className="text-accent-contrast" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-white tracking-tight gradient-text gradient-kloud">
-              Kolnd Hub
-            </h2>
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">
+            <h2 className="text-2xl font-bold text-ink-primary tracking-tight">Kolnd Hub</h2>
+            <p className="text-[10px] text-ink-tertiary uppercase tracking-widest mt-0.5">
               Primeira execução
             </p>
           </div>
         </div>
 
-        <p className="text-center text-sm text-slate-300 mb-6">
+        <p className="text-center text-sm text-ink-secondary mb-6">
           Estamos preparando tudo para que o Kolnd Hub funcione sem que você precise instalar nada
           manualmente.
         </p>
 
         {/* Barra de progresso */}
-        <div className="w-full bg-white/[0.05] rounded-full h-2.5 mb-2 overflow-hidden border border-white/[0.08]">
+        <div className="w-full bg-surface-sunken rounded-pill h-2.5 mb-2 overflow-hidden border border-[var(--border-subtle)]">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
             transition={reduced ? fadeOnlyTransition : { duration: 0.5, ease: 'easeOut' }}
-            className="h-full bg-gradient-to-r from-kloud-500 to-nintendo-500 rounded-full shadow-glow-orange"
+            className="h-full bg-accent rounded-pill"
           />
         </div>
         <div className="flex justify-between items-center mb-6">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider">
+          <span
+            className={`text-[10px] uppercase tracking-wider ${
+              hasError ? 'text-danger' : completed ? 'text-success' : 'text-ink-tertiary'
+            }`}
+          >
             {hasError
               ? 'Erro na instalação'
               : completed
                 ? 'Instalação concluída'
                 : 'Instalando dependências…'}
           </span>
-          <span className="text-[10px] font-bold text-slate-400 tracking-wider">{progress}%</span>
+          <span className="text-[10px] font-bold text-ink-tertiary tracking-wider tabular-nums">
+            {progress}%
+          </span>
         </div>
 
         {/* Lista de etapas */}
@@ -217,56 +217,52 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
             return (
               <div
                 key={step.id}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors duration-300"
-                style={{
-                  background: isActive
-                    ? 'rgba(249, 115, 22, 0.10)'
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-control border transition-colors duration-300 ${
+                  isActive
+                    ? 'bg-accent-muted border-accent-border'
                     : isDone
-                      ? 'rgba(16, 185, 129, 0.10)'
+                      ? 'bg-success-bg border-success-border'
                       : isError
-                        ? 'rgba(239, 68, 68, 0.10)'
-                        : 'transparent',
-                  border: isActive
-                    ? '1px solid rgba(249, 115, 22, 0.35)'
-                    : isDone
-                      ? '1px solid rgba(16, 185, 129, 0.25)'
-                      : isError
-                        ? '1px solid rgba(239, 68, 68, 0.25)'
-                        : '1px solid transparent'
-                }}
+                        ? 'bg-danger-bg border-danger-border'
+                        : 'bg-transparent border-transparent'
+                }`}
               >
                 {isDone ? (
-                  <CheckCircle size={16} className="text-emerald-400 shrink-0" />
+                  <Check size={16} className="text-success shrink-0" />
                 ) : isActive ? (
-                  <Loader2 size={16} className="text-kloud-500 shrink-0 animate-spin" />
+                  <Loader2 size={16} className="text-accent shrink-0 animate-spin" />
                 ) : isError ? (
-                  <AlertCircle size={16} className="text-red-400 shrink-0" />
+                  <X size={16} className="text-danger shrink-0" />
                 ) : (
-                  <StepIcon size={16} className="text-slate-400 shrink-0" />
+                  <StepIcon size={16} className="text-ink-tertiary shrink-0" />
                 )}
                 <span
                   className={`text-xs font-medium leading-tight ${
                     isDone
-                      ? 'text-emerald-400'
+                      ? 'text-success'
                       : isActive
-                        ? 'text-white'
+                        ? 'text-ink-primary'
                         : isError
-                          ? 'text-red-400'
-                          : 'text-slate-400'
+                          ? 'text-danger'
+                          : 'text-ink-tertiary'
                   }`}
                 >
                   {step.label}
                   {isActive && step.progress > 0 && (
-                    <span className="ml-2 text-[10px] text-slate-400">({step.progress}%)</span>
+                    <span className="ml-2 text-[10px] text-ink-tertiary tabular-nums">
+                      ({step.progress}%)
+                    </span>
                   )}
                 </span>
                 {step.id === 'kloud-games' && isError && (
-                  <button
+                  <Button
+                    variant="subtle-danger"
+                    size="sm"
                     onClick={handleRetryKloudGames}
-                    className="ml-auto shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-300 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 hover:text-red-200 transition-all"
+                    className="ml-auto shrink-0"
                   >
                     Tentar novamente
-                  </button>
+                  </Button>
                 )}
               </div>
             )
@@ -276,7 +272,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
         {/* Log em tempo real */}
         <div
           ref={logRef}
-          className="bg-black/40 rounded-xl p-4 h-32 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 border border-white/[0.06]"
+          className="bg-surface-sunken rounded-control p-4 h-32 overflow-y-auto font-mono text-[11px] leading-relaxed text-ink-secondary border border-[var(--border-subtle)]"
         >
           {logs.map((line, i) => (
             <div key={i} className="whitespace-pre-wrap break-words">
@@ -284,7 +280,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
             </div>
           ))}
           {hasError && (
-            <div className="text-red-400 mt-2">
+            <div className="text-danger mt-2">
               Algo deu errado durante a instalação. Verifique sua conexão e tente novamente.
             </div>
           )}
@@ -292,20 +288,16 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
 
         {/* Botão de cancelar */}
         <div className="flex justify-end mt-4 gap-3">
-          <button
-            onClick={handleCancel}
-            disabled={completed || !hasError}
-            className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-white glass glass-hover transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" onClick={handleCancel} disabled={completed || !hasError}>
             {hasError ? 'Tentar novamente mais tarde' : 'Cancelar'}
-          </button>
+          </Button>
         </div>
       </motion.div>
 
       {/* Rodapé */}
       <motion.div
         {...entranceProps(reduced, {}, { delay: 0.8 })}
-        className="absolute bottom-6 text-[10px] text-slate-400 uppercase tracking-widest font-bold"
+        className="absolute bottom-6 text-[10px] text-ink-tertiary uppercase tracking-widest font-bold"
       >
         Kolnd Hub • Instalação automática
       </motion.div>

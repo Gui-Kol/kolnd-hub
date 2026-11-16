@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Button, Modal } from './ui'
 import { Gamepad2, X, Mouse, Undo2, RotateCcw, Check, AlertCircle, Cable } from 'lucide-react'
 import {
   buildAutoConfig,
@@ -32,7 +33,6 @@ import {
 import type { GamepadAction, GamepadButtonMapping, GamepadConfig } from '../lib/gamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import { announce } from '../lib/useAnnouncer'
-import { useFocusTrap } from '../lib/useFocusTrap'
 import { GamepadMappingRow } from './gamepad/GamepadMappingRow'
 
 export interface GamepadSetupProps {
@@ -256,10 +256,6 @@ export function GamepadSetup({
   // ── Esc cancela a escuta; fora dela, fecha (com confirmação se sujo) ──
   // Capture na raiz: impede que o atalho vaze para a tela ao redor
   // (ex.: o atalho global de Esc do Big Picture abrir a confirmação de saída).
-  // Trap de foco do diálogo de descarte (Esc segue no handleKeyDownCapture
-  // da raiz, que também bloqueia o vazamento para a tela ao redor).
-  const confirmTrapRef = useFocusTrap<HTMLDivElement>({ active: confirmDiscard })
-
   const handleKeyDownCapture = (event: ReactKeyboardEvent<HTMLElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -414,21 +410,21 @@ export function GamepadSetup({
     <div
       className={
         layout === 'overlay'
-          ? 'relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 shadow-2xl shadow-black/60 backdrop-blur-xl'
+          ? 'relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-3 shadow-elevation-3'
           : 'flex h-full min-h-0 flex-col'
       }
     >
       {/* Cabeçalho */}
-      <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
+      <div className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-neon-cyan/30 bg-neon-cyan/10 text-neon-cyan">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-accent-border bg-accent-muted text-accent">
             <Gamepad2 size={18} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-200">
+            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-ink-primary">
               {step === 'detect' ? 'Configurar controle' : 'Controle'}
             </h2>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-ink-tertiary">
               {step === 'manual'
                 ? 'Ajuste manual do mapeamento'
                 : 'Detecção automática pelo modelo do seu controle'}
@@ -438,7 +434,7 @@ export function GamepadSetup({
         <button
           type="button"
           onClick={requestClose}
-          className="shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
+          className="shrink-0 flex h-12 w-12 items-center justify-center rounded-control text-ink-tertiary transition-colors hover:bg-surface-2 hover:text-ink-primary"
           aria-label="Fechar configuração de controle"
           title="Fechar"
         >
@@ -449,7 +445,7 @@ export function GamepadSetup({
       {/* Corpo */}
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {notice && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl border border-kloud-500/30 bg-kloud-500/10 px-4 py-2.5 text-xs text-kloud-500">
+          <div className="mb-4 flex items-center gap-2 rounded-control border border-accent-border bg-accent-muted px-4 py-2.5 text-xs text-accent">
             <AlertCircle size={14} className="shrink-0" />
             <span>{notice}</span>
           </div>
@@ -458,38 +454,34 @@ export function GamepadSetup({
         {/* ───────── Passo 1 — Detecção ("Pressione qualquer botão") ───────── */}
         {step === 'detect' && (
           <div className="flex flex-col items-center gap-6 py-6 text-center">
-            <div className="flex h-36 w-36 items-center justify-center rounded-[2.5rem] border border-neon-cyan/30 bg-neon-cyan/5 shadow-glow-cyan">
-              <Gamepad2
-                size={72}
-                strokeWidth={1.25}
-                className="animate-pulse-slow text-neon-cyan"
-              />
+            <div className="flex h-36 w-36 items-center justify-center rounded-card border border-accent-border bg-accent-muted">
+              <Gamepad2 size={72} strokeWidth={1.25} className="animate-pulse-slow text-accent" />
             </div>
             <div className="max-w-md space-y-2">
-              <h3 className="text-2xl font-black tracking-tight text-white">
+              <h3 className="text-2xl font-black tracking-tight text-ink-primary">
                 Pressione qualquer botão do controle
               </h3>
-              <p className="text-sm leading-relaxed text-slate-400">
+              <p className="text-sm leading-relaxed text-ink-secondary">
                 Detectamos automaticamente o modelo e configuramos tudo para você.
               </p>
             </div>
 
             <div
-              className={`flex items-center gap-2 rounded-full border px-4 py-1.5 text-[11px] font-semibold uppercase tracking-widest ${
+              className={`flex items-center gap-2 rounded-pill border px-4 py-1.5 text-[11px] font-semibold uppercase tracking-widest ${
                 padConnected
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                  : 'border-white/[0.08] bg-white/[0.03] text-slate-400'
+                  ? 'border-success-border bg-success-bg text-success'
+                  : 'border-[var(--border-strong)] bg-surface-2 text-ink-tertiary'
               }`}
               role="status"
             >
               <span
-                className={`h-2 w-2 rounded-full ${padConnected ? 'bg-emerald-400' : 'bg-slate-600'}`}
+                className={`h-2 w-2 rounded-full ${padConnected ? 'bg-success' : 'bg-ink-tertiary'}`}
               />
               {padConnected ? 'Controle detectado — pressione um botão' : 'Aguardando controle…'}
             </div>
 
             {!gamepadApiAvailable && (
-              <div className="flex max-w-md items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-left text-xs leading-relaxed text-red-300">
+              <div className="flex max-w-md items-start gap-2 rounded-card border border-danger-border bg-danger-bg px-4 py-3 text-left text-xs leading-relaxed text-danger">
                 <AlertCircle size={16} className="mt-0.5 shrink-0" />
                 <span>
                   Este ambiente não expõe controles (Gamepad API indisponível). A detecção
@@ -500,7 +492,7 @@ export function GamepadSetup({
             )}
 
             {hintVisible && (
-              <div className="flex max-w-md items-start gap-2 rounded-2xl border border-kloud-500/30 bg-kloud-500/10 px-4 py-3 text-left text-xs leading-relaxed text-kloud-500">
+              <div className="flex max-w-md items-start gap-2 rounded-card border border-warn-border bg-warn-bg px-4 py-3 text-left text-xs leading-relaxed text-warn">
                 <Cable size={16} className="mt-0.5 shrink-0" />
                 <span>
                   Não reconheceu seu controle? Tente USB ou outro cabo — ou configure depois com o
@@ -510,36 +502,36 @@ export function GamepadSetup({
             )}
 
             {detecting && (
-              <p className="text-xs font-semibold uppercase tracking-widest text-neon-cyan">
+              <p className="text-xs font-semibold uppercase tracking-widest text-accent">
                 Salvando configuração…
               </p>
             )}
 
             {detectError && (
-              <div className="max-w-md space-y-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-left">
-                <p className="flex items-start gap-2 text-xs leading-relaxed text-red-300">
+              <div className="max-w-md space-y-3 rounded-card border border-danger-border bg-danger-bg p-4 text-left">
+                <p className="flex items-start gap-2 text-xs leading-relaxed text-danger">
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
                   Não foi possível salvar a configuração: {detectError}
                 </p>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="btn-secondary !px-4 !py-2 !text-[10px]"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() =>
                       pendingAutoConfigRef.current &&
                       persistAutoConfig(pendingAutoConfigRef.current)
                     }
                   >
                     Tentar de novo
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
-            <button type="button" className="btn-secondary" onClick={requestClose}>
+            <Button variant="secondary" onClick={requestClose}>
               <Undo2 size={16} />
               Cancelar
-            </button>
+            </Button>
           </div>
         )}
 
@@ -547,25 +539,25 @@ export function GamepadSetup({
         {step === 'review' && baseConfig && (
           <div className="space-y-6">
             <div className="flex flex-col items-center gap-3 py-2 text-center">
-              <Gamepad2 size={44} strokeWidth={1.25} className="text-neon-cyan" />
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-slate-400">
+              <Gamepad2 size={44} strokeWidth={1.25} className="text-accent" />
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-ink-tertiary">
                 Controle detectado
               </p>
-              <h3 className="text-xl font-bold text-white">{baseConfig.controllerName}</h3>
-              <p className="text-xs text-slate-400">
+              <h3 className="text-xl font-bold text-ink-primary">{baseConfig.controllerName}</h3>
+              <p className="text-xs text-ink-tertiary">
                 Perfil{' '}
-                <span className="font-bold text-slate-200">
+                <span className="font-bold text-ink-secondary">
                   {GAMEPAD_PROFILES[baseConfig.profile].label}
                 </span>{' '}
                 · configurado em {formatConfiguredDate(baseConfig.configuredAt)}
               </p>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-white/[0.08]">
+            <div className="overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-1">
               <table className="w-full text-left text-sm">
                 <caption className="sr-only">Mapeamento dos 12 botões do controle</caption>
                 <thead>
-                  <tr className="bg-white/[0.04] text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
+                  <tr className="bg-surface-2 text-[10px] font-bold uppercase tracking-[0.25em] text-ink-tertiary">
                     <th scope="col" className="px-5 py-2.5">
                       Ação
                     </th>
@@ -576,10 +568,15 @@ export function GamepadSetup({
                 </thead>
                 <tbody>
                   {GAMEPAD_ACTIONS.map((action) => (
-                    <tr key={action} className="border-t border-white/[0.05] odd:bg-white/[0.02]">
-                      <td className="px-5 py-2 text-slate-300">{GAMEPAD_ACTION_LABELS[action]}</td>
+                    <tr
+                      key={action}
+                      className="border-t border-[var(--border-subtle)] odd:bg-white/[0.02]"
+                    >
+                      <td className="px-5 py-2 text-ink-secondary">
+                        {GAMEPAD_ACTION_LABELS[action]}
+                      </td>
                       <td className="px-5 py-2">
-                        <span className="inline-flex min-w-[5.5rem] justify-center rounded-lg border border-neon-cyan/25 bg-neon-cyan/5 px-3 py-1 font-mono text-[11px] font-semibold text-neon-cyan">
+                        <span className="inline-flex min-w-[5.5rem] justify-center rounded-control border border-accent-border bg-accent-muted px-3 py-1 font-mono text-[11px] font-semibold text-accent">
                           {buttonName(baseConfig.mapping[action])}
                         </span>
                       </td>
@@ -590,9 +587,8 @@ export function GamepadSetup({
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                type="button"
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setDraft({ ...baseConfig.mapping })
                   setStep('manual')
@@ -600,10 +596,9 @@ export function GamepadSetup({
               >
                 <Mouse size={16} />
                 Ajustar manualmente
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   if (soundsRef.current) playSfx('confirm')
                   onSaved(baseConfig)
@@ -611,7 +606,7 @@ export function GamepadSetup({
               >
                 <Check size={16} />
                 Concluir
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -619,15 +614,15 @@ export function GamepadSetup({
         {/* ───────── Passo 3 — Ajuste manual por botão ───────── */}
         {step === 'manual' && baseConfig && draft && (
           <div className="space-y-4">
-            <p className="text-xs leading-relaxed text-slate-400">
+            <p className="text-xs leading-relaxed text-ink-tertiary">
               Controle:{' '}
-              <span className="font-semibold text-slate-300">{baseConfig.controllerName}</span> ·
-              perfil {GAMEPAD_PROFILES[baseConfig.profile].label}. Clique em{' '}
-              <span className="font-semibold text-slate-300">Remapear</span> e pressione o novo
+              <span className="font-semibold text-ink-secondary">{baseConfig.controllerName}</span>{' '}
+              · perfil {GAMEPAD_PROFILES[baseConfig.profile].label}. Clique em{' '}
+              <span className="font-semibold text-ink-secondary">Remapear</span> e pressione o novo
               botão — ou escolha o índice no seletor.
             </p>
 
-            <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.08]">
+            <ul className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-1">
               {GAMEPAD_ACTIONS.map((action) => (
                 <GamepadMappingRow
                   key={action}
@@ -646,69 +641,57 @@ export function GamepadSetup({
 
             {/* Conflito: mesmo botão em duas ações */}
             {conflict && (
-              <div className="space-y-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-4">
-                <p className="flex items-start gap-2 text-sm font-semibold text-red-300">
+              <div className="space-y-3 rounded-card border border-danger-border bg-danger-bg p-4">
+                <p className="flex items-start gap-2 text-sm font-semibold text-danger">
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
                   Este botão já está em "{GAMEPAD_ACTION_LABELS[conflict.owner]}".
                 </p>
-                <p className="text-xs leading-relaxed text-red-200/80">
+                <p className="text-xs leading-relaxed text-danger">
                   Substituir coloca o botão em "{GAMEPAD_ACTION_LABELS[conflict.action]}" e deixa "
                   {GAMEPAD_ACTION_LABELS[conflict.owner]}" sem botão. Ou cancele e escolha outro.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn-danger !px-4 !py-2 !text-[10px]"
-                    onClick={resolveConflictReplace}
-                  >
+                  <Button variant="danger" size="sm" onClick={resolveConflictReplace}>
                     Substituir
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary !px-4 !py-2 !text-[10px]"
-                    onClick={() => setConflict(null)}
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setConflict(null)}>
                     Cancelar
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
-            <p className="text-[11px] leading-relaxed text-slate-400">
+            <p className="text-[11px] leading-relaxed text-ink-tertiary">
               O stick esquerdo sempre navega, além do D-Pad (não remapeável) · o botão Guide (16) é
               reservado e não pode ser mapeado · Esc cancela a escuta · Enter confirma nos botões.
             </p>
 
             {saveError && (
-              <p className="flex items-start gap-2 text-xs text-red-400">
+              <p className="flex items-start gap-2 text-xs text-danger">
                 <AlertCircle size={14} className="mt-0.5 shrink-0" />
                 Não foi possível salvar: {saveError} — tente de novo.
               </p>
             )}
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
-              <button
-                type="button"
-                className="btn-ghost !text-[11px]"
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="!text-[11px]"
                 onClick={restoreProfileDefault}
                 title="Volta todos os 12 mapeamentos para o padrão do perfil"
               >
                 <RotateCcw size={14} />
                 Restaurar padrão do perfil
-              </button>
+              </Button>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn-secondary" onClick={requestClose}>
+                <Button variant="secondary" onClick={requestClose}>
                   Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleSave}
-                  disabled={saving}
-                >
+                </Button>
+                <Button variant="primary" onClick={handleSave} disabled={saving}>
                   <Check size={16} />
                   {saving ? 'Salvando…' : 'Salvar'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -720,7 +703,7 @@ export function GamepadSetup({
   const overlayContent =
     layout === 'overlay' ? (
       <div
-        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-sunken)_78%,transparent)] p-4 backdrop-blur-[6px]"
         role="dialog"
         aria-modal="true"
         aria-label="Configuração de controle"
@@ -746,52 +729,35 @@ export function GamepadSetup({
 
       {/* Confirmação de descarte de alterações (ajuste manual sujo) */}
       {confirmDiscard && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Descartar alterações?"
-        >
-          <button
-            type="button"
-            aria-label="Continuar editando"
-            className="absolute inset-0 cursor-default"
-            onClick={() => setConfirmDiscard(false)}
-          />
-          <div
-            ref={confirmTrapRef}
-            className="relative w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
-          >
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-kloud-500/30 bg-kloud-500/10">
-              <AlertCircle size={32} strokeWidth={1.5} className="text-kloud-500" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="text-lg font-bold text-white">Descartar alterações?</h3>
-              <p className="text-sm leading-relaxed text-slate-400">
-                As alterações feitas no mapeamento serão perdidas.
-              </p>
-            </div>
-            <div className="flex justify-center gap-3">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setConfirmDiscard(false)}
-              >
+        <Modal
+          title="Descartar alterações?"
+          onClose={() => setConfirmDiscard(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirmDiscard(false)}>
                 Continuar editando
-              </button>
-              <button
-                type="button"
-                className="btn-danger"
+              </Button>
+              <Button
+                variant="danger"
                 onClick={() => {
                   setConfirmDiscard(false)
                   onClose()
                 }}
               >
                 Descartar e fechar
-              </button>
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-card border border-danger-border bg-danger-bg">
+              <AlertCircle size={28} strokeWidth={1.5} className="text-danger" />
             </div>
+            <p className="text-sm leading-relaxed text-ink-secondary">
+              As alterações feitas no mapeamento serão perdidas.
+            </p>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
