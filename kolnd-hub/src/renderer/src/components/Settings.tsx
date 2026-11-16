@@ -19,11 +19,14 @@ import {
   Power,
   Archive,
   Download,
-  Upload
+  Upload,
+  Info
 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
 import { UninstallDangerZone } from './UninstallDangerZone'
+import { Badge, Button, Card, IconButton, Input, Switch } from './ui'
 
 interface SettingsProps {
   apps: AppConfig[]
@@ -33,6 +36,18 @@ interface SettingsProps {
 
 /** Issue de validação devolvida pelo IPC `command:validate` (espelho do main). */
 type CommandIssue = { level: 'error' | 'warning'; message: string }
+
+/** Rótulo de seção da tela (uppercase + hairline), coerente com os grupos da Dashboard. */
+function SectionTitle({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <div className="mx-2 flex items-center gap-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+        {children}
+      </h3>
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
+    </div>
+  )
+}
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
   // Entradas decorativas das seções (incl. cascata dos cards de apps) viram fade curto com reduce.
@@ -456,193 +471,160 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
+          <h2 className="text-[28px] font-bold leading-9 tracking-tight text-ink-primary md:text-[32px] md:leading-10">
             Configurações
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="mt-0.5 text-[13px] text-ink-secondary">
             Ajuste comandos e diretórios de trabalho dos seus títulos
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-white glass glass-hover transition-all"
-          >
-            <RotateCcw size={14} /> Resetar tudo
-          </button>
-          <button
+          <Button variant="ghost" onClick={handleReset}>
+            <RotateCcw size={14} aria-hidden="true" /> Resetar tudo
+          </Button>
+          <Button
+            variant="primary"
             onClick={handleSave}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
-              saved
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-glow-cyan'
-                : 'bg-gradient-to-r from-kloud-500 to-nintendo-500 text-white shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600'
-            }`}
+            className={saved ? '!border-success-border !bg-success-bg !text-success' : ''}
           >
-            <Save size={14} /> {saved ? 'Salvo!' : 'Salvar alterações'}
-          </button>
+            <Save size={14} aria-hidden="true" /> {saved ? 'Salvo!' : 'Salvar alterações'}
+          </Button>
         </div>
       </motion.div>
 
       {/* ── Ao abrir o Hub ─────────────────────────── */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
-        Ao abrir o Hub
-      </p>
+      <SectionTitle>Ao abrir o Hub</SectionTitle>
 
       <div className="space-y-4">
-        <motion.div
-          {...entranceProps(reduced, { y: 20 })}
-          className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-        >
-          <div className="flex items-center justify-between gap-6 flex-wrap">
-            <div className="flex items-start gap-4 min-w-0">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-                <Gamepad2 size={20} />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-white">
-                  Iniciar Kloud Games junto com o Kolnd Hub
-                </h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  O Hub abre o Kloud Games em segundo plano sempre que for iniciado.
-                </p>
-                {prefFeedback === 'saved' && (
-                  <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                    <Check size={12} /> Salvo
+        <motion.div {...entranceProps(reduced, { y: 20 })}>
+          <Card className="p-6">
+            <div className="flex items-center justify-between gap-6 flex-wrap">
+              <div className="flex items-start gap-4 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+                  <Gamepad2 size={20} aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-ink-primary">
+                    Iniciar Kloud Games junto com o Kolnd Hub
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                    O Hub abre o Kloud Games em segundo plano sempre que for iniciado.
                   </p>
-                )}
-                {prefFeedback === 'error' && (
-                  <p className="mt-2 text-[11px] font-semibold text-red-400">
-                    Não foi possível salvar. Tente de novo.
-                  </p>
-                )}
+                  {prefFeedback === 'saved' && (
+                    <Badge tone="success" className="mt-2">
+                      <Check size={12} aria-hidden="true" /> Salvo
+                    </Badge>
+                  )}
+                  {prefFeedback === 'error' && (
+                    <p className="mt-2 text-[11px] font-semibold text-danger">
+                      Não foi possível salvar. Tente de novo.
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={launchKloudOnStart === true}
-              aria-label="Iniciar Kloud Games junto com o Kolnd Hub"
-              disabled={launchKloudOnStart === null}
-              onClick={() => void handleTogglePref()}
-              className={`toggle-console shrink-0 ${
-                launchKloudOnStart === true ? 'toggle-console-checked' : ''
-              } ${launchKloudOnStart === null ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <span className="toggle-console-knob" />
-            </button>
-          </div>
+              <Switch
+                aria-label="Iniciar Kloud Games junto com o Kolnd Hub"
+                checked={launchKloudOnStart === true}
+                disabled={launchKloudOnStart === null}
+                onCheckedChange={() => void handleTogglePref()}
+                className="shrink-0"
+              />
+            </div>
+          </Card>
         </motion.div>
 
         {/* ── Autostart do Hub no Windows (07-7.3) ────── */}
-        <motion.div
-          {...entranceProps(reduced, { y: 20 })}
-          className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-        >
-          <div className="flex items-center justify-between gap-6 flex-wrap">
-            <div className="flex items-start gap-4 min-w-0">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-                <Power size={20} />
+        <motion.div {...entranceProps(reduced, { y: 20 })}>
+          <Card className="p-6">
+            <div className="flex items-center justify-between gap-6 flex-wrap">
+              <div className="flex items-start gap-4 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+                  <Power size={20} aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-ink-primary">
+                    Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                    O Hub sobe junto com o Windows, direto para a bandeja — sem abrir a janela.
+                  </p>
+                  {!autostartSupported && (
+                    <p className="mt-2 text-[11px] text-ink-tertiary">
+                      Disponível apenas no app instalado
+                    </p>
+                  )}
+                  {autostartFeedback === 'saved' && (
+                    <Badge tone="success" className="mt-2">
+                      <Check size={12} aria-hidden="true" /> Salvo
+                    </Badge>
+                  )}
+                  {autostartFeedback === 'error' && (
+                    <p className="mt-2 text-[11px] font-semibold text-danger">
+                      Não foi possível salvar. Tente de novo.
+                    </p>
+                  )}
+                </div>
               </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-white">
-                  Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)
-                </h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  O Hub sobe junto com o Windows, direto para a bandeja — sem abrir a janela.
-                </p>
-                {!autostartSupported && (
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    Disponível apenas no app instalado
-                  </p>
-                )}
-                {autostartFeedback === 'saved' && (
-                  <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                    <Check size={12} /> Salvo
-                  </p>
-                )}
-                {autostartFeedback === 'error' && (
-                  <p className="mt-2 text-[11px] font-semibold text-red-400">
-                    Não foi possível salvar. Tente de novo.
-                  </p>
-                )}
-              </div>
-            </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autostart === true}
-              aria-label="Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)"
-              disabled={autostart === null || !autostartSupported}
-              onClick={() => void handleToggleAutostart()}
-              className={`toggle-console shrink-0 ${
-                autostart === true ? 'toggle-console-checked' : ''
-              } ${autostart === null || !autostartSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <span className="toggle-console-knob" />
-            </button>
-          </div>
+              <Switch
+                aria-label="Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)"
+                checked={autostart === true}
+                disabled={autostart === null || !autostartSupported}
+                onCheckedChange={() => void handleToggleAutostart()}
+                className="shrink-0"
+              />
+            </div>
+          </Card>
         </motion.div>
       </div>
 
       {/* ── Notificações ─────────────────────────────── */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
-        Notificações
-      </p>
+      <SectionTitle>Notificações</SectionTitle>
 
-      <motion.div
-        {...entranceProps(reduced, { y: 20 })}
-        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-      >
-        <div className="flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-start gap-4 min-w-0">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-              <Bell size={20} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">
-                Notificar quando um programa parar inesperadamente
-              </h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                O Hub avisa com uma notificação do Windows quando um programa iniciado por ele fecha
-                sozinho. O clique na notificação traz o Hub de volta à tela.
-              </p>
-              {notifyFeedback === 'saved' && (
-                <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <Check size={12} /> Salvo
+      <motion.div {...entranceProps(reduced, { y: 20 })}>
+        <Card className="p-6">
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-start gap-4 min-w-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+                <Bell size={20} aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-ink-primary">
+                  Notificar quando um programa parar inesperadamente
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                  O Hub avisa com uma notificação do Windows quando um programa iniciado por ele
+                  fecha sozinho. O clique na notificação traz o Hub de volta à tela.
                 </p>
-              )}
-              {notifyFeedback === 'error' && (
-                <p className="mt-2 text-[11px] font-semibold text-red-400">
-                  Não foi possível salvar. Tente de novo.
-                </p>
-              )}
+                {notifyFeedback === 'saved' && (
+                  <Badge tone="success" className="mt-2">
+                    <Check size={12} aria-hidden="true" /> Salvo
+                  </Badge>
+                )}
+                {notifyFeedback === 'error' && (
+                  <p className="mt-2 text-[11px] font-semibold text-danger">
+                    Não foi possível salvar. Tente de novo.
+                  </p>
+                )}
+              </div>
             </div>
+
+            <Switch
+              aria-label="Notificar quando um programa parar inesperadamente"
+              checked={notifyOnCrash === true}
+              disabled={notifyOnCrash === null}
+              onCheckedChange={() => void handleToggleNotify()}
+              className="shrink-0"
+            />
           </div>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={notifyOnCrash === true}
-            aria-label="Notificar quando um programa parar inesperadamente"
-            disabled={notifyOnCrash === null}
-            onClick={() => void handleToggleNotify()}
-            className={`toggle-console shrink-0 ${
-              notifyOnCrash === true ? 'toggle-console-checked' : ''
-            } ${notifyOnCrash === null ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <span className="toggle-console-knob" />
-          </button>
-        </div>
+        </Card>
       </motion.div>
 
       {/* ── Big Picture ─────────────────────────────── */}
       <BigPictureSettings />
 
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
-        Gerenciador de títulos
-      </p>
+      <SectionTitle>Gerenciador de títulos</SectionTitle>
 
       {/* ── Cards de configuração ────────────────────── */}
       <div className="space-y-4">
@@ -654,460 +636,465 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
             <motion.div
               key={app.id}
               {...entranceProps(reduced, { y: 20 }, { delay: index * 0.04 })}
-              className="glass rounded-2xl p-6 border-l-4 border-transparent hover:border-kloud-500/50 transition-all"
             >
-              {/* Cabeçalho do app */}
-              <div className="flex items-center gap-3.5 mb-5">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg"
-                  style={{
-                    background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
-                    boxShadow: `0 0 20px ${app.color}40`
-                  }}
-                >
-                  {app.icon}
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">{app.name}</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                    {app.category.toUpperCase()}
-                  </p>
-                </div>
-              </div>
-
-              {/* Campos editáveis */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="label-panel" htmlFor={`app-command-${index}`}>
-                    <Terminal size={12} /> Comando
-                  </label>
-                  <div className="relative">
-                    <input
-                      id={`app-command-${index}`}
-                      type="text"
-                      value={app.command}
-                      onChange={(e) => handleChange(index, 'command', e.target.value)}
-                      onClick={() => handlePickPath(index, 'command', 'file')}
-                      className={`input-gamer cursor-pointer pr-11 ${
-                        hasError
-                          ? 'ring-1 ring-red-500/70'
-                          : issues.length > 0
-                            ? 'ring-1 ring-amber-500/60'
-                            : ''
-                      }`}
-                      placeholder="ex: kloud-games.exe"
-                      title="Clique para selecionar o executável no explorador de arquivos"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handlePickPath(index, 'command', 'file')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:text-kloud-500 hover:bg-white/5"
-                      title="Selecionar executável…"
-                      aria-label="Selecionar executável"
-                    >
-                      <FileSearch size={18} />
-                    </button>
+              <Card className="p-6 transition-colors duration-2 ease-standard hover:border-[var(--border-strong)]">
+                {/* Cabeçalho do app */}
+                <div className="flex items-center gap-3.5 mb-5">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2 text-xl">
+                    {app.icon}
                   </div>
-                  <p className="mt-1.5 text-[10px] text-slate-400">
-                    Clique no campo para escolher o .exe no explorador de arquivos.
-                  </p>
-                  {issues.length > 0 && (
-                    <ul className="mt-2 space-y-1">
-                      {issues.map((issue, i) => (
-                        <li
-                          key={i}
-                          className={`flex items-start gap-1.5 text-[11px] leading-snug ${
-                            issue.level === 'error' ? 'text-red-400' : 'text-amber-400'
-                          }`}
-                        >
-                          {issue.level === 'error' ? (
-                            <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                          ) : (
-                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                          )}
-                          <span>{issue.message}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleTestCommand(app)}
-                      disabled={testingAppId === app.id}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:border-kloud-500/50 hover:text-white disabled:opacity-60 disabled:cursor-wait"
-                      title="Valida o comando sem executá-lo"
-                    >
-                      {testingAppId === app.id ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <FlaskConical size={12} />
-                      )}
-                      Testar comando
-                    </button>
-                    {testResult !== undefined && (
-                      <div
-                        className={`mt-2 rounded-lg border px-3 py-2 text-[11px] leading-snug ${
-                          testResult.length === 0
-                            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
-                            : 'border-amber-500/30 bg-amber-500/5'
+                  <div>
+                    <h3 className="text-base font-bold text-ink-primary">{app.name}</h3>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">
+                      {app.category.toUpperCase()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Campos editáveis */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="label-panel" htmlFor={`app-command-${index}`}>
+                      <Terminal size={12} aria-hidden="true" /> Comando
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id={`app-command-${index}`}
+                        type="text"
+                        value={app.command}
+                        onChange={(e) => handleChange(index, 'command', e.target.value)}
+                        onClick={() => handlePickPath(index, 'command', 'file')}
+                        error={hasError}
+                        className={`cursor-pointer pr-11 font-mono ${
+                          !hasError && issues.length > 0 ? 'ring-1 ring-warn-border' : ''
                         }`}
-                        role="status"
+                        placeholder="ex: kloud-games.exe"
+                        title="Clique para selecionar o executável no explorador de arquivos"
+                      />
+                      <IconButton
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePickPath(index, 'command', 'file')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-tertiary"
+                        title="Selecionar executável…"
+                        aria-label="Selecionar executável"
                       >
-                        {testResult.length === 0 ? (
-                          <span className="flex items-center gap-1.5">
-                            <Check size={12} className="shrink-0" /> Validação: nenhum problema
-                            encontrado. O comando NÃO foi executado.
-                          </span>
-                        ) : (
-                          <div className="space-y-1">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                              Resultado da validação (o comando NÃO foi executado)
-                            </p>
-                            {testResult.map((issue, i) => (
-                              <p
-                                key={i}
-                                className={`flex items-start gap-1.5 ${
-                                  issue.level === 'error' ? 'text-red-400' : 'text-amber-400'
-                                }`}
-                              >
-                                {issue.level === 'error' ? (
-                                  <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                                ) : (
-                                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                                )}
-                                <span>{issue.message}</span>
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                        <FileSearch size={18} aria-hidden="true" />
+                      </IconButton>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-ink-tertiary">
+                      Clique no campo para escolher o .exe no explorador de arquivos.
+                    </p>
+                    {issues.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {issues.map((issue, i) => (
+                          <li
+                            key={i}
+                            className={`flex items-start gap-1.5 text-[11px] leading-snug ${
+                              issue.level === 'error' ? 'text-danger' : 'text-warn'
+                            }`}
+                          >
+                            {issue.level === 'error' ? (
+                              <AlertCircle
+                                size={12}
+                                className="mt-0.5 shrink-0"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <AlertTriangle
+                                size={12}
+                                className="mt-0.5 shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <span>{issue.message}</span>
+                          </li>
+                        ))}
+                      </ul>
                     )}
+                    <div className="mt-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void handleTestCommand(app)}
+                        disabled={testingAppId === app.id}
+                        className="disabled:cursor-wait"
+                        title="Valida o comando sem executá-lo"
+                      >
+                        {testingAppId === app.id ? (
+                          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <FlaskConical size={12} aria-hidden="true" />
+                        )}
+                        Testar comando
+                      </Button>
+                      {testResult !== undefined && (
+                        <div
+                          className={`mt-2 rounded-control border px-3 py-2 text-[11px] leading-snug ${
+                            testResult.length === 0
+                              ? 'border-success-border bg-success-bg text-success'
+                              : 'border-warn-border bg-warn-bg'
+                          }`}
+                          role="status"
+                        >
+                          {testResult.length === 0 ? (
+                            <span className="flex items-center gap-1.5">
+                              <Check size={12} className="shrink-0" aria-hidden="true" /> Validação:
+                              nenhum problema encontrado. O comando NÃO foi executado.
+                            </span>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-warn">
+                                Resultado da validação (o comando NÃO foi executado)
+                              </p>
+                              {testResult.map((issue, i) => (
+                                <p
+                                  key={i}
+                                  className={`flex items-start gap-1.5 ${
+                                    issue.level === 'error' ? 'text-danger' : 'text-warn'
+                                  }`}
+                                >
+                                  {issue.level === 'error' ? (
+                                    <AlertCircle
+                                      size={12}
+                                      className="mt-0.5 shrink-0"
+                                      aria-hidden="true"
+                                    />
+                                  ) : (
+                                    <AlertTriangle
+                                      size={12}
+                                      className="mt-0.5 shrink-0"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  <span>{issue.message}</span>
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label-panel" htmlFor={`app-cwd-${index}`}>
+                      <FolderOpen size={12} aria-hidden="true" /> Diretório de trabalho
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id={`app-cwd-${index}`}
+                        type="text"
+                        value={app.cwd}
+                        onChange={(e) => handleChange(index, 'cwd', e.target.value)}
+                        onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                        className="cursor-pointer pr-11 font-mono"
+                        placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
+                        title="Clique para selecionar a pasta de instalação no explorador de arquivos"
+                      />
+                      <IconButton
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-tertiary"
+                        title="Selecionar pasta…"
+                        aria-label="Selecionar pasta"
+                      >
+                        <FolderSearch size={18} aria-hidden="true" />
+                      </IconButton>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-ink-tertiary">
+                      Clique no campo para escolher a pasta no explorador de arquivos.
+                    </p>
                   </div>
                 </div>
-                <div>
-                  <label className="label-panel" htmlFor={`app-cwd-${index}`}>
-                    <FolderOpen size={12} /> Diretório de trabalho
-                  </label>
-                  <div className="relative">
-                    <input
-                      id={`app-cwd-${index}`}
-                      type="text"
-                      value={app.cwd}
-                      onChange={(e) => handleChange(index, 'cwd', e.target.value)}
-                      onClick={() => handlePickPath(index, 'cwd', 'directory')}
-                      className="input-gamer cursor-pointer pr-11"
-                      placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
-                      title="Clique para selecionar a pasta de instalação no explorador de arquivos"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handlePickPath(index, 'cwd', 'directory')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:text-kloud-500 hover:bg-white/5"
-                      title="Selecionar pasta…"
-                      aria-label="Selecionar pasta"
-                    >
-                      <FolderSearch size={18} />
-                    </button>
-                  </div>
-                  <p className="mt-1.5 text-[10px] text-slate-400">
-                    Clique no campo para escolher a pasta no explorador de arquivos.
-                  </p>
+
+                {/* Modo de execução do comando */}
+                <label className="mt-4 flex items-start gap-2.5 cursor-pointer select-none w-fit">
+                  <input
+                    type="checkbox"
+                    checked={app.useShell !== false}
+                    onChange={(e) => {
+                      const useShell = e.target.checked
+                      setEditedApps((prev) => {
+                        const next = [...prev]
+                        next[index] = { ...next[index], useShell }
+                        return next
+                      })
+                      clearTestResult(app.id)
+                      setSaved(false)
+                    }}
+                    className="mt-0.5 h-4 w-4 accent-accent"
+                  />
+                  <span className="text-xs leading-relaxed text-ink-secondary">
+                    <span className="font-semibold text-ink-primary">
+                      Executar via shell (cmd.exe)
+                    </span>{' '}
+                    — preserva aspas e argumentos, mas interpreta metacaracteres (&amp;, |, %VAR%).
+                    Desative apenas para comandos simples sem argumentos complexos: ele é executado
+                    sem interpretação de shell.
+                  </span>
+                </label>
+
+                {/* Reinício automático (06-6.4): opt-in por app. Persiste junto de
+                    onSave(apps) — nenhum IPC novo de preferência. */}
+                <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+                  <span className="text-xs leading-relaxed text-ink-secondary">
+                    <span className="font-semibold text-ink-primary">
+                      Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)
+                    </span>
+                  </span>
+                  <Switch
+                    aria-label="Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)"
+                    checked={app.autoRestart === true}
+                    onCheckedChange={() => {
+                      setEditedApps((prev) => {
+                        const next = [...prev]
+                        next[index] = {
+                          ...next[index],
+                          autoRestart: !(next[index].autoRestart === true)
+                        }
+                        return next
+                      })
+                      setSaved(false)
+                    }}
+                    className="shrink-0"
+                  />
                 </div>
-              </div>
 
-              {/* Modo de execução do comando */}
-              <label className="mt-4 flex items-start gap-2.5 cursor-pointer select-none w-fit">
-                <input
-                  type="checkbox"
-                  checked={app.useShell !== false}
-                  onChange={(e) => {
-                    const useShell = e.target.checked
-                    setEditedApps((prev) => {
-                      const next = [...prev]
-                      next[index] = { ...next[index], useShell }
-                      return next
-                    })
-                    clearTestResult(app.id)
-                    setSaved(false)
-                  }}
-                  className="mt-0.5 h-4 w-4 accent-kloud-500"
-                />
-                <span className="text-xs text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-semibold">Executar via shell (cmd.exe)</span>{' '}
-                  — preserva aspas e argumentos, mas interpreta metacaracteres (&amp;, |, %VAR%).
-                  Desative apenas para comandos simples sem argumentos complexos: ele é executado
-                  sem interpretação de shell.
-                </span>
-              </label>
-
-              {/* Reinício automático (06-6.4): opt-in por app. Persiste junto de
-                  onSave(apps) — nenhum IPC novo de preferência. */}
-              <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
-                <span className="text-xs text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-semibold">
-                    Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)
+                {/* Log persistente (05-5.7): opt-in por app. Persiste junto de
+                    onSave(apps) — nenhum IPC novo de preferência. */}
+                <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+                  <span className="text-xs leading-relaxed text-ink-secondary">
+                    <span className="font-semibold text-ink-primary">
+                      Gravar logs em arquivo para este app
+                    </span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={app.autoRestart === true}
-                  aria-label="Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)"
-                  onClick={() => {
-                    setEditedApps((prev) => {
-                      const next = [...prev]
-                      next[index] = {
-                        ...next[index],
-                        autoRestart: !(next[index].autoRestart === true)
-                      }
-                      return next
-                    })
-                    setSaved(false)
-                  }}
-                  className={`toggle-console shrink-0 ${app.autoRestart === true ? 'toggle-console-checked' : ''}`}
-                >
-                  <span className="toggle-console-knob" />
-                </button>
-              </div>
-
-              {/* Log persistente (05-5.7): opt-in por app. Persiste junto de
-                  onSave(apps) — nenhum IPC novo de preferência. */}
-              <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
-                <span className="text-xs text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-semibold">
-                    Gravar logs em arquivo para este app
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={app.persistLogs === true}
-                  aria-label="Gravar logs em arquivo para este app"
-                  onClick={() => {
-                    setEditedApps((prev) => {
-                      const next = [...prev]
-                      next[index] = {
-                        ...next[index],
-                        persistLogs: !(next[index].persistLogs === true)
-                      }
-                      return next
-                    })
-                    setSaved(false)
-                  }}
-                  className={`toggle-console shrink-0 ${app.persistLogs === true ? 'toggle-console-checked' : ''}`}
-                >
-                  <span className="toggle-console-knob" />
-                </button>
-              </div>
+                  <Switch
+                    aria-label="Gravar logs em arquivo para este app"
+                    checked={app.persistLogs === true}
+                    onCheckedChange={() => {
+                      setEditedApps((prev) => {
+                        const next = [...prev]
+                        next[index] = {
+                          ...next[index],
+                          persistLogs: !(next[index].persistLogs === true)
+                        }
+                        return next
+                      })
+                      setSaved(false)
+                    }}
+                    className="shrink-0"
+                  />
+                </div>
+              </Card>
             </motion.div>
           )
         })}
       </div>
 
       {pickError && (
-        <p className="text-xs text-red-400 flex items-center gap-1.5 px-2">
-          <AlertCircle size={14} /> {pickError}
+        <p className="flex items-center gap-1.5 px-2 text-xs text-danger">
+          <AlertCircle size={14} aria-hidden="true" /> {pickError}
         </p>
       )}
 
       {/* ── Diagnóstico ─────────────────────────── */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Diagnóstico</p>
+      <SectionTitle>Diagnóstico</SectionTitle>
 
-      <motion.div
-        {...entranceProps(reduced, { y: 20 })}
-        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-      >
-        <div className="flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-start gap-4 min-w-0">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-              <ClipboardCopy size={20} />
+      <motion.div {...entranceProps(reduced, { y: 20 })}>
+        <Card className="p-6">
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-start gap-4 min-w-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+                <ClipboardCopy size={20} aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-ink-primary">Exportar diagnóstico</h3>
+                <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                  Copia para a área de transferência um relatório sanitizado (versões do Hub,
+                  contagens do Hub e últimas linhas dos logs) para abrir um ticket de suporte.
+                  Nenhum comando, caminho ou nome de jogo é incluído.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="primary"
+              onClick={() => void handleExportDiagnostic()}
+              disabled={exportingDiagnostic}
+              className="shrink-0 disabled:cursor-wait"
+            >
+              {exportingDiagnostic ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <ClipboardCopy size={14} aria-hidden="true" />
+              )}
+              {exportingDiagnostic ? 'Copiando…' : 'Copiar diagnóstico'}
+            </Button>
+          </div>
+        </Card>
+      </motion.div>
+
+      {/* ── Backup e restauração (07-7.6) ────────────── */}
+      <SectionTitle>Backup e restauração</SectionTitle>
+
+      <motion.div {...entranceProps(reduced, { y: 20 })}>
+        <Card className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+              <Archive size={20} aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">Exportar diagnóstico</h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Copia para a área de transferência um relatório sanitizado (versões do Hub,
-                contagens do Hub e últimas linhas dos logs) para abrir um ticket de suporte. Nenhum
-                comando, caminho ou nome de jogo é incluído.
+              <h3 className="text-sm font-bold text-ink-primary">Backup e restauração</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                Leve apps, biblioteca de jogos, importâncias e preferências de um PC para outro com
+                um arquivo JSON. A importação substitui as configurações atuais — um backup
+                automático é feito antes.
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void handleExportDiagnostic()}
-            disabled={exportingDiagnostic}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-kloud-500 to-nintendo-500 shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600 transition-all disabled:opacity-60 disabled:cursor-wait shrink-0"
-          >
-            {exportingDiagnostic ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <ClipboardCopy size={14} />
-            )}
-            {exportingDiagnostic ? 'Copiando…' : 'Copiar diagnóstico'}
-          </button>
-        </div>
-      </motion.div>
-
-      {/* ── Backup e restauração (07-7.6) ────────────── */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
-        Backup e restauração
-      </p>
-
-      <motion.div
-        {...entranceProps(reduced, { y: 20 })}
-        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-      >
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-            <Archive size={20} />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-sm font-bold text-white">Backup e restauração</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Leve apps, biblioteca de jogos, importâncias e preferências de um PC para outro com um
-              arquivo JSON. A importação substitui as configurações atuais — um backup automático é
-              feito antes.
+          {/* Aviso permanente */}
+          <div className="mt-4 flex items-start gap-2.5 rounded-control border border-warn-border bg-warn-bg px-4 py-3">
+            <Info size={14} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
+            <p className="text-[11px] leading-relaxed text-warn">
+              O arquivo de backup contém seus comandos e caminhos configurados. Não o compartilhe
+              publicamente. Chaves de API do Mark LVI não estão incluídas (ficam fora do Hub).
             </p>
           </div>
-        </div>
 
-        {/* Aviso permanente */}
-        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
-          <p className="text-[11px] leading-relaxed text-amber-200/90">
-            O arquivo de backup contém seus comandos e caminhos configurados. Não o compartilhe
-            publicamente. Chaves de API do Mark LVI não estão incluídas (ficam fora do Hub).
-          </p>
-        </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Button
+              variant="primary"
+              onClick={() => void handleExportConfig()}
+              disabled={exportingConfig}
+              className="disabled:cursor-wait"
+            >
+              {exportingConfig ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={14} aria-hidden="true" />
+              )}
+              {exportingConfig ? 'Exportando…' : 'Exportar configuração'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleImportPreview()}
+              disabled={importFlow !== 'idle'}
+              className="disabled:cursor-wait"
+            >
+              {importFlow === 'previewing' ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Upload size={14} aria-hidden="true" />
+              )}
+              {importFlow === 'previewing' ? 'Lendo arquivo…' : 'Importar configuração'}
+            </Button>
+          </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void handleExportConfig()}
-            disabled={exportingConfig}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-kloud-500 to-nintendo-500 shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600 transition-all disabled:opacity-60 disabled:cursor-wait"
-          >
-            {exportingConfig ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Download size={14} />
-            )}
-            {exportingConfig ? 'Exportando…' : 'Exportar configuração'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleImportPreview()}
-            disabled={importFlow !== 'idle'}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-slate-200 border border-white/10 bg-white/5 hover:border-kloud-500/50 hover:text-white transition-all disabled:opacity-60 disabled:cursor-wait"
-          >
-            {importFlow === 'previewing' ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Upload size={14} />
-            )}
-            {importFlow === 'previewing' ? 'Lendo arquivo…' : 'Importar configuração'}
-          </button>
-        </div>
-
-        {exportFeedback && (
-          <p
-            className={`mt-3 text-[11px] leading-relaxed break-all flex items-start gap-1.5 ${
-              exportFeedback.kind === 'done' ? 'text-emerald-400' : 'text-red-400'
-            }`}
-            role="status"
-          >
-            {exportFeedback.kind === 'done' && <Check size={12} className="mt-0.5 shrink-0" />}
-            <span>{exportFeedback.message}</span>
-          </p>
-        )}
-
-        {/* Confirmação inline: o que será substituído (resumo vindo do main) */}
-        {importSummary && (importFlow === 'confirm' || importFlow === 'applying') && (
-          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-            <p className="text-xs leading-relaxed text-amber-100">
-              Isto substituirá{' '}
-              <strong>
-                {importSummary.apps} {importSummary.apps === 1 ? 'app' : 'apps'} e{' '}
-                {importSummary.games} {importSummary.games === 1 ? 'jogo' : 'jogos'}
-              </strong>{' '}
-              pelas versões do arquivo. Um backup automático será feito antes. Continuar?
+          {exportFeedback && (
+            <p
+              className={`mt-3 flex items-start gap-1.5 break-all text-[11px] leading-relaxed ${
+                exportFeedback.kind === 'done' ? 'text-success' : 'text-danger'
+              }`}
+              role="status"
+            >
+              {exportFeedback.kind === 'done' && (
+                <Check size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{exportFeedback.message}</span>
             </p>
-            {importSummary.rejected.length > 0 && (
-              <div className="text-[11px] leading-relaxed text-amber-200/80">
-                <p className="font-semibold">Seções recusadas (serão mantidas como estão):</p>
-                <ul className="list-disc list-inside">
-                  {importSummary.rejected.map((r) => (
-                    <li key={r.section}>
-                      {r.section}: {r.error}
-                    </li>
-                  ))}
-                </ul>
+          )}
+
+          {/* Confirmação inline: o que será substituído (resumo vindo do main) */}
+          {importSummary && (importFlow === 'confirm' || importFlow === 'applying') && (
+            <div className="mt-4 space-y-3 rounded-control border border-warn-border bg-warn-bg p-4">
+              <p className="text-xs leading-relaxed text-warn">
+                Isto substituirá{' '}
+                <strong className="text-ink-primary">
+                  {importSummary.apps} {importSummary.apps === 1 ? 'app' : 'apps'} e{' '}
+                  {importSummary.games} {importSummary.games === 1 ? 'jogo' : 'jogos'}
+                </strong>{' '}
+                pelas versões do arquivo. Um backup automático será feito antes. Continuar?
+              </p>
+              {importSummary.rejected.length > 0 && (
+                <div className="text-[11px] leading-relaxed text-warn">
+                  <p className="font-semibold">Seções recusadas (serão mantidas como estão):</p>
+                  <ul className="list-disc list-inside">
+                    {importSummary.rejected.map((r) => (
+                      <li key={r.section}>
+                        {r.section}: {r.error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="danger"
+                  onClick={() => void handleImportApply()}
+                  disabled={importFlow === 'applying'}
+                  className="disabled:cursor-wait"
+                >
+                  {importFlow === 'applying' ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Upload size={14} aria-hidden="true" />
+                  )}
+                  {importFlow === 'applying' ? 'Importando…' : 'Importar'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleImportCancel}
+                  disabled={importFlow === 'applying'}
+                >
+                  Cancelar
+                </Button>
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                className="btn-danger"
-                onClick={() => void handleImportApply()}
-                disabled={importFlow === 'applying'}
-              >
-                {importFlow === 'applying' ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Upload size={14} />
-                )}
-                {importFlow === 'applying' ? 'Importando…' : 'Importar'}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleImportCancel}
-                disabled={importFlow === 'applying'}
-              >
-                Cancelar
-              </button>
             </div>
-          </div>
-        )}
+          )}
 
-        {importFeedback && (
-          <p
-            className={`mt-3 text-[11px] leading-relaxed break-all flex items-start gap-1.5 ${
-              importFeedback.kind === 'done'
-                ? 'text-emerald-400'
-                : importFeedback.kind === 'partial'
-                  ? 'text-amber-300'
-                  : 'text-red-400'
-            }`}
-            role="status"
-          >
-            {importFeedback.kind === 'done' && <Check size={12} className="mt-0.5 shrink-0" />}
-            <span>{importFeedback.message}</span>
-          </p>
-        )}
+          {importFeedback && (
+            <p
+              className={`mt-3 flex items-start gap-1.5 break-all text-[11px] leading-relaxed ${
+                importFeedback.kind === 'done'
+                  ? 'text-success'
+                  : importFeedback.kind === 'partial'
+                    ? 'text-warn'
+                    : 'text-danger'
+              }`}
+              role="status"
+            >
+              {importFeedback.kind === 'done' && (
+                <Check size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{importFeedback.message}</span>
+            </p>
+          )}
+        </Card>
       </motion.div>
 
       {/* ── Zona de perigo: desinstalação ──────────────── */}
       <UninstallDangerZone onToast={onToast} />
 
       {/* ── Nota informativa ─────────────────────────── */}
-      <motion.div
-        {...entranceProps(reduced, {}, { delay: 0.3 })}
-        className="glass rounded-2xl p-6 flex items-start gap-4 border-l-4 border-kloud-500/50"
-      >
-        <AlertCircle size={24} className="text-kloud-500 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Clique no campo de um caminho para abrir o explorador de arquivos e selecionar o
-            executável ou a pasta correta — ou edite o texto manualmente. Caminhos relativos (como
-            <code className="text-slate-300 bg-white/5 px-2 py-0.5 rounded font-mono text-[11px]">
-              ../Mark-LVI
-            </code>
-            ) são resolvidos a partir da instalação do Kolnd Hub. Use caminhos absolutos se os
-            programas estiverem em locais diferentes.
-          </p>
-        </div>
+      <motion.div {...entranceProps(reduced, {}, { delay: 0.3 })}>
+        <Card className="flex items-start gap-4 p-6">
+          <Info size={24} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+          <div>
+            <p className="text-xs leading-relaxed text-ink-secondary">
+              Clique no campo de um caminho para abrir o explorador de arquivos e selecionar o
+              executável ou a pasta correta — ou edite o texto manualmente. Caminhos relativos (como{' '}
+              <code className="rounded-sm border border-[var(--border-subtle)] bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-primary">
+                ../Mark-LVI
+              </code>
+              ) são resolvidos a partir da instalação do Kolnd Hub. Use caminhos absolutos se os
+              programas estiverem em locais diferentes.
+            </p>
+          </div>
+        </Card>
       </motion.div>
     </div>
   )
