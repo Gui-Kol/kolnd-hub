@@ -62,12 +62,14 @@ export const OptionsOverlay = memo(function OptionsOverlay({
       role="dialog"
       aria-modal="true"
       aria-label="Opções do Big Picture"
-      onClick={onClose}
     >
-      <div
-        className="w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <button
+        type="button"
+        aria-label="Fechar opções"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
+      <div className="relative w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60">
         <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Opções</h2>
         <OverlayButton
           id="options:controls"
@@ -104,12 +106,14 @@ export const ExitOverlay = memo(function ExitOverlay({
       role="dialog"
       aria-modal="true"
       aria-label="Sair do Big Picture?"
-      onClick={onCancel}
     >
-      <div
-        className="w-[32rem] max-w-[90vw] space-y-6 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-8 text-center shadow-2xl shadow-black/60"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <button
+        type="button"
+        aria-label="Fechar confirmação de saída"
+        className="absolute inset-0 cursor-default"
+        onClick={onCancel}
+      />
+      <div className="relative w-[32rem] max-w-[90vw] space-y-6 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-8 text-center shadow-2xl shadow-black/60">
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10">
           <LogOut size={36} strokeWidth={1.5} className="text-red-400" />
         </div>

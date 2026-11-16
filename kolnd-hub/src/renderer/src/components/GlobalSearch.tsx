@@ -27,6 +27,7 @@ export function GlobalSearch({
   // null = ainda carregando; [] = carregado e vazio (ou falhou).
   const [games, setGames] = useState<Game[] | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   // Busca os jogos ao abrir o overlay. Falha silenciosa: a busca por apps
   // continua funcionando e a lista simplesmente não traz jogos.
@@ -93,6 +94,12 @@ export function GlobalSearch({
     return (): void => window.removeEventListener('keydown', onKeyDown, true)
   }, [results, activeIndex, onClose, launch])
 
+  // Ao montar (atalho "/"), o campo já nasce focado — mesmo efeito do antigo
+  // autoFocus, sem a prop proibida pelo lint de a11y.
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
   // Mantém a opção selecionada visível quando a lista rola.
   useEffect(() => {
     const list = listRef.current
@@ -104,7 +111,12 @@ export function GlobalSearch({
   return (
     <div className="fixed inset-0 z-[80] flex justify-center" role="presentation">
       {/* Backdrop discreto — clique fecha sem lançar nada. */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Fechar busca"
+        className="absolute inset-0 cursor-default bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
       <div className="relative mt-16 sm:mt-24 w-full max-w-lg px-4">
         <div className="glass rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
@@ -112,8 +124,7 @@ export function GlobalSearch({
           <div className="flex items-center gap-3 border-b border-white/[0.06] px-4">
             <Search size={16} className="shrink-0 text-slate-500" aria-hidden="true" />
             <input
-              // autoFocus: ao montar (tecla "/"), o campo já nasce focado.
-              autoFocus
+              ref={inputRef}
               type="text"
               role="combobox"
               aria-label="Busca global"
@@ -155,6 +166,16 @@ export function GlobalSearch({
                     role="option"
                     aria-selected={isActive}
                     onMouseDown={(event) => event.preventDefault()}
+                    // O foco fica no input (combobox); isto cobre quem, ainda assim,
+                    // aciona a opção via teclado — Enter/Espaço lançam a opção.
+                    // defaultPrevented = o capture de window já tratou o Enter.
+                    onKeyDown={(event) => {
+                      if (event.defaultPrevented) return
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        launch(result)
+                      }
+                    }}
                     onClick={() => launch(result)}
                     onMouseEnter={() => setActiveIndex(index)}
                     className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors ${

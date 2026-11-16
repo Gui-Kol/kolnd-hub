@@ -31,6 +31,7 @@ import {
 } from '../lib/gamepad'
 import type { GamepadAction, GamepadButtonMapping, GamepadConfig } from '../lib/gamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { GamepadMappingRow } from './gamepad/GamepadMappingRow'
 
 export interface GamepadSetupProps {
@@ -231,6 +232,10 @@ export function GamepadSetup({
   // ── Esc cancela a escuta; fora dela, fecha (com confirmação se sujo) ──
   // Capture na raiz: impede que o atalho vaze para a tela ao redor
   // (ex.: o atalho global de Esc do Big Picture abrir a confirmação de saída).
+  // Trap de foco do diálogo de descarte (Esc segue no handleKeyDownCapture
+  // da raiz, que também bloqueia o vazamento para a tela ao redor).
+  const confirmTrapRef = useFocusTrap<HTMLDivElement>({ active: confirmDiscard })
+
   const handleKeyDownCapture = (event: ReactKeyboardEvent<HTMLElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -386,7 +391,6 @@ export function GamepadSetup({
           ? 'relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 shadow-2xl shadow-black/60 backdrop-blur-xl'
           : 'flex h-full min-h-0 flex-col'
       }
-      onClick={(event) => event.stopPropagation()}
     >
       {/* Cabeçalho */}
       <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
@@ -694,8 +698,13 @@ export function GamepadSetup({
         role="dialog"
         aria-modal="true"
         aria-label="Configuração de controle"
-        onClick={requestClose}
       >
+        <button
+          type="button"
+          aria-label="Fechar configuração de controle"
+          className="absolute inset-0 cursor-default"
+          onClick={requestClose}
+        />
         {panel}
       </div>
     ) : (
@@ -716,11 +725,16 @@ export function GamepadSetup({
           role="dialog"
           aria-modal="true"
           aria-label="Descartar alterações?"
-          onClick={() => setConfirmDiscard(false)}
         >
+          <button
+            type="button"
+            aria-label="Continuar editando"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setConfirmDiscard(false)}
+          />
           <div
-            className="w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
-            onClick={(event) => event.stopPropagation()}
+            ref={confirmTrapRef}
+            className="relative w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
           >
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-kloud-500/30 bg-kloud-500/10">
               <AlertCircle size={30} strokeWidth={1.5} className="text-kloud-500" />

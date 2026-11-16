@@ -76,7 +76,11 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
               <Activity size={12} className="text-slate-500" />
               <span>{apps.length} títulos</span>
             </div>
-            <div className="glass rounded-xl px-4 py-2 flex items-center gap-2">
+            <div
+              className="glass rounded-xl px-4 py-2 flex items-center gap-2"
+              role="status"
+              aria-live="polite"
+            >
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-xs font-bold text-emerald-400">{runningCount} online</span>
             </div>

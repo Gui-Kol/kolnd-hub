@@ -681,11 +681,12 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
               {/* Campos editáveis */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="label-panel">
+                  <label className="label-panel" htmlFor={`app-command-${index}`}>
                     <Terminal size={12} /> Comando
                   </label>
                   <div className="relative">
                     <input
+                      id={`app-command-${index}`}
                       type="text"
                       value={app.command}
                       onChange={(e) => handleChange(index, 'command', e.target.value)}
@@ -788,11 +789,12 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                   </div>
                 </div>
                 <div>
-                  <label className="label-panel">
+                  <label className="label-panel" htmlFor={`app-cwd-${index}`}>
                     <FolderOpen size={12} /> Diretório de trabalho
                   </label>
                   <div className="relative">
                     <input
+                      id={`app-cwd-${index}`}
                       type="text"
                       value={app.cwd}
                       onChange={(e) => handleChange(index, 'cwd', e.target.value)}

@@ -2,6 +2,7 @@ import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
 import reactHooks from 'eslint-plugin-react-hooks'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 
 export default [
   {
@@ -34,6 +35,11 @@ export default [
   {
     files: ['src/renderer/**/*.{ts,tsx}'],
     ...reactHooks.configs.flat['recommended-latest']
+  },
+  {
+    // Acessibilidade só no renderer (React); main/preload não têm JSX
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    ...jsxA11y.flatConfigs.recommended
   },
   {
     rules: {

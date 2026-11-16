@@ -20,6 +20,7 @@ import {
 import { GAMEPAD_PROFILES } from '../lib/gamepad'
 import type { GamepadConfig } from '../lib/gamepad'
 import { setSfxEnabled } from '../lib/sfx'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { GamepadSetup } from './GamepadSetup'
 
 function formatConfiguredDate(iso: string): string {
@@ -346,17 +347,27 @@ function ConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }): JSX.Element {
+  // Prende o foco no diálogo destrutivo. Esc NÃO é ligado aqui de propósito:
+  // o Big Picture trata Esc globalmente (volta/fecha overlay) e este diálogo é
+  // invocado abaixo dele — interceptar Esc em dobro abriria a confirmação de saída.
+  const trapRef = useFocusTrap<HTMLDivElement>({ active: true })
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onCancel}
     >
+      <button
+        type="button"
+        aria-label="Fechar"
+        className="absolute inset-0 cursor-default"
+        onClick={onCancel}
+      />
       <div
-        className="w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
-        onClick={(event) => event.stopPropagation()}
+        ref={trapRef}
+        className="relative w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
       >
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
           <AlertCircle size={30} strokeWidth={1.5} className="text-red-400" />
@@ -366,7 +377,7 @@ function ConfirmDialog({
           <p className="text-sm leading-relaxed text-slate-400">{message}</p>
         </div>
         <div className="flex justify-center gap-3">
-          <button type="button" className="btn-secondary" onClick={onCancel} autoFocus>
+          <button type="button" className="btn-secondary" onClick={onCancel}>
             Cancelar
           </button>
           <button type="button" className="btn-danger" onClick={onConfirm}>

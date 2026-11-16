@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Archive, ChevronRight, FolderOpen, Trash2, Zap } from 'lucide-react'
 import { buildSkipKloudHubArgs } from '../lib/uninstall'
+import { useFocusTrap } from '../lib/useFocusTrap'
 
 type Phase = 'confirm' | 'running' | 'choice'
 
@@ -76,7 +77,6 @@ export function UninstallHubModal({
     null
   )
   const [hubStatusLoading, setHubStatusLoading] = useState(true)
-  const panelRef = useRef<HTMLDivElement>(null)
   const unsubRef = useRef<(() => void)[]>([])
   // Guarda síncrona contra clique duplo no mesmo frame (além da guarda de
   // fase e do isBusy/isHubUninstallInProgress no main).
@@ -180,42 +180,18 @@ export function UninstallHubModal({
     }
   }, [phase, showToast])
 
-  const getFocusables = (): HTMLElement[] => {
-    const panel = panelRef.current
-    if (!panel) return []
-    const nodes = panel.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-    return Array.from(nodes).filter((n) => n.offsetParent !== null || n.tagName === 'INPUT')
-  }
+  // Esc fecha só fora da execução; durante 'running' o modal é infechável.
+  const handleEscape = useCallback((): void => {
+    if (phase === 'confirm' || phase === 'choice') onClose()
+  }, [phase, onClose])
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        if (phase === 'confirm' || phase === 'choice') {
-          e.preventDefault()
-          onClose()
-        }
-        // running: ignora Esc (modal infechável)
-        return
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        const focusables = getFocusables()
-        if (!focusables.length) return
-        const current = focusables.indexOf(document.activeElement as HTMLElement)
-        const next = e.shiftKey
-          ? current <= 0
-            ? focusables.length - 1
-            : current - 1
-          : current >= focusables.length - 1
-            ? 0
-            : current + 1
-        focusables[next]?.focus()
-      }
-    },
-    [phase, onClose]
-  )
+  // Trap de foco + Esc via hook compartilhado; data-autofocus marca o foco
+  // seguro (Cancelar) também quando a fase troca e os botões são desmontados.
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    active: open,
+    watch: phase,
+    onEscape: handleEscape
+  })
 
   const handleBackdropClick = useCallback((): void => {
     if (phase === 'running') return // não fecha durante a execução
@@ -296,13 +272,17 @@ export function UninstallHubModal({
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="uninstall-hub-modal-title"
-      onClick={handleBackdropClick}
-      onKeyDown={handleKeyDown}
     >
+      <button
+        type="button"
+        aria-label="Fechar"
+        className="absolute inset-0 cursor-default"
+        disabled={phase === 'running'}
+        onClick={handleBackdropClick}
+      />
       <div
-        ref={panelRef}
-        className="w-full max-w-md space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60 my-auto"
-        onClick={(e) => e.stopPropagation()}
+        ref={trapRef}
+        className="relative w-full max-w-md space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60 my-auto"
       >
         {/* ── confirm ── */}
         {phase === 'confirm' && (
@@ -405,6 +385,7 @@ export function UninstallHubModal({
               {/* ── Opções de dados (radio exclusivo) ── */}
               <div className="space-y-2 text-left">
                 <label
+                  aria-labelledby="hub-data-keep-text"
                   className={`flex items-start gap-3 rounded-xl border px-3 py-2 cursor-pointer transition-colors ${
                     !wipe
                       ? 'border-emerald-500/40 bg-emerald-500/10'
@@ -418,7 +399,7 @@ export function UninstallHubModal({
                     checked={!wipe}
                     onChange={() => setWipe(false)}
                   />
-                  <span>
+                  <span id="hub-data-keep-text">
                     <span className="text-xs font-semibold text-slate-100">
                       Manter meus dados e configurações{' '}
                       <span className="badge bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 ml-1">
@@ -432,6 +413,7 @@ export function UninstallHubModal({
                   </span>
                 </label>
                 <label
+                  aria-labelledby="hub-data-wipe-text"
                   className={`flex items-start gap-3 rounded-xl border px-3 py-2 cursor-pointer transition-colors ${
                     wipe
                       ? 'border-red-500/40 bg-red-500/10'
@@ -445,7 +427,7 @@ export function UninstallHubModal({
                     checked={wipe}
                     onChange={() => setWipe(true)}
                   />
-                  <span>
+                  <span id="hub-data-wipe-text">
                     <span className="text-xs font-semibold text-slate-100">
                       Apagar também meus dados e configurações{' '}
                       <span className="text-red-400">(irreversível)</span>
@@ -497,10 +479,14 @@ export function UninstallHubModal({
               )}
 
               <div className="mt-1">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                <label
+                  htmlFor="uninstall-hub-confirm"
+                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2"
+                >
                   Digite <span className="text-red-400 font-mono">Kolnd Hub</span> para confirmar
                 </label>
                 <input
+                  id="uninstall-hub-confirm"
                   type="text"
                   value={confirmCode}
                   onChange={(e) => setConfirmCode(e.target.value)}
@@ -514,7 +500,7 @@ export function UninstallHubModal({
             </fieldset>
 
             <div className="mt-2 flex justify-center gap-3">
-              <button type="button" className="btn-secondary" autoFocus onClick={onClose}>
+              <button type="button" className="btn-secondary" data-autofocus onClick={onClose}>
                 Cancelar
               </button>
               <button
@@ -535,8 +521,12 @@ export function UninstallHubModal({
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
               <Zap size={30} className="text-red-400 animate-pulse" />
             </div>
-            <h3 className="text-lg font-bold text-white">Desinstalação em andamento</h3>
-            <p className="text-sm text-slate-400 mt-1">{stepLabel || 'Iniciando…'}</p>
+            <h3 id="uninstall-hub-modal-title" className="text-lg font-bold text-white">
+              Desinstalação em andamento
+            </h3>
+            <p className="text-sm text-slate-400 mt-1" role="status" aria-live="polite">
+              {stepLabel || 'Iniciando…'}
+            </p>
             <div className="mt-4">
               <div className="flex justify-between mb-1 text-[10px]">
                 <span className="text-slate-500">{stepLabel || 'Etapa atual'}</span>
@@ -579,7 +569,7 @@ export function UninstallHubModal({
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10">
               <AlertCircle size={30} className="text-amber-400" />
             </div>
-            <h3 className="text-lg font-bold text-white">
+            <h3 id="uninstall-hub-modal-title" className="text-lg font-bold text-white">
               Não foi possível desinstalar o Kloud Games
             </h3>
             <p className="text-sm text-slate-400 leading-relaxed">
@@ -602,7 +592,7 @@ export function UninstallHubModal({
               <button
                 type="button"
                 className="btn-secondary w-full justify-center"
-                autoFocus
+                data-autofocus
                 onClick={onClose}
               >
                 Cancelar

@@ -66,6 +66,13 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 - **Dependabot** (`.github/dependabot.yml`) — atualização semanal de dependências npm (`/kolnd-hub`) e de GitHub Actions (`/`), com limite de 5 PRs abertos e labels `dependencies`. Apenas minor/patch são propostos automaticamente; majors ficam para avaliação manual.
 - **CodeQL** (`.github/workflows/codeql.yml`) — análise estática `javascript-typescript` em push (`main`/`Dev`), PRs e schedule semanal (`ubuntu-latest`, build-mode `none`). O repositório é **público**, então o CodeQL roda gratuitamente; resultados aparecem na aba **Security** → code scanning (primeiro run em 13/11/2026: verde, 0 alertas).
 
+### Acessibilidade (a11y)
+
+- **Lint de a11y** — `eslint-plugin-jsx-a11y` (perfil `recommended` via flat config, `eslint.config.mjs`) cobre **só `src/renderer/**/*.{ts,tsx}`**; main/preload não têm JSX. Rode com `npm run lint` (o mesmo gate de sempre — as regras a11y são parte dele, sem script separado).
+- **Estado (8.1 — 16/11/2026)**: 0 erros do plugin. Modais do Hub usam o focus trap compartilhado em `src/renderer/src/lib/useFocusTrap.ts` (foco inicial no `[data-autofocus]` ou no 1º focável, Tab/Shift+Tab ciclam, foco devolvido a quem abriu; Esc fica a cargo de cada modal). Regiões de status de processo e logs ao vivo usam `aria-live="polite"` (Dashboard, `AppDetailModal`, passos de desinstalação). Só existe um `aria-live="assertive"` (overlay de controle desconectado no Big Picture) — o restante é `polite` de propósito.
+- **Exceção de peer dep conhecida**: o plugin ainda não declara suporte a ESLint 10, então o `.npmrc` carrega `legacy-peer-deps=true` (necessário para `npm ci` reproduzir o lockfile). Reavaliar quando sair release com peer `eslint@^10`.
+- **Teste manual com leitor de tela (NVDA): pendente** — ver checklist no PR/commit da tarefa 8.1. Contraste/foco visível (8.2), anúncios no Big Picture (8.3) e `prefers-reduced-motion` (8.4) são tarefas à parte.
+
 ## Verificação pré-commit: `npm run verify`
 
 Um único comando roda toda a porta de qualidade local, na ordem:

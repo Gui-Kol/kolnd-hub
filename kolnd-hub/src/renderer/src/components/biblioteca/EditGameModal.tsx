@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useFocusTrap } from '../../lib/useFocusTrap'
 import {
   Gamepad2,
   Pencil,
@@ -74,6 +75,9 @@ export const EditGameModal = memo(function EditGameModal({
     window.addEventListener('keydown', onKeyDown)
     return (): void => window.removeEventListener('keydown', onKeyDown)
   }, [requestClose])
+
+  // Prende o foco no modal; o 1º focável (campo Nome) recebe o foco ao abrir.
+  const trapRef = useFocusTrap({ active: true })
 
   const handlePickImage = useCallback(async (): Promise<void> => {
     if (iconBusy || busy) return
@@ -217,6 +221,7 @@ export const EditGameModal = memo(function EditGameModal({
         onClick={requestClose}
       />
       <motion.div
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-label="Editar Game"
@@ -247,7 +252,6 @@ export const EditGameModal = memo(function EditGameModal({
               id="edit-game-name"
               type="text"
               value={name}
-              autoFocus
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
               placeholder="Nome do jogo"

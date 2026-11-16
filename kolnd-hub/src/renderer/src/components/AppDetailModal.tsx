@@ -12,6 +12,7 @@ import {
   FileText
 } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
+import { useFocusTrap } from '../lib/useFocusTrap'
 
 interface AppDetailModalProps {
   app: AppConfig
@@ -41,6 +42,9 @@ export function AppDetailModal({
     window.addEventListener('keydown', onKeyDown)
     return (): void => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
+
+  // Prende o foco no modal (montado uma vez, sempre aberto enquanto montado).
+  const trapRef = useFocusTrap({ active: true })
 
   const [showLogs, setShowLogs] = useState(false)
   const [logs, setLogs] = useState('')
@@ -80,6 +84,10 @@ export function AppDetailModal({
 
       {/* Modal */}
       <motion.div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={app.name}
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -103,8 +111,9 @@ export function AppDetailModal({
           <button
             onClick={onClose}
             className="absolute top-6 right-6 p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors z-20"
+            aria-label="Fechar detalhes do app"
           >
-            <X size={17} />
+            <X size={17} aria-hidden="true" />
           </button>
 
           {/* ── Info do app ───────────────────────────── */}
@@ -135,6 +144,8 @@ export function AppDetailModal({
                     isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-500'
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
+                  role="status"
+                  aria-live="polite"
                 >
                   {isBackground ? 'Ativo' : isRunning ? 'Executando' : isError ? 'Erro' : 'Parado'}
                 </span>
@@ -217,7 +228,10 @@ export function AppDetailModal({
                   {cleanLogs ? 'ao vivo' : 'sem saída'}
                 </span>
               </div>
-              <pre className="max-h-48 overflow-auto rounded-xl border border-white/[0.06] bg-black/50 p-4 font-mono text-[10px] leading-relaxed text-slate-400 whitespace-pre-wrap break-all">
+              <pre
+                className="max-h-48 overflow-auto rounded-xl border border-white/[0.06] bg-black/50 p-4 font-mono text-[10px] leading-relaxed text-slate-400 whitespace-pre-wrap break-all"
+                aria-live="polite"
+              >
                 {cleanLogs || 'Nenhuma saída capturada ainda. Inicie o programa para ver os logs.'}
               </pre>
             </div>
@@ -261,6 +275,7 @@ export function AppDetailModal({
                   showLogs ? 'text-kloud-500' : 'text-slate-400'
                 }`}
                 title="Mostrar logs"
+                aria-label="Mostrar logs"
               >
                 <ScrollText size={15} />
               </button>
@@ -268,6 +283,7 @@ export function AppDetailModal({
                 onClick={() => window.api.openPath(app.cwd)}
                 className="flex items-center justify-center px-3 py-2.5 rounded-xl text-slate-400 glass glass-hover"
                 title="Abrir pasta"
+                aria-label="Abrir pasta"
               >
                 <FolderOpen size={15} />
               </button>

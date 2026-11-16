@@ -11,6 +11,7 @@ import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
+import { useFocusTrap } from './lib/useFocusTrap'
 import { apps as defaultApps } from './config/apps'
 import {
   AppConfig,
@@ -69,6 +70,11 @@ function App(): JSX.Element {
   // Garante que o autostart do Kloud Games seja avaliado uma única vez por
   // sessão (StrictMode invoca os efeitos duas vezes em dev).
   const kloudAutoLaunchTriedRef = useRef(false)
+  const closeExitModal = useCallback((): void => setExitModalOpen(false), [])
+  const exitTrapRef = useFocusTrap<HTMLDivElement>({
+    active: exitModalOpen,
+    onEscape: closeExitModal
+  })
 
   // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
   // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
@@ -707,16 +713,30 @@ function App(): JSX.Element {
           {exitModalOpen && (
             <div
               className="fixed inset-0 z-[100] flex items-center justify-center"
-              onClick={(e) => {
-                if (e.target === e.currentTarget) setExitModalOpen(false)
-              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="exit-hub-title"
             >
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-              <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl">
+              <button
+                type="button"
+                aria-label="Fechar confirmação de saída"
+                className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm"
+                onClick={closeExitModal}
+              />
+              <div
+                ref={exitTrapRef}
+                className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl"
+              >
                 <div className="flex items-start gap-3">
-                  <AlertTriangle size={24} className="mt-0.5 shrink-0 text-red-400" />
+                  <AlertTriangle
+                    size={24}
+                    className="mt-0.5 shrink-0 text-red-400"
+                    aria-hidden="true"
+                  />
                   <div>
-                    <h2 className="text-lg font-bold text-white">Encerrar Kolnd Hub?</h2>
+                    <h2 id="exit-hub-title" className="text-lg font-bold text-white">
+                      Encerrar Kolnd Hub?
+                    </h2>
                     <p className="mt-1 text-sm text-slate-400 leading-relaxed">
                       Todos os programas e servidores iniciados pelo Hub serão fechados, incluindo o
                       que estiver rodando em segundo plano. Nada do Kolnd Hub permanecerá aberto.

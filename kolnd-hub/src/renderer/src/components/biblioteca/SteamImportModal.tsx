@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Download, Loader2, AlertTriangle } from 'lucide-react'
 import type { SteamImportResult } from '../../types'
+import { useFocusTrap } from '../../lib/useFocusTrap'
 
 /** Estado do fluxo "Importar jogos da Steam" (menu Adicionar Games → modal). */
 export type SteamImportState =
@@ -17,6 +18,10 @@ export const SteamImportModal = memo(function SteamImportModal({
   state,
   onClose
 }: SteamImportModalProps): JSX.Element {
+  // Prende o foco no modal. Esc aciona onClose — o pai (Biblioteca) ignora o
+  // fechamento durante a importação, então o comportamento do backdrop se repete.
+  const trapRef = useFocusTrap({ onEscape: onClose })
+
   return (
     <AnimatePresence>
       {state.phase !== 'idle' && (
@@ -29,6 +34,7 @@ export const SteamImportModal = memo(function SteamImportModal({
             onClick={onClose}
           />
           <motion.div
+            ref={trapRef}
             role="dialog"
             aria-modal="true"
             aria-label="Importar jogos da Steam"
