@@ -30,15 +30,13 @@ export function Layout({
       {/* ── Title bar ────────────────────────────────── */}
       <div className="title-bar h-12 flex items-center justify-between px-5 bg-white/[0.02] backdrop-blur-md border-b border-white/[0.05] z-40">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange">
-            <Zap size={14} className="text-white" />
+          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center">
+            <Zap size={14} className="text-accent-contrast" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-bold text-white tracking-tight gradient-text gradient-kloud">
-              Kolnd Hub
-            </span>
+            <span className="text-sm font-bold text-accent tracking-tight">Kolnd Hub</span>
             {runningCount > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 animate-pulse-slow">
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 animate-pulse">
                 {runningCount} ativo{runningCount > 1 ? 's' : ''}
               </span>
             )}

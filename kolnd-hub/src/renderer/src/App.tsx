@@ -601,12 +601,12 @@ function App(): JSX.Element {
           key={notice.id}
           {...entranceProps(reduced, { y: 20, scale: 0.95 })}
           exit={exitProps(reduced, { y: 10, scale: 0.95 })}
-          className={`fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl ${
+          className={`fixed bottom-6 right-6 z-toast flex max-w-md items-start gap-3 rounded-xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl ${
             notice.kind === 'success'
-              ? 'border-emerald-500/25 bg-[#071510]/95'
+              ? 'border-success-border bg-surface-3'
               : notice.kind === 'info'
-                ? 'border-slate-500/25 bg-[#0a0a0f]/95'
-                : 'border-red-500/25 bg-[#1a1014]/95'
+                ? 'border-white/10 bg-surface-3'
+                : 'border-danger-border bg-surface-3'
           }`}
         >
           {notice.kind === 'success' ? (
@@ -714,7 +714,7 @@ function App(): JSX.Element {
           {/* ── Modal: confirmação de saída ──────────────── */}
           {exitModalOpen && (
             <div
-              className="fixed inset-0 z-[100] flex items-center justify-center"
+              className="fixed inset-0 z-modal flex items-center justify-center"
               role="dialog"
               aria-modal="true"
               aria-labelledby="exit-hub-title"
@@ -727,7 +727,7 @@ function App(): JSX.Element {
               />
               <div
                 ref={exitTrapRef}
-                className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl"
+                className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-surface-3 p-6 shadow-2xl backdrop-blur-xl"
               >
                 <div className="flex items-start gap-3">
                   <AlertTriangle

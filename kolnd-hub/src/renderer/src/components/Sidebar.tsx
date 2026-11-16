@@ -71,23 +71,15 @@ export function Sidebar({
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = currentPage === item.id
-            const activeColors = {
-              dashboard:
-                'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
-              inicializacao:
-                'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
-              biblioteca:
-                'text-steam-blue-light bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
-              settings:
-                'text-neon-purple-light bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
-            } as Record<string, string>
+            // Ativo = acento único (13.2/13.4): todas as páginas compartilham o mesmo estado
+            const activeColor = 'text-accent bg-accent-muted border-accent-border'
             return (
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-l-2 focus-visible:ring-2 focus-visible:ring-neon-cyan/70 ${
                   isActive
-                    ? `border-transparent ${activeColors[item.id]} text-slate-100`
+                    ? `${activeColor} text-slate-100`
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
               >
