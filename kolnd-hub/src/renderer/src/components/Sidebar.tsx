@@ -25,18 +25,16 @@ export function Sidebar({
   ]
 
   return (
-    <aside className="w-60 border-r border-white/[0.05] bg-slate-950/80 backdrop-blur-2xl shrink-0 flex flex-col z-30">
+    <aside className="w-60 bg-surface-sunken border-r border-[var(--border-subtle)] shrink-0 flex flex-col z-rail">
       {/* ── Logo Kolnd Hub ─────────────────────────── */}
       <div className="p-6 pb-8">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange relative overflow-hidden">
-            <Zap size={20} className="text-white z-10" />
+          <div className="w-11 h-11 rounded-card bg-accent flex items-center justify-center">
+            <Zap size={20} className="text-accent-contrast" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-white tracking-tight gradient-text gradient-kloud text-shadow">
-              Kolnd Hub
-            </h1>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+            <h1 className="text-base font-semibold text-ink-primary tracking-tight">Kolnd Hub</h1>
+            <p className="text-[9px] font-semibold uppercase tracking-widest text-ink-tertiary">
               Central de Controle
             </p>
           </div>
@@ -46,16 +44,16 @@ export function Sidebar({
       {/* ── PC do usuário ────────────────────────────── */}
       {pcName && (
         <div className="px-4 mb-6">
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-3">
+          <p className="text-[9px] font-semibold text-ink-tertiary uppercase tracking-widest px-3 mb-3">
             Este computador
           </p>
           <div
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-slate-300 truncate group"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-control bg-surface-1 border border-[var(--border-subtle)] text-xs text-ink-secondary truncate group"
             title={pcName}
           >
             <Monitor
               size={14}
-              className="shrink-0 text-slate-400 group-hover:text-playstation-400 transition-colors"
+              className="shrink-0 text-ink-tertiary group-hover:text-ink-primary transition-colors"
             />
             <span className="min-w-0 truncate">{pcName}</span>
           </div>
@@ -64,7 +62,7 @@ export function Sidebar({
 
       {/* ── Navigation ───────────────────────────────── */}
       <nav className="flex-1 px-4">
-        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-4">
+        <p className="text-[9px] font-semibold text-ink-tertiary uppercase tracking-widest px-3 mb-4">
           Menu
         </p>
         <div className="space-y-1">
@@ -72,17 +70,23 @@ export function Sidebar({
             const Icon = item.icon
             const isActive = currentPage === item.id
             // Ativo = acento único (13.2/13.4): todas as páginas compartilham o mesmo estado
-            const activeColor = 'text-accent bg-accent-muted border-accent-border'
             return (
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-l-2 focus-visible:ring-2 focus-visible:ring-neon-cyan/70 ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-control text-sm font-medium transition-colors duration-2 border border-transparent ${
                   isActive
-                    ? `${activeColor} text-slate-100`
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                    ? 'bg-accent-muted text-accent'
+                    : 'text-ink-secondary hover:text-ink-primary hover:bg-surface-2'
                 }`}
               >
+                {isActive && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-pill bg-accent"
+                  />
+                )}
                 <Icon size={18} className="shrink-0" />
                 <span className="min-w-0 truncate font-medium">{item.label}</span>
               </button>
@@ -95,7 +99,7 @@ export function Sidebar({
       {onExit && (
         <button
           onClick={onExit}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 hover:text-red-300 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-control text-sm font-medium transition-colors duration-2 border border-danger-border bg-danger-bg text-danger hover:text-ink-primary hover:border-[var(--danger)]"
           aria-label="Sair do Kolnd Hub"
         >
           <LogOut size={18} className="shrink-0" />
@@ -104,30 +108,30 @@ export function Sidebar({
       )}
 
       {/* ── Footer ───────────────────────────────────── */}
-      <div className="p-4 border-t border-white/[0.05] bg-white/[0.02]">
+      <div className="p-4 border-t border-[var(--border-subtle)] bg-surface-1">
         {/* ── Big Picture: entrada para o modo console ── */}
         {onEnterBigPicture && (
           <button
             type="button"
             onClick={onEnterBigPicture}
             aria-label="Entrar no modo Big Picture"
-            className="w-full flex items-center gap-3 px-4 py-3 mb-3 rounded-xl text-sm font-medium text-neon-cyan border border-neon-cyan/25 bg-neon-cyan/5 transition-all duration-200 hover:bg-neon-cyan/10 hover:border-neon-cyan/40 hover:shadow-glow-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+            className="w-full flex items-center gap-3 px-4 py-3 mb-3 rounded-control text-sm font-medium text-accent border border-accent-border bg-accent-muted transition-colors duration-2 hover:bg-accent hover:text-accent-contrast hover:border-transparent"
           >
             <Gamepad2 size={18} className="shrink-0" />
             <span className="min-w-0 truncate">Big Picture</span>
           </button>
         )}
         {/* Atalho da busca global — um único lugar, discreto */}
-        <p className="mb-3 text-center text-[9px] text-slate-400">
+        <p className="mb-3 text-center text-[9px] text-ink-tertiary">
           Pressione{' '}
-          <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1 font-bold text-slate-400">
+          <kbd className="rounded-sm border border-[var(--border-subtle)] bg-surface-2 px-1 font-bold text-ink-secondary">
             /
           </kbd>{' '}
           para buscar
         </p>
         <div className="text-center">
-          <p className="text-[10px] font-bold text-slate-400 tracking-tight">Kolnd Hub</p>
-          <p className="text-[9px] text-slate-400 mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>
+          <p className="text-[10px] font-semibold text-ink-secondary tracking-tight">Kolnd Hub</p>
+          <p className="text-[9px] text-ink-tertiary mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>
         </div>
       </div>
     </aside>
