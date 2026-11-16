@@ -87,9 +87,19 @@ jobs:
       - name: Package (NSIS installer)
         run: npm run package
 
+      # 02-2.7: gera kolnd-hub/dist/SHA256SUMS.txt (MSI + Setup.exe, quando
+      # presentes). Informativo: não reprova o build; o MSI não existe no CI
+      # (não é commitado) e o script avisa/pula artefatos ausentes.
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        continue-on-error: true
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-sha256sums.ps1
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: kolnd-hub-setup
-          path: kolnd-hub/dist/Kolnd Hub Setup *.exe
+          path: |
+            kolnd-hub/dist/Kolnd Hub Setup *.exe
+            kolnd-hub/dist/SHA256SUMS.txt
           retention-days: 7

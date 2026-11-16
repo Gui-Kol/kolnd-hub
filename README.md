@@ -10,7 +10,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                    | Python + PyQt6, empacotado com PyInstaller                         |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                    | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                  | CMD + PowerShell                                                   |
-| `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) | GitHub Actions                                                     |
+| `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
 
 ## Programas gerenciados pelo Hub
 
@@ -40,6 +40,16 @@ Na segunda abertura o app vai direto para o dashboard. O marcador fica em `%APPD
 > ⚠️ O Mark LVI grava sua chave de API e a memória das conversas **junto ao executável**. Use sempre o app instalado — nunca rode diretamente o bundle de build — para não perder dados ao reconstruir o pacote.
 
 > Playnite e o SteamGridDB Manager foram removidos do projeto por decisão do usuário.
+
+## Verificar integridade
+
+Cada release publica `SHA256SUMS.txt` junto com os binários (`Kolnd Hub Setup <versao>.exe` e `KLOUD_GAMES.msi`). Para conferir o download:
+
+```powershell
+Get-FileHash -Algorithm SHA256 "Kolnd Hub Setup <versao>.exe"
+```
+
+Compare o `Hash` exibido com a linha do arquivo correspondente no `SHA256SUMS.txt` anexado à release. O arquivo é gerado automaticamente no build local e no CI (`kolnd-hub/dist/SHA256SUMS.txt`, via `kolnd-hub/scripts/gen-sha256sums.ps1`) e anexado à release junto com os binários (ver [`docs/RELEASE.md`](docs/RELEASE.md), Passo 7).
 
 ## Desinstalação
 
@@ -132,7 +142,8 @@ O script:
 
 1. Garante o Node.js no PATH e instala pré-requisitos via `winget` (Git, MSYS2 em `C:\msys64` e .NET SDK 8, necessários para o WiX/cpack);
 2. Roda `kolnd-hub/scripts/build-kloud-games.ps1` — correções idempotentes de renomeação do snapshot, submódulos (incluindo aninhados e o fix aplicado via `scripts/patches/moonlight-stdatomic-guards.patch`), dependências ucrt64, `cmake + ninja` com gcc, `cpack -G WIX` e cópia do MSI para `kolnd-hub/resources/programs/kloud-games/`;
-3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~360 MB).
+3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~360 MB);
+4. Gera `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais (`KLOUD_GAMES.msi` e o `Setup.exe`) — passo best-effort: falha do hash não quebra o build.
 
 Se o Kloud Games já estiver compilado, apenas o passo 3 é necessário:
 

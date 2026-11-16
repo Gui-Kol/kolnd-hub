@@ -39,7 +39,7 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
-- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git). Artefatos: `dist/Kolnd Hub Setup *.exe` e `coverage/` (ambos 7 dias).
+- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git) → **Generate SHA256SUMS** (informativo; gera `dist/SHA256SUMS.txt`). Artefatos: `dist/Kolnd Hub Setup *.exe` + `dist/SHA256SUMS.txt` e `coverage/` (ambos 7 dias).
 
 ### Cobertura de testes (V8)
 
@@ -109,7 +109,7 @@ O instalador único (`Kolnd Hub Setup <versão>.exe`) embute os programas que o 
 | Mark LVI (JARVIS) | `Mark-LVI/` (PyInstaller)      | ✅ Embutido no instalador em `resources/programs/MarkLVI`                                                                                         |
 | Kloud Games       | `kloud-games/` (CMake + MSYS2) | ✅ Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`, ~53 MB), instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` |
 
-Na raiz do repositório, `build-installer.bat` faz tudo em um comando: compila o Kloud Games e gera o MSI (`scripts/build-kloud-games.ps1`) e depois empacota o Hub (`npm run package`). Para o passo a passo:
+Na raiz do repositório, `build-installer.bat` faz tudo em um comando: compila o Kloud Games e gera o MSI (`scripts/build-kloud-games.ps1`), depois empacota o Hub (`npm run package`) e, ao final, gera `dist/SHA256SUMS.txt` (passo best-effort — falha do hash não quebra o build). Para o passo a passo:
 
 ```bash
 # 1) compilar o Kloud Games e gerar o MSI (heavy: MSYS2 + toolchain, ~30-60 min)
@@ -137,6 +137,21 @@ e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `e
 > ⚠️ **Dados do Mark LVI e desinstalador**: o `MarkLVI.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVI/`). Ao desinstalar o Kolnd Hub (botão **"Desinstalar Kolnd Hub"** nas Configurações → zona de perigo, ou pelo aplicativo Configurações do Windows), o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. O botão **"Fazer backup dos meus dados"** copia apenas `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss`; ele **não** cobre os dados ao lado do `MarkLVI.exe`. Copie manualmente `<instalação>\resources\programs\MarkLVI\config` e `<instalação>\resources\programs\MarkLVI\memory` antes de desinstalar (ou confie na semente migrada para `%APPDATA%\kolnd-hub\mark-lvi` pelo `programsDeployer`). O backup não é automático.
 >
 > **Migração para a pasta de dados do usuário**: a partir da próxima reconstrução do Mark LVI (`scripts/build-mark-lvi.ps1`, com `core/paths.py` honrando `MARK_LVI_HOME`), o assistente passa a gravar em `%APPDATA%\kolnd-hub\mark-lvi`. O Hub define `MARK_LVI_HOME` automaticamente ao iniciar o `mark-lvi`, e **semeia** (copia, sem apagar) `config/` e `memory/` do bundle empacotado para essa pasta a cada boot — quem já usava a versão anterior não perde a chave de API nem a memória na troca. Dados já existentes ao lado do `.exe` continuam sendo uma cópia válida e só deixam de ser atualizados depois que o Mark LVI reconstruído assume.
+
+## Verificar integridade
+
+O build (`build-installer.bat`, passo final) e o CI geram `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais — `KLOUD_GAMES.msi` e `Kolnd Hub Setup <versão>.exe` — uma linha por arquivo presente, no formato `<hash>  <nome do arquivo>`. Na release, anexe o `SHA256SUMS.txt` junto com os binários (ver [`../docs/RELEASE.md`](../docs/RELEASE.md), Passo 7). Para gerar/regerar manualmente:
+
+```powershell
+powershell -NoProfile -File scripts\gen-sha256sums.ps1
+```
+
+Para conferir um artefato baixado:
+
+```powershell
+Get-FileHash -Algorithm SHA256 "Kolnd Hub Setup <versao>.exe"
+# compare o Hash exibido com a linha correspondente em SHA256SUMS.txt
+```
 
 ## Como usar
 

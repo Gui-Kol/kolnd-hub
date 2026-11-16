@@ -279,6 +279,14 @@ Formato assumido (padrão de fato do projeto, pendente de confirmação do usuá
 
 ### 7.2 Gerar os checksums
 
+> Desde a tarefa 02-2.7, o build local (`build-installer.bat`, passo final) e o CI geram `kolnd-hub\dist\SHA256SUMS.txt` automaticamente via `kolnd-hub\scripts\gen-sha256sums.ps1` — uma linha `<hash>  <nome do arquivo>` por artefato presente (MSI e `Kolnd Hub Setup <versao>.exe`); artefatos ausentes são pulados com aviso. O arquivo fica em `kolnd-hub\dist\` (gitignored) e deve acompanhar a release (ver 7.3). Para regerar manualmente:
+>
+> ```powershell
+> powershell -NoProfile -File kolnd-hub\scripts\gen-sha256sums.ps1
+> ```
+>
+> Prefira esse arquivo; os comandos manuais abaixo ficam como fallback/conferência.
+
 ```powershell
 Get-FileHash -Algorithm SHA256 "kolnd-hub\dist\Kolnd Hub Setup X.Y.Z.exe" |
   ForEach-Object { "$($_.Hash.ToLower())  Kolnd Hub Setup X.Y.Z.exe" } |
@@ -289,7 +297,7 @@ Get-FileHash -Algorithm SHA256 "kolnd-hub\resources\programs\kloud-games\KLOUD_G
 Get-Content SHA256SUMS.txt   # conferência visual
 ```
 
-- [ ] `SHA256SUMS.txt` criado com as duas linhas e conferido.
+- [ ] `SHA256SUMS.txt` criado (pelo `gen-sha256sums.ps1`, no build/CI ou pelos comandos acima) com as duas linhas e conferido.
 
 ### 7.3 Tag e publicação
 

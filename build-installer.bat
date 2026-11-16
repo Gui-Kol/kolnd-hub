@@ -11,6 +11,8 @@ rem        kolnd-hub\resources\programs\kloud-games\
 rem    [2] Empacota o Kolnd Hub (electron-builder) com o MSI
 rem        embutido:
 rem        kolnd-hub\dist\Kolnd Hub Setup <versao>.exe
+rem    [+] Ao final, gera kolnd-hub\dist\SHA256SUMS.txt (best-effort;
+rem        falha do hash nao quebra o build)
 rem
 rem  Requisitos (o script instala o que faltar via winget):
 rem    git, Node.js LTS, MSYS2 (C:\msys64), .NET SDK 8
@@ -102,12 +104,24 @@ set /p HUB_VERSION=< "%TEMP%\kolnd-hub-version.txt"
 del /q "%TEMP%\kolnd-hub-version.txt" >nul 2>&1
 if not defined HUB_VERSION set "HUB_VERSION=*"
 
+rem --- 3. SHA-256 dos artefatos finais (best-effort: falha NAO quebra o build) ---
+echo.
+echo =============================================================
+echo  Checksums SHA-256 dos artefatos
+echo =============================================================
+powershell -NoProfile -ExecutionPolicy Bypass -File "%HUB%\scripts\gen-sha256sums.ps1"
+if errorlevel 1 (
+    echo [AVISO] Falha ao gerar o SHA256SUMS.txt - o build concluiu mesmo assim.
+    echo         Rode manualmente: powershell -NoProfile -File "%HUB%\scripts\gen-sha256sums.ps1"
+)
+
 echo.
 echo =============================================================
 echo  [OK] Tudo pronto!
 echo =============================================================
 echo  Kloud Games MSI : %HUB%\resources\programs\kloud-games\KLOUD_GAMES.msi
 echo  Instalador Hub  : %HUB%\dist\Kolnd Hub Setup %HUB_VERSION%.exe
+echo  SHA256SUMS.txt  : %HUB%\dist\SHA256SUMS.txt
 echo =============================================================
 echo.
 pause
