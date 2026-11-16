@@ -61,7 +61,7 @@ export function Sidebar({
       )}
 
       {/* ── Navigation ───────────────────────────────── */}
-      <nav className="flex-1 px-4">
+      <nav className="flex-1 px-4" aria-label="Navegação principal">
         <p className="text-[9px] font-semibold text-ink-tertiary uppercase tracking-widest px-3 mb-4">
           Menu
         </p>

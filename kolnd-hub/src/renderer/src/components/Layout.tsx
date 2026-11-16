@@ -25,6 +25,15 @@ export function Layout({
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
+      {/* ── Skip-link (WCAG 2.4.1): primeiro elemento tabular; só visível com
+          foco de teclado. Fora da tela por transform (sem sr-only, para a
+          transição/foco serem determinísticos). Alvo: <main id="conteudo">. ── */}
+      <a
+        href="#conteudo"
+        className="absolute left-4 top-2 z-[110] -translate-y-[200%] rounded-control border border-[var(--border-strong)] bg-surface-3 px-4 py-2 text-sm font-semibold text-ink-primary shadow-elevation-2 transition-transform duration-2 ease-standard focus:translate-y-0 motion-reduce:transition-none"
+      >
+        Pular para o conteúdo
+      </a>
       {/* ── Title bar ────────────────────────────────── */}
       <div className="title-bar h-12 flex items-center justify-between px-5 bg-surface-1 border-b border-[var(--border-subtle)] z-chrome">
         <div className="flex items-center gap-2.5">
@@ -79,7 +88,10 @@ export function Layout({
           onExit={onExit}
           onEnterBigPicture={onEnterBigPicture}
         />
-        <main className="flex-1 overflow-y-auto p-8 pb-12">{children}</main>
+        {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}
+        <main id="conteudo" tabIndex={-1} className="flex-1 overflow-y-auto p-8 pb-12">
+          {children}
+        </main>
       </div>
     </div>
   )

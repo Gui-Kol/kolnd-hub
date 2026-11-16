@@ -1,3 +1,176 @@
+# Auditoria de contraste e foco visível — Kolnd Hub (tarefa 8.2 · atualizado na 13.20)
+
+> **Data:** 16/11/2026 (13.20, pós-reformulação) · 8.2 executada em 16/11/2026 (pré-reformulação, commits `7be69e87`, `5fda8e64`, `ebd8c78d`, `c921128a`)
+> **Escopo:** `kolnd-hub/src/renderer` + `index.css` + `tailwind.config.js` · **Plano:** `gerente/tasks/2.0/13-13.20-acessibilidade-e-contraste.md` (13.20) · `gerente/tasks/2.0/08-8.2-contraste-e-foco-visivel.md` (8.2)
+> **Método:** cálculo WCAG 2.x por composição de cores — `(L1 + 0.05) / (L2 + 0.05)`, luminância relativa com coeficientes 0.2126/0.7152/0.0722. Badges e fundos de input foram medidos por **alfa-composição** (fundo efetivo = `cor com alpha × fg + (1−alpha) × bg`).
+> **Screenshots de antes/depois:** **fora do alcance (ambiente headless) — pendentes de revisão visual do usuário.**
+
+Critério AA: **≥ 4.5:1** texto normal · **≥ 3:1** texto grande (≥ 24 px ou ≥ 18.66 px bold) e componentes/indicadores · **≥ 3:1** ícones com significado (1.4.11). Elementos de UI **desabilitados** são isentos de 1.4.3. Meta 10-foot (Big Picture): **≥ 7:1** nos textos primários.
+
+---
+
+## Parte 1 — Verificação 13.20 (pós-reformulação, 16/11/2026)
+
+### Fundos reais (tokens da reformulação 13.4/13.2)
+
+| Nome          | Hex                 | Onde aparece                                                        |
+| ------------- | ------------------- | ------------------------------------------------------------------- |
+| `--bg-base`   | `#0e141b`           | fundo do body (gradiente `180deg base→sunken`)                      |
+| `--bg-sunken` | `#090e13`           | wells, trilhas, input rail do Sidebar (`bg-surface-sunken`), scrollbar track |
+| `surface-1`   | `#151d26`           | cards elevados 1                                                    |
+| `surface-2`   | `#1b2430`           | painéis, hover elevado                                              |
+| `surface-3`   | `#222d3a`           | modais/toast/popover, thumb scrollbar                               |
+| Input (eff.)  | `white 3%` s/ fundo | `.input-gamer` → `#0f151c` s/base · `#161e28` s/s1 · `#1c2531` s/s2 · `#242f3c` s/s3 |
+| Badge N (eff.)| cor 12% s/ s1/s2    | `.badge-running/.badge-error/…` e `success/warning/danger-muted`    |
+
+### Tabela completa — lista B do plano 13.20
+
+**Texto sobre superfícies** (razão mínima–máxima, veredito AA texto normal):
+
+| Texto (token)            | Hex       | base   | sunken | s1     | s2     | s3     | Veredito                                            |
+| ------------------------ | --------- | ------ | ------ | ------ | ------ | ------ | --------------------------------------------------- |
+| `text-primary`           | `#e8eaed` | 15.36  | 16.08  | 14.10  | 12.99  | 11.58  | ✅ AA em todos (e ≥ 7:1 meta BP)                    |
+| `text-secondary`         | `#a8b3bd` | 8.68   | 9.09   | 7.97   | 7.34   | 6.55   | ✅ AA em todos (≥ 7:1 exceto s3 = 6.55, ainda AA)   |
+| `text-tertiary`          | `#7d8894` | 5.13   | 5.37   | 4.71   | 4.34 ❌ | 3.87 ❌ | ✅ AA em base/sunken/s1 · ❌ AA em s2/s3 (ver exceções) |
+
+**Acento**:
+
+| Par                                   | Ratio | Veredito                    |
+| ------------------------------------- | ----- | --------------------------- |
+| `accent` (`#66c0f4`) s/ base          | 9.18  | ✅ AA                       |
+| `accent` s/ sunken                    | 9.61  | ✅ AA                       |
+| `accent` s/ surface-1                 | 8.43  | ✅ AA                       |
+| `accent` s/ surface-2                 | 7.76  | ✅ AA                       |
+| `accent` s/ surface-3                 | 6.92  | ✅ AA                       |
+| `accent-hover` (`#8fd3ff`) s/ base    | 11.40 | ✅ AA                       |
+| `accent-hover` s/ sunken              | 11.93 | ✅ AA                       |
+| `accent-hover` s/ surface-1           | 10.46 | ✅ AA                       |
+| `accent-hover` s/ surface-2           | 9.64  | ✅ AA                       |
+| `accent-hover` s/ surface-3           | 8.59  | ✅ AA                       |
+| `accent-active` (`#4aa8e0`) s/ base   | 7.02  | ✅ AA                       |
+| `accent-active` s/ sunken             | 7.35  | ✅ AA                       |
+| `accent-active` s/ surface-1          | 6.45  | ✅ AA                       |
+| `accent-active` s/ surface-2          | 5.94  | ✅ AA                       |
+| `accent-active` s/ surface-3          | 5.30  | ✅ AA                       |
+| **`accent-contrast` (`#0b1d29`) s/ `accent`**        | **8.52** | ✅ **AA (botão primário)** |
+| `accent-contrast` s/ `accent-hover`   | 10.58 | ✅ AA                       |
+| `accent-contrast` s/ `accent-active`  | 6.52  | ✅ AA                       |
+
+**Semânticas** (texto `--success`/`--warning`/`--danger` puro sobre superfícies):
+
+| Texto      | base  | sunken | s1    | s2    | s3    | Veredito                    |
+| ---------- | ----- | ------ | ----- | ----- | ----- | --------------------------- |
+| `success`  | 8.31  | 8.70   | 7.63  | 7.03  | 6.26  | ✅ AA em todos              |
+| `warning`  | 9.51  | 9.96   | 8.73  | 8.04  | 7.17  | ✅ AA em todos              |
+| `danger`   | 5.70  | 5.97   | 5.24  | 4.82  | 4.30 ❌ | ✅ AA até s2 · ❌ AA s3 (ver exceções) |
+
+**Badges translúcidas** (texto = a cor, fundo = cor 12% alfa sobre a superfície — medido composto):
+
+| Badge    | s/ surface-1 (eff. bg)        | s/ surface-2 (eff. bg)        | Veredito                         |
+| -------- | ----------------------------- | ----------------------------- | -------------------------------- |
+| success  | 6.17 (`#1b3130`)              | 5.66                          | ✅ AA                            |
+| warning  | 6.94 (`#2e2f29`)              | 6.36                          | ✅ AA                            |
+| danger   | 4.56 (`#2f252a`, borderline)  | 4.19 ❌                       | ✅ s1 (borderline) · ❌ s2 (ver exceções) |
+
+**Placeholders** (`.input-gamer::placeholder` → `--text-tertiary`, fundo = input composto white 3%):
+
+| Fundo do input            | Ratio | Veredito                        |
+| ------------------------- | ----- | ------------------------------- |
+| sobre `--bg-base`         | 4.80  | ✅ AA                           |
+| sobre `--bg-sunken`       | 5.09  | ✅ AA                           |
+| sobre `--surface-1`       | 4.35  | ❌ AA por 0.15 (ver exceções)   |
+| sobre `--surface-2`       | 3.97  | ❌ AA (ver exceções)            |
+| sobre `--surface-3`       | 3.55  | ❌ AA (ver exceções)            |
+
+**Labels uppercase 10–11 px** (`.label-panel` e `text-ink-tertiary uppercase tracking-wider`, mesmos pares do `text-tertiary`):
+
+| Fundo      | Ratio | Veredito                                |
+| ---------- | ----- | --------------------------------------- |
+| base       | 5.13  | ✅ AA                                   |
+| sunken     | 5.37  | ✅ AA                                   |
+| surface-1  | 4.71  | ✅ AA (folga 0.21)                      |
+| surface-2  | 4.34  | ❌ AA (texto pequeno bold uppercase)    |
+| surface-3  | 3.87  | ❌ AA (texto pequeno bold uppercase)    |
+
+**Foco visível** (`--focus-ring` = `#66c0f4`, anel 2 px + offset 2 px fora de `@layer`):
+
+| Fundo     | Ratio (indicador, ≥ 3:1 exigido por 1.4.11) |
+| --------- | ------------------------------------------- |
+| base      | 9.18 ✅                                     |
+| sunken    | 9.61 ✅                                     |
+| surface-1 | 8.43 ✅                                     |
+| surface-2 | 7.76 ✅                                     |
+| surface-3 | 6.92 ✅                                     |
+
+**Meta 10-foot (Big Picture, alvo ≥ 7:1)**: `text-primary` sobre s1/s2/s3 = 14.10/12.99/11.58 ✅ · `text-secondary` 7.97/7.34/**6.55** (s3 — ⚠️ abaixo de 7:1, mas AA 6.55; aceito: texto secundário) · títulos BP em `text-primary`/accent 6.92–14.10.
+
+### Exceções registradas (13.20) — nenhum token alterado
+
+1. **`text-tertiary` sobre `surface-2`/`surface-3` (4.34 / 3.87)** — já documentado no próprio `index.css` desde a 13.4 ("labels sobre surface-2/3 devem migrar para text-secondary na 13.6+"). A correção segura é migrar *uso* (labels/legendas nesses fundos), não o token. **Não alterado nesta tarefa** — registrado para a migração das telas/13.21.
+2. **`danger` sobre `surface-3` (4.30)** — texto de erro em modal (surface-3) fica 0.2 abaixo de 4.5. Corrigir exigiria token novo (ex.: `danger-light`) ou troca de fundo do modal; **não é correção óbvia dentro do escopo — não alterado**. Recomendação: texto de erro em modal migrar para `text-ink-primary` + ícone/borda de tom danger.
+3. **`badge-danger` translúcida sobre `surface-2` (4.19)** — badges hoje vivem sobre surface-1 (cards), onde medem 4.56 (✅ borderline). **Sem uso atual sobre s2 confirmado no sweep — registrado**, não alterado.
+4. **Placeholder `text-tertiary` sobre input composto em s1/s2/s3 (4.35/3.97/3.55)** — sobre base/sunken passa (4.80/5.09). WCAG 1.4.3 estrito exigiria 4.5; a correção óbvia seria `.input-gamer::placeholder { color: var(--text-secondary) }` (7.35/7.90/8.59), mas **`index.css` está fora das restrições desta tarefa** — registrado como recomendação para a próxima janela que tocar o `index.css`.
+5. **`text-secondary` sobre s3 = 6.55** — abaixo da meta 7:1 do Big Picture para texto secundário; mantido (é AA e a meta é para textos primários).
+6. Legacy (8.2): `text-stream-*` etc. — ver Parte 2 (histórico).
+
+### Focus-visible — varredura ad hoc (13.20)
+
+Grep `focus:ring-*` / `focus-within:ring-*` / `focus:outline-*` em `src/renderer` (2026-11-16): **zero ocorrências ad hoc remanescentes.**
+
+- Anel global `:focus-visible` (2 px `--focus-ring` + offset 2 px, fora de `@layer`) — presente e verificado em `out/renderer/assets/*.css` no build da 8.2; segue presente (`index.css` intocado na 13.20).
+- Padrão Big Picture (mantido, por decisão da 8.2/13.17/13.18): `BP_FOCUS_RING = focus-visible:ring-4 ring-[var(--focus-ring)]` e `BP_FOCUSED_RING = ring-4 ring-[var(--focus-ring)]` (gamepad-focus, via `useFocusable`) — usados por BigPictureGames/Controls/Rail/BigPicture shell.
+- `BigPictureOverlays.tsx`: `ring-4 ring-red-400/50` (danger) / `ring-4 ring-accent-border` (acento) — **estado de gamepad-focus, não ad hoc de teclado**; mantidos.
+- `Settings.tsx`: `ring-1 ring-warn-border` — realce de campo com erro (não é indicador de foco); mantido.
+- Nenhum `focus:outline-none` sem substituto: todos os `focus:outline-none` localizados são combinados com `BP_FOCUS_RING` (anel de 4 px) ou caem sob a regra global (inputs tokenizados usam `:focus` com borda+ring próprio em `.input-gamer`, mantidos da 8.2).
+
+### aria — aditivo aplicado/verificado (13.20)
+
+| Item                                                    | Estado                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `nav` principal (`Sidebar.tsx`)                         | **+ `aria-label="Navegação principal"`** (editado)                                            |
+| Item ativo `aria-current="page"` (`Sidebar.tsx`)        | já presente (nenhuma alteração)                                                               |
+| Nav Big Picture (`BigPictureRail.tsx`)                  | já `aria-label="Navegação do Big Picture"` + `aria-selected`/`aria-current="true"` no rail   |
+| Toast global (`ui/Toast.tsx`)                           | já `role="status"` + `aria-live="polite"` (verificado) + `aria-label="Fechar aviso"` no X    |
+| IconButtons (`ui/IconButton.tsx`)                       | `aria-label` obrigatório em compilação (tipo exige) — nenhum uso sem label encontrado         |
+| Layout min/max/close                                    | já `aria-label` ("Minimizar" / "Maximizar" / "Fechar")                                        |
+| Sidebar Sair / Big Picture                              | já `aria-label`                                                                               |
+| Busca (`SearchInput`, `GlobalSearch`, limpar busca)     | já `aria-label`                                                                               |
+| Modais primitivo `Modal`                                | nome acessível OBRIGATÓRIO em compilação (`title` ou `ariaLabel`) — **todos os 10 usos fornecem** (App exit, AppDetailModal, SteamImportModal ×3, EditGameModal, GamepadSetup, PcCleanup, GlobalSearch indireto, UninstallHub/KloudGames alertdialogs com `aria-labelledby` → ids internos confirmados) |
+| `Switch` (primitivo)                                    | `role="switch"` + `aria-checked`; **todos os 8 usos com `aria-label`**                        |
+| Tabs Inicialização                                       | já `role="tablist"`/`role="tab"` + `aria-selected` (mantidos — não convertidos de novo)       |
+| **Skip-link "Pular para o conteúdo"** (Layout)          | **+ adicionado** — `<a href="#conteudo">`, primeiro elemento tabular; alvo `<main id="conteudo" tabIndex={-1}>` |
+| AppCard como botão de card                              | (8.1) correção semântica continua fora deste escopo                                          |
+
+### reduced-motion (13.20)
+
+- `prefers-reduced-motion` coberto por: (1) `@media (prefers-reduced-motion: reduce)` em `index.css` (`.scanlines`, `.animate-pulse`, `.animate-pulse-slow`, `.animate-skew`, `.skeleton`, `.skeleton-shimmer`); (2) `useReducedMotion` via `lib/motion.ts` (`entranceProps`/`exitProps`/`fadeOnlyTransition`) em LoadingScreen, page transitions (App.tsx), BigPictureRail, Biblioteca e demais telas; (3) `BigPictureTransition.tsx` via `matchMedia('(prefers-reduced-motion: reduce)')` (fade 250 ms).
+- **MotionConfig NÃO adicionado** (decisão registrada: o projeto usa `useReducedMotion` direto; adicionar seria redundante e fora das restrições).
+- Background decorativo / scanlines: mantidas conforme "não tocar"; cobertas pelo media query.
+
+### Teclado (inspeção estática — sem GUI)
+
+Ordem de Tab no shell normal (Layout): **skip-link** (visível só com foco) → **title bar** (Minimizar → Maximizar → Fechar) → **Sidebar** (nav: Ferramentas → Meu PC/pcName → Biblioteca → Configurações, item ativo com `aria-current="page"`) → botão **Big Picture** → **Sair** → conteúdo (`<main id="conteudo" tabIndex={-1}>`, recebe foco via skip-link) → ações da página. Shift+Tab reverte. `Esc` fecha modais/busca/GlobalSearch (focus trap `useFocusTrap` devolve foco ao gatilho); modais destrutivos ignoram Esc de propósito. Big Picture: navegação espacial por controle/teclado (`useFocusable` + anel de 4 px), `Esc` global volta/fecha. Resultado: **100% dos interativos focáveis em ordem lógica, foco sempre visível** (verificado por inspeção estática — não há GUI neste ambiente; revisão visual cabe ao usuário).
+
+### Verificação (16/11/2026, 13.20)
+
+| Gate                                     | Resultado                                                                                     |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit -p tsconfig.web.json`  | **0 erros**                                                                                   |
+| `npm test`                               | **34 arquivos, 600 passed**, 1 skipped                                                        |
+| `npm run lint`                           | **0 erros**, 5 warnings pré-existentes em `src/main/*.test.ts`                                |
+| `npm run format:check`                   | **limpo**                                                                                     |
+| `npm run build`                          | **ok** (main/preload/renderer)                                                                |
+| Skip-link presente no DOM do Layout      | ✅ (a11y: WCAG 2.4.1)                                                                          |
+| Foco ad hoc fora do padrão               | **0 ocorrências** (varredura 13.20)                                                            |
+| `:focus-visible` global no CSS de produção | ✅ conferido em `out/renderer/assets/index-CY6HXg9J.css`                                     |
+
+---
+---
+
+## Parte 2 — Histórico · Auditoria 8.2 (pré-reformulação, 16/11/2026)
+
+> ⚠️ **Paleta legada (`slate-*`/`kloud`/`neon`)** — os valores abaixo descrevem o estado **anterior à reformulação 13.x** e foram substituídos no produto pelos tokens da Parte 1. Mantidos como registro de decisões e correções históricas. Referência do plano: `gerente/tasks/2.0/08-8.2-contraste-e-foco-visivel.md`.
+
 # Auditoria de contraste e foco visível — Kolnd Hub (tarefa 8.2)
 
 > **Data:** 16/11/2026 · **Escopo:** `kolnd-hub/src/renderer` + `index.css` + `tailwind.config.js` · **Plano:** `gerente/tasks/2.0/08-8.2-contraste-e-foco-visivel.md`
@@ -105,25 +278,24 @@ As cores de marca plenas (`kloud-500`, `neon-*`, `nintendo-500`, `playstation-50
 - Badges `badge-{nintendo,playstation,steam,neon-purple}` → tons acessíveis (tabela acima).
 - `gradient-rainbow`: parada `#004ea2` → `#2e7ce6`.
 
-## Foco visível global (`index.css`)
+## Foco visível global (`index.css`, regra da 8.2 — mantida na 13.20)
 
 ```css
 :focus-visible {
-  outline: 2px solid #00f3ff; /* neon-cyan */
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 ```
 
 - Definida **fora de `@layer`** de propósito: CSS solto vence qualquer camada do Tailwind (inclui utilitários `focus:outline-none`), então o anel nunca é removido sem substituto.
-- O anel neon-cyan sobre os fundos do tema mede **12.49–14.80:1** (≥ 3:1 exigido para indicadores).
-- Os `focus-visible:ring-4 focus-visible:ring-neon-cyan/70` já existentes (Big Picture, Sidebar Big Picture) foram **mantidos** — convivem com a regra global (box-shadow + outline, sem conflito).
-- Controles só com `hover:` que ficaram **cobertos pela regra global** (sem mudança extra, por economia de diff): botões de abas em `PcUpdates`/`Inicializacao`, ícones de limpar busca em `Settings`, botões "fechar aviso" em `Biblioteca`/`App.tsx`, ações de `PcCleanup`, entre outros.
+- O anel `--focus-ring` sobre os fundos do tema mede **6.92–9.61:1** (≥ 3:1 exigido para indicadores; tabela na Parte 1).
+- Os anéis `focus-visible:ring-4` do Big Picture foram **mantidos** — convivem com a regra global (box-shadow + outline, sem conflito).
 
 ## Estados desabilitados
 
 `btn-primary` (`disabled:opacity-50`) e controles `cursor-not-allowed` são **isentos** de WCAG 1.4.3; mesmo assim o `text-slate-700` dos dois desabilitados foi elevado para `text-slate-500` por legibilidade. Nenhum texto interativo normal depende de opacidade < 1.
 
-## Exceções e itens pendentes
+## Exceções e itens pendentes (8.2)
 
 1. **Revisão visual (screenshots antes/depois): pendente** — ambiente headless não abre janela; cabe ao usuário validar a olho após `npm run dev`. **`npm run dev`/packaging não foram executados.**
 2. `badge-nintendo` não consta em nenhum TSX hoje → foi **tree-shaken** do CSS final (conferido em `out/renderer/assets/*.css`); a classe corrigida ficará disponível quando usada. Conferidos em produção: `.badge-playstation` emite `rgb(94 158 255)`, `.badge-steam` → `rgb(107 163 255)`, `.badge-neon-purple` → `rgb(208 107 255)`.
@@ -132,10 +304,10 @@ As cores de marca plenas (`kloud-500`, `neon-*`, `nintendo-500`, `playstation-50
 5. `text-neon-purple` mantido em dois lugares de **texto grande** (≥ `text-xl` bold, BigPictureControls; ícones do LoadingScreen) — 3.82–4.52:1 ≥ 3:1. **Não usar em texto normal.**
 6. `categoryColor` em `Dashboard.tsx` e `LoadingScreen.tsx` aplica cor a ícones/containers (não a texto) — verificado, sem efeito em texto.
 7. `AppCard` (card inteiro clicável sem `role`/`tabIndex`) — correção semântica é da tarefa **8.1 (ARIA)**; aqui só foi garantido foco visível nos botões internos.
-8. NVDA, `aria-live` do Big Picture (8.3) e `prefers-reduced-motion` (8.4): **fora do escopo desta tarefa** (8.4 já consta em `index.css`, intocado).
+8. NVDA e auditorias profundas: **fora do escopo** (recomenda-se sessão dedicada; não bloqueia release).
 9. Sem light theme (decisão de produto); identidade de marca inalterada — apenas tons claros **adicionados**.
 
-## Verificação (16/11/2026)
+## Verificação (8.2, 16/11/2026)
 
 | Gate                                                               | Resultado                                                                                                      |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
