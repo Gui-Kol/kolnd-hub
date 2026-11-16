@@ -547,6 +547,26 @@ python main.py
 
 ---
 
+## 🔒 Lock de dependências (requirements.lock)
+
+O `requirements.txt` traz apenas bounds (`>=x,<y`); o `requirements.lock` fixa **todas** as dependências (diretas e transitivas) com hashes SHA-256, tornando a instalação reproduzível. O `setup.py` e o `kolnd-hub/scripts/build-mark-lvi.ps1` instalam a partir do lock quando ele existe ao lado; sem ele, caem para o `requirements.txt` com um aviso impresso. O `requirements.in` é a fonte direta (mesmos bounds do `requirements.txt`) — nunca edite o lock à mão.
+
+**Quando atualizar:** a cada bump de dependência em `requirements.in` (ou quando algum pin/hash sumir do PyPI).
+
+**Como regenerar** (só resolve e baixa metadados; não instala nada no ambiente):
+
+```bash
+py -3 -m piptools compile requirements.in --generate-hashes -o requirements.lock
+# ou, com uv:  uv pip compile requirements.in --generate-hashes -o requirements.lock --python-version 3.12
+```
+
+Notas:
+- O pip-tools 7 não tem mais `--python-version`: a resolução usa o interpretador que roda o piptools. O lock atual foi resolvido num Python 3.14 e **auditado em 2026-11-16** — todos os 96 pins declaram `requires_python` compatível com 3.12 (o CI usa 3.12). Ao regenerar, confira se algum pin passou a exigir >3.12 antes de commitar.
+- O lock não fixa `setuptools` (aviso do próprio pip-tools); é dependência de build, não de runtime.
+- Ativar o lock no job `mark-lvi` do CI fica como follow-up — propositalmente **não** está ativo.
+
+---
+
 ## 📋 Requirements
 
 | Requirement | Details |

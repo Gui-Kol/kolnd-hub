@@ -97,3 +97,4 @@ a small built-in fallback — instead of crashing.
 - Settings and keys live in `config/api_keys.json` through
   `memory/config_manager.py`; never write that file directly.
 - Keep to the libraries already in `requirements.txt`.
+- Build/instalação: o `setup.py` e o `kolnd-hub/scripts/build-mark-lvi.ps1` instalam `requirements.lock` (pins + hashes) quando ele existe; senão, caem para o `requirements.txt` com aviso. Mexer em dependência = editar `requirements.in` e regenerar o lock (`py -3 -m piptools compile requirements.in --generate-hashes -o requirements.lock`) — nunca editar o lock à mão.
