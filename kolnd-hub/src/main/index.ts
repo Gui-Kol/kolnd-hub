@@ -52,6 +52,8 @@ import { registerCommandValidateIpc } from './commandValidate'
 import { buildDiagnosticReport } from './diagnostic'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
+import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
+import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
 
 /**
@@ -77,6 +79,13 @@ const processManager = new ProcessManager({
   }
 })
 
+// Contexto compartilhado dos módulos IPC (ipc/*.ts): janela principal via
+// getter (mainWindow é reassinado em createWindow) + o ProcessManager.
+const ctx: IpcContext = {
+  getMainWindow: () => mainWindow,
+  processManager
+}
+
 // Instância única: o lock é pedido antes de qualquer bootstrap. Se outra
 // instância já o segura, encerra imediatamente — sem criar janela/tray, sem
 // registrar handlers de limpeza/desinstalação e sem tocar no disco.
@@ -93,23 +102,6 @@ if (gotSingleInstanceLock) {
   })
 } else {
   app.quit()
-}
-
-/**
- * Allowlist de URLs para abrir no navegador externo.
- * https://http://mailto: são os únicos esquemas permitidos — bloqueia
- * file://, javascript:, data: e esquemas de protocolo arbitrários
- * (qualquer XSS no renderer viraria um `app:launch` arbitrário; esta
- * allowlist limita o que o renderer consegue alcançar por fora).
- */
-function isAllowedExternalUrl(rawUrl: string): boolean {
-  try {
-    const parsed = new URL(rawUrl)
-    const scheme = parsed.protocol.toLowerCase()
-    return scheme === 'https:' || scheme === 'http:' || scheme === 'mailto:'
-  } catch {
-    return false
-  }
 }
 
 function createWindow(isFirstRunMode = false): void {
@@ -250,6 +242,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC de validação de linha de comando (Configurações).
   registerCommandValidateIpc()
+
+  // Registra os canais IPC de shell (abrir navegação externa/caminhos).
+  registerShellIpc(ctx)
 
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
@@ -629,21 +624,6 @@ app.whenReady().then(() => {
       }
     }
   )
-
-  // ── IPC: Shell ──────────────────────────────────
-  ipcMain.handle('shell:openExternal', (_event, url: unknown) => {
-    if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
-      logger.warn('shell', `openExternal bloqueado (esquema não permitido): ${String(url)}`)
-      return
-    }
-    void shell.openExternal(url)
-  })
-
-  ipcMain.handle('shell:openPath', (_event, path: unknown) => {
-    if (typeof path !== 'string' || path.trim().length === 0 || path.length > 1024) return
-    // Settings may store relative paths (../Kloud Games) or %VAR% paths.
-    void shell.openPath(resolvePath(path))
-  })
 
   // ── Diagnóstico (task 06-6.3) ──────────────────
   // Sem argumentos. Monta um relatório sanitizado (versões, contagens do
