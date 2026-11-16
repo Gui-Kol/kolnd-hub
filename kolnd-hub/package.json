@@ -5,6 +5,10 @@
   "main": "./out/main/index.js",
   "author": "Kolnd",
   "license": "MIT",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

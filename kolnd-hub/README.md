@@ -13,7 +13,8 @@ Hub centralizado para iniciar, parar e monitorar os programas do ecossistema Kol
 
 ## Pré-requisitos
 
-- **Node.js 22 LTS** (ou superior) e npm
+- **Node.js 22 LTS** (ou superior) e npm 10+ — a versão alvo está declarada em `.nvmrc`/`.node-version` (`22`) e em `engines` no `package.json`; com [nvm](https://github.com/nvm-sh/nvm) (ou fnm/volta), rode `nvm use` na pasta `kolnd-hub/` para ativar a versão certa
+- O `.npmrc` do projeto define `engine-strict=true`: `npm install`/`npm ci` com Node abaixo do mínimo falha cedo, com erro claro de `engines`, em vez de quebrar em silêncio no toolchain (electron-vite, ESLint, Vitest)
 - Windows (o gerenciamento de processos usa `tree-kill`/`taskkill`)
 
 ## Comandos
