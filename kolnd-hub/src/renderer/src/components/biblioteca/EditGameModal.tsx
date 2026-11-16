@@ -271,7 +271,7 @@ export const EditGameModal = memo(function EditGameModal({
             </p>
             {localExeMissing && (
               <p className="flex items-center gap-1.5 text-[11px] text-amber-400 mt-1.5">
-                <AlertTriangle size={11} />
+                <AlertTriangle size={12} />
                 Executável não encontrado no disco. Escolha o caminho correto ou remova o jogo.
               </p>
             )}
@@ -314,9 +314,9 @@ export const EditGameModal = memo(function EditGameModal({
                   className="btn-secondary !px-4 !py-2 !text-[10px]"
                 >
                   {iconBusy ? (
-                    <Loader2 size={13} className="animate-spin" />
+                    <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <ImagePlus size={13} />
+                    <ImagePlus size={14} />
                   )}
                   Escolher imagem…
                 </button>
@@ -341,7 +341,7 @@ export const EditGameModal = memo(function EditGameModal({
             {confirmingRemove ? (
               <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
                 <p className="flex items-center gap-2 text-sm font-bold text-red-300">
-                  <AlertTriangle size={15} />
+                  <AlertTriangle size={16} />
                   Tem certeza?
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
@@ -365,12 +365,12 @@ export const EditGameModal = memo(function EditGameModal({
                   >
                     {removing ? (
                       <>
-                        <Loader2 size={13} className="animate-spin" />
+                        <Loader2 size={14} className="animate-spin" />
                         Removendo…
                       </>
                     ) : (
                       <>
-                        <Trash2 size={13} />
+                        <Trash2 size={14} />
                         Remover definitivamente
                       </>
                     )}

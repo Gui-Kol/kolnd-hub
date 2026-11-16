@@ -624,7 +624,7 @@ function App(): JSX.Element {
             className="ml-2 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-white"
             aria-label="Fechar aviso"
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </motion.div>
       )}

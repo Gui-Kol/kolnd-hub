@@ -288,7 +288,7 @@ export function UninstallHubModal({
         {phase === 'confirm' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-              <Zap size={30} className="text-red-400" />
+              <Zap size={32} className="text-red-400" />
             </div>
             <h3 id="uninstall-hub-modal-title" className="text-lg font-bold text-white">
               Desinstalar o Kolnd Hub?
@@ -519,7 +519,7 @@ export function UninstallHubModal({
         {phase === 'running' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-              <Zap size={30} className="text-red-400 animate-pulse" />
+              <Zap size={32} className="text-red-400 animate-pulse" />
             </div>
             <h3 id="uninstall-hub-modal-title" className="text-lg font-bold text-white">
               Desinstalação em andamento
@@ -567,7 +567,7 @@ export function UninstallHubModal({
         {phase === 'choice' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10">
-              <AlertCircle size={30} className="text-amber-400" />
+              <AlertCircle size={32} className="text-amber-400" />
             </div>
             <h3 id="uninstall-hub-modal-title" className="text-lg font-bold text-white">
               Não foi possível desinstalar o Kloud Games

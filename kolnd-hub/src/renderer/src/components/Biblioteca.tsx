@@ -364,7 +364,7 @@ export function Biblioteca(): JSX.Element {
         </div>
       ) : loadError ? (
         <div className="glass-card p-10 flex flex-col items-center text-center gap-3">
-          <AlertTriangle size={28} className="text-red-400" />
+          <AlertTriangle size={32} className="text-red-400" />
           <p className="text-sm text-slate-300">Não foi possível carregar sua biblioteca.</p>
           <p className="text-xs text-slate-400">{loadError}</p>
           <button type="button" onClick={() => void loadGames()} className="btn-secondary mt-2">
@@ -374,7 +374,7 @@ export function Biblioteca(): JSX.Element {
       ) : games.length === 0 ? (
         <div className="glass-card p-16 flex flex-col items-center text-center gap-4">
           <div className="w-20 h-20 rounded-3xl bg-steam-blue/10 border border-steam-blue/20 flex items-center justify-center">
-            <Gamepad2 size={36} className="text-steam-blue" />
+            <Gamepad2 size={32} className="text-steam-blue" />
           </div>
           <h3 className="text-lg font-bold text-slate-200">Sua biblioteca está vazia</h3>
           <p className="text-sm text-slate-400 max-w-md">
@@ -435,7 +435,7 @@ export function Biblioteca(): JSX.Element {
               className="ml-2 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-white"
               aria-label="Fechar aviso"
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           </motion.div>
         )}

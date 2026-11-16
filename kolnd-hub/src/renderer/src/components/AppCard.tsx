@@ -168,11 +168,11 @@ export function AppCard({
         >
           {isRunning ? (
             <>
-              <Square size={13} /> Parar
+              <Square size={14} /> Parar
             </>
           ) : (
             <>
-              <Play size={13} /> Iniciar
+              <Play size={14} /> Iniciar
             </>
           )}
         </button>

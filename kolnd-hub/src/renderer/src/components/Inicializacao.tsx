@@ -303,9 +303,9 @@ export function Inicializacao({
                           }`}
                         >
                           {isSelected ? (
-                            <CheckCircle2 size={15} fill="white" />
+                            <CheckCircle2 size={16} fill="white" />
                           ) : (
-                            <Square size={15} />
+                            <Square size={16} />
                           )}
                         </button>
                       </div>
@@ -452,9 +452,9 @@ export function Inicializacao({
                           }`}
                         >
                           {isSelected ? (
-                            <CheckCircle2 size={15} fill="white" />
+                            <CheckCircle2 size={16} fill="white" />
                           ) : (
-                            <Square size={15} />
+                            <Square size={16} />
                           )}
                         </button>
                       </div>

@@ -59,9 +59,9 @@ function SelectBox({ state, disabled, onToggle, title }: SelectBoxProps): JSX.El
           : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
       }`}
     >
-      {state === 'on' && <CheckCircle2 size={15} fill="white" />}
-      {state === 'partial' && <Minus size={15} />}
-      {state === 'off' && <Square size={15} />}
+      {state === 'on' && <CheckCircle2 size={16} fill="white" />}
+      {state === 'partial' && <Minus size={16} />}
+      {state === 'off' && <Square size={16} />}
     </button>
   )
 }
@@ -78,14 +78,14 @@ function StatusBadge({ state }: { state: ItemState }): JSX.Element {
     case 'atualizando':
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-kloud-500/10 border border-kloud-500/30 text-kloud-500">
-          <Loader2 size={11} className="animate-spin" />
+          <Loader2 size={12} className="animate-spin" />
           atualizando…
         </span>
       )
     case 'concluido':
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-          <CheckCircle2 size={11} />
+          <CheckCircle2 size={12} />
           concluído
         </span>
       )
@@ -108,7 +108,7 @@ function StatusBadge({ state }: { state: ItemState }): JSX.Element {
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-red-500/10 border border-red-500/30 text-red-400"
           title={`Código de saída: ${state.exitCode ?? 'desconhecido'}`}
         >
-          <AlertTriangle size={11} />
+          <AlertTriangle size={12} />
           erro
         </span>
       )
@@ -303,7 +303,7 @@ export function PcUpdates(): JSX.Element {
   if (loading && !result) {
     body = (
       <div className="glass rounded-2xl p-12 text-center">
-        <Loader2 size={36} className="mx-auto mb-4 animate-spin text-kloud-500" />
+        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-kloud-500" />
         <p className="text-sm font-bold text-white">Verificando atualizações…</p>
         <p className="text-[12px] text-slate-400 mt-1.5">
           Isso pode levar alguns segundos na primeira vez.
@@ -313,7 +313,7 @@ export function PcUpdates(): JSX.Element {
   } else if (result && !result.ok && result.wingetMissing) {
     body = (
       <div className="glass rounded-2xl p-10 text-center border-kloud-500/20">
-        <Store size={36} className="mx-auto mb-4 text-kloud-500" />
+        <Store size={32} className="mx-auto mb-4 text-kloud-500" />
         <p className="text-sm font-bold text-white">winget não encontrado</p>
         <p className="text-[12px] text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
           Para listar e instalar atualizações de programas, instale ou atualize o{' '}
@@ -333,7 +333,7 @@ export function PcUpdates(): JSX.Element {
   } else if (result && !result.ok) {
     body = (
       <div className="glass rounded-2xl p-10 text-center border-red-500/20">
-        <AlertTriangle size={36} className="mx-auto mb-4 text-red-400" />
+        <AlertTriangle size={32} className="mx-auto mb-4 text-red-400" />
         <p className="text-sm font-bold text-white">Não foi possível verificar as atualizações</p>
         <p className="text-[12px] text-slate-400 mt-2 max-w-lg mx-auto leading-relaxed">
           {result.error ?? 'Algo deu errado ao consultar o winget.'}
@@ -367,7 +367,7 @@ export function PcUpdates(): JSX.Element {
   } else if (result?.ok && items.length === 0) {
     body = (
       <div className="glass rounded-2xl p-12 text-center border-emerald-500/20">
-        <CheckCircle2 size={40} className="mx-auto mb-4 text-emerald-400" />
+        <CheckCircle2 size={32} className="mx-auto mb-4 text-emerald-400" />
         <p className="text-sm font-bold text-emerald-400">Nenhuma atualização disponível 🎉</p>
         <p className="text-[12px] text-slate-400 mt-1.5">
           Tudo certo por aqui — seus programas estão em dia.

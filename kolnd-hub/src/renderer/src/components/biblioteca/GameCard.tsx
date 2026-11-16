@@ -82,7 +82,7 @@ export const GameCard = memo(function GameCard({
           }}
           className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
         >
-          <AlertTriangle size={10} />
+          <AlertTriangle size={12} />
           .exe não encontrado
         </span>
       )}
@@ -97,7 +97,7 @@ export const GameCard = memo(function GameCard({
           />
         ) : (
           <Gamepad2
-            size={38}
+            size={32}
             className="text-slate-400 group-hover:text-slate-300 transition-colors"
           />
         )}

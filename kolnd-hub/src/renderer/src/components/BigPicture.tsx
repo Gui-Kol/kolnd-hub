@@ -514,7 +514,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
       <main className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-8 xl:px-12 xl:py-10">
         {/* Relógio do canto superior direito (toque "console") */}
         <div className="pointer-events-none absolute top-8 right-12 text-right">
-          <p className="text-3xl 3xl:text-5xl font-light tabular-nums tracking-wider text-white/90">
+          <p className="text-3xl 3xl:text-5xl font-light tnum tracking-wider text-white/90">
             {clock}
           </p>
           <p className="mt-1 text-[10px] 3xl:text-base font-bold uppercase tracking-[0.35em] text-slate-400">

@@ -907,7 +907,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
 
       {pickError && (
         <p className="text-xs text-red-400 flex items-center gap-1.5 px-2">
-          <AlertCircle size={13} /> {pickError}
+          <AlertCircle size={14} /> {pickError}
         </p>
       )}
 
@@ -1096,7 +1096,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         {...entranceProps(reduced, {}, { delay: 0.3 })}
         className="glass rounded-2xl p-6 flex items-start gap-4 border-l-4 border-kloud-500/50"
       >
-        <AlertCircle size={22} className="text-kloud-500 shrink-0 mt-0.5" />
+        <AlertCircle size={24} className="text-kloud-500 shrink-0 mt-0.5" />
         <div>
           <p className="text-xs text-slate-400 leading-relaxed">
             Clique no campo de um caminho para abrir o explorador de arquivos e selecionar o

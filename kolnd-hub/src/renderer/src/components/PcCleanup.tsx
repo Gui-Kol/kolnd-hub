@@ -70,7 +70,7 @@ export function PcCleanup(): JSX.Element {
         className="glass rounded-2xl p-6 md:p-8 text-center space-y-5"
       >
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-kloud-500/20 to-nintendo-500/10 border border-kloud-500/20 flex items-center justify-center mx-auto">
-          <Trash2 size={28} className="text-kloud-500" />
+          <Trash2 size={32} className="text-kloud-500" />
         </div>
         <div className="space-y-1.5">
           <h3 className="text-lg font-bold text-white">Limpeza de arquivos temporários</h3>

@@ -54,7 +54,7 @@ export function Sidebar({
             title={pcName}
           >
             <Monitor
-              size={13}
+              size={14}
               className="shrink-0 text-slate-400 group-hover:text-playstation-400 transition-colors"
             />
             <span className="min-w-0 truncate">{pcName}</span>
@@ -91,7 +91,7 @@ export function Sidebar({
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
               >
-                <Icon size={17} className="shrink-0" />
+                <Icon size={18} className="shrink-0" />
                 <span className="min-w-0 truncate font-medium">{item.label}</span>
               </button>
             )
@@ -106,7 +106,7 @@ export function Sidebar({
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 hover:text-red-300 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
           aria-label="Sair do Kolnd Hub"
         >
-          <LogOut size={17} className="shrink-0" />
+          <LogOut size={18} className="shrink-0" />
           <span className="min-w-0 truncate">Sair</span>
         </button>
       )}
@@ -121,7 +121,7 @@ export function Sidebar({
             aria-label="Entrar no modo Big Picture"
             className="w-full flex items-center gap-3 px-4 py-3 mb-3 rounded-xl text-sm font-medium text-neon-cyan border border-neon-cyan/25 bg-neon-cyan/5 transition-all duration-200 hover:bg-neon-cyan/10 hover:border-neon-cyan/40 hover:shadow-glow-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
           >
-            <Gamepad2 size={17} className="shrink-0" />
+            <Gamepad2 size={18} className="shrink-0" />
             <span className="min-w-0 truncate">Big Picture</span>
           </button>
         )}

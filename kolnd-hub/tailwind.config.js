@@ -8,8 +8,9 @@ module.exports = {
         '3xl': '1920px'
       },
       fontFamily: {
+        // 13.5: Inter empacotada offline (OFL) — única família; fallback system preservado
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif']
+        display: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] // 13.5: antes era "Segoe UI"
       },
       colors: {
         kloud: {

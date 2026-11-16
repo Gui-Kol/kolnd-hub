@@ -170,7 +170,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
         {/* Logo e título */}
         <div className="flex items-center justify-center gap-3 mb-6">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange">
-            <Zap size={22} className="text-white" />
+            <Zap size={24} className="text-white" />
           </div>
           <div>
             <h2 className="text-2xl font-bold text-white tracking-tight gradient-text gradient-kloud">

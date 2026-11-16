@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Escala tipográfica (13.5) — única família: Inter (empacotada offline, OFL 1.1,
+   ver resources/fonts/OFL.txt). Tokens de referência para 13.4/13.6 — NÃO criar
+   classes de componente a partir daqui; mapear para `text-*` do Tailwind.
+
+   caption   11–12 px  · uppercase, tracking-wider · labels/eyebrows  → text-[11px]/text-xs
+   body-sm   13–14 px  · ênfase secundária, denso                    → text-[13px]/text-sm
+   body      14–15 px  · corpo de texto padrão                       → text-sm/text-[15px]
+   title-sm  16–18 px  · cards/painéis                               → text-base/text-lg
+   title     20–24 px  · títulos de seção                            → text-xl/text-2xl
+   display   28–40 px  · headers/Big Picture, clamp em 3xl (1920px)   → text-3xl … text-[40px]/3xl:
+
+   Pesos: 400 corpo · 500 ênfase · 600 títulos · 700–800 display.
+   `tracking-tight` no display; números/contadores/relógio com `tabular-nums`
+   (utilitário `.tnum` abaixo). Fallback system-ui/-apple-system mantido no
+   fontFamily (não remover Segoe/system-ui). */
+
 /* Foco visível global (WCAG 2.4.7): anel de 2px neon-cyan com offset em qualquer
    elemento focável via teclado. Não fica em @layer de propósito: CSS solto tem
    prioridade sobre as camadas do Tailwind, então nem `focus:outline-none` utilitário
@@ -216,6 +232,11 @@
 }
 
 @layer utilities {
+  /* Números tabulares (13.5): relógio/contadores/latência do Big Picture não "pulam" ao mudar o dígito */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
   .animate-pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }

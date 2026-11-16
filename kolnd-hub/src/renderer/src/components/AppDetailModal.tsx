@@ -119,7 +119,7 @@ export function AppDetailModal({
             className="absolute top-6 right-6 p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors z-20 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
             aria-label="Fechar detalhes do app"
           >
-            <X size={17} aria-hidden="true" />
+            <X size={18} aria-hidden="true" />
           </button>
 
           {/* ── Info do app ───────────────────────────── */}
@@ -228,7 +228,7 @@ export function AppDetailModal({
             <div className="mb-7">
               <div className="mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase">
-                  <ScrollText size={11} /> Saída do processo
+                  <ScrollText size={12} /> Saída do processo
                 </span>
                 <span className="text-[10px] text-slate-400">
                   {cleanLogs ? 'ao vivo' : 'sem saída'}
@@ -256,11 +256,11 @@ export function AppDetailModal({
             >
               {isRunning ? (
                 <>
-                  <Square size={15} /> Parar
+                  <Square size={16} /> Parar
                 </>
               ) : (
                 <>
-                  <Play size={15} /> Iniciar
+                  <Play size={16} /> Iniciar
                 </>
               )}
             </button>
@@ -283,7 +283,7 @@ export function AppDetailModal({
                 title="Mostrar logs"
                 aria-label="Mostrar logs"
               >
-                <ScrollText size={15} />
+                <ScrollText size={16} />
               </button>
               <button
                 onClick={() => window.api.openPath(app.cwd)}
@@ -291,7 +291,7 @@ export function AppDetailModal({
                 title="Abrir pasta"
                 aria-label="Abrir pasta"
               >
-                <FolderOpen size={15} />
+                <FolderOpen size={16} />
               </button>
               <button
                 onClick={() => void window.api.openLogsFolder()}
@@ -299,7 +299,7 @@ export function AppDetailModal({
                 title="Abrir pasta de logs"
                 aria-label="Abrir pasta de logs"
               >
-                <FileText size={15} />
+                <FileText size={16} />
               </button>
             </div>
           </div>

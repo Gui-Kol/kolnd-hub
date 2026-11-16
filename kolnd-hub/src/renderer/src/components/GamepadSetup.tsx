@@ -763,7 +763,7 @@ export function GamepadSetup({
             className="relative w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
           >
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-kloud-500/30 bg-kloud-500/10">
-              <AlertCircle size={30} strokeWidth={1.5} className="text-kloud-500" />
+              <AlertCircle size={32} strokeWidth={1.5} className="text-kloud-500" />
             </div>
             <div className="space-y-1.5">
               <h3 className="text-lg font-bold text-white">Descartar alterações?</h3>

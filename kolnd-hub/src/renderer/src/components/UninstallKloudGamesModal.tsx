@@ -374,9 +374,9 @@ export function UninstallKloudGamesModal({
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
               {isExeOrphan || isServiceOrphan ? (
-                <Files size={30} className="text-red-400" />
+                <Files size={32} className="text-red-400" />
               ) : (
-                <AlertCircle size={30} className="text-red-400" />
+                <AlertCircle size={32} className="text-red-400" />
               )}
             </div>
             <h3 id="uninstall-modal-title" className="text-lg font-bold text-white">
@@ -526,7 +526,7 @@ export function UninstallKloudGamesModal({
         {phase === 'running' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-              <AlertCircle size={30} className="text-red-400 animate-pulse" />
+              <AlertCircle size={32} className="text-red-400 animate-pulse" />
             </div>
             <h3 id="uninstall-modal-title" className="text-lg font-bold text-white">
               Desinstalação em andamento
@@ -574,7 +574,7 @@ export function UninstallKloudGamesModal({
         {phase === 'done' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-500/30 bg-emerald-500/10">
-              <Check size={30} className="text-emerald-400" />
+              <Check size={32} className="text-emerald-400" />
             </div>
             {remaining.length > 0 ? (
               <>
@@ -660,7 +660,7 @@ export function UninstallKloudGamesModal({
               }`}
             >
               <AlertCircle
-                size={30}
+                size={32}
                 className={isNeutralCancel ? 'text-slate-400' : 'text-red-400'}
               />
             </div>

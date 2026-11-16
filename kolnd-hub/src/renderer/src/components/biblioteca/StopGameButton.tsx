@@ -91,7 +91,7 @@ export const StopGameButton = memo(function StopGameButton({
       {confirming ? (
         <span className="text-[9px] font-bold uppercase tracking-wide">Confirmar?</span>
       ) : (
-        <Square size={13} />
+        <Square size={14} />
       )}
     </span>
   )

@@ -59,7 +59,7 @@ export function Layout({
             className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 transition-colors"
             aria-label="Maximizar"
           >
-            <Square size={10} />
+            <Square size={12} />
           </button>
           <button
             onClick={() => window.api.closeWindow()}
