@@ -12,6 +12,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve } from 'path'
 import { getStoredGames, StoredGame } from '../store'
 import { isValidId, isValidExePath, GameResult } from './naming'
 import { logger } from '../logger'
+import { lookupIconDataUrl, storeIconDataUrl, invalidateIconCache } from '../iconCache'
 
 /**
  * Ícones da biblioteca de jogos: extração de executáveis, cache em disco em
@@ -102,6 +103,7 @@ export function deleteStaleIcons(id: string, exceptPath: string | null): void {
     if (keep && resolve(candidate) === keep) continue
     try {
       rmSync(candidate, { force: true })
+      invalidateIconCache(candidate)
     } catch (err) {
       logger.warn('games', `Não foi possível apagar o ícone ${candidate}:`, err)
     }
@@ -121,15 +123,27 @@ function iconMimeType(filePath: string): string {
   }
 }
 
-/** Lê um PNG/JPG/WebP do disco e devolve um dataURL (ou null em qualquer falha). */
+/**
+ * Lê um PNG/JPG/WebP do disco e devolve um dataURL (ou null em qualquer falha).
+ * Servido do cache LRU em memória quando o stat (mtime/tamanho) bate — a leitura
+ * e o base64 só acontecem na primeira vez ou após o arquivo mudar.
+ */
 function readIconAsDataUrl(filePath: string): string | null {
   try {
     const stat = statSync(filePath)
-    if (!stat.isFile() || stat.size === 0 || stat.size > ICON_MAX_BYTES) return null
+    if (!stat.isFile() || stat.size === 0 || stat.size > ICON_MAX_BYTES) {
+      invalidateIconCache(filePath)
+      return null
+    }
+    const cached = lookupIconDataUrl(filePath, stat)
+    if (cached) return cached
     const buffer = readFileSync(filePath)
     if (buffer.length === 0) return null
-    return `data:${iconMimeType(filePath)};base64,${buffer.toString('base64')}`
+    const dataUrl = `data:${iconMimeType(filePath)};base64,${buffer.toString('base64')}`
+    storeIconDataUrl(filePath, stat, dataUrl)
+    return dataUrl
   } catch {
+    invalidateIconCache(filePath)
     return null
   }
 }
@@ -157,6 +171,8 @@ export async function extractIconPng(exePath: string, pngPath: string): Promise<
     if (png.length === 0) return false
     mkdirSync(dirname(pngPath), { recursive: true })
     writeFileSync(pngPath, png)
+    // Arquivo recém-escrito: derruba entradas antigas (mtime/tamanho podem repetir).
+    invalidateIconCache(pngPath)
     return true
   } catch (err) {
     logger.warn('games', `Não foi possível extrair o ícone de ${exePath}:`, err)
@@ -259,6 +275,7 @@ export function setGameIcon(id: unknown, dataUrl: unknown): IconPathResult {
   try {
     mkdirSync(dirname(iconPath), { recursive: true })
     writeFileSync(iconPath, buffer)
+    invalidateIconCache(iconPath)
   } catch (err) {
     logger.warn('games', `Não foi possível gravar o ícone ${iconPath}:`, err)
     return { success: false, error: 'Não foi possível gravar a imagem na pasta de ícones.' }
@@ -335,6 +352,7 @@ export function deleteCachedIcon(game: StoredGame): void {
   for (const candidate of candidates) {
     try {
       rmSync(candidate, { force: true })
+      invalidateIconCache(candidate)
     } catch (err) {
       logger.warn('games', `Não foi possível apagar o ícone ${candidate}:`, err)
     }
