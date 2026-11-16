@@ -747,6 +747,114 @@ Observações:
 
 ---
 
+## ✅ Verificação mínima antes de empacotar
+
+> Seção adicionada em **16/11/2026**. Tudo abaixo foi confirmado **por leitura de código** nesta data — o assistente não foi executado e nada foi reconstruído. Não substitui um teste de release em máquina limpa.
+
+### 0. O que é `core/paths.py` (estado real)
+
+- `Mark-LVI/core/paths.py` **existe** e **lê `MARK_LVI_HOME`**: `data_dir()` devolve `Path(os.environ["MARK_LVI_HOME"]).expanduser()` quando a variável está definida; senão cai para `resource_base_dir()` — a pasta do executável no build PyInstaller, ou a raiz do repositório em desenvolvimento (`sys.frozen`-aware).
+- `main.py` **importa** `from core.paths import resource_base_dir, data_dir` (linha 94) e monta `BASE_DIR`/`DATA_DIR` a partir dele: `API_CONFIG_PATH = DATA_DIR / "config" / "api_keys.json"` e `PROMPT_PATH = BASE_DIR / "core" / "prompt.txt"`. O consumo é amplo — `ui.py`, `memory/config_manager.py`, `memory/memory_manager.py`, `core/gemini.py`, `core/llm_client.py` e ~15 arquivos em `actions/` importam `data_dir`.
+- O Kolnd Hub define `MARK_LVI_HOME=%APPDATA%\kolnd-hub\mark-lvi` ao lançar o Mark LVI (`kolnd-hub/src/main/ipc/app.ts`) e espelha `config/` + `memory/` do bundle para essa pasta a cada boot (`programsDeployer.ts`, `seedMarkLviData`).
+- **Limitação honesta:** o código-fonte honrar `MARK_LVI_HOME` não prova que o `MarkLVI.exe` atualmente staged em `kolnd-hub/resources/programs/MarkLVI/` foi construído a partir dele. Nesta máquina `dist/MarkLVI/` **não existe** (16/11/2026), então isso não é verificável por leitura. Só um rebuild fecha a questão (item 1.9 do relatório). **Fonte:** leitura de `paths.py` e `main.py`, 16/11/2026.
+- Nesta máquina, `MARK_LVI_HOME` **não** está definida no shell (16/11/2026).
+
+### 1. Sintaxe — `py -3 -m compileall .`
+
+```sh
+cd Mark-LVI
+py -3 -m compileall .
+# ou, da raiz do monorepo (o que o CI faz):
+py -3 -m compileall Mark-LVI
+```
+
+Não executa nada; só compila. Resultado real nesta máquina (16/11/2026): **exit 0**. Dois avisos: `py -3` aqui resolve para **Python 3.14.5** — fora da faixa suportada (3.11–3.13; CI usa 3.12); para espelhar o CI, use `py -3.12` se instalado. O `__pycache__/` gerado é descartável (já consta no `.gitignore`).
+
+### 2. Self-test de providers — `py -3 providers/_tests.py`
+
+**Não executar de cara** — leia primeiro o que ele faz.
+
+- **O que cobre** (só `providers/`, 19 seções numeradas): os shapes reais de chamada do `main.py` (`types.Blob`), um turno completo via `TaskGroup`, engine→httpx→HTTP contra um servidor mock local, probe de visão, tradução/orçamento de schema de tools, resample de áudio, nomeação de falhas (modelo/voz concretos), normalização de endereços, custo zero quando nada está configurado, fala antes da tool, tool não executada duas vezes, alerta `[SYSTEM_ALERT]` injetado, texto falável/remoção de emoji do TTS (com CJK preservados), filtro de `<think>`, orçamento de tools para modelo local, idioma da voz Piper, pasta de vozes gravável, painel de settings (round-trip).
+- **O que NÃO cobre:** `actions/*` (as 50+ ferramentas), `plugins/*` (o contrato `run(...) -> str`), qualquer UI além do painel de settings, sessão real do Gemini Live, os hiddenimports win32 do spec.
+- **Credenciais/rede:** não exige — tudo é mock local, e o próprio arquivo diz "needs no network and no API key".
+- **Porém** a seção `[10] test_panel_settings_survive` **lê e reescreve o `config/api_keys.json` real** (salva/restaura a seção `providers`; em instalação sem config, cria o arquivo e o apaga ao final). Rodá-lo **abre o arquivo de chaves do usuário**. `MARK_LVI_HOME` não contorna isso de forma garantida — com ela definida, o teste mexeria em `$MARK_LVI_HOME/config/api_keys.json`, que pode não existir/estar vazio e ainda assim ser recriado. Exige ainda PyQt6 com `QT_QPA_PLATFORM=offscreen` (o próprio teste faz `setdefault`).
+- Por isso ele **não roda no CI** (ver "Verificação (CI e local)" acima) e **não foi executado aqui** (16/11/2026): executá-lo abriria `config/api_keys.json`, o que esta tarefa proíbe. Se você aceita tocar no seu próprio config e tem backup:
+
+  ```sh
+  cd Mark-LVI
+  QT_QPA_PLATFORM=offscreen py -3 providers/_tests.py
+  ```
+
+### 3. Conferência do `MarkLVI.spec` (registrado, não alterado)
+
+Estado em 16/11/2026:
+
+- `datas`: apenas `core/face_model.obj → core`. `hiddenimports`: `wmi`, `pycaw.pycaw`, `pywinauto`, `comtypes`, `win32com.client`, `win10toast` (todos win32). `collect_data_files('sounddevice')`; `collect_submodules` para `providers`, `core`, `memory`, `dashboard`, `actions`, `plugins`, `yt_dlp`; `collect_all('playwright')`. Ícone `config/jarvis.ico`, `console=False`, `upx=True`, COLLECT `onedir` com nome `MarkLVI`.
+- **`_tcl_data`/`_tk_data` não aparecem no spec** — nem no `build-mark-lvi.ps1`. O app usa Qt; nada importa `tkinter`, então o hook de Tcl/Tk do PyInstaller não entra em ação. Se algum bundle aparecer com esses dados, a causa não é este spec (item 2.3 do relatório). Apenas o fato é registrado; o spec não foi alterado.
+- **`pywinauto`/`wmi` etc. importam nesta máquina, exceto `win10toast`**: instalado (0.9), mas `import win10toast` falha com `ModuleNotFoundError: No module named 'pkg_resources'` (setuptools ausente no Python 3.14). O spec cita um hidden import que hoje não importa — o PyInstaller seguiria com warning "hidden import not found" e a notificação quebraria em runtime. Registrado, não corrigido.
+- **Divergência estrutural:** `kolnd-hub/scripts/build-mark-lvi.ps1` **não usa o spec** — chama `py -m PyInstaller` com flags equivalentes inline (`--add-data 'core/face_model.obj;core'`, mesmos hiddenimports e collects). Há **duas definições paralelas do mesmo build** que podem divergir; quem alterar uma deve alterar a outra.
+
+### 4. Sanity check de imports (sem abrir `config/api_keys.json`)
+
+```sh
+py -3 -c "import google.genai"   # repita trocando o módulo
+```
+
+Resultados reais nesta máquina (16/11/2026, `py -3` = Python 3.14.5):
+
+| Import | Resultado |
+|---|---|
+| `google.genai` | OK |
+| `PyQt6.QtWidgets` | OK |
+| `sounddevice` | OK |
+| `numpy` | OK |
+| `httpx` | OK |
+| `yt_dlp` | OK |
+| `playwright` | OK |
+| `wmi`, `pycaw.pycaw`, `pywinauto`, `comtypes`, `win32com.client` | OK |
+| `win10toast` | **FAIL** — `pkg_resources` ausente (ver §3) |
+
+São exatamente os imports que `main.py`, `ui.py`, `providers/` e o spec usam. O check não toca em config, rede ou credenciais.
+
+### Mapa de testes
+
+| Arquivo | O que cobre | Verificável sem credenciais? |
+|---|---|---|
+| `providers/_tests.py` | `providers/` inteiro (19 seções): shapes do `main.py`, turno via TaskGroup, engine sobre HTTP+mock, visão, schema, áudio, falhas nomeadas, endereços, custo-zero, fala-antes-da-tool, tool-uma-vez, alerta injetado, texto falável, filtro `<think>`, orçamento local, voz Piper, painel settings | **Não de forma limpa**: não usa rede/chave, mas o teste [10] abre e reescreve o `config/api_keys.json` real (restaurando ao final). Só é seguro com `MARK_LVI_HOME` apontando para pasta descartável — ou aceitando tocar o config do usuário. Não roda no CI. |
+| Suíte geral (`actions/*`, contrato `plugins/*.run() -> str`) | — | **Não existe.** Implementar é o item 4.5 do relatório. Um check mínimo do contrato (cada `plugins/*.py` expõe `PLUGIN` dict + `run(parameters, player=None, session_memory=None) -> str`, sem levantar) seria possível sem credenciais — não implementado aqui, por escopo. |
+| CI — job `mark-lvi` | `compileall` + `pip install -r requirements.txt` | Sim; mas cobre só sintaxe e instalabilidade, nada de comportamento. |
+
+### Mapa de empacotamento
+
+```
+kolnd-hub/scripts/build-mark-lvi.ps1
+  → PyInstaller (onedir, windowed, flags inline equivalentes ao spec)
+  → Mark-LVI/dist/MarkLVI/MarkLVI.exe
+  → kolnd-hub/resources/programs/MarkLVI/   (staging + varredura de segredos)
+  → npm run package                          (electron-builder; extraResources)
+```
+
+1. **`build-mark-lvi.ps1`** exige o launcher `py` no PATH; instala deps de `requirements.lock` (pins+hashes) — sem ele, cai para `requirements.txt` com warning (não reproduzível); `-SkipDeps` pula a instalação. **Não usa venv**: instala no Python que `py` resolver.
+2. **PyInstaller** gera `dist/MarkLVI/` e o script aborta se `MarkLVI.exe` não existir.
+3. **Staging**: o bundle anterior é movido para backup (`kolnd-hub-userdata-backups/MarkLVI-<timestamp>/`), preservando `config/api_keys.json`, `config/certs`, `config/whatsapp_web`, `memory`; o destino é limpo; `dist/MarkLVI/*` é copiado; itens de runtime são adicionados (`actions/`, `plugins/`, `core/prompt.txt`, `dashboard/static/`, `config/jarvis.ico`); por fim uma varredura move `*.key`, `*.pem`, `client_secret*.json`, `token*.json` para backup (nunca apaga).
+4. **`npm run package`** (`kolnd-hub/`) = `electron-vite build && electron-builder --win`. `extraResources`: `resources/programs` → `<instalador>/resources/programs`, **excluindo** `MarkLVI/config/api_keys.json`, `MarkLVI/config/certs/**`, `MarkLVI/config/whatsapp_web/**` e `MarkLVI/memory/**`.
+5. **O Hub consome**: `programsDeployer.getProgramsDir()` (`process.resourcesPath/programs` empacotado; `resources/programs` em dev); `getMarkLviDataDir()` = `%APPDATA%\kolnd-hub\mark-lvi`; `seedMarkLviData()` copia `config/` e `memory/` do bundle → pasta de dados a cada boot, só se o destino não existe ou é mais antigo (`certs/` e `whatsapp_web/` são diretórios e ficam fora do seed); `ipc/app.ts` injeta `MARK_LVI_HOME` ao lançar o programa.
+
+**Pontos de falha comuns:**
+
+- `py` resolve o Python errado (nesta máquina: 3.14.5, fora de 3.11–3.13 — nem o spec nem o ps1 fixam versão).
+- Spec e `.ps1` divergindo (duas definições paralelas do build — ver §3).
+- `requirements.lock` ausente → fallback não reproduzível, só com warning.
+- `win10toast` no spec não importa (`pkg_resources` ausente) → warning do PyInstaller; toast quebra em runtime.
+- Esquecer o `npm run package` após o rebuild → o instalador leva o bundle antigo.
+- Bundle staged carregando dados de usuário — mitigado pelo backup pré-limpeza e pelas exclusões do `extraResources`, mas o bundle local em `resources/programs/MarkLVI/` pode conter dados reais enquanto serve para teste (ver comentário no `electron-builder.yml`).
+- Primeira execução do empacotado escreve ao lado do exe (comportamento histórico); só após rebuild com `paths.py` + `MARK_LVI_HOME` o Hub passa a isolar em `%APPDATA%\kolnd-hub\mark-lvi` — por isso a instalação per-user em `%LOCALAPPDATA%\Programs\Kolnd Hub` é intencional hoje (item 1.9, pendente).
+- `UPX` ausente: o PyInstaller apenas avisa e segue (não falha o build).
+
+_Estado em 16/11/2026: bundle staged `kolnd-hub/resources/programs/MarkLVI/MarkLVI.exe` **existe**; `Mark-LVI/dist/` **não existe**. Nada nesta seção reconstrói ou valida esse exe._
+
+---
+
 ## Revisão de segurança do dashboard — 16/11/2026
 
 Revisão focada do dashboard remoto (`dashboard/server.py` + `dashboard/static/`) registrada em `dashboard/SECURITY-REVIEW-2026-11-16.md`. Estado: **revisado em 16/11/2026** — todos os endpoints de controle exigem token Bearer com TTL de 12 h; chave de pairing de 8 chars (~40 bits) com validade de 10 min, uso único e rate limit de 6 tentativas/5 min por endereço (agora também no caminho `/auto-login` do QR code, que antes não tinha throttle); binding `0.0.0.0` intencional para LAN; TLS opcional (opt-in); nenhum segredo/token em log. Correções mínimas aplicadas no próprio dashboard (throttle no `/auto-login`, headers de segurança, mensagem de erro de upload sem exceção interna, `login.html` aceitando a chave de 8 chars). Pendências/recomendações fora do escopo: HTTPS obrigatório por default, TTL para `device_token`, token fora da query string, CSP — ver R1–R11 no relatório. Teste in-process passou (14/14); pareamento manual com celular físico fica para sessão na LAN.
