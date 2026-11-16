@@ -69,6 +69,13 @@ export interface StoredAppConfig {
    * Preservado pela normalização (round-trip leitura→gravação garantido).
    */
   autoRestart?: boolean
+  /**
+   * Log persistente OPT-IN (05-5.7): grava stdout/stderr do processo em
+   * `%APPDATA%\kolnd-hub\logs\<appId>.log` (rotação 1 MB → `<appId>.log.1`,
+   * máx. 2 arquivos por app). Ausente/false = nada muda (ring buffer em RAM).
+   * Preservado pela normalização (round-trip leitura→gravação garantido).
+   */
+  persistLogs?: boolean
 }
 
 export interface HubStoreSchema {
@@ -133,6 +140,7 @@ export function normalizeAppConfig(input: unknown): StoredAppConfig | null {
   if (typeof raw.url === 'string' && raw.url) normalized.url = raw.url
   if (typeof raw.useShell === 'boolean') normalized.useShell = raw.useShell
   if (typeof raw.autoRestart === 'boolean') normalized.autoRestart = raw.autoRestart
+  if (typeof raw.persistLogs === 'boolean') normalized.persistLogs = raw.persistLogs
   return normalized
 }
 
@@ -342,7 +350,8 @@ const schema: Store.Schema<HubStoreSchema> = {
         tags: { type: 'array', items: { type: 'string' } },
         url: { type: 'string' },
         useShell: { type: 'boolean' },
-        autoRestart: { type: 'boolean' }
+        autoRestart: { type: 'boolean' },
+        persistLogs: { type: 'boolean' }
       }
     }
   },

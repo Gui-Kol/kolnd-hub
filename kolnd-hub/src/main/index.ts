@@ -45,13 +45,17 @@ if (testUserData) {
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-// Auto-restart (06-6.4): o ProcessManager NÃO importa o store — a preferência
-// por app é resolvida aqui, via `getAppPrefs(appId)`, e injetada no launch.
-// Default false (opt-in por app em Configurações → Gerenciador de títulos).
+// Auto-restart (06-6.4) e log persistente (05-5.7): o ProcessManager NÃO importa
+// o store — a preferência por app é resolvida aqui, via `getAppPrefs(appId)`, e
+// injetada no launch. Default false nos dois (opt-in por app em
+// Configurações → Gerenciador de títulos).
 const processManager = new ProcessManager({
   getAppPrefs: (appId) => {
     const app = getConfigSnapshot().apps?.find((a) => a.id === appId)
-    return { autoRestart: app?.autoRestart === true }
+    return {
+      autoRestart: app?.autoRestart === true,
+      persistLogs: app?.persistLogs === true
+    }
   }
 })
 

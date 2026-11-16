@@ -273,6 +273,9 @@ const api = {
   // ── Shell ───────────────────────────────────────
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:openPath', path),
+  // Abre `%APPDATA%/kolnd-hub/logs` no Explorer (05-5.7) — sem argumentos.
+  openLogsFolder: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('app:open-logs-folder'),
 
   // Config persistente (electron-store). Fallback do renderer: localStorage
   // (usado se a IPC falhar ou o store estiver indisponível). Migração única

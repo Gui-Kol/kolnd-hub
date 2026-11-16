@@ -533,6 +533,36 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                   <span className="toggle-console-knob" />
                 </button>
               </div>
+
+              {/* Log persistente (05-5.7): opt-in por app. Persiste junto de
+                  onSave(apps) — nenhum IPC novo de preferência. */}
+              <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+                <span className="text-xs text-slate-400 leading-relaxed">
+                  <span className="text-slate-200 font-semibold">
+                    Gravar logs em arquivo para este app
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={app.persistLogs === true}
+                  aria-label="Gravar logs em arquivo para este app"
+                  onClick={() => {
+                    setEditedApps((prev) => {
+                      const next = [...prev]
+                      next[index] = {
+                        ...next[index],
+                        persistLogs: !(next[index].persistLogs === true)
+                      }
+                      return next
+                    })
+                    setSaved(false)
+                  }}
+                  className={`toggle-console shrink-0 ${app.persistLogs === true ? 'toggle-console-checked' : ''}`}
+                >
+                  <span className="toggle-console-knob" />
+                </button>
+              </div>
             </motion.div>
           )
         })}

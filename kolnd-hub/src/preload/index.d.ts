@@ -214,6 +214,8 @@ declare global {
       // ── Shell ───────────────────────────────────────
       openExternal: (url: string) => Promise<void>
       openPath: (path: string) => Promise<void>
+      // Abre `%APPDATA%/kolnd-hub/logs` no Explorer (05-5.7) — sem argumentos.
+      openLogsFolder: () => Promise<{ success: boolean; error?: string }>
 
       // Config persistente (electron-store)
       configGet: () => Promise<{

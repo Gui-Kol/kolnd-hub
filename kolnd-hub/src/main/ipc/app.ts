@@ -1,10 +1,13 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell, app } from 'electron'
+import { mkdirSync } from 'fs'
+import { join } from 'path'
 import { killProcessesForCommand } from '../processKiller'
 import { invalidateKloudGamesRunningCache } from '../kloudGames'
 import { getMarkLviDataDir } from '../programsDeployer'
 import { isAnyUninstallInProgress } from '../uninstaller'
 import { shutdownHub } from './lifecycle'
 import type { IpcContext } from './lifecycle'
+import { logger } from '../logger'
 
 export function registerAppIpc(ctx: IpcContext): void {
   // ── IPC: App management ─────────────────────────
@@ -68,6 +71,23 @@ export function registerAppIpc(ctx: IpcContext): void {
   ipcMain.handle('app:logs', async (_event, appId: unknown) => {
     if (typeof appId !== 'string') return ''
     return processManager.getLogs(appId)
+  })
+
+  // Abre `%APPDATA%/kolnd-hub/logs` no Explorer (05-5.7). Sem argumentos —
+  // o caminho é sempre o do userData, nunca algo vindo do renderer.
+  ipcMain.handle('app:open-logs-folder', async () => {
+    try {
+      const logsDir = join(app.getPath('userData'), 'logs')
+      // shell.openPath falha silenciosamente se a pasta não existe ainda
+      // (nenhum app com a pref ligada logou nesta máquina).
+      mkdirSync(logsDir, { recursive: true })
+      const failure = await shell.openPath(logsDir)
+      return failure ? { success: false, error: failure } : { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn('app', `app:open-logs-folder falhou: ${message}`)
+      return { success: false, error: message }
+    }
   })
 
   ipcMain.handle('app:shutdown', async () => {

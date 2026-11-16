@@ -164,6 +164,22 @@ describe('normalizeAppConfig', () => {
         .autoRestart
     ).toBeUndefined()
   })
+
+  it('persistLogs opcional é preservado apenas quando booleano (05-5.7)', () => {
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', persistLogs: true }) as StoredAppConfig)
+        .persistLogs
+    ).toBe(true)
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', persistLogs: false }) as StoredAppConfig)
+        .persistLogs
+    ).toBe(false)
+    // valor não-booleano é descartado (nunca vira truthy por acidente)
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', persistLogs: 'yes' }) as StoredAppConfig)
+        .persistLogs
+    ).toBeUndefined()
+  })
 })
 
 describe('normalizeAppConfigs', () => {
@@ -411,6 +427,24 @@ describe('setApps / setStartupImportance', () => {
     // relê como se viesse do disco (normalização na leitura/migração)
     const relida = normalizeAppConfigs(gravada)
     expect(relida[0].autoRestart).toBe(true)
+  })
+
+  it('persistLogs sobrevive ao round-trip grava→lê→normaliza (05-5.7)', () => {
+    const res = setApps([
+      {
+        id: 'a',
+        command: 'a.exe',
+        cwd: 'c',
+        persistLogs: true
+      } as never
+    ])
+    expect(res.success).toBe(true)
+    // simula o que foi para o config.json
+    const gravada = holder().set.mock.calls[0][1] as Array<Record<string, unknown>>
+    expect(gravada[0].persistLogs).toBe(true)
+    // relê como se viesse do disco (normalização na leitura/migração)
+    const relida = normalizeAppConfigs(gravada)
+    expect(relida[0].persistLogs).toBe(true)
   })
 
   it('setStartupImportance normaliza e grava (null → mapa vazio salvo sem lançar)', () => {

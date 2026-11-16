@@ -8,7 +8,8 @@ import {
   Terminal,
   ExternalLink,
   FolderOpen,
-  ScrollText
+  ScrollText,
+  FileText
 } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 
@@ -269,6 +270,14 @@ export function AppDetailModal({
                 title="Abrir pasta"
               >
                 <FolderOpen size={15} />
+              </button>
+              <button
+                onClick={() => void window.api.openLogsFolder()}
+                className="flex items-center justify-center px-3 py-2.5 rounded-xl text-slate-400 glass glass-hover"
+                title="Abrir pasta de logs"
+                aria-label="Abrir pasta de logs"
+              >
+                <FileText size={15} />
               </button>
             </div>
           </div>

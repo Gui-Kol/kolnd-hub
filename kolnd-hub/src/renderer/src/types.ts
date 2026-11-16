@@ -23,6 +23,12 @@ export interface AppConfig {
    * Ausente/false = comportamento padrão (sem reinício).
    */
   autoRestart?: boolean
+  /**
+   * Log persistente OPT-IN (task 05-5.7): grava stdout/stderr do processo em
+   * `%APPDATA%\kolnd-hub\logs\<appId>.log` (rotação 1 MB → `<appId>.log.1`,
+   * máx. 2 arquivos por app). Ausente/false = nada muda (ring buffer em RAM).
+   */
+  persistLogs?: boolean
 }
 
 export type AppStatus = 'running' | 'stopped' | 'error'

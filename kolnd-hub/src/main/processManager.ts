@@ -1,9 +1,17 @@
 import { spawn, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync } from 'fs'
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  statSync,
+  type WriteStream
+} from 'fs'
 import { homedir } from 'os'
-import { resolve } from 'path'
+import { join, resolve } from 'path'
 import treeKill from 'tree-kill'
+import { app } from 'electron'
 import { splitCommandLine, checkCommandLine } from './commandLine'
 import { logger } from './logger'
 
@@ -34,9 +42,14 @@ export interface LaunchContext {
 /** Preferências por app resolvidas pelo chamador (index.ts injeta `getAppPrefs`). */
 export interface AppPrefs {
   autoRestart?: boolean
+  /** Gravar stdout/stderr do processo em `<userData>/logs/<appId>.log` (opt-in, 05-5.7). */
+  persistLogs?: boolean
 }
 
 export type GetAppPrefs = (appId: string) => AppPrefs | undefined
+
+/** Tamanho máximo de `<appId>.log` antes da rotação para `<appId>.log.1` (1 MB). */
+export const PERSIST_LOG_MAX_BYTES = 1024 * 1024
 
 /** Máximo de relançamentos automáticos por janela deslizante. */
 export const AUTO_RESTART_MAX_ATTEMPTS = 3
@@ -122,13 +135,108 @@ export class ProcessManager extends EventEmitter {
   private processes: Map<string, ProcessInfo> = new Map()
   /** Timestamps das tentativas de auto-restart por appId (janela deslizante). */
   private restartAttempts: Map<string, number[]> = new Map()
+  /** Streams de log em arquivo por appId (só com a pref `persistLogs` ativa). */
+  private logStreams: Map<string, WriteStream> = new Map()
   private readonly getAppPrefs: GetAppPrefs
+  /** Diretório dos logs por app; quando ausente, resolve `<userData>/logs` na 1ª escrita. */
+  private readonly logsDir?: string
 
-  constructor(options: { getAppPrefs?: GetAppPrefs } = {}) {
+  constructor(options: { getAppPrefs?: GetAppPrefs; logsDir?: string } = {}) {
     super()
     // Sem injetor (ex.: testes legados), nada é reiniciado — opt-in por app exige
     // que o index.ts injete um leitor real das preferências (ver getConfigSnapshot).
     this.getAppPrefs = options.getAppPrefs ?? (() => undefined)
+    this.logsDir = options.logsDir
+  }
+
+  /** Diretório dos logs por app — injetável (testes); default `<userData>/logs`. */
+  private resolveLogsDir(): string {
+    if (this.logsDir) return this.logsDir
+    try {
+      return join(app.getPath('userData'), 'logs')
+    } catch {
+      // Fora do Electron (testes sem mock) — degrada para o cwd, nunca lança.
+      return join(process.cwd(), 'logs')
+    }
+  }
+
+  /** Nome de arquivo seguro para o appId (defesa contra path traversal via IPC). */
+  private static logFileName(appId: string): string {
+    return `${appId.replace(/[^a-zA-Z0-9._-]/g, '_')}.log`
+  }
+
+  /**
+   * Rotação 1 MB → `<appId>.log.1` (sobrescreve o anterior; máx. 2 arquivos por app).
+   * Best-effort: nunca lança. Quem chama deve ter fechado o stream antes (Windows
+   * trava arquivo aberto para rename).
+   */
+  private rotateLogIfNeeded(logPath: string): void {
+    try {
+      if (statSync(logPath).size <= PERSIST_LOG_MAX_BYTES) return
+      renameSync(logPath, `${logPath}.1`)
+    } catch {
+      // Arquivo inexistente/ilegível ou rename negado — segue escrevendo no atual.
+    }
+  }
+
+  /** Abre (append) o stream de log do app; retorna null se o disco falhar. */
+  private openLogStream(appId: string): WriteStream | null {
+    const dir = this.resolveLogsDir()
+    const logPath = join(dir, ProcessManager.logFileName(appId))
+    try {
+      mkdirSync(dir, { recursive: true })
+      // Arquivo já acima de 1 MB de sessões anteriores → rotaciona antes de anexar.
+      this.rotateLogIfNeeded(logPath)
+      const stream = createWriteStream(logPath, { flags: 'a' })
+      // Disco cheio/permissão mudando no meio da sessão: nunca derruba o app.
+      stream.on('error', () => {})
+      this.logStreams.set(appId, stream)
+      return stream
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Grava um chunk no arquivo do app (prefixo `[iso] `), com rotação por tamanho
+   * ANTES de escrever. Ring buffer em RAM não é tocado aqui.
+   */
+  private writeAppLog(appId: string, text: string): void {
+    const logPath = join(this.resolveLogsDir(), ProcessManager.logFileName(appId))
+    const existing = this.logStreams.get(appId)
+    if (!existing) return
+    let stream = existing
+    try {
+      if (statSync(logPath).size > PERSIST_LOG_MAX_BYTES) {
+        // Windows não renomeia arquivo com stream aberto: fecha, rotaciona, reabre.
+        stream.end()
+        this.logStreams.delete(appId)
+        try {
+          renameSync(logPath, `${logPath}.1`)
+        } catch {
+          // Sem rotação — a escrita segue no arquivo atual (recriado abaixo).
+        }
+        const reopened = this.openLogStream(appId)
+        if (!reopened) return
+        stream = reopened
+      }
+    } catch {
+      // Arquivo ainda não criado (1º write) ou statSync falhou — segue escrevendo.
+    }
+    stream.write(`[${new Date().toISOString()}] ${text}`)
+  }
+
+  /** Escreve a linha de encerramento e fecha o stream do app (idempotente). */
+  private finishAppLog(appId: string, line: string): void {
+    const stream = this.logStreams.get(appId)
+    if (!stream) return
+    this.logStreams.delete(appId)
+    try {
+      stream.write(`[${new Date().toISOString()}] ${line}\n`)
+      stream.end()
+    } catch {
+      // best-effort — o fechamento nunca bloqueia o ciclo de vida do processo
+    }
   }
 
   /** Cancela o timer de auto-restart pendente, se houver. */
@@ -246,6 +354,7 @@ export class ProcessManager extends EventEmitter {
       }
 
       const prefs = this.getAppPrefs(appId)
+      const persistLogs = prefs?.persistLogs === true
       const info: ProcessInfo = {
         process: child,
         appId,
@@ -257,11 +366,14 @@ export class ProcessManager extends EventEmitter {
         autoRestart: prefs?.autoRestart === true,
         restartTimer: null
       }
+      // Opt-in (05-5.7): abre o stream append ANTES de qualquer chunk chegar.
+      if (persistLogs) this.openLogStream(appId)
 
       child.stdout?.on('data', (data: Buffer) => {
         const text = data.toString()
         info.logs.push(text)
         if (info.logs.length > 1000) info.logs.shift()
+        this.writeAppLog(appId, text)
         this.emit('output', appId, text)
       })
 
@@ -269,6 +381,8 @@ export class ProcessManager extends EventEmitter {
         const text = data.toString()
         info.logs.push(`[ERR] ${text}`)
         if (info.logs.length > 1000) info.logs.shift()
+        // Mesmo prefixo [ERR] do ring buffer — coerência entre UI e arquivo.
+        this.writeAppLog(appId, `[ERR] ${text}`)
         this.emit('output', appId, text)
       })
 
@@ -276,6 +390,7 @@ export class ProcessManager extends EventEmitter {
         // A process we stopped on purpose must not be reported as an error,
         // even though taskkill makes it exit with a non-zero code.
         info.status = info.stopping ? 'stopped' : code === 0 ? 'stopped' : 'error'
+        this.finishAppLog(appId, `[exit code ${code}]`)
         // Auto-restart OPT-IN: só quando o encerramento foi por queda (não pedido
         // pelo Hub) e há orçamento na janela. O timer é guardado em `info` e
         // cancelado por stop()/killAll().
@@ -288,6 +403,7 @@ export class ProcessManager extends EventEmitter {
       child.on('error', (err) => {
         info.status = 'error'
         info.logs.push(`[ERROR] ${err.message}`)
+        this.finishAppLog(appId, `[ERROR] ${err.message}`)
         this.emit('status-change', appId, 'error')
       })
 

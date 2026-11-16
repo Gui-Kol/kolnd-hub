@@ -115,6 +115,16 @@ describe('mergeAppConfigs', () => {
     expect(merged.find((a) => a.id === 'mark-lvi')?.autoRestart).toBe(true)
     expect(merged.find((a) => a.id === 'kloud-games')?.autoRestart).toBeUndefined()
   })
+
+  it('preserva persistLogs no round-trip parse→merge→save (05-5.7)', () => {
+    const parsed = parseSavedApps(
+      JSON.stringify([app({ id: 'mark-lvi', persistLogs: true }), app({ id: 'kloud-games' })])
+    )
+    expect(parsed).not.toBeNull()
+    const merged = mergeAppConfigs(parsed!)
+    expect(merged.find((a) => a.id === 'mark-lvi')?.persistLogs).toBe(true)
+    expect(merged.find((a) => a.id === 'kloud-games')?.persistLogs).toBeUndefined()
+  })
 })
 
 describe('parseStartupImportance', () => {
