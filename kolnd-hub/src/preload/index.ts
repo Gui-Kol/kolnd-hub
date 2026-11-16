@@ -40,6 +40,13 @@ const api = {
   setNotifyOnCrash: (value: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('prefs:set-notify', value),
 
+  // ── Autostart do Hub no Windows (07-7.3) ─────────
+  getHubAutostart: (): Promise<{ enabled: boolean; supported: boolean }> =>
+    ipcRenderer.invoke('hub:getAutostart'),
+
+  setHubAutostart: (value: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('hub:setAutostart', value),
+
   // ── Big Picture (modo tela cheia) ────────────────
   getGamepadConfig: (): Promise<{
     ok: boolean

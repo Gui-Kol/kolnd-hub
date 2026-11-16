@@ -14,7 +14,8 @@ import {
   Loader2,
   AlertTriangle,
   FlaskConical,
-  Bell
+  Bell,
+  Power
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -44,6 +45,13 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const [notifyOnCrash, setNotifyOnCrash] = useState<boolean | null>(null)
   const [notifyFeedback, setNotifyFeedback] = useState<'saved' | 'error' | null>(null)
   const notifyFeedbackTimer = useRef<number | null>(null)
+  // Autostart do próprio Hub no Windows (07-7.3): estado lido do SO via IPC.
+  // `null` enquanto carrega; `supported=false` fora do app instalado (dev) —
+  // toggle desabilitado com dica.
+  const [autostart, setAutostart] = useState<boolean | null>(null)
+  const [autostartSupported, setAutostartSupported] = useState(true)
+  const [autostartFeedback, setAutostartFeedback] = useState<'saved' | 'error' | null>(null)
+  const autostartFeedbackTimer = useRef<number | null>(null)
   const [exportingDiagnostic, setExportingDiagnostic] = useState(false)
   // Issues inline do campo de comando, por id de app (debounce de ~300 ms no
   // efeito abaixo) + resultado do botão "Testar comando" (clique explícito).
@@ -62,6 +70,26 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       })
       .catch(() => {
         if (mounted) setLaunchKloudOnStart(false)
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    window.api
+      .getHubAutostart()
+      .then((value) => {
+        if (!mounted) return
+        setAutostart(value.enabled)
+        setAutostartSupported(value.supported)
+      })
+      .catch((err) => {
+        console.error('[settings] Falha ao ler o autostart do Hub:', err)
+        if (!mounted) return
+        setAutostart(false)
+        setAutostartSupported(false)
       })
     return (): void => {
       mounted = false
@@ -114,6 +142,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     () => () => {
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
       if (notifyFeedbackTimer.current) window.clearTimeout(notifyFeedbackTimer.current)
+      if (autostartFeedbackTimer.current) window.clearTimeout(autostartFeedbackTimer.current)
     },
     []
   )
@@ -135,6 +164,26 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     } finally {
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
       prefFeedbackTimer.current = window.setTimeout(() => setPrefFeedback(null), 2500)
+    }
+  }
+
+  const handleToggleAutostart = async (): Promise<void> => {
+    if (autostart === null || !autostartSupported) return
+    const next = !autostart
+    setAutostart(next)
+    setAutostartFeedback(null)
+    try {
+      const result = await window.api.setHubAutostart(next)
+      if (!result.success) throw new Error(result.error ?? 'erro desconhecido')
+      setAutostartFeedback('saved')
+    } catch (err) {
+      console.error('[settings] Falha ao salvar autostart:', err)
+      // Reverte o toggle — o valor real continua sendo o persistido no SO.
+      setAutostart(!next)
+      setAutostartFeedback('error')
+    } finally {
+      if (autostartFeedbackTimer.current) window.clearTimeout(autostartFeedbackTimer.current)
+      autostartFeedbackTimer.current = window.setTimeout(() => setAutostartFeedback(null), 2500)
     }
   }
 
@@ -297,51 +346,105 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         Ao abrir o Hub
       </p>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
-      >
-        <div className="flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-start gap-4 min-w-0">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
-              <Gamepad2 size={20} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">
-                Iniciar Kloud Games junto com o Kolnd Hub
-              </h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                O Hub abre o Kloud Games em segundo plano sempre que for iniciado.
-              </p>
-              {prefFeedback === 'saved' && (
-                <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <Check size={12} /> Salvo
+      <div className="space-y-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+        >
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-start gap-4 min-w-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+                <Gamepad2 size={20} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-white">
+                  Iniciar Kloud Games junto com o Kolnd Hub
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  O Hub abre o Kloud Games em segundo plano sempre que for iniciado.
                 </p>
-              )}
-              {prefFeedback === 'error' && (
-                <p className="mt-2 text-[11px] font-semibold text-red-400">
-                  Não foi possível salvar. Tente de novo.
-                </p>
-              )}
+                {prefFeedback === 'saved' && (
+                  <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <Check size={12} /> Salvo
+                  </p>
+                )}
+                {prefFeedback === 'error' && (
+                  <p className="mt-2 text-[11px] font-semibold text-red-400">
+                    Não foi possível salvar. Tente de novo.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
 
-          <button
-            type="button"
-            role="switch"
-            aria-checked={launchKloudOnStart === true}
-            aria-label="Iniciar Kloud Games junto com o Kolnd Hub"
-            disabled={launchKloudOnStart === null}
-            onClick={() => void handleTogglePref()}
-            className={`toggle-console shrink-0 ${
-              launchKloudOnStart === true ? 'toggle-console-checked' : ''
-            } ${launchKloudOnStart === null ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <span className="toggle-console-knob" />
-          </button>
-        </div>
-      </motion.div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={launchKloudOnStart === true}
+              aria-label="Iniciar Kloud Games junto com o Kolnd Hub"
+              disabled={launchKloudOnStart === null}
+              onClick={() => void handleTogglePref()}
+              className={`toggle-console shrink-0 ${
+                launchKloudOnStart === true ? 'toggle-console-checked' : ''
+              } ${launchKloudOnStart === null ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span className="toggle-console-knob" />
+            </button>
+          </div>
+        </motion.div>
+
+        {/* ── Autostart do Hub no Windows (07-7.3) ────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+        >
+          <div className="flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-start gap-4 min-w-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+                <Power size={20} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-white">
+                  Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  O Hub sobe junto com o Windows, direto para a bandeja — sem abrir a janela.
+                </p>
+                {!autostartSupported && (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Disponível apenas no app instalado
+                  </p>
+                )}
+                {autostartFeedback === 'saved' && (
+                  <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <Check size={12} /> Salvo
+                  </p>
+                )}
+                {autostartFeedback === 'error' && (
+                  <p className="mt-2 text-[11px] font-semibold text-red-400">
+                    Não foi possível salvar. Tente de novo.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autostart === true}
+              aria-label="Iniciar o Kolnd Hub com o Windows (minimizado na bandeja)"
+              disabled={autostart === null || !autostartSupported}
+              onClick={() => void handleToggleAutostart()}
+              className={`toggle-console shrink-0 ${
+                autostart === true ? 'toggle-console-checked' : ''
+              } ${autostart === null || !autostartSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span className="toggle-console-knob" />
+            </button>
+          </div>
+        </motion.div>
+      </div>
 
       {/* ── Notificações ─────────────────────────────── */}
       <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">

@@ -10,6 +10,7 @@ import { ProcessManager, setBaseDir } from './processManager'
 import { isFirstRun } from './firstRun'
 import { registerSystemIpc } from './ipc/system'
 import { registerStartupIpc } from './ipc/startup'
+import { registerLoginItemIpc } from './loginItem'
 import { registerFirstRunIpc as registerFirstRunStatusIpc } from './ipc/firstRun'
 import { registerFirstRunIpc as registerFirstRunInstallerIpc } from './firstRunInstaller'
 import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
@@ -85,7 +86,7 @@ if (gotSingleInstanceLock) {
   app.quit()
 }
 
-function createWindow(isFirstRunMode = false): void {
+function createWindow(isFirstRunMode = false, startHidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -104,6 +105,9 @@ function createWindow(isFirstRunMode = false): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    // --hidden (autostart do Hub no Windows): a janela fica viva e oculta —
+    // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
+    if (startHidden) return
     mainWindow!.show()
   })
 
@@ -222,6 +226,9 @@ app.whenReady().then(() => {
   // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
   registerPrefsIpc()
 
+  // Registra os canais IPC do autostart do próprio Hub no Windows (--hidden).
+  registerLoginItemIpc()
+
   // Registra os canais IPC do modo Big Picture (controle + preferências de sons).
   registerGamepadIpc()
 
@@ -296,7 +303,14 @@ app.whenReady().then(() => {
   })
 
   const firstRun = isFirstRun()
-  createWindow(firstRun)
+  // --hidden: o Windows lança o Hub com essa flag (args registrados no Run,
+  // ver loginItem.ts) para subir direto para a bandeja. Ignorado na primeira
+  // execução — o wizard de onboarding sempre aparece.
+  const startHidden = process.argv.includes('--hidden') && !firstRun
+  if (startHidden) {
+    logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
+  }
+  createWindow(firstRun, startHidden)
   createTray()
 })
 

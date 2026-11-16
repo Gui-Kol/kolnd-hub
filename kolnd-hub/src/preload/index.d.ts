@@ -46,6 +46,9 @@ declare global {
       setLaunchKloudOnStart: (value: boolean) => Promise<{ success: boolean; error?: string }>
       getNotifyOnCrash: () => Promise<boolean>
       setNotifyOnCrash: (value: boolean) => Promise<{ success: boolean; error?: string }>
+      // ── Autostart do Hub no Windows (07-7.3) ─────
+      getHubAutostart: () => Promise<{ enabled: boolean; supported: boolean }>
+      setHubAutostart: (value: boolean) => Promise<{ success: boolean; error?: string }>
 
       // ── App management ──────────────────────────────
       launchApp: (
