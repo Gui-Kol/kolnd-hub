@@ -1,6 +1,5 @@
 import { app, dialog, ipcMain, nativeImage } from 'electron'
 import { spawn, execFileSync } from 'child_process'
-import { createHash } from 'crypto'
 import {
   existsSync,
   mkdirSync,
@@ -12,6 +11,14 @@ import {
 } from 'fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
 import { getStoredGames, setStoredGames, normalizeGame, StoredGame, GameOrigin } from './store'
+import {
+  formatGameName,
+  exePathHash,
+  isValidId,
+  isValidExePath,
+  EXE_PATH_MAX_LENGTH,
+  GameResult
+} from './games/naming'
 import { listRunningProcesses } from './startupManager'
 import treeKill from 'tree-kill'
 import { logger } from './logger'
@@ -42,84 +49,9 @@ export interface Game {
   addedAt: string
 }
 
-/**
- * Siglas preservadas em maiúsculas na formatação do nome derivado do arquivo.
- * Lista curta e conhecida — o objetivo é previsibilidade, não perfeição.
- */
-const KNOWN_ACRONYMS = new Set([
-  'GTA',
-  'FIFA',
-  'RPG',
-  'FPS',
-  'MMO',
-  'MMORPG',
-  'MOBA',
-  'RTS',
-  'DLC',
-  'VR',
-  'HD',
-  'HDR',
-  'AI',
-  'NPC'
-])
-
-/** Numerais romanos comuns em títulos (mantidos em maiúsculas). */
-const ROMAN_NUMERALS = new Set([
-  'II',
-  'III',
-  'IV',
-  'VI',
-  'VII',
-  'VIII',
-  'IX',
-  'XI',
-  'XII',
-  'XIII',
-  'XIV',
-  'XV',
-  'XX'
-])
-
-function formatNameWord(word: string): string {
-  const upper = word.toUpperCase()
-  if (KNOWN_ACRONYMS.has(upper)) return upper
-  if (ROMAN_NUMERALS.has(upper)) return upper
-  if (/^\d+$/.test(word)) return word
-  // Palavra já escrita em maiúsculas e curta (ex.: "V", "GTA"): mantém.
-  if (word.length <= 5 && word === upper && /^[A-Z0-9]+$/.test(word)) return upper
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-}
-
-/**
- * Deriva um nome legível a partir do nome do arquivo sem extensão.
- * Heurística intencionalmente simples e previsível (documentada no código):
- *  1. `.`, `_`, `-` e espaços múltiplos viram um único espaço;
- *  2. cada palavra recebe inicial maiúscula e o restante minúscula;
- *  3. siglas conhecidas (GTA, FIFA…), numerais romanos (II, III…) e palavras
- *     já em maiúsculas com até 5 caracteres são preservadas como estão;
- *  4. acentos são mantidos; sufixos técnicos comuns (`_x64`, `-Win64-Shipping`)
- *     NÃO são removidos — viram "X64"/"Win64 Shipping" no nome. Aceito de
- *     propósito para manter a regra simples e sem surpresas.
- * Se nada sobrar (ex.: arquivo "___.exe"), devolve "Jogo sem nome".
- */
-export function formatGameName(rawBase: string): string {
-  const cleaned = rawBase
-    .replace(/[._-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!cleaned) return 'Jogo sem nome'
-  return cleaned.split(' ').map(formatNameWord).join(' ')
-}
-
-/** Hash determinístico (40 bits) de um caminho normalizado — mesmo espírito do steamScanner. */
-function exePathHash(exePath: string): string {
-  return createHash('sha1').update(exePath.toLowerCase()).digest('hex').slice(0, 10)
-}
-
-export interface GameResult {
-  success: boolean
-  error?: string
-}
+/** Re-exporta o que saiu para games/naming.ts, mantendo a superfície pública de './games'. */
+export { formatGameName } from './games/naming'
+export type { GameResult } from './games/naming'
 
 /** Resultado de `games:add-custom` — inclui o nome formatado para o toast de confirmação. */
 export interface AddCustomGameResult extends GameResult {
@@ -143,8 +75,6 @@ export interface PreviewExeIconResult extends GameResult {
   dataUrl?: string
 }
 
-const GAME_ID_MAX_LENGTH = 200
-const EXE_PATH_MAX_LENGTH = 1024
 /** Ícones são pequenos; qualquer coisa maior que isso não é um ícone válido. */
 const ICON_MAX_BYTES = 4 * 1024 * 1024
 /** Formatos de imagem aceitos para capa/ícone de jogo (`.ico` NÃO decodifica de forma confiável no nativeImage). */
@@ -153,18 +83,6 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 /** Pasta canônica de ícones cacheados dos jogos. */
 export function gameIconsDir(): string {
   return join(app.getPath('userData'), 'game-icons')
-}
-
-function isValidId(id: unknown): id is string {
-  return typeof id === 'string' && id.trim().length > 0 && id.trim().length <= GAME_ID_MAX_LENGTH
-}
-
-function isValidExePath(exePath: unknown): exePath is string {
-  return (
-    typeof exePath === 'string' &&
-    exePath.trim().length > 0 &&
-    exePath.trim().length <= EXE_PATH_MAX_LENGTH
-  )
 }
 
 /**
