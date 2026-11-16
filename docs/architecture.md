@@ -79,8 +79,9 @@ Processo Node completo. Responsabilidades principais:
 por canal IPC (invocações) e helpers de assinatura/remoção para eventos
 (`onStatusChanged`, `onAppOutput`, `onFirstRunProgress`…). O renderer **nunca** vê
 `ipcRenderer`, `require` ou Node. `index.d.ts` tipifica `window.api` para o renderer.
-O preload espelha à mão os tipos do gamepad (ver §6) — qualquer mudança nos 12 controles
-deve ser refletida lá e em `renderer/src/lib/gamepad/types.ts`.
+O preload consome os tipos de gamepad de `src/shared/gamepad.ts` (ver §6) —
+não há espelho manual; qualquer mudança nos 12 controles/índices acontece lá
+e quebra os três processos em compilação, se esquecida.
 
 ### Renderer (`src/renderer/`)
 
@@ -223,8 +224,8 @@ antes de liberar a home.
   entrar e restaurados no `leave-full-screen` (janelas maximizadas ficam fora dessa
   restauração).
 - **Gamepad**: `hooks/useGamepad.ts` (detecção/leitura via Gamepad API), `lib/gamepad/`
-  (`profiles.ts` — xbox/playstation/switch/generic, `detect.ts`, `types.ts` — espelho dos
-  12 controles/índices, mantido em sincronia manual com `store.ts` e `preload/index.ts`).
+  (`profiles.ts` — xbox/playstation/switch/generic, `detect.ts`, `types.ts` — re-export
+  dos tipos canônicos de `src/shared/gamepad.ts`, única fonte para main/preload/renderer).
 - **Navegação espacial**: `lib/spatialNav.ts` (`nearestInDirection`) — calcula o focável
   mais próximo por direção (semiplano + ângulo de desvio, desempate por eixo
   perpendicular). Função pura, coberta por testes.
@@ -322,6 +323,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Preload (`window.api`)                 | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                  |
 | Big Picture (nav. espacial)            | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                     |
 | Gamepad (perfis/detecção)              | `kolnd-hub/src/renderer/src/lib/gamepad/`                                          |
+| Tipos compartilhados (gamepad)         | `kolnd-hub/src/shared/gamepad.ts`                                                  |
 | Fallback de config                     | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                      |
 | Build                                  | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                        |
 | Testes                                 | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)               |

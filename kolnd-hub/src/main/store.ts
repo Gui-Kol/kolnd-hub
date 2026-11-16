@@ -1,6 +1,21 @@
 import Store from 'electron-store'
 import { ipcMain } from 'electron'
 import { logger } from './logger'
+// Fonte única dos tipos/consts de gamepad (05-5.4). Re-exportados para não
+// quebrar imports existentes de `./store` (gamepad.ts, store.test.ts…).
+import {
+  GAMEPAD_ACTIONS,
+  GAMEPAD_PROFILES,
+  type GamepadProfile,
+  type GamepadButtonMapping,
+  type GamepadConfig
+} from '../shared/gamepad'
+export type {
+  GamepadProfile,
+  GamepadAction,
+  GamepadButtonMapping,
+  GamepadConfig
+} from '../shared/gamepad'
 
 /**
  * Configuração persistente do Kolnd Hub em `%APPDATA%/<app>/config.json`.
@@ -69,60 +84,16 @@ export interface HubStoreSchema {
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
-// Tipos espelhados de `src/renderer/src/lib/gamepad/types.ts` (T1).
-// Mantidos em separado porque o main não importa o renderer; qualquer
-// alteração nos 12 controles/índices deve ser refletida nos dois lados.
-
-export type GamepadProfile = 'xbox' | 'playstation' | 'switch' | 'generic'
-
-export type GamepadAction =
-  | 'confirm'
-  | 'back'
-  | 'up'
-  | 'down'
-  | 'left'
-  | 'right'
-  | 'menu'
-  | 'options'
-  | 'tab_prev'
-  | 'tab_next'
-  | 'stick_left'
-  | 'stick_right'
-
-export type GamepadButtonMapping = Record<GamepadAction, number | null>
-
-export interface GamepadConfig {
-  profile: GamepadProfile
-  controllerId: string
-  controllerName: string
-  vendorId?: string
-  productId?: string
-  mapping: GamepadButtonMapping
-  autoMapped: boolean
-  configuredAt: string
-}
+// Fonte única dos tipos/consts: `src/shared/gamepad.ts` (05-5.4). O main não
+// importa o renderer; o shared é importável pelos dois projetos tsconfig.
+// Re-exportados acima para não quebrar imports existentes (`./store`).
+// Qualquer alteração nos 12 controles/índices acontece no shared — drift
+// vira erro de compilação nos três processos.
 
 /** Preferências do modo Big Picture (chave `bigPicture`). */
 export interface BigPicturePrefs {
   sounds: boolean
 }
-
-const GAMEPAD_PROFILES: GamepadProfile[] = ['xbox', 'playstation', 'switch', 'generic']
-
-const GAMEPAD_ACTIONS: GamepadAction[] = [
-  'confirm',
-  'back',
-  'up',
-  'down',
-  'left',
-  'right',
-  'menu',
-  'options',
-  'tab_prev',
-  'tab_next',
-  'stick_left',
-  'stick_right'
-]
 
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
 const IMPORTANCE_LEVELS: ImportanceLevelName[] = ['critico', 'recomendado', 'opcional', 'inutil']

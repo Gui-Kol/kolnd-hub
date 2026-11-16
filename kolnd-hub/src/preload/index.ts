@@ -1,32 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// Espelho manual de `src/renderer/src/lib/gamepad/types.ts` (T1).
-// Qualquer alteração nos 12 controles/índices deve ser refletida lá e no index.d.ts.
-interface GamepadButtonMapping {
-  confirm: number | null
-  back: number | null
-  up: number | null
-  down: number | null
-  left: number | null
-  right: number | null
-  menu: number | null
-  options: number | null
-  tab_prev: number | null
-  tab_next: number | null
-  stick_left: number | null
-  stick_right: number | null
-}
-
-interface GamepadConfig {
-  profile: 'xbox' | 'playstation' | 'switch' | 'generic'
-  controllerId: string
-  controllerName: string
-  vendorId?: string
-  productId?: string
-  mapping: GamepadButtonMapping
-  autoMapped: boolean
-  configuredAt: string
-}
+// Tipos de gamepad vêm de `src/shared/gamepad.ts` (05-5.4) — NÃO duplicar
+// aqui nem no `index.d.ts`. Qualquer mudança nos 12 controles/índices
+// acontece no shared; drift vira erro de compilação nos três processos.
+import type { GamepadConfig } from '../shared/gamepad'
 
 const api = {
   // ── Sistema ─────────────────────────────────────

@@ -1,54 +1,25 @@
 // Tipos e constantes da camada pura de gamepad (Big Picture).
 // Nada de Electron/IPC aqui — só lógica testável.
+//
+// Fonte única: `src/shared/gamepad.ts` (05-5.4). Re-exportado aqui para
+// preservar os imports existentes (`lib/gamepad/types`); não declarar nada
+// novo que duplique o shared.
+//
+// Nota: o shared também exporta `GAMEPAD_PROFILES` (array de nomes válidos,
+// usado pelo main na validação). Ele NÃO é re-exportado aqui de propósito:
+// o renderer expõe `GAMEPAD_PROFILES` como Record de UI (label/buttons/
+// mapping) em `./profiles.ts` — mesmo nome, formas diferentes. Re-exportar
+// os dois colidiria no `export *` de `./index.ts` (TS2308).
 
-export type GamepadProfile = 'xbox' | 'playstation' | 'switch' | 'generic'
+import type { GamepadAction } from '../../../../shared/gamepad'
 
-export type GamepadAction =
-  | 'confirm'
-  | 'back'
-  | 'up'
-  | 'down'
-  | 'left'
-  | 'right'
-  | 'menu'
-  | 'options'
-  | 'tab_prev'
-  | 'tab_next'
-  | 'stick_left'
-  | 'stick_right'
-
-/**
- * Mapeamento ação → índice de botão (0–15). `null` = ação sem botão —
- * resultado do fluxo de conflito ("Substituir" deixa a ação antiga sem botão).
- * O índice 16 (Guide/Home) permanece proibido.
- */
-export type GamepadButtonMapping = Record<GamepadAction, number | null>
-
-export interface GamepadConfig {
-  profile: GamepadProfile
-  controllerId: string
-  controllerName: string
-  vendorId?: string
-  productId?: string
-  mapping: GamepadButtonMapping
-  autoMapped: boolean
-  configuredAt: string
-}
-
-export const GAMEPAD_ACTIONS: GamepadAction[] = [
-  'confirm',
-  'back',
-  'up',
-  'down',
-  'left',
-  'right',
-  'menu',
-  'options',
-  'tab_prev',
-  'tab_next',
-  'stick_left',
-  'stick_right'
-]
+export type {
+  GamepadProfile,
+  GamepadAction,
+  GamepadButtonMapping,
+  GamepadConfig
+} from '../../../../shared/gamepad'
+export { GAMEPAD_ACTIONS } from '../../../../shared/gamepad'
 
 export const GAMEPAD_ACTION_LABELS: Record<GamepadAction, string> = {
   confirm: 'Confirmar',

@@ -247,6 +247,7 @@ src/
 │                  #  programsDeployer, store), gerenciamento de processos
 │                  # (processManager, commandLine) e seed dos dados do Mark LVI
 ├── preload/       # bridge segura (contextBridge; sandbox habilitado)
+├── shared/        # tipos/consts compartilhados main/preload/renderer (gamepad)
 └── renderer/      # React (Dashboard, Settings, Inicialização, FirstRunInstall,
                    # Big Picture (modo gamepad/TV)…)
                    # config via electron-store com fallback localStorage (lib/hubConfig.ts)
