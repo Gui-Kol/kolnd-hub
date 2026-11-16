@@ -2,8 +2,11 @@
 // abertura do fluxo de configuração (GamepadSetup), "Efeitos sonoros"
 // persistidos em `bigPicture.sounds` e ação destrutiva "Apagar configuração".
 //
-// O toggle segue o mesmo padrão do toggle "Iniciar Kloud Games" já existente
-// nesta tela: role="switch", classe `.toggle-console`, feedback "Salvo"/"Erro".
+// Embutida em Settings.tsx (modo normal) — é o único escritor do toggle
+// `bigPicture.sounds` fora do BP. A UI é única e autocontida (sem props):
+// qualquer instância (embutida ou futura) renderiza exatamente a mesma tela.
+// O toggle de sons usa o primitivo <Switch/> (mesmo padrão do "Iniciar o
+// Kolnd Hub com o Windows" na seção "Ao abrir o Hub").
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -23,6 +26,7 @@ import type { GamepadConfig } from '../lib/gamepad'
 import { setSfxEnabled } from '../lib/sfx'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { GamepadSetup } from './GamepadSetup'
+import { Badge, Button, Card, Switch } from './ui'
 
 function formatConfiguredDate(iso: string): string {
   const date = new Date(iso)
@@ -166,112 +170,113 @@ export function BigPictureSettings(): JSX.Element {
 
   return (
     <>
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Big Picture</p>
+      {/* Rótulo da seção (uppercase + hairline), coerente com as seções do modo normal */}
+      <div className="mx-2 flex items-center gap-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+          Big Picture
+        </h3>
+        <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
+      </div>
 
-      <motion.div
-        {...entranceProps(reduced, { y: 20 })}
-        className="glass rounded-2xl p-6 border-l-4 border-neon-cyan"
-      >
-        {/* Título + descrição */}
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-neon-cyan/10 text-neon-cyan shadow-lg">
-            <Gamepad2 size={20} />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-sm font-bold text-white">Modo Big Picture</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Interface em tela cheia otimizada para gamepad e TV — navegação, lançamento de jogos e
-              controles do Hub.
-            </p>
-          </div>
-        </div>
-
-        {/* Status do controle */}
-        <div
-          className="mt-4 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
-          role="status"
-        >
-          <span
-            className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-              config ? 'bg-emerald-400' : 'bg-slate-600'
-            }`}
-          />
-          <p className="min-w-0 text-xs leading-relaxed text-slate-300">
-            {!configLoaded ? (
-              'Lendo configuração…'
-            ) : config ? (
-              <>
-                Controle: <span className="font-bold text-white">{config.controllerName}</span> ·
-                perfil{' '}
-                <span className="font-bold text-white">
-                  {GAMEPAD_PROFILES[config.profile].label}
-                </span>{' '}
-                · configurado em {formatConfiguredDate(config.configuredAt)}
-              </>
-            ) : (
-              'Nenhum controle configurado'
-            )}
-          </p>
-        </div>
-
-        {/* Ações */}
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-primary" onClick={openSetup}>
-            <SlidersHorizontal size={14} />
-            Configurar controle
-          </button>
-          {config && (
-            <>
-              <button type="button" className="btn-secondary" onClick={() => setConfirmRedo(true)}>
-                <RotateCcw size={14} />
-                Refazer mapeamento automático
-              </button>
-              <button type="button" className="btn-danger" onClick={() => setConfirmErase(true)}>
-                <Trash2 size={14} />
-                Apagar configuração
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Toggle: Efeitos sonoros */}
-        <div className="mt-5 flex items-center justify-between gap-6 flex-wrap border-t border-white/[0.06] pt-5">
-          <div className="flex items-start gap-4 min-w-0">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-neon-cyan/10 text-neon-cyan shadow-lg">
-              <Volume2 size={20} />
+      <motion.div {...entranceProps(reduced, { y: 20 })}>
+        <Card className="p-6">
+          {/* Título + descrição */}
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent shadow-elevation-1">
+              <Gamepad2 size={20} aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-sm font-bold text-white">Efeitos sonoros</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Sons de navegação, confirmação e erros no modo Big Picture.
+              <h3 className="text-sm font-bold text-ink-primary">Modo Big Picture</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                Interface em tela cheia otimizada para gamepad e TV — navegação, lançamento de jogos
+                e controles do Hub.
               </p>
-              {soundsFeedback === 'saved' && (
-                <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <Check size={12} /> Salvo
-                </p>
-              )}
-              {soundsFeedback === 'error' && (
-                <p className="mt-2 text-[11px] font-semibold text-red-400">
-                  Não foi possível salvar. Tente de novo.
-                </p>
-              )}
             </div>
           </div>
 
-          <button
-            type="button"
-            role="switch"
-            aria-checked={sounds === true}
-            aria-label="Efeitos sonoros do Big Picture"
-            disabled={sounds === null}
-            onClick={() => void handleToggleSounds()}
-            className={`toggle-console shrink-0 ${sounds === true ? 'toggle-console-checked' : ''} ${
-              sounds === null ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+          {/* Status do controle */}
+          <div
+            className="mt-4 flex items-center gap-3 rounded-control border border-[var(--border-subtle)] bg-surface-2 px-4 py-3"
+            role="status"
           >
-            <span className="toggle-console-knob" />
-          </button>
-        </div>
+            <span
+              aria-hidden="true"
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                config ? 'bg-success' : 'bg-ink-tertiary'
+              }`}
+            />
+            <p className="min-w-0 text-xs leading-relaxed text-ink-secondary">
+              {!configLoaded ? (
+                'Lendo configuração…'
+              ) : config ? (
+                <>
+                  Controle:{' '}
+                  <span className="font-bold text-ink-primary">{config.controllerName}</span> ·
+                  perfil{' '}
+                  <span className="font-bold text-ink-primary">
+                    {GAMEPAD_PROFILES[config.profile].label}
+                  </span>{' '}
+                  · configurado em {formatConfiguredDate(config.configuredAt)}
+                </>
+              ) : (
+                'Nenhum controle configurado'
+              )}
+            </p>
+          </div>
+
+          {/* Ações */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button variant="primary" onClick={openSetup}>
+              <SlidersHorizontal size={14} aria-hidden="true" />
+              Configurar controle
+            </Button>
+            {config && (
+              <>
+                <Button variant="secondary" onClick={() => setConfirmRedo(true)}>
+                  <RotateCcw size={14} aria-hidden="true" />
+                  Refazer mapeamento automático
+                </Button>
+                <Button variant="danger" onClick={() => setConfirmErase(true)}>
+                  <Trash2 size={14} aria-hidden="true" />
+                  Apagar configuração
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Toggle: Efeitos sonoros */}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-6 border-t border-[var(--border-subtle)] pt-5">
+            <div className="flex min-w-0 items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent shadow-elevation-1">
+                <Volume2 size={20} aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-sm font-bold text-ink-primary">Efeitos sonoros</h4>
+                <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                  Sons de navegação, confirmação e erros no modo Big Picture.
+                </p>
+                {soundsFeedback === 'saved' && (
+                  <Badge tone="success" className="mt-2">
+                    <Check size={12} aria-hidden="true" /> Salvo
+                  </Badge>
+                )}
+                {soundsFeedback === 'error' && (
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-danger">
+                    Não foi possível salvar. Tente de novo.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <Switch
+              aria-label="Efeitos sonoros do Big Picture"
+              checked={sounds === true}
+              disabled={sounds === null}
+              onCheckedChange={() => void handleToggleSounds()}
+              className="shrink-0"
+            />
+          </div>
+        </Card>
       </motion.div>
 
       {/* ── Overlay: fluxo de configuração (GamepadSetup) ── */}
@@ -323,10 +328,10 @@ export function BigPictureSettings(): JSX.Element {
             {...entranceProps(reduced, { y: 20, scale: 0.95 })}
             exit={exitProps(reduced, { y: 10, scale: 0.95 })}
             role="status"
-            className="fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-2xl border border-emerald-500/25 bg-[#071510]/95 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-xl"
+            className="fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-card border border-success-border bg-surface-3 px-5 py-4 shadow-elevation-3 backdrop-blur-xl"
           >
-            <BadgeCheck size={18} className="shrink-0 text-emerald-400" />
-            <p className="text-sm leading-relaxed text-slate-100">{toast}</p>
+            <BadgeCheck size={18} aria-hidden="true" className="shrink-0 text-success" />
+            <p className="text-sm leading-relaxed text-ink-primary">{toast}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -352,6 +357,8 @@ function ConfirmDialog({
   // o Big Picture trata Esc globalmente (volta/fecha overlay) e este diálogo é
   // invocado abaixo dele — interceptar Esc em dobro abriria a confirmação de saída.
   const trapRef = useFocusTrap<HTMLDivElement>({ active: true })
+  // Painel em surface-1 (não surface-3): o botão danger do 13.6 sobre surface-3
+  // mede 3.75; sobre surface-1, 4.56 (AA para o rótulo 11px bold uppercase).
 
   return (
     <div
@@ -368,23 +375,23 @@ function ConfirmDialog({
       />
       <div
         ref={trapRef}
-        className="relative w-full max-w-md space-y-5 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 text-center shadow-2xl shadow-black/60"
+        className="relative w-full max-w-md space-y-5 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-6 text-center shadow-elevation-3"
       >
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10">
-          <AlertCircle size={30} strokeWidth={1.5} className="text-red-400" />
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-control border border-danger-border bg-danger-bg">
+          <AlertCircle size={30} strokeWidth={1.5} aria-hidden="true" className="text-danger" />
         </div>
         <div className="space-y-1.5">
-          <h3 className="text-lg font-bold text-white">{title}</h3>
-          <p className="text-sm leading-relaxed text-slate-400">{message}</p>
+          <h3 className="text-lg font-bold text-ink-primary">{title}</h3>
+          <p className="text-sm leading-relaxed text-ink-secondary">{message}</p>
         </div>
         <div className="flex justify-center gap-3">
-          <button type="button" className="btn-secondary" onClick={onCancel}>
+          <Button variant="secondary" onClick={onCancel}>
             Cancelar
-          </button>
-          <button type="button" className="btn-danger" onClick={onConfirm}>
-            <Trash2 size={14} />
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
+            <Trash2 size={14} aria-hidden="true" />
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

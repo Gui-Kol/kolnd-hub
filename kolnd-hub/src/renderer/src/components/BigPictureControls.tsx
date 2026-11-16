@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Gamepad2, SlidersHorizontal, Radar } from 'lucide-react'
 import { GAMEPAD_PROFILES } from '../lib/gamepad'
 import type { GamepadConfig } from '../lib/gamepad'
-import { useFocusable } from './BigPictureFocus'
+import { useFocusable, BP_FOCUS_RING, BP_FOCUSED_RING } from './BigPictureFocus'
 import { GamepadSetup } from './GamepadSetup'
 import { announce, formatFocusItem } from '../lib/useAnnouncer'
 
@@ -122,29 +122,45 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
       aria-label="Controle"
       className="flex h-full flex-col items-center justify-center gap-8 text-center"
     >
-      <div className="flex h-28 w-28 items-center justify-center rounded-[2rem] border border-neon-cyan/30 bg-neon-cyan/5 shadow-glow-cyan">
-        <Gamepad2 size={56} strokeWidth={1.5} className="text-neon-cyan" />
+      {/* Card de perfil: ícone grande + nome + status da configuração */}
+      <div className="flex w-full max-w-2xl flex-col items-center gap-6 rounded-card border border-[var(--border-subtle)] bg-surface-1 px-10 py-8 shadow-elevation-1 3xl:px-14 3xl:py-10">
+        <div className="flex h-28 w-28 3xl:h-32 3xl:w-32 items-center justify-center rounded-card border border-[var(--border-subtle)] bg-surface-2">
+          <Gamepad2
+            size={56}
+            strokeWidth={1.5}
+            aria-hidden="true"
+            className="text-accent 3xl:h-16 3xl:w-16"
+          />
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-5xl font-black tracking-tight text-ink-primary">Controle</h2>
+          <div className="flex max-w-xl items-start justify-center gap-3" role="status">
+            <span
+              aria-hidden="true"
+              className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${
+                loaded && config ? 'bg-success' : 'bg-ink-tertiary'
+              }`}
+            />
+            {!loaded ? (
+              <p className="text-lg text-ink-secondary">Lendo configuração…</p>
+            ) : config ? (
+              <p className="text-lg leading-relaxed text-ink-secondary">
+                <span className="font-bold text-ink-primary">{config.controllerName}</span>
+                <br />
+                Perfil {GAMEPAD_PROFILES[config.profile].label} · configurado em{' '}
+                {formatConfiguredDate(config.configuredAt)}
+              </p>
+            ) : (
+              <p className="text-lg leading-relaxed text-ink-secondary">
+                Nenhum controle configurado — pressione qualquer botão do controle ou use o mouse.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-4xl font-black tracking-tight text-white">Controle</h2>
-        {!loaded ? (
-          <p className="text-lg text-slate-400">Lendo configuração…</p>
-        ) : config ? (
-          <p className="max-w-xl text-lg leading-relaxed text-slate-300">
-            <span className="font-bold text-white">{config.controllerName}</span>
-            <br />
-            Perfil {GAMEPAD_PROFILES[config.profile].label} · configurado em{' '}
-            {formatConfiguredDate(config.configuredAt)}
-          </p>
-        ) : (
-          <p className="max-w-xl text-lg leading-relaxed text-slate-400">
-            Nenhum controle configurado — pressione qualquer botão do controle ou use o mouse.
-          </p>
-        )}
-      </div>
-
-      <div className="flex flex-col items-center gap-4">
+      <div className="flex w-full max-w-md flex-col items-stretch gap-4">
         {config && (
           <button
             ref={adjustRef}
@@ -152,13 +168,13 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
             onClick={() => setView('adjust')}
             onMouseEnter={focusAdjust}
             onFocus={focusAdjust}
-            className={`inline-flex items-center gap-3 rounded-2xl border px-8 py-5 text-xl font-bold tracking-tight transition-all duration-150 focus:outline-none ${
+            className={`inline-flex min-h-[4rem] items-center justify-center gap-4 rounded-control border px-8 text-xl font-semibold tracking-tight transition-all duration-2 ease-standard cursor-pointer focus:outline-none ${BP_FOCUS_RING} ${
               adjustFocused
-                ? 'border-neon-cyan/50 bg-neon-cyan/10 text-neon-cyan ring-4 ring-neon-cyan/40'
-                : 'border-white/[0.08] bg-white/[0.04] text-slate-200 hover:bg-white/[0.06]'
+                ? `border-[var(--accent-border)] bg-accent-muted text-accent ${BP_FOCUSED_RING}`
+                : 'border-[var(--border-subtle)] bg-surface-2 text-ink-primary hover:bg-surface-3'
             }`}
           >
-            <SlidersHorizontal size={24} strokeWidth={1.75} />
+            <SlidersHorizontal size={24} strokeWidth={1.75} aria-hidden="true" />
             Ajustar botões
           </button>
         )}
@@ -168,18 +184,18 @@ export function BigPictureControls({ notify }: BigPictureControlsProps): JSX.Ele
           onClick={() => setView('detect')}
           onMouseEnter={focusDetect}
           onFocus={focusDetect}
-          className={`inline-flex items-center gap-3 rounded-2xl border px-8 py-5 text-xl font-bold tracking-tight transition-all duration-150 focus:outline-none ${
+          className={`inline-flex min-h-[4rem] items-center justify-center gap-4 rounded-control border px-8 text-xl font-semibold tracking-tight transition-all duration-2 ease-standard cursor-pointer focus:outline-none ${BP_FOCUS_RING} ${
             detectFocused
-              ? 'border-neon-purple/50 bg-neon-purple/10 text-neon-purple ring-4 ring-neon-purple/40'
-              : 'border-white/[0.08] bg-white/[0.04] text-slate-200 hover:bg-white/[0.06]'
+              ? `border-[var(--accent-border)] bg-accent-muted text-accent ${BP_FOCUSED_RING}`
+              : 'border-[var(--border-subtle)] bg-surface-2 text-ink-primary hover:bg-surface-3'
           }`}
         >
-          <Radar size={24} strokeWidth={1.75} />
+          <Radar size={24} strokeWidth={1.75} aria-hidden="true" />
           {config ? 'Refazer detecção automática' : 'Configurar controle'}
         </button>
       </div>
 
-      <p className="text-xs 3xl:text-base font-medium uppercase tracking-widest text-slate-400">
+      <p className="text-xs 3xl:text-base font-medium uppercase tracking-widest text-ink-tertiary">
         Esc volta · Esc no ajuste cancela a escuta de botão
       </p>
     </section>

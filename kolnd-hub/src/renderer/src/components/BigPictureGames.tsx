@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Gamepad2, Loader2, AlertTriangle, Library, Square } from 'lucide-react'
+import { Gamepad2, AlertTriangle, Library, Square } from 'lucide-react'
 import { Game } from '../types'
-import { useBigPictureFocus, useFocusable } from './BigPictureFocus'
+import { useBigPictureFocus, useFocusable, BP_FOCUS_RING, BP_FOCUSED_RING } from './BigPictureFocus'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { playSfx } from '../lib/sfx'
 import { announce, formatFocusItem } from '../lib/useAnnouncer'
+import { Badge, Spinner } from './ui'
 
 interface BigPictureGamesProps {
   /** Notificação amigável exibida no canto (toast local do Big Picture). */
   notify: (text: string) => void
 }
-
-const focusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70'
-
-const focusedCard = 'ring-4 ring-neon-cyan shadow-glow-cyan scale-105 border-neon-cyan/40'
 
 interface GameCardProps {
   game: Game
@@ -28,8 +25,6 @@ interface GameCardProps {
   /** Total de jogos na grade (para o anúncio de leitor de tela). */
   total: number
 }
-
-const stopFocusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-red-400/70'
 
 /** Botão "Encerrar" do card — focável pelo controle, mas só quando o jogo está aberto. */
 function CardStopButton({
@@ -47,6 +42,8 @@ function CardStopButton({
     confirming ? `Confirmar encerramento de ${gameName}` : `Jogos, Encerrar ${gameName}`
   )
 
+  // Tinta danger-muted assada sobre surface-1 (#2f252a, opaca): a translúcida
+  // ficaria abaixo de 4.5 para o rótulo "Confirmar?" (10px bold) sobre surface-2/3.
   return (
     <button
       ref={ref}
@@ -60,20 +57,20 @@ function CardStopButton({
       title={confirming ? 'Pressione de novo para encerrar o jogo' : 'Encerrar jogo'}
       aria-label="Encerrar jogo"
       aria-pressed={confirming}
-      className={`absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 items-center justify-center rounded-xl border px-2 transition-all duration-150 cursor-pointer ${stopFocusRing} ${
+      className={`absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 items-center justify-center rounded-control border px-2 transition-all duration-2 ease-standard cursor-pointer focus:outline-none ${BP_FOCUS_RING} ${
         confirming
-          ? 'border-red-500/50 bg-red-500/20 text-red-300'
+          ? 'border-danger-border bg-[#2f252a] text-danger'
           : focused
-            ? 'border-red-500/50 bg-red-500/15 text-red-300 ring-4 ring-red-400/60'
-            : 'border-white/[0.08] bg-white/[0.05] text-slate-400 hover:border-red-500/40 hover:text-red-300'
+            ? `border-danger-border bg-[#2f252a] text-danger ${BP_FOCUSED_RING}`
+            : 'border-[var(--border-subtle)] bg-surface-2 text-ink-secondary hover:border-danger-border hover:text-danger'
       }`}
     >
       {confirming ? (
-        <span className="text-[10px] font-bold uppercase tracking-wide leading-tight text-center">
+        <span className="text-[10px] 3xl:text-sm font-bold uppercase tracking-wide leading-tight text-center">
           Confirmar?
         </span>
       ) : (
-        <Square size={16} strokeWidth={2.25} />
+        <Square size={16} strokeWidth={2.25} aria-hidden="true" />
       )}
     </button>
   )
@@ -147,9 +144,9 @@ function GameCard({
         <span
           aria-hidden="true"
           title="O jogo não está em execução"
-          className="absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 cursor-not-allowed items-center justify-center rounded-xl border border-white/[0.05] bg-white/[0.02] p-2 text-slate-500"
+          className="absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 cursor-not-allowed items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2 p-2 text-ink-tertiary"
         >
-          <Square size={16} strokeWidth={2.25} />
+          <Square size={16} strokeWidth={2.25} aria-hidden="true" />
         </span>
       )}
       <button
@@ -165,11 +162,13 @@ function GameCard({
         role="option"
         aria-selected={focused}
         aria-label={`Jogar ${game.name}`}
-        className={`glass-card glass-hover group flex h-full w-full flex-col items-center gap-5 p-6 pt-8 text-center transition-all duration-200 hover:scale-[1.03] disabled:opacity-70 min-h-[15rem] ${focusRing} focus-visible:scale-[1.03] focus-visible:shadow-glow-cyan ${
-          focused ? focusedCard : ''
+        className={`group flex h-full w-full flex-col items-center gap-5 rounded-card border bg-surface-1 p-6 pt-8 text-center shadow-elevation-1 transition-all duration-2 ease-standard hover:scale-[1.03] hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2 disabled:opacity-70 min-h-[15rem] focus:outline-none ${BP_FOCUS_RING} focus-visible:scale-[1.03] ${
+          focused
+            ? `scale-[1.05] border-[var(--accent-border)] bg-surface-2 shadow-elevation-2 ${BP_FOCUSED_RING}`
+            : 'border-[var(--border-subtle)]'
         }`}
       >
-        <div className="w-32 h-32 2xl:w-36 2xl:h-36 rounded-3xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center overflow-hidden shrink-0 transition-colors group-hover:border-neon-cyan/30">
+        <div className="w-32 h-32 2xl:w-36 2xl:h-36 rounded-card border border-[var(--border-subtle)] bg-surface-2 flex items-center justify-center overflow-hidden shrink-0 transition-colors duration-2 ease-standard group-hover:border-[var(--accent-border)]">
           {icon ? (
             <img
               src={icon}
@@ -181,26 +180,36 @@ function GameCard({
             <Gamepad2
               size={56}
               strokeWidth={1.5}
-              className="text-slate-400 transition-colors group-hover:text-slate-300"
+              aria-hidden="true"
+              className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
             />
           )}
         </div>
-        <p className="w-full text-2xl font-semibold leading-snug text-slate-100 line-clamp-2 min-h-[3.5rem]">
+        <p className="w-full text-2xl 3xl:text-3xl font-semibold leading-snug tracking-tight text-ink-primary line-clamp-2 min-h-[3.5rem] 3xl:min-h-[4.5rem]">
           {game.name}
         </p>
-        <span className="flex items-center gap-3">
+        <span className="flex flex-wrap items-center justify-center gap-3">
           {running && (
             <span
-              className="inline-flex items-center gap-2 text-[10px] 3xl:text-base font-bold uppercase tracking-[0.2em] text-emerald-400"
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-pill border border-success-border bg-success-bg px-4 py-1.5 text-xs 3xl:text-base font-bold uppercase tracking-[0.2em] text-success"
               title="O jogo está aberto (processo detectado)"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success animate-pulse" />
               Em execução
             </span>
           )}
-          <span className={game.origin === 'steam' ? 'badge-steam' : 'badge-kloud'}>
-            {launching ? 'Iniciando…' : game.origin === 'steam' ? 'Steam' : 'Personalizado'}
-          </span>
+          {launching ? (
+            <Badge tone="accent">
+              <Spinner size={12} label="Iniciando…" />
+              Iniciando…
+            </Badge>
+          ) : (
+            // tone="neutral" do primitivo mede 3.76–4.12 (ink-tertiary) nos fundos
+            // dos cards do BP; ink-secondary mantém a mesma linguagem discreta com AA (6.35–6.97).
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-[var(--border-subtle)] bg-white/[0.05] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink-secondary">
+              {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
+            </span>
+          )}
         </span>
       </button>
     </div>
@@ -217,8 +226,8 @@ function RetryButton({ onClick }: { onClick: () => void }): JSX.Element {
       onClick={onClick}
       onMouseEnter={focus}
       onFocus={focus}
-      className={`btn-secondary mt-2 !text-xl !px-6 !py-3 min-h-[3rem] ${focusRing} ${
-        focused ? 'ring-4 ring-neon-cyan/70' : ''
+      className={`mt-2 inline-flex min-h-[3rem] items-center rounded-control border border-[var(--border-strong)] bg-surface-2 px-6 py-3 text-xl font-semibold text-ink-secondary transition-all duration-2 ease-standard hover:bg-surface-3 hover:text-ink-primary cursor-pointer focus:outline-none ${BP_FOCUS_RING} ${
+        focused ? `${BP_FOCUSED_RING} text-ink-primary` : ''
       }`}
     >
       Tentar novamente
@@ -345,12 +354,12 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
       {/* ── Cabeçalho com contador ─────────────────────── */}
       <header className="flex items-end justify-between gap-6 pr-40">
         <div>
-          <h2 className="text-5xl font-black tracking-tight text-white">Jogos</h2>
-          <p className="mt-2 text-lg text-slate-400">Sua biblioteca, pronta para a TV</p>
+          <h2 className="text-5xl font-black tracking-tight text-ink-primary">Jogos</h2>
+          <p className="mt-2 text-lg text-ink-secondary">Sua biblioteca, pronta para a TV</p>
         </div>
-        <div className="glass rounded-2xl px-5 py-3 flex items-center gap-3">
-          <Gamepad2 size={18} className="text-neon-cyan" />
-          <span className="text-xl font-bold text-slate-100 tabular-nums">
+        <div className="rounded-card border border-[var(--border-subtle)] bg-surface-1 px-5 py-3 shadow-elevation-1 flex items-center gap-3">
+          <Gamepad2 size={18} aria-hidden="true" className="text-accent" />
+          <span className="text-xl font-bold text-ink-primary tabular-nums">
             {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
           </span>
         </div>
@@ -359,25 +368,25 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
       {/* ── Conteúdo ─────────────────────────────────── */}
       <div className="mt-8 min-h-0 flex-1">
         {loading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-400">
-            <Loader2 size={40} className="animate-spin text-neon-cyan" />
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-ink-secondary">
+            <Spinner size={40} label="Carregando sua biblioteca…" />
             <p className="text-xl">Carregando sua biblioteca…</p>
           </div>
         ) : loadError ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <AlertTriangle size={40} className="text-red-400" />
-            <p className="text-xl text-slate-200">Não foi possível carregar sua biblioteca.</p>
-            <p className="text-base text-slate-400">{loadError}</p>
+            <AlertTriangle size={40} aria-hidden="true" className="text-danger" />
+            <p className="text-xl text-ink-primary">Não foi possível carregar sua biblioteca.</p>
+            <p className="text-base text-ink-secondary">{loadError}</p>
             <RetryButton onClick={() => void loadGames()} />
           </div>
         ) : games.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
-            <div className="w-28 h-28 rounded-[2rem] border border-steam-blue/30 bg-steam-blue/10 flex items-center justify-center">
-              <Library size={52} strokeWidth={1.5} className="text-steam-blue" />
+            <div className="flex h-28 w-28 items-center justify-center rounded-card border border-[var(--accent-border)] bg-accent-muted">
+              <Library size={52} strokeWidth={1.5} aria-hidden="true" className="text-accent" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-3xl font-bold text-slate-100">Sua biblioteca está vazia</h3>
-              <p className="text-lg text-slate-400 max-w-md">
+              <h3 className="text-3xl font-bold text-ink-primary">Sua biblioteca está vazia</h3>
+              <p className="text-lg text-ink-secondary max-w-md">
                 Adicione jogos pelo Hub normal, na aba Biblioteca — eles aparecem aqui.
               </p>
             </div>
