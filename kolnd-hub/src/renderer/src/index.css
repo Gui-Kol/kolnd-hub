@@ -459,3 +459,33 @@
    Tailwind nunca emitia esse keyframe (nada usava `animate-scanline`), ou seja,
    o overlay .scanlines era estático. Reintroduzir o keyframe mudaria o visual;
    a remoção final do overlay acontece nas telas (13.7+). */
+
+/* ─── 13.6 — Skeleton shimmer (components/ui/Skeleton.tsx) ───
+   Shimmer SUTIL para o primitivo <Skeleton/>: gradiente frio superfície 2 → 3,
+   1.6s. NÃO usar animate-pulse chapado. Desligado com prefers-reduced-motion
+   (o placeholder fica estático, ainda legível como "carregando"). */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+  }
+}
