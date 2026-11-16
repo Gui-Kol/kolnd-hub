@@ -27,6 +27,7 @@ import { registerWindowIpc } from './ipc/window'
 import { registerAppIpc } from './ipc/app'
 import { registerKloudGamesIpc } from './ipc/kloudGames'
 import { registerUninstallHubIpc } from './ipc/uninstall'
+import { registerProcessEvents } from './ipc/processEvents'
 import { confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
@@ -245,6 +246,9 @@ app.whenReady().then(() => {
   // Registra o canal IPC de desinstalação do próprio Hub (uninstall:hub).
   registerUninstallHubIpc(ctx)
 
+  // Reencaminha os eventos do ProcessManager para o renderer (status/output).
+  registerProcessEvents(ctx)
+
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
 
@@ -283,15 +287,6 @@ app.whenReady().then(() => {
       logger.error('diagnostic', 'Falha ao exportar diagnóstico:', err)
       return { success: false, error: message }
     }
-  })
-
-  // ── Forward process events to renderer ──────────
-  processManager.on('status-change', (appId: string, status: string) => {
-    mainWindow?.webContents.send('app:status-changed', appId, status)
-  })
-
-  processManager.on('output', (appId: string, data: string) => {
-    mainWindow?.webContents.send('app:output', appId, data)
   })
 
   const firstRun = isFirstRun()
