@@ -20,6 +20,27 @@ Público-alvo: um mantenedor que **nunca** fez um release deste projeto. Siga as
 - PowerShell é o shell de referência no Windows; `cmd` é usado quando indicado (ex.: `.bat`).
 - CI: todo push na `Dev` dispara `.github/workflows/ci.yml` (sem filtro de paths — docs também disparam) em `windows-latest`: `npm ci` → audit (informativo) → typecheck → lint → format:check → testes → build → `npm run package` com placeholder de `resources/programs/MarkLVI`.
 
+## Release via workflow manual (release.yml)
+
+> Adicionado na tarefa 03-3.5 (16/11/2026). **Não substitui este guia** — é apenas a trilha de build/artefato no GitHub Actions; o processo de release (bump, máquina limpa, go/no-go) continua valendo.
+
+Existe um workflow separado, `.github/workflows/release.yml` (`workflow_dispatch`, `windows-latest`, Node 22), que repete o pipeline do CI e sobe o artefato com retenção maior. **Ele não publica nada** — nenhum GitHub Release, tag ou anexo é criado automaticamente.
+
+Como disparar:
+
+1. Aba **Actions** do repositório → workflow **Release** → **Run workflow** (branch `Dev`).
+2. Preencher `version` (ex.: `1.4.0` — deve corresponder ao `version` de `kolnd-hub/package.json`) e marcar `confirm` (o job só roda com `confirm == true`).
+3. Acompanhar o run: `npm ci` → typecheck → testes → placeholder de MarkLVI → `npm run package` → `SHA256SUMS.txt` via `scripts/gen-sha256sums.ps1`.
+
+O que o artefato contém (`kolnd-hub-setup-release-<version>`, retido por **30 dias**; o artifact do CI `kolnd-hub-setup` continua com 7 dias):
+
+- `kolnd-hub/dist/Kolnd Hub Setup <version>.exe` (build com **placeholder** de MarkLVI — não distribuível publicamente enquanto o bundle real não for usado);
+- `kolnd-hub/dist/SHA256SUMS.txt` (SHA-256 do `.exe`; a linha do MSI é pulada no runner, pois o MSI não é commitado).
+
+Por que **não** publica automaticamente: o repositório é público e o formato de release público é **decisão pendente do usuário** (item 15 do relatório; ver Passo 7 e "Pendências e decisões do usuário"). Quando o usuário decidir, o ajuste é trocar o gatilho do workflow para `push: tags: ['v*']` e adicionar o passo de publicação (ex.: `gh release create` com o `.exe` + `SHA256SUMS.txt` anexados, conforme o Passo 7) — nada além disso muda no pipeline.
+
+Enquanto a publicação não é habilitada, o passo de anexar a release é o manual descrito no **Passo 7** deste guia: baixar o artefato do workflow (ou usar o build local), conferir o hash contra o `SHA256SUMS.txt` e anexar `.exe` + `SHA256SUMS.txt` à release com `gh release create`.
+
 ## Pré-release técnico
 
 Gate zero. **Nada** de release começa com este gate vermelho.

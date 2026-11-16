@@ -1,0 +1,84 @@
+name: Release
+
+# Trilha de release manual (tarefa 03-3.5). workflow_dispatch UNICO de proposito:
+# o repo e publico e o formato de release publico e decisao pendente do usuario
+# (item 15 do relatorio / tarefa 03-3.5). Este workflow NAO publica nada em
+# GitHub Releases: ele apenas constroi o instalador, gera o SHA256SUMS.txt e sobe
+# o artifact com retencao de 30 dias.
+#
+# Quando o usuario decidir o formato de release publico, basta trocar o gatilho
+# para `push: tags: ['v*']` (e adicionar o passo de publicacao, se for o caso).
+#
+# O job so roda com `confirm == true`; `version` deve ser a versao do release
+# (ex.: 1.4.0) e deve corresponder ao `version` de kolnd-hub/package.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versao do release (ex.: 1.4.0) - deve bater com kolnd-hub/package.json'
+        required: true
+        type: string
+      confirm:
+        description: 'Confirmar execucao do build de release (NAO publica nada)'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    if: ${{ inputs.confirm == true }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: kolnd-hub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kolnd-hub/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # resources/programs/MarkLVI is ~600 MB and is not committed to git
+      # (it is produced by scripts/build-mark-lvi.ps1). electron-builder's
+      # extraResources fails if the source does not exist, so the release
+      # build drops a placeholder to validate the packaging pipeline end to
+      # end - the artifact is NOT for public distribution until the real
+      # bundle is used (ver docs/RELEASE.md).
+      - name: Create placeholder resources for packaging
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force resources/programs/MarkLVI | Out-Null
+          Set-Content -Path resources/programs/MarkLVI/README.txt `
+            -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
+
+      - name: Package (NSIS installer)
+        run: npm run package
+
+      # 02-2.7: gera kolnd-hub/dist/SHA256SUMS.txt (MSI + Setup.exe, quando
+      # presentes). O MSI nao existe no runner (nao e commitado) - o script
+      # avisa e pula artefatos ausentes.
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-sha256sums.ps1
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kolnd-hub-setup-release-${{ inputs.version }}
+          path: |
+            kolnd-hub/dist/Kolnd Hub Setup *.exe
+            kolnd-hub/dist/SHA256SUMS.txt
+          retention-days: 30
