@@ -1,24 +1,11 @@
-﻿import { ipcMain } from 'electron'
-import {
-  getGames,
-  addGame,
-  addCustomGame,
-  updateGame,
-  checkExePaths,
-  removeGame
-} from './games/store'
-import type { Game, AddCustomGameResult } from './games/store'
-import type { GameResult } from './games/naming'
-import {
-  pickGameIcon,
-  setGameIcon,
-  previewExeIcon,
-  restoreExeIcon,
-  getGameIcon
-} from './games/icons'
-import type { PickIconResult, IconPathResult, PreviewExeIconResult } from './games/icons'
-import { launchGame, stopGame, runningGamesMap } from './games/launch'
-import type { LaunchGameResult } from './games/launch'
+import { ipcMain } from 'electron'
+import { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
+import type { Game, AddCustomGameResult } from './store'
+import type { GameResult } from './naming'
+import { pickGameIcon, setGameIcon, previewExeIcon, restoreExeIcon, getGameIcon } from './icons'
+import type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+import { launchGame, stopGame, runningGamesMap } from './launch'
+import type { LaunchGameResult } from './launch'
 
 /**
  * Biblioteca de jogos do Kolnd Hub.
@@ -37,8 +24,8 @@ import type { LaunchGameResult } from './games/launch'
  */
 
 /** Re-exporta o que saiu para games/naming.ts, games/icons.ts, games/launch.ts e games/store.ts, mantendo a superfície pública de './games'. */
-export { formatGameName } from './games/naming'
-export type { GameResult } from './games/naming'
+export { formatGameName } from './naming'
+export type { GameResult } from './naming'
 export {
   gameIconsDir,
   extractIconPng,
@@ -47,19 +34,12 @@ export {
   previewExeIcon,
   restoreExeIcon,
   getGameIcon
-} from './games/icons'
-export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './games/icons'
-export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './games/launch'
-export type { LaunchGameResult, GameProcess } from './games/launch'
-export {
-  getGames,
-  addGame,
-  addCustomGame,
-  updateGame,
-  checkExePaths,
-  removeGame
-} from './games/store'
-export type { Game, AddCustomGameResult } from './games/store'
+} from './icons'
+export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './launch'
+export type { LaunchGameResult, GameProcess } from './launch'
+export { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
+export type { Game, AddCustomGameResult } from './store'
 
 /** Registra os canais IPC da biblioteca de jogos. */
 export function registerGamesIpc(): void {
