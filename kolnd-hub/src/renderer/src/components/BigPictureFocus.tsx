@@ -8,11 +8,29 @@
 //   prefixo — usado pelos overlays (ex.: `exit:`), mantendo o fundo inerte.
 // - Mouse continua 100% operável: onMouseEnter/onFocus chamam `focus(id)` e
 //   o visual de foco é idêntico ao do gamepad.
+//
+// Contrato do anel de foco do Big Picture (gates 13.2/13.17): ~4 px sobre
+// --focus-ring — estendido para uso 10-foot/TV e consistente entre gamepad,
+// teclado e mouse. A regra global de `:focus-visible` (index.css, 2 px) segue
+// como base; os componentes do BP somam `BP_FOCUS_RING` no focus-visible e o
+// mesmo anel de 4 px quando `focused` (gamepad/hover) está ativo.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefCallback } from 'react'
 import { nearestInDirection } from '../lib/spatialNav'
 import type { SpatialDirection } from '../lib/spatialNav'
+
+/**
+ * Anel de foco estendido do Big Picture (~4 px sobre --focus-ring, gate
+ * 13.2/13.17) — alto contraste e idêntico para gamepad, teclado e mouse.
+ * Use junto a `focus:outline-none` nos interativos do BP e replique com
+ * `ring-4 ring-[var(--focus-ring)]` quando o estado vier de `focused`
+ * (useFocusable), não de :focus-visible.
+ */
+export const BP_FOCUS_RING = 'focus-visible:ring-4 focus-visible:ring-[var(--focus-ring)]'
+
+/** Idêntico a BP_FOCUS_RING aplicado a um estado `focused` do useFocusable. */
+export const BP_FOCUSED_RING = 'ring-4 ring-[var(--focus-ring)]'
 
 export type { SpatialDirection }
 

@@ -1,18 +1,25 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { Ref } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Gamepad2, LogOut, X, Mouse } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { LogOut, Mouse } from 'lucide-react'
 import { BigPictureRail, BigPictureSection } from './BigPictureRail'
 import { BigPictureGames } from './BigPictureGames'
 import { BigPictureControls } from './BigPictureControls'
 import { GamepadSetup } from './GamepadSetup'
 import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPictureTransition'
-import { BigPictureFocusProvider, useBigPictureFocus } from './BigPictureFocus'
+import {
+  BigPictureFocusProvider,
+  useBigPictureFocus,
+  useFocusable,
+  BP_FOCUS_RING,
+  BP_FOCUSED_RING
+} from './BigPictureFocus'
 import { OptionsOverlay, ExitOverlay, DisconnectOverlay } from './BigPictureOverlays'
-import { entranceProps, exitProps, fadeOnlyTransition, useReducedMotion } from '../lib/motion'
+import { fadeOnlyTransition, useReducedMotion } from '../lib/motion'
+import { Button, Toast } from './ui'
 import { useGamepad } from '../hooks/useGamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
-import { announce, useAnnouncer } from '../lib/useAnnouncer'
+import { announce, formatFocusItem, useAnnouncer } from '../lib/useAnnouncer'
 import type { GamepadAction, GamepadConfig } from '../lib/gamepad'
 
 export type BigPictureMode = 'setup' | 'transitioning' | 'active'
@@ -30,11 +37,6 @@ interface BigPictureProps {
   onSetupComplete: () => void
   /** Fim da transição cinematográfica — o App troca o modo para 'active'. */
   onTransitionComplete?: () => void
-}
-
-interface Toast {
-  id: number
-  text: string
 }
 
 const SECTION_ORDER: BigPictureSection[] = ['games', 'controls']
@@ -87,25 +89,26 @@ const SetupView = memo(function SetupView({
       {/* ── Cabeçalho amigável do gate ─────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-6 px-10 pt-8">
         <div className="max-w-2xl space-y-2">
-          <p className="text-[10px] 3xl:text-base font-bold uppercase tracking-[0.35em] text-neon-cyan">
+          <p className="text-[10px] 3xl:text-base font-bold uppercase tracking-[0.35em] text-accent">
             Antes de usar o Big Picture…
           </p>
-          <h1 className="text-4xl font-black tracking-tight text-white">
+          <h1 className="text-4xl font-black tracking-tight text-ink-primary">
             Nenhum controle configurado
           </h1>
-          <p className="text-lg leading-relaxed text-slate-400">
+          <p className="text-lg leading-relaxed text-ink-secondary">
             Pressione qualquer botão do seu controle para detectar e configurar automaticamente — ou
             configure com o mouse.
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="md"
           onClick={onExit}
-          className="btn-ghost shrink-0 !px-6 !py-4 !text-xl min-h-[3.5rem] focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
+          className={`!h-auto !min-h-[3.5rem] !px-6 !py-4 !text-xl !font-medium !normal-case !tracking-normal shrink-0 gap-2 ${BP_FOCUS_RING} focus:outline-none`}
         >
-          <LogOut size={18} />
+          <LogOut size={18} aria-hidden="true" />
           Voltar ao Hub
-        </button>
+        </Button>
       </div>
 
       {/* ── Tela de configuração de controles (compartilhada com a T5) ── */}
@@ -121,6 +124,54 @@ const SetupView = memo(function SetupView({
  * nenhuma ação semântica é disparada. */
 const noopGamepadAction = (): void => undefined
 
+/**
+ * Botão de canto (mockup aprovado do Big Picture): atalho visível, no canto
+ * inferior direito, das ações que o controle dispara com B (Voltar ao Hub) e
+ * Menu (Opções). Ghost grande, alvo 10-foot; registrado no spatialNav como
+ * `corner:*` e anunciado no leitor de tela via formatFocusItem.
+ */
+const CornerButton = memo(function CornerButton({
+  id,
+  hint,
+  label,
+  onActivate,
+  position,
+  total
+}: {
+  id: string
+  /** Tecla/botão do gamepad que dispara a mesma ação (mostrado como chip). */
+  hint: string
+  label: string
+  onActivate: () => void
+  position: number
+  total: number
+}): JSX.Element {
+  const { ref, focused, focus } = useFocusable(id, () =>
+    formatFocusItem('Big Picture', position, total, label)
+  )
+  return (
+    <Button
+      ref={ref}
+      variant="ghost"
+      size="md"
+      onClick={onActivate}
+      onMouseEnter={focus}
+      onFocus={focus}
+      className={`!h-11 !px-4 !text-[13px] !font-semibold !normal-case !tracking-normal gap-2.5 ${
+        focused ? `${BP_FOCUSED_RING} bg-surface-2 text-ink-primary` : ''
+      } ${BP_FOCUS_RING} focus:outline-none`}
+    >
+      <kbd
+        aria-hidden="true"
+        className="rounded-sm border border-[var(--border-strong)] bg-surface-2 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-ink-tertiary"
+      >
+        {hint}
+      </kbd>
+      <span>{label}</span>
+    </Button>
+  )
+})
+
 interface ActiveViewProps {
   onExit: () => void
   /** false durante a transição (T7): nenhum input de controle/teclado age na home. */
@@ -129,10 +180,8 @@ interface ActiveViewProps {
 
 function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Element {
   const [section, setSectionState] = useState<BigPictureSection>('games')
-  // Movimento decorativo (toast) vira fade curto com reduce.
-  const reduced = useReducedMotion()
   const [overlay, setOverlay] = useState<'options' | 'exit' | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
   const [config, setConfig] = useState<GamepadConfig | null>(null)
   const [configResolved, setConfigResolved] = useState(false)
   const historyRef = useRef<BigPictureSection[]>([])
@@ -149,15 +198,11 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
   } = useBigPictureFocus()
 
   const notify = useCallback((text: string): void => {
-    setToast({ id: Date.now(), text })
+    setToast(text)
   }, [])
 
-  // Auto-dismiss do toast local.
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 5000)
-    return (): void => window.clearTimeout(timer)
-  }, [toast])
+  // Handler estável para o primitivo Toast (auto-dismiss não rearma a cada render).
+  const closeToast = useCallback((): void => setToast(null), [])
 
   // Config do controle + toggle de efeitos sonoros, lidos uma vez do store (T2).
   useEffect(() => {
@@ -514,10 +559,10 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
       <main className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-8 xl:px-12 xl:py-10">
         {/* Relógio do canto superior direito (toque "console") */}
         <div className="pointer-events-none absolute top-8 right-12 text-right">
-          <p className="text-3xl 3xl:text-5xl font-light tnum tracking-wider text-white/90">
+          <p className="tnum text-4xl 3xl:text-5xl font-bold leading-none tracking-tight text-ink-primary">
             {clock}
           </p>
-          <p className="mt-1 text-[10px] 3xl:text-base font-bold uppercase tracking-[0.35em] text-slate-400">
+          <p className="mt-1.5 text-[10px] 3xl:text-base font-bold uppercase tracking-[0.35em] text-ink-tertiary">
             Kolnd Hub
           </p>
         </div>
@@ -528,18 +573,42 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
         </div>
       </main>
 
+      {/* ── Botões de canto (atalhos de B / Menu — mockup aprovado) ── */}
+      <div
+        className="absolute bottom-5 right-6 z-[35] flex items-center gap-2"
+        role="group"
+        aria-label="Ações do Big Picture"
+      >
+        <CornerButton
+          id="corner:back"
+          hint="B"
+          label="Voltar ao Hub"
+          onActivate={openExitOverlay}
+          position={1}
+          total={2}
+        />
+        <CornerButton
+          id="corner:options"
+          hint="Menu"
+          label="Opções"
+          onActivate={openOptionsOverlay}
+          position={2}
+          total={2}
+        />
+      </div>
+
       {/* ── Overlay: controle desconectado no meio da sessão (não bloqueia o mouse) ── */}
       {configResolved && hadConnection && !connected && <DisconnectOverlay />}
 
       {/* ── Dica discreta: nunca houve controle e o mouse parou ── */}
       {configResolved && !hadConnection && !connected && mouseIdle && (
         <div
-          className="pointer-events-none absolute bottom-5 left-1/2 z-[55] flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-white/[0.08] bg-black/60 px-5 py-2 backdrop-blur-md"
+          className="pointer-events-none absolute bottom-5 left-1/2 z-[55] flex -translate-x-1/2 items-center gap-2.5 rounded-pill border border-[var(--border-subtle)] bg-surface-3 px-5 py-2"
           role="status"
           aria-atomic="true"
         >
-          <Mouse size={14} className="shrink-0 text-slate-400" aria-hidden="true" />
-          <p className="text-xs 3xl:text-base font-medium text-slate-400">
+          <Mouse size={14} className="shrink-0 text-ink-tertiary" aria-hidden="true" />
+          <p className="text-xs 3xl:text-base font-medium text-ink-secondary">
             Conecte um controle para navegação por botão
           </p>
         </div>
@@ -555,36 +624,25 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
       )}
       {overlay === 'exit' && <ExitOverlay onCancel={closeOverlay} onConfirm={confirmExit} />}
 
-      {/* ── Toast local do Big Picture ─────────────── */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            key={toast.id}
-            {...entranceProps(reduced, { y: 20, scale: 0.95 })}
-            exit={exitProps(reduced, { y: 10, scale: 0.95 })}
-            className="fixed bottom-8 right-8 z-[70] flex max-w-md items-start gap-3 rounded-2xl border border-neon-cyan/25 bg-[#050f14]/95 px-5 py-4 shadow-2xl shadow-black/60 backdrop-blur-xl"
-            role="status"
-            aria-atomic="true"
-          >
-            <Gamepad2 size={18} className="mt-0.5 shrink-0 text-neon-cyan" />
-            <p className="text-sm leading-relaxed text-slate-100">{toast.text}</p>
-            <button
-              type="button"
-              onClick={() => setToast(null)}
-              className="ml-2 shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
-              aria-label="Fechar aviso"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Toast local do Big Picture (primitivo ui/Toast; kind info, 5 s) ── */}
+      {toast && (
+        <Toast
+          kind="info"
+          message={toast}
+          onClose={closeToast}
+          duration={5000}
+          className="!bottom-24"
+        />
+      )}
     </div>
   )
 }
 
-/** Fundo do Big Picture (gradiente + glows + scanlines) — alvo da máscara radial
- * de revelação na transição (T7). `maskRadiusPx === null` → sem máscara. */
+/** Fundo do Big Picture — quase plano (quase-preto azulado, mesma linguagem do
+ * modo normal: bg-base → bg-sunken) + vinheta fria sutil (≤ 8%, cor de
+ * --shadow-*). Sem orbs/glows, sem scanlines (removidas com aprovação no gate
+ * 13.2/13.17). Alvo da máscara radial de revelação na transição (T7):
+ * `maskRadiusPx === null` → sem máscara. */
 const BigPictureBackdrop = memo(function BigPictureBackdrop({
   refProp,
   maskRadiusPx
@@ -596,18 +654,15 @@ const BigPictureBackdrop = memo(function BigPictureBackdrop({
     <div
       ref={refProp}
       aria-hidden="true"
-      className="absolute inset-0 z-0 overflow-hidden bg-gradient-gaming"
+      className="absolute inset-0 z-0 overflow-hidden"
       // Máscara controlada via estilo direto pelo rAF da transição (ver T7);
       // o valor inicial apenas garante o estado antes do primeiro frame.
-      style={revealMaskStyle(maskRadiusPx)}
-    >
-      {/* ── Glows radiais de fundo (orbs desfocados) ─── */}
-      <div className="pointer-events-none absolute -top-40 -left-40 h-[36rem] w-[36rem] rounded-full bg-kloud-500/15 blur-[150px]" />
-      <div className="pointer-events-none absolute -bottom-48 -right-48 h-[44rem] w-[44rem] rounded-full bg-neon-purple/15 blur-[170px]" />
-      <div className="pointer-events-none absolute top-1/4 right-1/4 h-96 w-96 rounded-full bg-neon-cyan/10 blur-[130px]" />
-      {/* ── Scanlines (efeito arcade/console) ─────────── */}
-      <div className="scanlines" />
-    </div>
+      style={{
+        background:
+          'radial-gradient(ellipse at center, transparent 55%, rgba(2, 8, 16, 0.08) 100%), linear-gradient(180deg, var(--bg-base) 0%, var(--bg-sunken) 100%)',
+        ...revealMaskStyle(maskRadiusPx)
+      }}
+    />
   )
 })
 
@@ -667,7 +722,7 @@ export function BigPicture({
     <BigPictureFocusProvider>
       {/* Base escura (visível antes/durante a revelação do fundo pela onda) */}
       <motion.div
-        className={`fixed inset-0 z-50 overflow-hidden bg-[#050508] text-slate-200 ${
+        className={`fixed inset-0 z-50 overflow-hidden bg-surface-sunken text-ink-primary ${
           leaving ? 'pointer-events-none' : ''
         }`}
         initial={false}
