@@ -34,7 +34,7 @@ import {
 } from './startupManager'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { registerFirstRunIpc } from './firstRunInstaller'
-import { registerConfigIpc, registerPrefsIpc } from './store'
+import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
@@ -67,7 +67,15 @@ if (testUserData) {
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-const processManager = new ProcessManager()
+// Auto-restart (06-6.4): o ProcessManager NÃO importa o store — a preferência
+// por app é resolvida aqui, via `getAppPrefs(appId)`, e injetada no launch.
+// Default false (opt-in por app em Configurações → Gerenciador de títulos).
+const processManager = new ProcessManager({
+  getAppPrefs: (appId) => {
+    const app = getConfigSnapshot().apps?.find((a) => a.id === appId)
+    return { autoRestart: app?.autoRestart === true }
+  }
+})
 
 // Instância única: o lock é pedido antes de qualquer bootstrap. Se outra
 // instância já o segura, encerra imediatamente — sem criar janela/tray, sem

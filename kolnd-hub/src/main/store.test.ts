@@ -148,6 +148,22 @@ describe('normalizeAppConfig', () => {
     expect(out.url).toBe('https://example.com')
     expect(out.useShell).toBe(false)
   })
+
+  it('autoRestart opcional é preservado apenas quando booleano (06-6.4)', () => {
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', autoRestart: true }) as StoredAppConfig)
+        .autoRestart
+    ).toBe(true)
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', autoRestart: false }) as StoredAppConfig)
+        .autoRestart
+    ).toBe(false)
+    // valor não-booleano é descartado (nunca vira truthy por acidente)
+    expect(
+      (normalizeAppConfig({ id: 'x', command: 'x.exe', autoRestart: 'yes' }) as StoredAppConfig)
+        .autoRestart
+    ).toBeUndefined()
+  })
 })
 
 describe('normalizeAppConfigs', () => {
@@ -377,6 +393,24 @@ describe('setApps / setStartupImportance', () => {
     const res2 = setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])
     expect(res2.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('apps', expect.any(Array))
+  })
+
+  it('autoRestart sobrevive ao round-trip grava→lê→normaliza (06-6.4)', () => {
+    const res = setApps([
+      {
+        id: 'a',
+        command: 'a.exe',
+        cwd: 'c',
+        autoRestart: true
+      } as never
+    ])
+    expect(res.success).toBe(true)
+    // simula o que foi para o config.json
+    const gravada = holder().set.mock.calls[0][1] as Array<Record<string, unknown>>
+    expect(gravada[0].autoRestart).toBe(true)
+    // relê como se viesse do disco (normalização na leitura/migração)
+    const relida = normalizeAppConfigs(gravada)
+    expect(relida[0].autoRestart).toBe(true)
   })
 
   it('setStartupImportance normaliza e grava (null → mapa vazio salvo sem lançar)', () => {

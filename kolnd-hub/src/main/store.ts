@@ -47,6 +47,13 @@ export interface StoredAppConfig {
   tags: string[]
   url?: string
   useShell?: boolean
+  /**
+   * Reinício automático OPT-IN (06-6.4): se o processo morre sozinho (exit ≠ 0,
+   * sem `stop()` pedido), o Hub relança com backoff 2s/5s/10s, até 3 tentativas
+   * a cada 10 minutos. Ausente/false = comportamento idêntico ao atual.
+   * Preservado pela normalização (round-trip leitura→gravação garantido).
+   */
+  autoRestart?: boolean
 }
 
 export interface HubStoreSchema {
@@ -154,6 +161,7 @@ export function normalizeAppConfig(input: unknown): StoredAppConfig | null {
 
   if (typeof raw.url === 'string' && raw.url) normalized.url = raw.url
   if (typeof raw.useShell === 'boolean') normalized.useShell = raw.useShell
+  if (typeof raw.autoRestart === 'boolean') normalized.autoRestart = raw.autoRestart
   return normalized
 }
 
@@ -362,7 +370,8 @@ const schema: Store.Schema<HubStoreSchema> = {
         category: { type: 'string', enum: [...APP_CATEGORIES] },
         tags: { type: 'array', items: { type: 'string' } },
         url: { type: 'string' },
-        useShell: { type: 'boolean' }
+        useShell: { type: 'boolean' },
+        autoRestart: { type: 'boolean' }
       }
     }
   },

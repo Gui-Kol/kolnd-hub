@@ -503,6 +503,36 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                   sem interpretação de shell.
                 </span>
               </label>
+
+              {/* Reinício automático (06-6.4): opt-in por app. Persiste junto de
+                  onSave(apps) — nenhum IPC novo de preferência. */}
+              <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+                <span className="text-xs text-slate-400 leading-relaxed">
+                  <span className="text-slate-200 font-semibold">
+                    Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={app.autoRestart === true}
+                  aria-label="Reiniciar automaticamente se cair (máx. 3 tentativas a cada 10 min)"
+                  onClick={() => {
+                    setEditedApps((prev) => {
+                      const next = [...prev]
+                      next[index] = {
+                        ...next[index],
+                        autoRestart: !(next[index].autoRestart === true)
+                      }
+                      return next
+                    })
+                    setSaved(false)
+                  }}
+                  className={`toggle-console shrink-0 ${app.autoRestart === true ? 'toggle-console-checked' : ''}`}
+                >
+                  <span className="toggle-console-knob" />
+                </button>
+              </div>
             </motion.div>
           )
         })}

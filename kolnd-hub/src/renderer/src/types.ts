@@ -17,6 +17,12 @@ export interface AppConfig {
    * shell (resistente a metacaracteres), recomendado para comandos simples.
    */
   useShell?: boolean
+  /**
+   * Reinício automático OPT-IN (task 06-6.4): se o processo cai sozinho, o Hub
+   * relança com backoff 2s/5s/10s, até 3 tentativas a cada 10 minutos.
+   * Ausente/false = comportamento padrão (sem reinício).
+   */
+  autoRestart?: boolean
 }
 
 export type AppStatus = 'running' | 'stopped' | 'error'
