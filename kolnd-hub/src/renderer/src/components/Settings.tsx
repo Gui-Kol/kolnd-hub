@@ -482,7 +482,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       </motion.div>
 
       {/* ── Ao abrir o Hub ─────────────────────────── */}
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
         Ao abrir o Hub
       </p>
 
@@ -552,7 +552,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                   O Hub sobe junto com o Windows, direto para a bandeja — sem abrir a janela.
                 </p>
                 {!autostartSupported && (
-                  <p className="mt-2 text-[11px] text-slate-500">
+                  <p className="mt-2 text-[11px] text-slate-400">
                     Disponível apenas no app instalado
                   </p>
                 )}
@@ -587,7 +587,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       </div>
 
       {/* ── Notificações ─────────────────────────────── */}
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
         Notificações
       </p>
 
@@ -641,7 +641,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       {/* ── Big Picture ─────────────────────────────── */}
       <BigPictureSettings />
 
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
         Gerenciador de títulos
       </p>
 
@@ -672,7 +672,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">{app.name}</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                     {app.category.toUpperCase()}
                   </p>
                 </div>
@@ -704,14 +704,14 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                     <button
                       type="button"
                       onClick={() => handlePickPath(index, 'command', 'file')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:text-kloud-500 hover:bg-white/5"
                       title="Selecionar executável…"
                       aria-label="Selecionar executável"
                     >
                       <FileSearch size={18} />
                     </button>
                   </div>
-                  <p className="mt-1.5 text-[10px] text-slate-600">
+                  <p className="mt-1.5 text-[10px] text-slate-400">
                     Clique no campo para escolher o .exe no explorador de arquivos.
                   </p>
                   {issues.length > 0 && (
@@ -806,14 +806,14 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
                     <button
                       type="button"
                       onClick={() => handlePickPath(index, 'cwd', 'directory')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:text-kloud-500 hover:bg-white/5"
                       title="Selecionar pasta…"
                       aria-label="Selecionar pasta"
                     >
                       <FolderSearch size={18} />
                     </button>
                   </div>
-                  <p className="mt-1.5 text-[10px] text-slate-600">
+                  <p className="mt-1.5 text-[10px] text-slate-400">
                     Clique no campo para escolher a pasta no explorador de arquivos.
                   </p>
                 </div>
@@ -915,7 +915,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       )}
 
       {/* ── Diagnóstico ─────────────────────────── */}
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">Diagnóstico</p>
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Diagnóstico</p>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -954,7 +954,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       </motion.div>
 
       {/* ── Backup e restauração (07-7.6) ────────────── */}
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
         Backup e restauração
       </p>
 

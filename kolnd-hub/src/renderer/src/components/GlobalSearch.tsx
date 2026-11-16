@@ -122,7 +122,7 @@ export function GlobalSearch({
         <div className="glass rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
           {/* ── Campo único ─────────────────────────────────────────── */}
           <div className="flex items-center gap-3 border-b border-white/[0.06] px-4">
-            <Search size={16} className="shrink-0 text-slate-500" aria-hidden="true" />
+            <Search size={16} className="shrink-0 text-slate-400" aria-hidden="true" />
             <input
               ref={inputRef}
               type="text"
@@ -140,9 +140,9 @@ export function GlobalSearch({
                 setActiveIndex(0)
               }}
               placeholder="Buscar apps e jogos…"
-              className="h-12 w-full bg-transparent text-sm text-slate-100 placeholder-slate-600 outline-none"
+              className="h-12 w-full bg-transparent text-sm text-slate-100 placeholder-slate-400 outline-none"
             />
-            <kbd className="shrink-0 rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+            <kbd className="shrink-0 rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
               Esc
             </kbd>
           </div>
@@ -192,7 +192,7 @@ export function GlobalSearch({
                         {result.label}
                       </span>
                       {result.subtitle && (
-                        <span className="block truncate text-[10px] text-slate-500">
+                        <span className="block truncate text-[10px] text-slate-400">
                           {result.subtitle}
                         </span>
                       )}
@@ -213,18 +213,18 @@ export function GlobalSearch({
           ) : (
             <div className="px-4 py-6 text-center" role="status">
               {trimmedQuery.length > 0 ? (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-400">
                   Nada encontrado para &apos;{trimmedQuery}&apos;
                 </p>
               ) : (
-                <p className="text-xs text-slate-600">Digite para buscar apps e jogos…</p>
+                <p className="text-xs text-slate-400">Digite para buscar apps e jogos…</p>
               )}
             </div>
           )}
 
           {/* ── Rodapé com atalhos ─────────────────────────────────── */}
           <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2">
-            <p className="text-[9px] text-slate-600">
+            <p className="text-[9px] text-slate-400">
               <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1">↑</kbd>{' '}
               <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1">↓</kbd>{' '}
               navegar

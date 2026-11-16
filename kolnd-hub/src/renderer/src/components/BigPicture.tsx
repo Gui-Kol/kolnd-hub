@@ -526,7 +526,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
             <button
               type="button"
               onClick={() => setToast(null)}
-              className="ml-2 shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-500 transition-colors hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
+              className="ml-2 shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
               aria-label="Fechar aviso"
             >
               <X size={14} />

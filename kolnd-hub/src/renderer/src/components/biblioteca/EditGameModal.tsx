@@ -234,11 +234,11 @@ export const EditGameModal = memo(function EditGameModal({
         {/* ── Cabeçalho ─────────────────────────────── */}
         <div className="flex items-center gap-3 pb-4 border-b border-white/[0.06]">
           <div className="w-11 h-11 rounded-xl bg-playstation-500/10 border border-playstation-500/30 flex items-center justify-center shrink-0">
-            <Pencil size={18} className="text-playstation-500" />
+            <Pencil size={18} className="text-playstation-400" />
           </div>
           <div className="min-w-0">
             <h3 className="text-base font-bold text-slate-100">Editar Game</h3>
-            <p className="text-[11px] text-slate-500 truncate">{game.name}</p>
+            <p className="text-[11px] text-slate-400 truncate">{game.name}</p>
           </div>
         </div>
 
@@ -265,7 +265,7 @@ export const EditGameModal = memo(function EditGameModal({
           {/* ── Executável ───────────────────────────── */}
           <div>
             <span className="label-panel">Executável</span>
-            <p className="rounded-lg border border-white/[0.06] bg-black/30 px-3 py-2 text-[11px] font-mono text-slate-500 break-all">
+            <p className="rounded-lg border border-white/[0.06] bg-black/30 px-3 py-2 text-[11px] font-mono text-slate-400 break-all">
               {exePath}
             </p>
             {localExeMissing && (
@@ -283,7 +283,7 @@ export const EditGameModal = memo(function EditGameModal({
               >
                 Alterar…
               </button>
-              <span className="text-[10px] text-slate-600 leading-snug">
+              <span className="text-[10px] text-slate-400 leading-snug">
                 O jogo inicia a partir da pasta do executável.
               </span>
             </div>
@@ -302,7 +302,7 @@ export const EditGameModal = memo(function EditGameModal({
                     draggable={false}
                   />
                 ) : (
-                  <Gamepad2 size={32} className="text-slate-600" />
+                  <Gamepad2 size={32} className="text-slate-400" />
                 )}
               </div>
               <div className="flex flex-col items-start gap-2 min-w-0">
@@ -328,7 +328,7 @@ export const EditGameModal = memo(function EditGameModal({
                   <RotateCcw size={12} />
                   Restaurar ícone do executável
                 </button>
-                <p className="text-[10px] text-slate-600 leading-snug">
+                <p className="text-[10px] text-slate-400 leading-snug">
                   Formatos aceitos: PNG, JPG e WebP. .ico não é suportado.
                 </p>
               </div>

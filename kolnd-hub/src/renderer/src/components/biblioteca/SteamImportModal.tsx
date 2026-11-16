@@ -49,7 +49,7 @@ export const SteamImportModal = memo(function SteamImportModal({
                 <Loader2 size={32} className="animate-spin text-steam-blue" />
                 <div>
                   <h3 className="text-base font-bold text-slate-100">Importando jogos da Steam…</h3>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Detectando os jogos instalados. Isso pode levar alguns segundos.
                   </p>
                 </div>
@@ -75,7 +75,7 @@ export const SteamImportModal = memo(function SteamImportModal({
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-100">Importação concluída</h3>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-400">
                       Jogos detectados na sua instalação da Steam
                     </p>
                   </div>

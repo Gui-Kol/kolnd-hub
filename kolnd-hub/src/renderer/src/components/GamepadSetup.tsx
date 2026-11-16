@@ -402,7 +402,7 @@ export function GamepadSetup({
             <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-200">
               {step === 'detect' ? 'Configurar controle' : 'Controle'}
             </h2>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-400">
               {step === 'manual'
                 ? 'Ajuste manual do mapeamento'
                 : 'Detecção automática pelo modelo do seu controle'}
@@ -412,7 +412,7 @@ export function GamepadSetup({
         <button
           type="button"
           onClick={requestClose}
-          className="shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-white/[0.05] hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
+          className="shrink-0 flex h-12 w-12 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-neon-cyan/70"
           aria-label="Fechar configuração de controle"
           title="Fechar"
         >
@@ -452,7 +452,7 @@ export function GamepadSetup({
               className={`flex items-center gap-2 rounded-full border px-4 py-1.5 text-[11px] font-semibold uppercase tracking-widest ${
                 padConnected
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                  : 'border-white/[0.08] bg-white/[0.03] text-slate-500'
+                  : 'border-white/[0.08] bg-white/[0.03] text-slate-400'
               }`}
               role="status"
             >
@@ -522,7 +522,7 @@ export function GamepadSetup({
           <div className="space-y-6">
             <div className="flex flex-col items-center gap-3 py-2 text-center">
               <Gamepad2 size={44} strokeWidth={1.25} className="text-neon-cyan" />
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-slate-500">
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-slate-400">
                 Controle detectado
               </p>
               <h3 className="text-xl font-bold text-white">{baseConfig.controllerName}</h3>
@@ -539,7 +539,7 @@ export function GamepadSetup({
               <table className="w-full text-left text-sm">
                 <caption className="sr-only">Mapeamento dos 12 botões do controle</caption>
                 <thead>
-                  <tr className="bg-white/[0.04] text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">
+                  <tr className="bg-white/[0.04] text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
                     <th scope="col" className="px-5 py-2.5">
                       Ação
                     </th>
@@ -593,7 +593,7 @@ export function GamepadSetup({
         {/* ───────── Passo 3 — Ajuste manual por botão ───────── */}
         {step === 'manual' && baseConfig && draft && (
           <div className="space-y-4">
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               Controle:{' '}
               <span className="font-semibold text-slate-300">{baseConfig.controllerName}</span> ·
               perfil {GAMEPAD_PROFILES[baseConfig.profile].label}. Clique em{' '}
@@ -648,7 +648,7 @@ export function GamepadSetup({
               </div>
             )}
 
-            <p className="text-[11px] leading-relaxed text-slate-600">
+            <p className="text-[11px] leading-relaxed text-slate-400">
               O stick esquerdo sempre navega, além do D-Pad (não remapeável) · o botão Guide (16) é
               reservado e não pode ser mapeado · Esc cancela a escuta · Enter confirma nos botões.
             </p>

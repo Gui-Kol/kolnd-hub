@@ -54,7 +54,7 @@ export const GamepadMappingRow = memo(function GamepadMappingRow({
         <span
           className={`inline-flex min-w-[9rem] flex-1 justify-center rounded-lg border px-3 py-1.5 font-mono text-[11px] font-semibold ${
             buttonIndex === null
-              ? 'border-white/[0.08] bg-white/[0.03] text-slate-500'
+              ? 'border-white/[0.08] bg-white/[0.03] text-slate-400'
               : 'border-neon-cyan/25 bg-neon-cyan/5 text-neon-cyan'
           }`}
         >

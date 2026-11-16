@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Foco visível global (WCAG 2.4.7): anel de 2px neon-cyan com offset em qualquer
+   elemento focável via teclado. Não fica em @layer de propósito: CSS solto tem
+   prioridade sobre as camadas do Tailwind, então nem `focus:outline-none` utilitário
+   remove este anel. Anéis `focus-visible:ring-*` dos componentes continuam valendo
+   (box-shadow) — esta regra é a base consistente. */
+:focus-visible {
+  outline: 2px solid #00f3ff; /* neon-cyan */
+  outline-offset: 2px;
+}
+
 @layer base {
   * {
     margin: 0;
@@ -130,15 +140,16 @@
   }
 
   .badge-nintendo {
-    @apply badge bg-nintendo-500/10 border border-nintendo-500/30 text-nintendo-500;
+    /* Tons elevados: as cores de marca plenas falham AA em texto 10px sobre fundo escuro */
+    @apply badge bg-nintendo-500/10 border border-nintendo-500/30 text-nintendo-400;
   }
 
   .badge-playstation {
-    @apply badge bg-playstation-500/10 border border-playstation-500/30 text-playstation-500;
+    @apply badge bg-playstation-500/10 border border-playstation-500/30 text-playstation-300;
   }
 
   .badge-steam {
-    @apply badge bg-steam-blue/10 border border-steam-blue/30 text-steam-blue;
+    @apply badge bg-steam-blue/10 border border-steam-blue/30 text-steam-blue-light;
   }
 
   .badge-neon-cyan {
@@ -146,7 +157,7 @@
   }
 
   .badge-neon-purple {
-    @apply badge bg-neon-purple/10 border border-neon-purple/30 text-neon-purple;
+    @apply badge bg-neon-purple/10 border border-neon-purple/30 text-neon-purple-light;
   }
 
   .badge-kloud {
@@ -166,13 +177,13 @@
   /* Inputs estilo terminal gamer */
   .input-gamer {
     @apply w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-slate-200 font-mono
-      placeholder-slate-600 focus:outline-none focus:border-kloud-500/50 focus:ring-1 focus:ring-kloud-500/20
+      placeholder-slate-400 focus:outline-none focus:border-kloud-500/50 focus:ring-1 focus:ring-kloud-500/20
       transition-all duration-200;
   }
 
   /* Label estilo painel */
   .label-panel {
-    @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2;
+    @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2;
   }
 
   /* Draggable title bar */

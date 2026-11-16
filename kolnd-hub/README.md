@@ -68,10 +68,11 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 
 ### Acessibilidade (a11y)
 
+- **Acessibilidade de cor/foco (8.2 — 16/11/2026)**: tokens de texto acessível no `tailwind.config.js` (`muted` #cbd5e1 · `subtle` #94a3b8 · `nintendo-400` · `playstation-300/400` · `steam-blue-light` · `neon-purple-light`) e `:focus-visible` global no `index.css` (anel 2px neon-cyan + offset 2px). Pares texto/fundo medidos pela fórmula WCAG: ver `../docs/a11y-contrast-audit.md`.
 - **Lint de a11y** — `eslint-plugin-jsx-a11y` (perfil `recommended` via flat config, `eslint.config.mjs`) cobre **só `src/renderer/**/*.{ts,tsx}`**; main/preload não têm JSX. Rode com `npm run lint` (o mesmo gate de sempre — as regras a11y são parte dele, sem script separado).
 - **Estado (8.1 — 16/11/2026)**: 0 erros do plugin. Modais do Hub usam o focus trap compartilhado em `src/renderer/src/lib/useFocusTrap.ts` (foco inicial no `[data-autofocus]` ou no 1º focável, Tab/Shift+Tab ciclam, foco devolvido a quem abriu; Esc fica a cargo de cada modal). Regiões de status de processo e logs ao vivo usam `aria-live="polite"` (Dashboard, `AppDetailModal`, passos de desinstalação). Só existe um `aria-live="assertive"` (overlay de controle desconectado no Big Picture) — o restante é `polite` de propósito.
 - **Exceção de peer dep conhecida**: o plugin ainda não declara suporte a ESLint 10, então o `.npmrc` carrega `legacy-peer-deps=true` (necessário para `npm ci` reproduzir o lockfile). Reavaliar quando sair release com peer `eslint@^10`.
-- **Teste manual com leitor de tela (NVDA): pendente** — ver checklist no PR/commit da tarefa 8.1. Contraste/foco visível (8.2), anúncios no Big Picture (8.3) e `prefers-reduced-motion` (8.4) são tarefas à parte.
+- **Teste manual com leitor de tela (NVDA): pendente** — ver checklist no PR/commit da tarefa 8.1. Anúncios no Big Picture (8.3) e `prefers-reduced-motion` (8.4) são tarefas à parte. Contraste/foco visível (8.2): implementado — ver `../docs/a11y-contrast-audit.md`.
 
 ## Verificação pré-commit: `npm run verify`
 

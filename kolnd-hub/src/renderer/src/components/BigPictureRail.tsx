@@ -150,7 +150,7 @@ export function BigPictureRail({
             danger
           />
         </div>
-        <p className="px-7 text-[10px] 3xl:text-base font-medium uppercase tracking-widest text-slate-500">
+        <p className="px-7 text-[10px] 3xl:text-base font-medium uppercase tracking-widest text-slate-400">
           B ou Esc para sair
         </p>
       </div>

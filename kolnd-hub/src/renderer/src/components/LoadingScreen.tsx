@@ -114,7 +114,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
             <h2 className="text-2xl font-bold text-white tracking-tight gradient-text gradient-kloud">
               Kolnd Hub
             </h2>
-            <p className="text-xs text-slate-500 uppercase tracking-widest mt-0.5">
+            <p className="text-xs text-slate-400 uppercase tracking-widest mt-0.5">
               Central de controle
             </p>
           </div>
@@ -132,7 +132,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
             <span className="text-sm font-semibold text-slate-200">{activeStep.label}</span>
           </div>
           {currentStepIndex < STEPS.length - 1 && (
-            <p className="text-[11px] text-slate-500 mt-1">
+            <p className="text-[11px] text-slate-400 mt-1">
               Aguarde enquanto preparamos tudo para funcionar sem travamentos.
             </p>
           )}
@@ -185,11 +185,11 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
                 ) : isActive ? (
                   <Loader2 size={14} className="text-kloud-500 shrink-0 animate-spin" />
                 ) : (
-                  <StepIcon size={14} className="text-slate-600 shrink-0" />
+                  <StepIcon size={14} className="text-slate-400 shrink-0" />
                 )}
                 <span
                   className={`text-xs font-medium leading-tight ${
-                    isDone ? 'text-emerald-400' : isActive ? 'text-white' : 'text-slate-500'
+                    isDone ? 'text-emerald-400' : isActive ? 'text-white' : 'text-slate-400'
                   }`}
                 >
                   {step.label}
@@ -205,7 +205,7 @@ export function LoadingScreen({ onReady }: LoadingScreenProps): JSX.Element {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 }}
-        className="absolute bottom-8 text-[10px] text-slate-600 uppercase tracking-widest font-bold"
+        className="absolute bottom-8 text-[10px] text-slate-400 uppercase tracking-widest font-bold"
       >
         Kolnd Hub • Carregamento seguro
       </motion.div>

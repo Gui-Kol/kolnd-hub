@@ -82,7 +82,7 @@ export const StopGameButton = memo(function StopGameButton({
       }}
       className={`absolute top-2 right-12 inline-flex h-[30px] items-center justify-center rounded-lg border border-transparent p-2 text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400/50 ${
         !running
-          ? 'cursor-not-allowed text-slate-700'
+          ? 'cursor-not-allowed text-slate-500'
           : confirming
             ? 'border-red-500/40 bg-red-500/15 text-red-300'
             : 'hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 cursor-pointer'

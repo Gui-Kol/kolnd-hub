@@ -163,7 +163,7 @@ export function BigPictureSettings(): JSX.Element {
 
   return (
     <>
-      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">Big Picture</p>
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">Big Picture</p>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

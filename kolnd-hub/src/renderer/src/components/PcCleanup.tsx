@@ -78,7 +78,7 @@ export function PcCleanup(): JSX.Element {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-slate-500">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-slate-400">
           <FolderOpen size={12} className="shrink-0" />
           {TEMP_FOLDER_LABELS.map((label) => (
             <code
@@ -126,7 +126,7 @@ export function PcCleanup(): JSX.Element {
               </p>
             )}
             {result.paths && result.paths.length > 0 && (
-              <p className="text-[10px] text-slate-500 font-mono leading-relaxed">
+              <p className="text-[10px] text-slate-400 font-mono leading-relaxed">
                 Pastas varridas: {result.paths.join(' · ')}
               </p>
             )}
@@ -208,7 +208,7 @@ export function PcCleanup(): JSX.Element {
                     ou pastas de programas.
                   </li>
                 </ul>
-                <p className="text-slate-500 text-[11px]">
+                <p className="text-slate-400 text-[11px]">
                   Pastas: %TEMP% · %LOCALAPPDATA%\Temp · C:\Windows\Temp
                 </p>
               </div>

@@ -70,7 +70,7 @@ export const OptionsOverlay = memo(function OptionsOverlay({
         onClick={onClose}
       />
       <div className="relative w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60">
-        <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Opções</h2>
+        <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-400">Opções</h2>
         <OverlayButton
           id="options:controls"
           icon={Gamepad}

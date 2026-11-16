@@ -132,7 +132,7 @@ function GameCard({
         <span
           aria-hidden="true"
           title="O jogo não está em execução"
-          className="absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 cursor-not-allowed items-center justify-center rounded-xl border border-white/[0.05] bg-white/[0.02] p-2 text-slate-700"
+          className="absolute top-3 right-3 z-10 inline-flex h-12 min-w-12 cursor-not-allowed items-center justify-center rounded-xl border border-white/[0.05] bg-white/[0.02] p-2 text-slate-500"
         >
           <Square size={16} strokeWidth={2.25} />
         </span>
@@ -166,7 +166,7 @@ function GameCard({
             <Gamepad2
               size={56}
               strokeWidth={1.5}
-              className="text-slate-600 transition-colors group-hover:text-slate-400"
+              className="text-slate-400 transition-colors group-hover:text-slate-300"
             />
           )}
         </div>
@@ -338,7 +338,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
       {/* ── Conteúdo ─────────────────────────────────── */}
       <div className="mt-8 min-h-0 flex-1">
         {loading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-500">
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-400">
             <Loader2 size={40} className="animate-spin text-neon-cyan" />
             <p className="text-xl">Carregando sua biblioteca…</p>
           </div>
@@ -346,7 +346,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
             <AlertTriangle size={40} className="text-red-400" />
             <p className="text-xl text-slate-200">Não foi possível carregar sua biblioteca.</p>
-            <p className="text-base text-slate-500">{loadError}</p>
+            <p className="text-base text-slate-400">{loadError}</p>
             <RetryButton onClick={() => void loadGames()} />
           </div>
         ) : games.length === 0 ? (
@@ -356,7 +356,7 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
             </div>
             <div className="space-y-2">
               <h3 className="text-3xl font-bold text-slate-100">Sua biblioteca está vazia</h3>
-              <p className="text-lg text-slate-500 max-w-md">
+              <p className="text-lg text-slate-400 max-w-md">
                 Adicione jogos pelo Hub normal, na aba Biblioteca — eles aparecem aqui.
               </p>
             </div>

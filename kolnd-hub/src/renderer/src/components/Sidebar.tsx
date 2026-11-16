@@ -36,7 +36,7 @@ export function Sidebar({
             <h1 className="text-base font-bold text-white tracking-tight gradient-text gradient-kloud text-shadow">
               Kolnd Hub
             </h1>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
               Central de Controle
             </p>
           </div>
@@ -46,7 +46,7 @@ export function Sidebar({
       {/* ── PC do usuário ────────────────────────────── */}
       {pcName && (
         <div className="px-4 mb-6">
-          <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-3">
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-3">
             Este computador
           </p>
           <div
@@ -55,7 +55,7 @@ export function Sidebar({
           >
             <Monitor
               size={13}
-              className="shrink-0 text-slate-500 group-hover:text-playstation-500 transition-colors"
+              className="shrink-0 text-slate-400 group-hover:text-playstation-400 transition-colors"
             />
             <span className="min-w-0 truncate">{pcName}</span>
           </div>
@@ -64,7 +64,7 @@ export function Sidebar({
 
       {/* ── Navigation ───────────────────────────────── */}
       <nav className="flex-1 px-4">
-        <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 mb-4">
+        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-4">
           Menu
         </p>
         <div className="space-y-1">
@@ -76,18 +76,19 @@ export function Sidebar({
                 'text-playstation-400 bg-playstation-500/10 border-playstation-500/20 shadow-glow-blue',
               inicializacao:
                 'text-kloud-500 bg-kloud-500/10 border-kloud-500/20 shadow-glow-orange',
-              biblioteca: 'text-steam-blue bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
+              biblioteca:
+                'text-steam-blue-light bg-steam-blue/10 border-steam-blue/20 shadow-glow-blue',
               settings:
-                'text-neon-purple bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
+                'text-neon-purple-light bg-neon-purple/10 border-neon-purple/20 shadow-glow-purple'
             } as Record<string, string>
             return (
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-l-2 ${
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border-l-2 focus-visible:ring-2 focus-visible:ring-neon-cyan/70 ${
                   isActive
                     ? `border-transparent ${activeColors[item.id]} text-slate-100`
-                    : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
+                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
               >
                 <Icon size={17} className="shrink-0" />
@@ -102,7 +103,7 @@ export function Sidebar({
       {onExit && (
         <button
           onClick={onExit}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 hover:text-red-300"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 hover:text-red-300 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
           aria-label="Sair do Kolnd Hub"
         >
           <LogOut size={17} className="shrink-0" />
@@ -125,16 +126,16 @@ export function Sidebar({
           </button>
         )}
         {/* Atalho da busca global — um único lugar, discreto */}
-        <p className="mb-3 text-center text-[9px] text-slate-600">
+        <p className="mb-3 text-center text-[9px] text-slate-400">
           Pressione{' '}
-          <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1 font-bold text-slate-500">
+          <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1 font-bold text-slate-400">
             /
           </kbd>{' '}
           para buscar
         </p>
         <div className="text-center">
-          <p className="text-[10px] font-bold text-slate-500 tracking-tight">Kolnd Hub</p>
-          <p className="text-[9px] text-slate-600 mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>
+          <p className="text-[10px] font-bold text-slate-400 tracking-tight">Kolnd Hub</p>
+          <p className="text-[9px] text-slate-400 mt-0.5">v{__APP_VERSION__} · Gamer Edition</p>
         </div>
       </div>
     </aside>

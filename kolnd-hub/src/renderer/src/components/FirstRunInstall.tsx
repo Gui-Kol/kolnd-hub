@@ -175,7 +175,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
             <h2 className="text-2xl font-bold text-white tracking-tight gradient-text gradient-kloud">
               Kolnd Hub
             </h2>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">
               Primeira execução
             </p>
           </div>
@@ -196,7 +196,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
           />
         </div>
         <div className="flex justify-between items-center mb-6">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider">
+          <span className="text-[10px] text-slate-400 uppercase tracking-wider">
             {hasError
               ? 'Erro na instalação'
               : completed
@@ -241,7 +241,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
                 ) : isError ? (
                   <AlertCircle size={16} className="text-red-400 shrink-0" />
                 ) : (
-                  <StepIcon size={16} className="text-slate-600 shrink-0" />
+                  <StepIcon size={16} className="text-slate-400 shrink-0" />
                 )}
                 <span
                   className={`text-xs font-medium leading-tight ${
@@ -251,7 +251,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
                         ? 'text-white'
                         : isError
                           ? 'text-red-400'
-                          : 'text-slate-500'
+                          : 'text-slate-400'
                   }`}
                 >
                   {step.label}
@@ -306,7 +306,7 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 }}
-        className="absolute bottom-6 text-[10px] text-slate-600 uppercase tracking-widest font-bold"
+        className="absolute bottom-6 text-[10px] text-slate-400 uppercase tracking-widest font-bold"
       >
         Kolnd Hub • Instalação automática
       </motion.div>

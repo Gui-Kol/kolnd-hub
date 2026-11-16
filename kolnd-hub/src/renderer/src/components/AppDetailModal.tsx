@@ -110,7 +110,7 @@ export function AppDetailModal({
           {/* Botão fechar */}
           <button
             onClick={onClose}
-            className="absolute top-6 right-6 p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors z-20"
+            className="absolute top-6 right-6 p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors z-20 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
             aria-label="Fechar detalhes do app"
           >
             <X size={17} aria-hidden="true" />
@@ -141,7 +141,7 @@ export function AppDetailModal({
                 />
                 <span
                   className={`text-xs font-bold ${
-                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-500'
+                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-400'
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                   role="status"
@@ -160,8 +160,8 @@ export function AppDetailModal({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-7">
             <div className="glass rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1">
-                <Terminal size={14} className="text-slate-500 shrink-0" />
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Comando</span>
+                <Terminal size={14} className="text-slate-400 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Comando</span>
               </div>
               <code className="text-xs text-slate-300 bg-white/5 px-3 py-2 rounded-lg font-mono block break-all">
                 {app.command}
@@ -169,8 +169,8 @@ export function AppDetailModal({
             </div>
             <div className="glass rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1">
-                <FolderOpen size={14} className="text-slate-500 shrink-0" />
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Diretório</span>
+                <FolderOpen size={14} className="text-slate-400 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Diretório</span>
               </div>
               <code className="text-xs text-slate-300 bg-white/5 px-3 py-2 rounded-lg font-mono block break-all">
                 {app.cwd}
@@ -179,8 +179,8 @@ export function AppDetailModal({
             {state?.startedAt && isRunning && (
               <div className="glass rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <Clock size={14} className="text-slate-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                  <Clock size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">
                     Iniciado em
                   </span>
                 </div>
@@ -192,12 +192,12 @@ export function AppDetailModal({
             {app.url && isRunning && (
               <div className="glass rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <ExternalLink size={14} className="text-slate-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Link web</span>
+                  <ExternalLink size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Link web</span>
                 </div>
                 <button
                   onClick={() => window.api.openExternal(app.url!)}
-                  className="text-xs font-bold text-playstation-500 hover:text-playstation-400 underline underline-offset-4 transition-colors"
+                  className="text-xs font-bold text-playstation-300 hover:text-playstation-400 underline underline-offset-4 transition-colors"
                 >
                   Abrir no navegador →
                 </button>
@@ -221,10 +221,10 @@ export function AppDetailModal({
           {showLogs && (
             <div className="mb-7">
               <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase">
                   <ScrollText size={11} /> Saída do processo
                 </span>
-                <span className="text-[10px] text-slate-600">
+                <span className="text-[10px] text-slate-400">
                   {cleanLogs ? 'ao vivo' : 'sem saída'}
                 </span>
               </div>

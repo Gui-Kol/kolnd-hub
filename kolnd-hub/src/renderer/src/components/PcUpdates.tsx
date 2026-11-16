@@ -55,7 +55,7 @@ function SelectBox({ state, disabled, onToggle, title }: SelectBoxProps): JSX.El
       className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all shrink-0 border disabled:opacity-40 disabled:cursor-not-allowed ${
         active
           ? 'bg-kloud-500 text-white border-kloud-500 shadow-glow-red'
-          : 'bg-white/[0.03] border-white/10 text-slate-500 hover:border-white/30 hover:text-white'
+          : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
       }`}
     >
       {state === 'on' && <CheckCircle2 size={15} fill="white" />}
@@ -302,7 +302,7 @@ export function PcUpdates(): JSX.Element {
       <div className="glass rounded-2xl p-12 text-center">
         <Loader2 size={36} className="mx-auto mb-4 animate-spin text-kloud-500" />
         <p className="text-sm font-bold text-white">Verificando atualizações…</p>
-        <p className="text-[12px] text-slate-500 mt-1.5">
+        <p className="text-[12px] text-slate-400 mt-1.5">
           Isso pode levar alguns segundos na primeira vez.
         </p>
       </div>
@@ -340,7 +340,7 @@ export function PcUpdates(): JSX.Element {
           <div className="mt-5 text-left max-w-2xl mx-auto">
             <button
               onClick={() => setShowRawLog((v) => !v)}
-              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-white transition-colors mx-auto"
+              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white transition-colors mx-auto"
               aria-expanded={showRawLog}
             >
               {showRawLog ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -366,7 +366,7 @@ export function PcUpdates(): JSX.Element {
       <div className="glass rounded-2xl p-12 text-center border-emerald-500/20">
         <CheckCircle2 size={40} className="mx-auto mb-4 text-emerald-400" />
         <p className="text-sm font-bold text-emerald-400">Nenhuma atualização disponível 🎉</p>
-        <p className="text-[12px] text-slate-500 mt-1.5">
+        <p className="text-[12px] text-slate-400 mt-1.5">
           Tudo certo por aqui — seus programas estão em dia.
         </p>
         <div className="mt-6">
@@ -393,7 +393,7 @@ export function PcUpdates(): JSX.Element {
                   {items.length} atualização{items.length === 1 ? '' : 'ões'} disponível
                   {items.length === 1 ? '' : 'is'}
                 </h3>
-                <p className="text-[10px] text-slate-500 mt-0.5">
+                <p className="text-[10px] text-slate-400 mt-0.5">
                   Segundo o winget, direto do seu PC
                 </p>
               </div>
@@ -454,7 +454,7 @@ export function PcUpdates(): JSX.Element {
                 </span>
               </div>
             ) : (
-              <span className="text-[10px] text-slate-600">
+              <span className="text-[10px] text-slate-400">
                 Uma de cada vez, para não conflitar
               </span>
             )}
@@ -491,7 +491,7 @@ export function PcUpdates(): JSX.Element {
                         {item.name}
                       </div>
                       <code
-                        className="text-[10px] text-slate-500 truncate mt-1.5 block leading-tight"
+                        className="text-[10px] text-slate-400 truncate mt-1.5 block leading-tight"
                         title={item.id}
                       >
                         {item.id}
@@ -502,7 +502,7 @@ export function PcUpdates(): JSX.Element {
                     <span className="text-slate-400 font-mono" title="Versão atual">
                       {item.currentVersion || 'desconhecida'}
                     </span>
-                    <ArrowRight size={12} className="text-slate-600" />
+                    <ArrowRight size={12} className="text-slate-400" />
                     <span className="text-neon-cyan font-bold font-mono" title="Versão disponível">
                       {item.availableVersion || 'desconhecida'}
                     </span>
@@ -520,7 +520,7 @@ export function PcUpdates(): JSX.Element {
                     <div className="mt-3 border-t border-white/[0.06] pt-3">
                       <button
                         onClick={() => toggleLog(item.id)}
-                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-white transition-colors"
+                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white transition-colors"
                         aria-expanded={isExpanded}
                       >
                         {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -528,7 +528,7 @@ export function PcUpdates(): JSX.Element {
                       </button>
                       {isExpanded && (
                         <>
-                          <p className="text-[10px] text-slate-500 mt-2">
+                          <p className="text-[10px] text-slate-400 mt-2">
                             Código de saída:{' '}
                             <code className="text-slate-300 font-mono">
                               {state.exitCode ?? 'desconhecido'}

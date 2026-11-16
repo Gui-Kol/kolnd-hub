@@ -149,8 +149,8 @@ export function Inicializacao({
   const categoryColor = (category: string) => {
     const colors: Record<string, string> = {
       ai: 'text-neon-cyan',
-      gaming: 'text-neon-purple',
-      streaming: 'text-playstation-500',
+      gaming: 'text-neon-purple-light',
+      streaming: 'text-playstation-300',
       dev: 'text-kloud-500'
     }
     return colors[category] ?? 'text-slate-400'
@@ -166,7 +166,7 @@ export function Inicializacao({
       >
         <div className="space-y-1">
           <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow flex items-center gap-3">
-            <Monitor size={24} className="text-playstation-500 shrink-0" />
+            <Monitor size={24} className="text-playstation-400 shrink-0" />
             {pcName}
           </h2>
           <p className="text-sm text-slate-400">Manutenção e inicialização do seu PC</p>
@@ -231,7 +231,7 @@ export function Inicializacao({
               }`}
             >
               <div className="flex items-center gap-3">
-                <Monitor size={16} className="text-playstation-500 shrink-0" />
+                <Monitor size={16} className="text-playstation-400 shrink-0" />
                 <div>
                   <h3 className="text-sm font-bold text-white">
                     Iniciam com o {pcName} ({items.length})
@@ -275,8 +275,8 @@ export function Inicializacao({
 
             {items.length === 0 ? (
               <div className="glass rounded-2xl p-10 text-center border-dashed border-white/[0.08]">
-                <AlertTriangle size={32} className="mx-auto mb-3 text-slate-600" />
-                <p className="text-[12px] font-medium text-slate-500">
+                <AlertTriangle size={32} className="mx-auto mb-3 text-slate-400" />
+                <p className="text-[12px] font-medium text-slate-400">
                   Nenhum título configurado para iniciar com o {pcName}.
                 </p>
               </div>
@@ -302,7 +302,7 @@ export function Inicializacao({
                           className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
                             isSelected
                               ? 'bg-red-500 text-white border-red-500 shadow-glow-red'
-                              : 'bg-white/[0.03] border-white/10 text-slate-500 hover:border-white/30 hover:text-white'
+                              : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
                           }`}
                         >
                           {isSelected ? (
@@ -316,13 +316,13 @@ export function Inicializacao({
                       {/* ── Nome / caminho / local ─────────── */}
                       <div className="flex flex-col md:flex-row md:items-center gap-4 min-w-0 flex-1">
                         <div className="w-11 h-11 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
-                          <Monitor size={20} className="text-slate-500" />
+                          <Monitor size={20} className="text-slate-400" />
                         </div>
                         <div className="flex flex-col min-w-0">
                           <div className="text-sm font-bold text-white truncate" title={item.name}>
                             {item.name}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5">
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1.5">
                             <span className="flex items-center gap-1">
                               {STARTUP_LOCATION_LABEL[item.location]}
                             </span>
@@ -330,7 +330,7 @@ export function Inicializacao({
                             <span>{STARTUP_SCOPE_LABEL[item.scope]}</span>
                           </div>
                           <code
-                            className="text-[10px] text-slate-500 truncate mt-2 block leading-tight"
+                            className="text-[10px] text-slate-400 truncate mt-2 block leading-tight"
                             title={item.path}
                           >
                             {item.path}
@@ -340,7 +340,7 @@ export function Inicializacao({
 
                       {/* ── Importância (somente leitura) ────────────────────── */}
                       <div className="flex flex-col md:flex-row md:items-center gap-3 shrink-0 w-full md:w-auto">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                           Importância
                         </span>
                         <span
@@ -456,7 +456,7 @@ export function Inicializacao({
                           className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
                             isSelected
                               ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-cyan'
-                              : 'bg-white/[0.03] border-white/10 text-slate-500 hover:border-white/30 hover:text-white'
+                              : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
                           }`}
                         >
                           {isSelected ? (
@@ -475,7 +475,7 @@ export function Inicializacao({
                           <div className="text-sm font-bold text-white truncate" title={app.name}>
                             {app.name}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1.5">
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1.5">
                             <span className={`font-bold ${categoryColor(app.category)}`}>
                               {app.category.toUpperCase()}
                             </span>
@@ -483,7 +483,7 @@ export function Inicializacao({
                             <span>Configurado no Hub</span>
                           </div>
                           <code
-                            className="text-[10px] text-slate-500 truncate mt-2 block leading-tight"
+                            className="text-[10px] text-slate-400 truncate mt-2 block leading-tight"
                             title={app.command}
                           >
                             {app.command}
@@ -493,7 +493,7 @@ export function Inicializacao({
 
                       {/* ── Importância (ao adicionar) ────────────────────── */}
                       <div className="flex flex-col md:flex-row md:items-center gap-3 shrink-0 w-full md:w-auto">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                           Importância
                         </span>
                         <span
@@ -530,7 +530,7 @@ export function Inicializacao({
             animate={{ opacity: 1 }}
             className="glass rounded-2xl p-5 flex flex-wrap gap-3 items-center border-l-4 border-neon-purple/50"
           >
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mr-3">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-3">
               Níveis de importância
             </span>
             {IMPORTANCE_LEVELS.map((l) => {
@@ -539,7 +539,7 @@ export function Inicializacao({
                 <span key={l} className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: m.color }} />
                   <span className="text-[11px] font-bold text-slate-300">{m.label}</span>
-                  <span className="text-[10px] text-slate-500">{m.subtitle}</span>
+                  <span className="text-[10px] text-slate-400">{m.subtitle}</span>
                 </span>
               )
             })}

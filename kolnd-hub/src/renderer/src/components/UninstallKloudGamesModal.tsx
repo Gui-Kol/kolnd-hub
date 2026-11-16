@@ -486,7 +486,7 @@ export function UninstallKloudGamesModal({
               <div className="mt-5">
                 <label
                   htmlFor="uninstall-kloud-confirm"
-                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2"
+                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2"
                 >
                   Digite <span className="text-red-400 font-mono">KLOUD_GAMES</span> para confirmar
                 </label>
@@ -498,7 +498,7 @@ export function UninstallKloudGamesModal({
                   className="input-gamer text-center"
                   placeholder="KLOUD_GAMES"
                 />
-                <p className="text-[10px] text-slate-500 mt-1">
+                <p className="text-[10px] text-slate-400 mt-1">
                   Não diferencia maiúsculas/minúsculas.
                 </p>
               </div>
@@ -536,7 +536,7 @@ export function UninstallKloudGamesModal({
             </p>
             <div className="mt-4">
               <div className="flex justify-between mb-1 text-[10px]">
-                <span className="text-slate-500">{stepLabel || 'Etapa atual'}</span>
+                <span className="text-slate-400">{stepLabel || 'Etapa atual'}</span>
                 <span className="text-red-400 font-mono">{progress}%</span>
               </div>
               <div className="w-full bg-slate-800/50 rounded-full h-2">
@@ -557,7 +557,7 @@ export function UninstallKloudGamesModal({
                 </summary>
                 <div className="mt-2 max-h-48 overflow-y-auto text-[11px] font-mono text-slate-300">
                   {logs.length === 0 ? (
-                    <span className="text-slate-500">Aguardando log…</span>
+                    <span className="text-slate-400">Aguardando log…</span>
                   ) : (
                     logs.map((line, i) => <div key={i}>{line}</div>)
                   )}
@@ -589,7 +589,7 @@ export function UninstallKloudGamesModal({
                     <li key={item}>⚠ {item}</li>
                   ))}
                 </ul>
-                <p className="mt-3 text-[10px] text-slate-500">
+                <p className="mt-3 text-[10px] text-slate-400">
                   Orientação: use o Painel de Controle → Aplicativos ou remova manualmente os itens
                   restantes. Nada é apagado sem você pedir.
                 </p>

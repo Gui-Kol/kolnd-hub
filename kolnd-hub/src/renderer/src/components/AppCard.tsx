@@ -102,7 +102,7 @@ export function AppCard({
                 />
                 <span
                   className={`text-[10px] font-bold ${
-                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-500'
+                    isRunning ? 'text-emerald-400' : isError ? 'text-red-400' : 'text-slate-400'
                   }`}
                   title={isBackground ? 'Rodando em segundo plano' : undefined}
                 >
@@ -119,7 +119,7 @@ export function AppCard({
                 e.stopPropagation()
                 window.api.openExternal(app.url!)
               }}
-              className="p-2 rounded-lg hover:bg-white/10 text-slate-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+              className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
               title="Abrir no navegador"
             >
               <ExternalLink size={14} />
@@ -128,7 +128,7 @@ export function AppCard({
         </div>
 
         {/* Descrição */}
-        <p className="text-[11px] text-slate-500 leading-relaxed mb-5 line-clamp-2 font-medium">
+        <p className="text-[11px] text-slate-400 leading-relaxed mb-5 line-clamp-2 font-medium">
           {app.description}
         </p>
 
@@ -159,7 +159,7 @@ export function AppCard({
               onLaunch()
             }
           }}
-          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow focus-visible:ring-2 focus-visible:ring-neon-cyan/70 ${
             isRunning
               ? 'bg-red-600/20 text-red-400 hover:bg-red-600/40 hover:text-red-300 border border-red-500/30 shadow-glow-red'
               : `text-white bg-gradient-to-r from-${app.color}/20 to-${app.color}/10 border border-${app.color}/40 hover:from-${app.color}/40 hover:to-${app.color}/20 hover:border-${app.color}/60 shadow-glow-orange`

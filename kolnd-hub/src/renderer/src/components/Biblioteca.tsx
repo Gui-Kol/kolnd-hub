@@ -274,7 +274,7 @@ export function Biblioteca(): JSX.Element {
         </div>
         <div className="flex items-center gap-3">
           <div className="glass rounded-xl px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-            <Gamepad2 size={12} className="text-slate-500" />
+            <Gamepad2 size={12} className="text-slate-400" />
             <span>
               {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
             </span>
@@ -326,7 +326,7 @@ export function Biblioteca(): JSX.Element {
                       </div>
                       <span className="min-w-0">
                         <span className="block font-medium">Importar jogos da Steam</span>
-                        <span className="block text-[11px] text-slate-500 mt-0.5">
+                        <span className="block text-[11px] text-slate-400 mt-0.5">
                           Detecta os jogos instalados via Steam
                         </span>
                       </span>
@@ -343,7 +343,7 @@ export function Biblioteca(): JSX.Element {
                       </div>
                       <span className="min-w-0">
                         <span className="block font-medium">Jogo Personalizado</span>
-                        <span className="block text-[11px] text-slate-500 mt-0.5">
+                        <span className="block text-[11px] text-slate-400 mt-0.5">
                           Escolha um executável (.exe) no seu PC
                         </span>
                       </span>
@@ -358,7 +358,7 @@ export function Biblioteca(): JSX.Element {
 
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
+        <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-400">
           <Loader2 size={32} className="animate-spin text-steam-blue" />
           <p className="text-sm">Carregando sua biblioteca…</p>
         </div>
@@ -366,7 +366,7 @@ export function Biblioteca(): JSX.Element {
         <div className="glass-card p-10 flex flex-col items-center text-center gap-3">
           <AlertTriangle size={28} className="text-red-400" />
           <p className="text-sm text-slate-300">Não foi possível carregar sua biblioteca.</p>
-          <p className="text-xs text-slate-500">{loadError}</p>
+          <p className="text-xs text-slate-400">{loadError}</p>
           <button type="button" onClick={() => void loadGames()} className="btn-secondary mt-2">
             Tentar novamente
           </button>
@@ -377,7 +377,7 @@ export function Biblioteca(): JSX.Element {
             <Gamepad2 size={36} className="text-steam-blue" />
           </div>
           <h3 className="text-lg font-bold text-slate-200">Sua biblioteca está vazia</h3>
-          <p className="text-sm text-slate-500 max-w-md">
+          <p className="text-sm text-slate-400 max-w-md">
             Clique em <span className="text-slate-300 font-semibold">Adicionar Games</span> para
             começar
           </p>
@@ -433,7 +433,7 @@ export function Biblioteca(): JSX.Element {
             <button
               type="button"
               onClick={() => setToast(null)}
-              className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
+              className="ml-2 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-white"
               aria-label="Fechar aviso"
             >
               <X size={13} />

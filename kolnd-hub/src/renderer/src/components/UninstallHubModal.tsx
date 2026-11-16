@@ -332,7 +332,7 @@ export function UninstallHubModal({
               </li>
             </ol>
 
-            <p className="text-[11px] text-slate-500 leading-relaxed text-left">
+            <p className="text-[11px] text-slate-400 leading-relaxed text-left">
               O Mark LVI (assistente) será removido junto com a pasta do Kolnd Hub. Seus dados
               atuais ficam em <span className="font-mono">%APPDATA%\kolnd-hub\mark-lvi</span> e
               seguem a regra acima.
@@ -406,7 +406,7 @@ export function UninstallHubModal({
                         recomendado
                       </span>
                     </span>
-                    <span className="block text-[11px] text-slate-500 mt-1">
+                    <span className="block text-[11px] text-slate-400 mt-1">
                       %APPDATA%\kolnd-hub fica intacto (config, logs, Mark LVI, biblioteca e
                       ícones).
                     </span>
@@ -481,7 +481,7 @@ export function UninstallHubModal({
               <div className="mt-1">
                 <label
                   htmlFor="uninstall-hub-confirm"
-                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2"
+                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2"
                 >
                   Digite <span className="text-red-400 font-mono">Kolnd Hub</span> para confirmar
                 </label>
@@ -493,7 +493,7 @@ export function UninstallHubModal({
                   className="input-gamer text-center"
                   placeholder="Kolnd Hub"
                 />
-                <p className="text-[10px] text-slate-500 mt-1">
+                <p className="text-[10px] text-slate-400 mt-1">
                   Não diferencia maiúsculas/minúsculas.
                 </p>
               </div>
@@ -529,7 +529,7 @@ export function UninstallHubModal({
             </p>
             <div className="mt-4">
               <div className="flex justify-between mb-1 text-[10px]">
-                <span className="text-slate-500">{stepLabel || 'Etapa atual'}</span>
+                <span className="text-slate-400">{stepLabel || 'Etapa atual'}</span>
                 <span className="text-red-400 font-mono">{progress}%</span>
               </div>
               <div className="w-full bg-slate-800/50 rounded-full h-2">
@@ -550,7 +550,7 @@ export function UninstallHubModal({
                 </summary>
                 <div className="mt-2 max-h-48 overflow-y-auto text-[11px] font-mono text-slate-300">
                   {logs.length === 0 ? (
-                    <span className="text-slate-500">Aguardando log…</span>
+                    <span className="text-slate-400">Aguardando log…</span>
                   ) : (
                     logs.map((line, i) => <div key={i}>{line}</div>)
                   )}
@@ -577,7 +577,7 @@ export function UninstallHubModal({
               <span className="text-amber-300">{kloudError ?? 'desconhecido'}</span>). Deseja
               desinstalar apenas o Kolnd Hub mesmo assim?
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-400">
               Sua escolha de dados ({wipe ? 'apagar tudo' : 'manter meus dados'}
               {backupPath ? ', backup feito' : ''}) será mantida.
             </p>

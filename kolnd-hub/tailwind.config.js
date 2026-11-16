@@ -21,30 +21,42 @@ module.exports = {
         },
         nintendo: {
           500: '#e60012',
-          600: '#b3000d'
+          600: '#b3000d',
+          // Tom acessível para texto/ícones pequenos sobre fundo escuro (≥ 4.5:1) — ver docs/a11y-contrast-audit.md
+          400: '#ff6b6b'
         },
         playstation: {
           500: '#004ea2',
           600: '#003d80',
-          glow: 'rgba(0, 78, 162, 0.35)'
+          glow: 'rgba(0, 78, 162, 0.35)',
+          // Tons acessíveis: 300 para texto pequeno (≥ 4.5:1), 400 para ícones/estados (≥ 3:1 com folga)
+          300: '#5e9eff',
+          400: '#4da3ff'
         },
         steam: {
           900: '#0b1d29',
           800: '#112734',
           500: '#171a21',
           blue: '#0568e5',
-          blueDark: '#0457c4'
+          blueDark: '#0457c4',
+          // Tom acessível para texto pequeno sobre fundo escuro (≥ 4.5:1)
+          'blue-light': '#6ba3ff'
         },
         neon: {
           cyan: '#00f3ff',
           purple: '#bc13fe',
           magenta: '#ff00ff',
-          green: '#0aff0a'
+          green: '#0aff0a',
+          // Tom acessível para textos pequenos (badges/labels) sobre fundo escuro (≥ 4.5:1)
+          'purple-light': '#d06bff'
         },
         slate: {
           950: '#020617',
           900: '#0f172a'
-        }
+        },
+        // Tokens de texto acessível (WCAG AA) para legendas e metadados — ver docs/a11y-contrast-audit.md
+        muted: '#cbd5e1', // slate-300 — ≥ 11.5:1 sobre os fundos do tema
+        subtle: '#94a3b8' // slate-400 — ≥ 6.7:1 sobre os fundos do tema
       },
       backgroundImage: {
         'gradient-gaming': 'linear-gradient(135deg, #0b1d29 0%, #0a0a0f 50%, #1a1014 100%)',
@@ -52,7 +64,9 @@ module.exports = {
         'gradient-nintendo': 'linear-gradient(135deg, #e60012 0%, #b3000d 100%)',
         'gradient-playstation': 'linear-gradient(135deg, #004ea2 0%, #0568e5 100%)',
         'gradient-steam': 'linear-gradient(135deg, #0b1d29 0%, #171a21 100%)',
-        'gradient-rainbow': 'linear-gradient(45deg, #e60012, #004ea2, #00f3ff, #bc13fe, #e60012)'
+        // Parada playstation elevada (#004ea2 → #2e7ce6) para o gradiente de texto atingir ≥ 3:1
+        // mesmo na pior parada, nos títulos grandes/bold que usam `gradient-rainbow` (AA texto grande).
+        'gradient-rainbow': 'linear-gradient(45deg, #e60012, #2e7ce6, #00f3ff, #bc13fe, #e60012)'
       },
       boxShadow: {
         'glow-cyan': '0 0 30px -8px rgba(0, 243, 255, 0.35)',

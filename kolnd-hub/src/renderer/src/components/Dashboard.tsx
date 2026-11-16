@@ -73,7 +73,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
           </div>
           <div className="flex items-center gap-3">
             <div className="glass rounded-xl px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <Activity size={12} className="text-slate-500" />
+              <Activity size={12} className="text-slate-400" />
               <span>{apps.length} títulos</span>
             </div>
             <div
@@ -103,7 +103,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
           </div>
           <div className="w-px h-6 bg-white/10" />
           <div className="flex items-center gap-2">
-            <Clock size={14} className="text-slate-500" />
+            <Clock size={14} className="text-slate-400" />
             <span className="text-xs text-slate-400">Latência: 12ms</span>
           </div>
         </div>
@@ -135,7 +135,7 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
                 </h3>
                 <div className="h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
               </div>
-              <span className="text-[10px] font-bold text-slate-600 bg-white/[0.03] px-2 py-0.5 rounded-full border border-white/10">
+              <span className="text-[10px] font-bold text-slate-400 bg-white/[0.03] px-2 py-0.5 rounded-full border border-white/10">
                 {group.apps.length}
               </span>
             </div>

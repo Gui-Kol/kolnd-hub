@@ -49,14 +49,14 @@ export function Layout({
         <div className="title-bar-no-drag flex items-center gap-1">
           <button
             onClick={() => window.api.minimizeWindow()}
-            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
+            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 transition-colors"
             aria-label="Minimizar"
           >
             <Minus size={12} />
           </button>
           <button
             onClick={() => window.api.maximizeWindow()}
-            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
+            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 transition-colors"
             aria-label="Maximizar"
           >
             <Square size={10} />

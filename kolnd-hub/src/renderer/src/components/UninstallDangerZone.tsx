@@ -179,7 +179,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
   return (
     <section className="space-y-6">
       <header className="flex flex-col gap-1">
-        <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
           Zona de perigo
         </p>
         <p className="text-sm text-slate-400 mx-2 leading-relaxed">
@@ -220,7 +220,7 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
                 <button
                   type="button"
                   onClick={loadKloud}
-                  className="ml-auto p-1 rounded text-slate-500 hover:text-red-400 transition-colors"
+                  className="ml-auto p-1 rounded text-slate-400 hover:text-red-400 transition-colors"
                   title="Atualizar status"
                   aria-label="Atualizar status do Kloud Games"
                 >
