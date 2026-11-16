@@ -11,7 +11,9 @@ import {
   Gamepad2,
   Check,
   ClipboardCopy,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  FlaskConical
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -22,6 +24,9 @@ interface SettingsProps {
   onSave: (apps: AppConfig[]) => void
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
 }
+
+/** Issue de validação devolvida pelo IPC `command:validate` (espelho do main). */
+type CommandIssue = { level: 'error' | 'warning'; message: string }
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
   const [editedApps, setEditedApps] = useState<AppConfig[]>(apps.map((a) => ({ ...a })))
@@ -34,6 +39,13 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const [prefFeedback, setPrefFeedback] = useState<'saved' | 'error' | null>(null)
   const prefFeedbackTimer = useRef<number | null>(null)
   const [exportingDiagnostic, setExportingDiagnostic] = useState(false)
+  // Issues inline do campo de comando, por id de app (debounce de ~300 ms no
+  // efeito abaixo) + resultado do botão "Testar comando" (clique explícito).
+  const [commandIssues, setCommandIssues] = useState<Record<string, CommandIssue[]>>({})
+  const [testResults, setTestResults] = useState<Record<string, CommandIssue[]>>({})
+  const [testingAppId, setTestingAppId] = useState<string | null>(null)
+  // Sequência para descartar respostas fora de ordem do debounce.
+  const validateSeq = useRef(0)
 
   useEffect(() => {
     let mounted = true
@@ -49,6 +61,32 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       mounted = false
     }
   }, [])
+
+  // Validação sob demanda (debounce ~300 ms) do campo de comando de cada
+  // app. Apenas informa na UI — nunca bloqueia o salvamento. Se a IPC
+  // falhar, a UI fica sem avisos (campo informativo, não fatal).
+  useEffect(() => {
+    const snapshot = editedApps
+    const seq = ++validateSeq.current
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        const entries = await Promise.all(
+          snapshot.map(async (app) => {
+            try {
+              const issues = await window.api.validateCommand(app.command, app.useShell !== false)
+              return [app.id, issues] as const
+            } catch {
+              return [app.id, []] as const
+            }
+          })
+        )
+        if (seq === validateSeq.current) {
+          setCommandIssues(Object.fromEntries(entries))
+        }
+      })()
+    }, 300)
+    return (): void => window.clearTimeout(handle)
+  }, [editedApps])
 
   useEffect(
     () => () => {
@@ -93,13 +131,46 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     }
   }
 
+  // Limpa o resultado do "Testar comando" de um app (evita mostrar resultado obsoleto).
+  const clearTestResult = (appId: string | undefined): void => {
+    if (!appId) return
+    setTestResults((prev) => {
+      if (!(appId in prev)) return prev
+      const next = { ...prev }
+      delete next[appId]
+      return next
+    })
+  }
+
   const handleChange = (index: number, field: keyof AppConfig, value: string): void => {
     setEditedApps((prev) => {
       const next = [...prev]
       next[index] = { ...next[index], [field]: value }
       return next
     })
+    if (field === 'command') clearTestResult(editedApps[index]?.id)
     setSaved(false)
+  }
+
+  // Botão "Testar comando": roda APENAS a validação síncrona do main e
+  // exibe o resultado em área dedicada. Decisão explícita: o comando do
+  // usuário NÃO é spawnado aqui (nem spawn seco, nem `where`) — executar
+  // binário arbitrário a partir de um botão de "teste" é imprevisível e
+  // arriscado demais; a validação cobre os casos do relatório.
+  const handleTestCommand = async (app: AppConfig): Promise<void> => {
+    if (testingAppId) return
+    setTestingAppId(app.id)
+    try {
+      const issues = await window.api.validateCommand(app.command, app.useShell !== false)
+      setTestResults((prev) => ({ ...prev, [app.id]: issues }))
+    } catch {
+      setTestResults((prev) => ({
+        ...prev,
+        [app.id]: [{ level: 'error', message: 'Não foi possível validar o comando agora.' }]
+      }))
+    } finally {
+      setTestingAppId(null)
+    }
   }
 
   // Abre o explorador de arquivos nativo para escolher o caminho correto.
@@ -238,118 +309,203 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
 
       {/* ── Cards de configuração ────────────────────── */}
       <div className="space-y-4">
-        {editedApps.map((app, index) => (
-          <motion.div
-            key={app.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.04 }}
-            className="glass rounded-2xl p-6 border-l-4 border-transparent hover:border-kloud-500/50 transition-all"
-          >
-            {/* Cabeçalho do app */}
-            <div className="flex items-center gap-3.5 mb-5">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg"
-                style={{
-                  background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
-                  boxShadow: `0 0 20px ${app.color}40`
-                }}
-              >
-                {app.icon}
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">{app.name}</h3>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                  {app.category.toUpperCase()}
-                </p>
-              </div>
-            </div>
-
-            {/* Campos editáveis */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <label className="label-panel">
-                  <Terminal size={12} /> Comando
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={app.command}
-                    onChange={(e) => handleChange(index, 'command', e.target.value)}
-                    onClick={() => handlePickPath(index, 'command', 'file')}
-                    className="input-gamer cursor-pointer pr-11"
-                    placeholder="ex: kloud-games.exe"
-                    title="Clique para selecionar o executável no explorador de arquivos"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handlePickPath(index, 'command', 'file')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
-                    title="Selecionar executável…"
-                    aria-label="Selecionar executável"
-                  >
-                    <FileSearch size={18} />
-                  </button>
+        {editedApps.map((app, index) => {
+          const issues = commandIssues[app.id] ?? []
+          const hasError = issues.some((issue) => issue.level === 'error')
+          const testResult = testResults[app.id]
+          return (
+            <motion.div
+              key={app.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.04 }}
+              className="glass rounded-2xl p-6 border-l-4 border-transparent hover:border-kloud-500/50 transition-all"
+            >
+              {/* Cabeçalho do app */}
+              <div className="flex items-center gap-3.5 mb-5">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg"
+                  style={{
+                    background: `linear-gradient(135deg, ${app.color}25, ${app.color}10)`,
+                    boxShadow: `0 0 20px ${app.color}40`
+                  }}
+                >
+                  {app.icon}
                 </div>
-                <p className="mt-1.5 text-[10px] text-slate-600">
-                  Clique no campo para escolher o .exe no explorador de arquivos.
-                </p>
-              </div>
-              <div>
-                <label className="label-panel">
-                  <FolderOpen size={12} /> Diretório de trabalho
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={app.cwd}
-                    onChange={(e) => handleChange(index, 'cwd', e.target.value)}
-                    onClick={() => handlePickPath(index, 'cwd', 'directory')}
-                    className="input-gamer cursor-pointer pr-11"
-                    placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
-                    title="Clique para selecionar a pasta de instalação no explorador de arquivos"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handlePickPath(index, 'cwd', 'directory')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
-                    title="Selecionar pasta…"
-                    aria-label="Selecionar pasta"
-                  >
-                    <FolderSearch size={18} />
-                  </button>
+                <div>
+                  <h3 className="text-base font-bold text-white">{app.name}</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                    {app.category.toUpperCase()}
+                  </p>
                 </div>
-                <p className="mt-1.5 text-[10px] text-slate-600">
-                  Clique no campo para escolher a pasta no explorador de arquivos.
-                </p>
               </div>
-            </div>
 
-            {/* Modo de execução do comando */}
-            <label className="mt-4 flex items-start gap-2.5 cursor-pointer select-none w-fit">
-              <input
-                type="checkbox"
-                checked={app.useShell !== false}
-                onChange={(e) => {
-                  const useShell = e.target.checked
-                  setEditedApps((prev) => {
-                    const next = [...prev]
-                    next[index] = { ...next[index], useShell }
-                    return next
-                  })
-                  setSaved(false)
-                }}
-                className="mt-0.5 h-4 w-4 accent-kloud-500"
-              />
-              <span className="text-xs text-slate-400 leading-relaxed">
-                <span className="text-slate-200 font-semibold">Executar via shell (cmd.exe)</span> —
-                preserva aspas e argumentos, mas interpreta metacaracteres (&amp;, |, %VAR%).
-                Desative apenas para comandos simples sem argumentos complexos: ele é executado sem
-                interpretação de shell.
-              </span>
-            </label>
-          </motion.div>
-        ))}
+              {/* Campos editáveis */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="label-panel">
+                    <Terminal size={12} /> Comando
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={app.command}
+                      onChange={(e) => handleChange(index, 'command', e.target.value)}
+                      onClick={() => handlePickPath(index, 'command', 'file')}
+                      className={`input-gamer cursor-pointer pr-11 ${
+                        hasError
+                          ? 'ring-1 ring-red-500/70'
+                          : issues.length > 0
+                            ? 'ring-1 ring-amber-500/60'
+                            : ''
+                      }`}
+                      placeholder="ex: kloud-games.exe"
+                      title="Clique para selecionar o executável no explorador de arquivos"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handlePickPath(index, 'command', 'file')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                      title="Selecionar executável…"
+                      aria-label="Selecionar executável"
+                    >
+                      <FileSearch size={18} />
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-slate-600">
+                    Clique no campo para escolher o .exe no explorador de arquivos.
+                  </p>
+                  {issues.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {issues.map((issue, i) => (
+                        <li
+                          key={i}
+                          className={`flex items-start gap-1.5 text-[11px] leading-snug ${
+                            issue.level === 'error' ? 'text-red-400' : 'text-amber-400'
+                          }`}
+                        >
+                          {issue.level === 'error' ? (
+                            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                          ) : (
+                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                          )}
+                          <span>{issue.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleTestCommand(app)}
+                      disabled={testingAppId === app.id}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-all hover:border-kloud-500/50 hover:text-white disabled:opacity-60 disabled:cursor-wait"
+                      title="Valida o comando sem executá-lo"
+                    >
+                      {testingAppId === app.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <FlaskConical size={12} />
+                      )}
+                      Testar comando
+                    </button>
+                    {testResult !== undefined && (
+                      <div
+                        className={`mt-2 rounded-lg border px-3 py-2 text-[11px] leading-snug ${
+                          testResult.length === 0
+                            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                            : 'border-amber-500/30 bg-amber-500/5'
+                        }`}
+                        role="status"
+                      >
+                        {testResult.length === 0 ? (
+                          <span className="flex items-center gap-1.5">
+                            <Check size={12} className="shrink-0" /> Validação: nenhum problema
+                            encontrado. O comando NÃO foi executado.
+                          </span>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                              Resultado da validação (o comando NÃO foi executado)
+                            </p>
+                            {testResult.map((issue, i) => (
+                              <p
+                                key={i}
+                                className={`flex items-start gap-1.5 ${
+                                  issue.level === 'error' ? 'text-red-400' : 'text-amber-400'
+                                }`}
+                              >
+                                {issue.level === 'error' ? (
+                                  <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                                ) : (
+                                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                                )}
+                                <span>{issue.message}</span>
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="label-panel">
+                    <FolderOpen size={12} /> Diretório de trabalho
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={app.cwd}
+                      onChange={(e) => handleChange(index, 'cwd', e.target.value)}
+                      onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                      className="input-gamer cursor-pointer pr-11"
+                      placeholder="ex: %USERPROFILE%\\Documents\\My Games\\kloud-games"
+                      title="Clique para selecionar a pasta de instalação no explorador de arquivos"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handlePickPath(index, 'cwd', 'directory')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition-colors hover:text-kloud-500 hover:bg-white/5"
+                      title="Selecionar pasta…"
+                      aria-label="Selecionar pasta"
+                    >
+                      <FolderSearch size={18} />
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-slate-600">
+                    Clique no campo para escolher a pasta no explorador de arquivos.
+                  </p>
+                </div>
+              </div>
+
+              {/* Modo de execução do comando */}
+              <label className="mt-4 flex items-start gap-2.5 cursor-pointer select-none w-fit">
+                <input
+                  type="checkbox"
+                  checked={app.useShell !== false}
+                  onChange={(e) => {
+                    const useShell = e.target.checked
+                    setEditedApps((prev) => {
+                      const next = [...prev]
+                      next[index] = { ...next[index], useShell }
+                      return next
+                    })
+                    clearTestResult(app.id)
+                    setSaved(false)
+                  }}
+                  className="mt-0.5 h-4 w-4 accent-kloud-500"
+                />
+                <span className="text-xs text-slate-400 leading-relaxed">
+                  <span className="text-slate-200 font-semibold">Executar via shell (cmd.exe)</span>{' '}
+                  — preserva aspas e argumentos, mas interpreta metacaracteres (&amp;, |, %VAR%).
+                  Desative apenas para comandos simples sem argumentos complexos: ele é executado
+                  sem interpretação de shell.
+                </span>
+              </label>
+            </motion.div>
+          )
+        })}
       </div>
 
       {pickError && (

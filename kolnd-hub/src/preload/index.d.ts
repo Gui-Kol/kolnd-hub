@@ -82,6 +82,12 @@ declare global {
       getAllStatus: () => Promise<Record<string, { status: string; startedAt?: string }>>
       getAppLogs: (appId: string) => Promise<string>
 
+      // ── Validação de comando (Configurações) ───────────────
+      validateCommand: (
+        command: string,
+        useShell?: boolean
+      ) => Promise<Array<{ level: 'error' | 'warning'; message: string }>>
+
       // ── Encerramento completo do Hub ────────────────
       shutdownHub: () => Promise<{ success: boolean; error?: string }>
 

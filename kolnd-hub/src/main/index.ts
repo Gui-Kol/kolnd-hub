@@ -48,6 +48,7 @@ import {
   uninstaller
 } from './uninstaller'
 import { registerGamesIpc } from './games'
+import { registerCommandValidateIpc } from './commandValidate'
 import { buildDiagnosticReport } from './diagnostic'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
@@ -227,6 +228,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC da importação de jogos da Steam.
   registerSteamIpc()
+
+  // Registra os canais IPC de validação de linha de comando (Configurações).
+  registerCommandValidateIpc()
 
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)

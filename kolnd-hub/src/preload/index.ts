@@ -102,6 +102,13 @@ const api = {
 
   getAppLogs: (appId: string): Promise<string> => ipcRenderer.invoke('app:logs', appId),
 
+  // ── Validação de comando (Configurações) ───────────────
+  validateCommand: (
+    command: string,
+    useShell?: boolean
+  ): Promise<Array<{ level: 'error' | 'warning'; message: string }>> =>
+    ipcRenderer.invoke('command:validate', command, useShell),
+
   // ── Window controls ─────────────────────────────
   minimizeWindow: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
