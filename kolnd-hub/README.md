@@ -27,6 +27,7 @@ npm run package   # gera os bundles + instalador NSIS em dist/
 npm run typecheck # tsc --noEmit nos projetos main e renderer
 npm test          # testes unitários (Vitest) de renderer/lib e main
 npm run test:coverage # testes + relatório de cobertura (V8) em ./coverage
+npm run test:e2e   # smoke E2E do Hub: build + Playwright no Electron real
 npm run lint      # ESLint (flat config, typescript-eslint + react-hooks)
 npm run format    # Prettier --write
 
@@ -46,6 +47,15 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 - **Medição atual (13/11/2026):** `src/main` ≈ **44,36%** linhas/statements, **79,36%** branches, **72,8%** functions; `renderer/src/lib` ≈ **98,87%** linhas; `renderer/src/lib/gamepad` ≈ **98,56%**; renderer de componentes e `preload` ≈ **0%** (não há testes de React/preload hoje). "All files" ≈ 17,9% porque a suíte só cobre lógica pura.
 - **Limiares** (`vitest.config.ts`, escopados a `src/main/**`): lines/statements **39**, functions **67**, branches **74** — ~5 p.p. abaixo da medição, conservadores de propósito. Hoje eles são **informativos**: o CI tem o step **Coverage (informativo)** com `continue-on-error: true`, que imprime o resumo e sobe o artifact `coverage/` (7 dias). Falha de limiar no log = sinal de regressão, **não** de build quebrado; promover para bloqueante é decisão futura, com a base já verde e medida.
 - `npm test` (sem coverage) permanece inalterado e é o gate de `npm run verify`.
+
+### Smoke E2E (Playwright)
+
+- `npm run test:e2e` encadeia `npm run build` + `playwright test --config=tests/e2e/playwright.config.ts`. O smoke (`tests/e2e/smoke.spec.ts`) abre o Hub no **Electron real**, espera o Dashboard, clica no 1º card e confere o modal de detalhe (abre; `Esc` fecha); ao final exige zero invocações de `winget`/`msiexec` (via `stubs.log`).
+- **Pré-requisitos:** Windows com display disponível (o Electron abre janela real — não é headless-first) e o build em `out/` (o script já faz `npm run build` antes). `npx playwright install` **não** é necessário: o smoke usa o Electron do próprio projeto, não navegadores baixados.
+- **Isolamento:** `userData` vai para um diretório temporário com `first-run-complete.flag` semeada (via env `KOLDND_HUB_TEST_USERDATA`, ver o hook documentado em `src/main/index.ts`) — nada em `%APPDATA%\kolnd-hub` real é lido/gravado; o teardown (`global-teardown.ts`) remove o diretório.
+- **Stubs:** `winget.exe`/`msiexec.exe` são PEs compilados em runtime via Add-Type do .NET Framework (`tests/e2e/stubs.ts`) — `spawn('winget')` sem shell exige executável de verdade no Windows. Cada stub anexa `<nome> <args>` a `stubs.log` e sai com 0. O smoke não invoca nenhum dos dois; o stub existe como mecanismo para futuros fluxos E2E.
+- `tests/e2e/` fica **fora** do Vitest (`vitest.config.ts` intacto) e dos testes unitários.
+- **Job `e2e` no CI: NÃO habilitado** (decisão à parte do usuário — tarefa 04-4.1, T9). `windows-latest` tem sessão com display, mas o custo/runner é uma decisão separada; por padrão o smoke roda localmente.
 
 ### Auditoria de dependências e segurança (CI)
 

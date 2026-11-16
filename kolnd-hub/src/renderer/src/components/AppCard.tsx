@@ -44,6 +44,7 @@ export function AppCard({
       whileTap={{ scale: 0.98 }}
       className="glass-card cursor-pointer group relative overflow-hidden"
       onClick={onClick}
+      data-testid="app-card"
     >
       {/* Brilho de borda baseado no estado */}
       <div

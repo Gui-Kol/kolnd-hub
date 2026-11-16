@@ -54,6 +54,17 @@ import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
 import { logger } from './logger'
 
+/**
+ * Hook de teste (E2E, task 04-4.1): isola o diretório userData (%APPDATA%\\kolnd-hub)
+ * quando a env var `KOLDND_HUB_TEST_USERDATA` está definida (ex.: smoke do Playwright).
+ * Deve rodar ANTES de qualquer `app.getPath('userData')` e de `app.whenReady()`.
+ * Sem a env var não tem efeito algum — em produção o caminho padrão é usado.
+ */
+const testUserData = process.env.KOLDND_HUB_TEST_USERDATA
+if (testUserData) {
+  app.setPath('userData', testUserData)
+}
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 const processManager = new ProcessManager()

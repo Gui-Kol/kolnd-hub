@@ -31,6 +31,16 @@ export function AppDetailModal({
   const isError = state?.status === 'error'
   const isBackground = state?.source === 'background'
 
+  // Fecha com Escape — mesmo padrão dos demais modais do Hub
+  // (Biblioteca, UninstallKloudGamesModal, UninstallHubModal).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return (): void => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   const [showLogs, setShowLogs] = useState(false)
   const [logs, setLogs] = useState('')
 
@@ -75,6 +85,7 @@ export function AppDetailModal({
         transition={{ type: 'spring', damping: 25, stiffness: 400 }}
         className="relative w-full max-w-2xl glass rounded-[2rem] overflow-hidden shadow-2xl shadow-black/60 border border-white/[0.08]"
         onClick={(e) => e.stopPropagation()}
+        data-testid="app-detail-modal"
       >
         {/* Barra de cor no topo */}
         <div
