@@ -2,21 +2,10 @@
 // (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
-import {
-  app,
-  shell,
-  BrowserWindow,
-  ipcMain,
-  Tray,
-  Menu,
-  nativeImage,
-  dialog,
-  clipboard
-} from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard } from 'electron'
 import { join, dirname } from 'path'
-import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { ProcessManager, resolvePath, setBaseDir } from './processManager'
+import { ProcessManager, setBaseDir } from './processManager'
 import { killProcessesForCommand } from './processKiller'
 import {
   ensureKloudGamesInstalled,
@@ -47,6 +36,9 @@ import { buildDiagnosticReport } from './diagnostic'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData, getMarkLviDataDir } from './programsDeployer'
 import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
+import { registerDialogIpc } from './ipc/dialog'
+import { registerWindowIpc } from './ipc/window'
+import { shutdownHub, confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
 
@@ -249,6 +241,12 @@ app.whenReady().then(() => {
   // Registra os canais IPC de check/markComplete da primeira execução.
   registerFirstRunStatusIpc(ctx)
 
+  // Registra os canais IPC de diálogos nativos (pick-path).
+  registerDialogIpc(ctx)
+
+  // Registra os canais IPC de controles de janela (minimize/maximize/fullscreen/close).
+  registerWindowIpc(ctx)
+
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
 
@@ -354,61 +352,6 @@ app.whenReady().then(() => {
     return processManager.getLogs(appId)
   })
 
-  // ── IPC: Window controls ────────────────────────
-  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-  ipcMain.handle('window:maximize', () => {
-    if (mainWindow?.isMaximized()) {
-      mainWindow.unmaximize()
-    } else {
-      mainWindow?.maximize()
-    }
-  })
-
-  // ── IPC: Big Picture — tela cheia ───────────────
-  // `setFullScreen` (NÃO `maximize`, NÃO `kiosk`): a janela continua fechável
-  // por Alt+F4 em emergência. Guarda os bounds antes de entrar e restaura ao
-  // sair — o Electron nem sempre devolve a janela ao tamanho/posição exatos.
-  // Janelas maximizadas ficam fora dessa restauração (o estado maximized já
-  // devolve o tamanho correto sozinho).
-  let boundsBeforeFullscreen: Electron.Rectangle | null = null
-  ipcMain.handle('window:set-fullscreen', (_event, flag: unknown) => {
-    if (typeof flag !== 'boolean') {
-      logger.warn('window', 'set-fullscreen: flag inválida (esperado boolean)')
-      return
-    }
-    if (!mainWindow) return
-    if (flag) {
-      boundsBeforeFullscreen = mainWindow.isMaximized() ? null : mainWindow.getBounds()
-      mainWindow.setFullScreen(true)
-      return
-    }
-    mainWindow.setFullScreen(false)
-    const saved = boundsBeforeFullscreen
-    boundsBeforeFullscreen = null
-    if (saved) {
-      mainWindow.once('leave-full-screen', () => {
-        mainWindow?.setBounds(saved)
-      })
-    }
-  })
-
-  /**
-   * Encerra completamente o Kolnd Hub: mata todos os processos lançados pelo
-   * Hub (incluindo servidores e processos em segundo plano) e fecha a janela
-   * e o próprio Electron (app.quit). Garante que nada do Hub fique aberto.
-   */
-  async function shutdownHub(): Promise<void> {
-    try {
-      processManager.killAll()
-    } catch {
-      // Ignora erros ao matar processos; ainda assim queremos sair.
-    }
-    if (mainWindow) {
-      mainWindow.destroy()
-    }
-    app.quit()
-  }
-
   ipcMain.handle('app:shutdown', async () => {
     // Trava de reentrância: durante uma desinstalação destrutiva nenhum
     // caminho (Sair, tray, IPC direto) derruba o app no meio do msiexec/wipe.
@@ -418,7 +361,7 @@ app.whenReady().then(() => {
         error: 'Uma desinstalação está em andamento — aguarde o término.'
       }
     }
-    await shutdownHub()
+    await shutdownHub(ctx)
     return { success: true }
   })
 
@@ -448,7 +391,7 @@ app.whenReady().then(() => {
       if (result.ok && result.spawned) {
         // O desinstalador NSIS já está desanexado rodando — agora encerramos o
         // Hub exatamente como app:shutdown (killAll + destroy + app.quit).
-        await shutdownHub()
+        await shutdownHub(ctx)
         return { success: true }
       }
 
@@ -466,41 +409,6 @@ app.whenReady().then(() => {
     }
   })
 
-  /**
-   * Exibe o popup de confirmação "Você quer encerrar o Hub?". Se o usuário
-   * confirmar, encerra todos os processos e sai do aplicativo. Se cancelar,
-   * nada acontece e a janela permanece aberta.
-   */
-  async function confirmAndQuit(): Promise<void> {
-    if (!mainWindow) return
-    // Defesa extra: nunca abrir o fluxo de encerramento durante uma
-    // desinstalação destrutiva (os chamadores já travam, mas a função é exportada no IPC).
-    if (isAnyUninstallInProgress()) return
-    const { response } = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      title: 'Encerrar Kolnd Hub',
-      message: 'Você quer encerrar o Hub?',
-      detail:
-        'Todos os programas e servidores iniciados pelo Kolnd Hub serão fechados, ' +
-        'incluindo o que estiver rodando em segundo plano.',
-      buttons: ['Sim', 'Não'],
-      defaultId: 1,
-      cancelId: 1
-    })
-    if (response === 0) {
-      await shutdownHub()
-    }
-  }
-
-  ipcMain.handle('window:close', async () => {
-    // Durante uma desinstalação destrutiva, fechar pelo title bar é inerte.
-    if (isAnyUninstallInProgress()) {
-      return { success: false, error: 'Desinstalação em andamento — aguarde o término.' }
-    }
-    await confirmAndQuit()
-    return { success: true }
-  })
-
   // Intercepta o evento de fechamento da janela (X do SO, Alt+F4, etc.) para
   // também exibir o popup de confirmação em vez de apenas esconder a janela.
   mainWindow?.on('close', (event) => {
@@ -509,78 +417,8 @@ app.whenReady().then(() => {
     if (isAnyUninstallInProgress()) {
       return
     }
-    void confirmAndQuit()
+    void confirmAndQuit(ctx)
   })
-
-  // ── IPC: Diálogos (Configurações) ───────────────
-  // Abre o explorador de arquivos nativo para escolher o executável (file)
-  // ou a pasta de instalação (directory) de um app. Cancelar retorna
-  // { success: false, canceled: true } e nada é alterado no renderer.
-  // `dialogTitle` opcional sobrescreve o título do diálogo (ex.: a
-  // Biblioteca pede "Selecione o executável do jogo").
-  ipcMain.handle(
-    'dialog:pick-path',
-    async (
-      _event,
-      mode: 'file' | 'directory',
-      currentValue?: string,
-      dialogTitle?: string
-    ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> => {
-      if (!mainWindow) {
-        return { success: false, error: 'Janela principal não está disponível.' }
-      }
-
-      // Tenta abrir o diálogo já na pasta do caminho atual (se conseguir
-      // resolver): expande %VAR%, remove aspas e sobe para o diretório-pai
-      // quando aponta para um arquivo.
-      let defaultPath: string | undefined
-      if (currentValue?.trim()) {
-        const cleaned = resolvePath(currentValue.trim().replace(/^"|"$/g, ''))
-        if (existsSync(cleaned)) {
-          defaultPath =
-            mode === 'directory' && !cleaned.toLowerCase().endsWith('.exe')
-              ? cleaned
-              : dirname(cleaned)
-        } else if (existsSync(dirname(cleaned))) {
-          defaultPath = dirname(cleaned)
-        }
-      }
-
-      // Título do diálogo: usa o override validado quando presente, senão o padrão.
-      const title =
-        typeof dialogTitle === 'string' && dialogTitle.trim()
-          ? dialogTitle.trim().slice(0, 120)
-          : undefined
-
-      const options: Electron.OpenDialogOptions =
-        mode === 'file'
-          ? {
-              title: title ?? 'Selecionar o executável do programa',
-              properties: ['openFile'],
-              filters: [
-                { name: 'Executáveis', extensions: ['exe', 'bat', 'cmd', 'ps1', 'com'] },
-                { name: 'Todos os arquivos', extensions: ['*'] }
-              ],
-              defaultPath
-            }
-          : {
-              title: title ?? 'Selecionar a pasta de instalação do programa',
-              properties: ['openDirectory', 'createDirectory'],
-              defaultPath
-            }
-
-      try {
-        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, options)
-        if (canceled || filePaths.length === 0) {
-          return { success: false, canceled: true }
-        }
-        return { success: true, path: filePaths[0] }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return { success: false, error: message }
-      }
-    }
-  )
 
   // ── Diagnóstico (task 06-6.3) ──────────────────
   // Sem argumentos. Monta um relatório sanitizado (versões, contagens do
