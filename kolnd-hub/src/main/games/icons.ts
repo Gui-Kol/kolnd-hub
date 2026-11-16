@@ -1,4 +1,4 @@
-﻿import { app, dialog, nativeImage } from 'electron'
+import { app, dialog, nativeImage } from 'electron'
 import {
   existsSync,
   mkdirSync,
