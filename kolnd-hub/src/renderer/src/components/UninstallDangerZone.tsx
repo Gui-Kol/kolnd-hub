@@ -4,12 +4,18 @@
 // opcional `onToast` (reaproveita o toast do App quando informado; caso
 // contrário exibe um toast inline próprio). Não duplica lógica de MSI/registro
 // — tudo flui via window.api.*.
+//
+// Reformulação visual 2.0 (13.13): moldura surface-1 + borda danger SUTIL 1px
+// (Card + override pontual de borderColor), estados com Badge (warning/neutral,
+// reusando strings já existentes), botões danger via primitivo Button.
+// Lógica, estados, ordem, textos e bloqueios: INTOCADOS.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
+import { AlertTriangle, Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { UninstallKloudGamesModal } from './UninstallKloudGamesModal'
 import { UninstallHubModal } from './UninstallHubModal'
+import { Badge, Button, Card, IconButton, Skeleton } from './ui'
 import {
   getKloudPartialKind,
   getKloudPartialStatusText,
@@ -182,152 +188,158 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
   return (
     <section className="space-y-6">
       <header className="flex flex-col gap-1">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mx-2">
+        <p className="mx-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-danger">
+          <AlertTriangle size={14} aria-hidden="true" />
           Zona de perigo
         </p>
-        <p className="text-sm text-slate-400 mx-2 leading-relaxed">
+        <p className="mx-2 text-sm leading-relaxed text-ink-secondary">
           Desinstalações são definitivas — leia com atenção antes de confirmar.
         </p>
       </header>
 
       {/* Enquanto a desinstalação roda, o card fica sem interação e escurecido. */}
-      <div className={uninstalling ? 'pointer-events-none opacity-70' : ''}>
+      <div className={`space-y-6 ${uninstalling ? 'pointer-events-none opacity-70' : ''}`}>
         {/* ── Kloud Games ───────────────────────────── */}
-        <motion.div
-          {...entranceProps(reduced, { y: 10 })}
-          className="glass rounded-2xl p-6 border-l-4 border-red-500/60"
-        >
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-red-500/10 text-red-400 shadow-lg">
-              <Gamepad2 size={20} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">Desinstalar Kloud Games</h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Remove o Kloud Games (programa, serviço, regras de firewall, PATH e atalhos). Suas
-                preferências do Hub continuam salvas.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            {kloud.loading ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="skeleton h-3 w-48" />
-                <span className="skeleton h-3 w-24" />
+        <motion.div {...entranceProps(reduced, { y: 10 })}>
+          {/* Borda danger SUTIL (1px, danger/30) — nunca fundo vermelho gritante. */}
+          <Card className="p-6" style={{ borderColor: 'var(--danger-border)' }}>
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-danger-border bg-danger-bg text-danger">
+                <Gamepad2 size={20} aria-hidden="true" />
               </div>
-            ) : (
-              <>
-                <span className="text-xs font-mono text-slate-400">{statusText()}</span>
-                <button
-                  type="button"
-                  onClick={loadKloud}
-                  className="ml-auto p-1 rounded text-slate-400 hover:text-red-400 transition-colors"
-                  title="Atualizar status"
-                  aria-label="Atualizar status do Kloud Games"
-                >
-                  <RefreshCw size={14} />
-                </button>
-              </>
-            )}
-          </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-ink-primary">Desinstalar Kloud Games</h3>
+                <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                  Remove o Kloud Games (programa, serviço, regras de firewall, PATH e atalhos). Suas
+                  preferências do Hub continuam salvas.
+                </p>
+              </div>
+            </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              ref={originRef}
-              disabled={buttonDisabled}
-              onClick={handleUninstallClick}
-              aria-disabled={buttonDisabled}
-              title={
-                kloudMissing
-                  ? 'O Kloud Games não está instalado'
-                  : kloud.status === null
-                    ? 'Status indisponível'
-                    : uninstalling
-                      ? 'Desinstalação em andamento'
-                      : partialKind === 'registry-orphan'
-                        ? 'Desinstalação pelo registro — o programa consta no registro'
-                        : undefined
-              }
-              className={`btn-danger ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <Trash2 size={14} />
-              {kloudButtonLabel}
-            </button>
-            {uninstalling && (
-              <span className="badge bg-red-500/10 border border-red-500/20 text-red-400">
-                Em execução
-              </span>
-            )}
-          </div>
+            <div className="mt-5 flex items-center gap-3 rounded-control border border-[var(--border-subtle)] bg-surface-2 px-4 py-3">
+              {kloud.loading ? (
+                <div className="flex items-center gap-2 text-xs text-ink-tertiary">
+                  <Skeleton rounded="pill" className="h-3 w-48" />
+                  <Skeleton rounded="pill" className="h-3 w-24" />
+                </div>
+              ) : (
+                <>
+                  <span className="text-xs font-mono text-ink-secondary">{statusText()}</span>
+                  {kloud.status === 'partial' && (
+                    <Badge tone="warning" className="shrink-0">
+                      Instalação quebrada
+                    </Badge>
+                  )}
+                  {kloud.status === 'missing' && (
+                    <Badge tone="neutral" className="shrink-0">
+                      Não instalado.
+                    </Badge>
+                  )}
+                  {kloud.status === null && (
+                    <Badge tone="neutral" className="shrink-0">
+                      Status indisponível
+                    </Badge>
+                  )}
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadKloud}
+                    title="Atualizar status"
+                    aria-label="Atualizar status do Kloud Games"
+                    className="ml-auto shrink-0"
+                  >
+                    <RefreshCw size={14} aria-hidden="true" />
+                  </IconButton>
+                </>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button
+                ref={originRef}
+                variant="danger"
+                disabled={buttonDisabled}
+                onClick={handleUninstallClick}
+                aria-disabled={buttonDisabled}
+                title={
+                  kloudMissing
+                    ? 'O Kloud Games não está instalado'
+                    : kloud.status === null
+                      ? 'Status indisponível'
+                      : uninstalling
+                        ? 'Desinstalação em andamento'
+                        : partialKind === 'registry-orphan'
+                          ? 'Desinstalação pelo registro — o programa consta no registro'
+                          : undefined
+                }
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                {kloudButtonLabel}
+              </Button>
+              {uninstalling && <Badge tone="danger">Em execução</Badge>}
+            </div>
+          </Card>
         </motion.div>
 
         {/* ── Kolnd Hub ─────────────────────────────── */}
-        <motion.div
-          {...entranceProps(reduced, { y: 10 })}
-          className="glass rounded-2xl p-6 border-l-4 border-red-500/60"
-        >
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-red-500/10 text-red-400 shadow-lg">
-              <Zap size={20} />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white">Desinstalar Kolnd Hub</h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Remove o Kolnd Hub{' '}
-                <strong className="text-white">e também desinstala o Kloud Games</strong> durante o
-                processo (perguntaremos a cada passo). O Mark LVI é removido junto com a pasta do
-                Hub.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            {hub.loading ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="skeleton h-3 w-32" />
+        <motion.div {...entranceProps(reduced, { y: 10 })}>
+          <Card className="p-6" style={{ borderColor: 'var(--danger-border)' }}>
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-danger-border bg-danger-bg text-danger">
+                <Zap size={20} aria-hidden="true" />
               </div>
-            ) : (
-              <span className="text-xs font-mono text-slate-400">
-                {!hub.isPackaged
-                  ? 'Disponível apenas no app instalado'
-                  : hub.available
-                    ? 'Disponível no app instalado'
-                    : 'Desinstalador não encontrado'}
-              </span>
-            )}
-          </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-ink-primary">Desinstalar Kolnd Hub</h3>
+                <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                  Remove o Kolnd Hub{' '}
+                  <strong className="text-ink-primary">e também desinstala o Kloud Games</strong>{' '}
+                  durante o processo (perguntaremos a cada passo). O Mark LVI é removido junto com a
+                  pasta do Hub.
+                </p>
+              </div>
+            </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              ref={originHubRef}
-              disabled={!hubEnabled}
-              aria-disabled={!hubEnabled}
-              title={
-                hub.loading
-                  ? 'Carregando status…'
-                  : !hub.isPackaged
+            <div className="mt-5 flex items-center gap-3 rounded-control border border-[var(--border-subtle)] bg-surface-2 px-4 py-3">
+              {hub.loading ? (
+                <div className="flex items-center gap-2 text-xs text-ink-tertiary">
+                  <Skeleton rounded="pill" className="h-3 w-32" />
+                </div>
+              ) : (
+                <span className="text-xs font-mono text-ink-secondary">
+                  {!hub.isPackaged
                     ? 'Disponível apenas no app instalado'
-                    : !hub.available
-                      ? 'Desinstalador não encontrado — desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub'
-                      : uninstalling
-                        ? 'Desinstalação em andamento'
-                        : undefined
-              }
-              className={`btn-danger ${!hubEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={handleHubUninstallClick}
-            >
-              <Trash2 size={14} />
-              {uninstalling ? 'Em execução' : 'Desinstalar Kolnd Hub'}
-            </button>
-            {uninstalling && (
-              <span className="badge bg-red-500/10 border border-red-500/20 text-red-400">
-                Em execução
-              </span>
-            )}
-          </div>
+                    : hub.available
+                      ? 'Disponível no app instalado'
+                      : 'Desinstalador não encontrado'}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button
+                ref={originHubRef}
+                variant="danger"
+                disabled={!hubEnabled}
+                aria-disabled={!hubEnabled}
+                title={
+                  hub.loading
+                    ? 'Carregando status…'
+                    : !hub.isPackaged
+                      ? 'Disponível apenas no app instalado'
+                      : !hub.available
+                        ? 'Desinstalador não encontrado — desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub'
+                        : uninstalling
+                          ? 'Desinstalação em andamento'
+                          : undefined
+                }
+                onClick={handleHubUninstallClick}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                {uninstalling ? 'Em execução' : 'Desinstalar Kolnd Hub'}
+              </Button>
+              {uninstalling && <Badge tone="danger">Em execução</Badge>}
+            </div>
+          </Card>
         </motion.div>
       </div>
 
