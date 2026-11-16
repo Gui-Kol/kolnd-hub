@@ -174,6 +174,8 @@ if (-not $SkipSubmodules) {
     $patch = Join-Path $PatchDir 'moonlight-stdatomic-guards.patch'
     $mcc = Join-Path $KGRoot 'third-party\moonlight-common-c'
     if ((Test-Path $patch) -and (Test-Path (Join-Path $mcc '.git'))) {
+        # Log informativo do commit do submodulo (nao afeta a decisao do patch).
+        git -C $mcc log --oneline -1 | Out-Host
         # Native git writes progress/errors to stderr; don't let them abort the script.
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
@@ -185,7 +187,8 @@ if (-not $SkipSubmodules) {
             git -C $mcc apply --check $patch 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 $ErrorActionPreference = $prevEap
-                throw 'Nao foi possivel aplicar o patch de stdatomic/extern "C" no moonlight-common-c.'
+                $mccCommit = (git -C $mcc log --oneline -1) 2>$null
+                throw "Nao foi possivel aplicar o patch de stdatomic/extern `"C`" no moonlight-common-c.`nCommit do submodulo: $mccCommit.`nO patch em kolnd-hub/scripts/patches/moonlight-stdatomic-guards.patch nao se aplica mais (drift upstream ou pino alterado). Consulte docs/patches.md (secao 'Runbook de regeneracao') para regenerar o patch. NAO contorne: regenere o patch ou reverta o pino."
             }
             git -C $mcc apply $patch 2>&1 | Out-Null
             Write-Host '    patch moonlight-stdatomic-guards: aplicado'
