@@ -35,6 +35,11 @@ const api = {
   setLaunchKloudOnStart: (value: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('prefs:set', value),
 
+  getNotifyOnCrash: (): Promise<boolean> => ipcRenderer.invoke('prefs:get-notify'),
+
+  setNotifyOnCrash: (value: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('prefs:set-notify', value),
+
   // ── Big Picture (modo tela cheia) ────────────────
   getGamepadConfig: (): Promise<{
     ok: boolean

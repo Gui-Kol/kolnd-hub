@@ -13,7 +13,8 @@ import {
   ClipboardCopy,
   Loader2,
   AlertTriangle,
-  FlaskConical
+  FlaskConical,
+  Bell
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -38,6 +39,11 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const [launchKloudOnStart, setLaunchKloudOnStart] = useState<boolean | null>(null)
   const [prefFeedback, setPrefFeedback] = useState<'saved' | 'error' | null>(null)
   const prefFeedbackTimer = useRef<number | null>(null)
+  // Preferência "Notificar quando um programa parar inesperadamente" (07-7.2):
+  // opt-out, default ligado. Mesmo padrão do toggle acima.
+  const [notifyOnCrash, setNotifyOnCrash] = useState<boolean | null>(null)
+  const [notifyFeedback, setNotifyFeedback] = useState<'saved' | 'error' | null>(null)
+  const notifyFeedbackTimer = useRef<number | null>(null)
   const [exportingDiagnostic, setExportingDiagnostic] = useState(false)
   // Issues inline do campo de comando, por id de app (debounce de ~300 ms no
   // efeito abaixo) + resultado do botão "Testar comando" (clique explícito).
@@ -56,6 +62,22 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       })
       .catch(() => {
         if (mounted) setLaunchKloudOnStart(false)
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    window.api
+      .getNotifyOnCrash()
+      .then((value) => {
+        if (mounted) setNotifyOnCrash(value)
+      })
+      .catch(() => {
+        // Falha na leitura → assume ligado (default opt-out persistido no store).
+        if (mounted) setNotifyOnCrash(true)
       })
     return (): void => {
       mounted = false
@@ -91,6 +113,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   useEffect(
     () => () => {
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
+      if (notifyFeedbackTimer.current) window.clearTimeout(notifyFeedbackTimer.current)
     },
     []
   )
@@ -112,6 +135,26 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     } finally {
       if (prefFeedbackTimer.current) window.clearTimeout(prefFeedbackTimer.current)
       prefFeedbackTimer.current = window.setTimeout(() => setPrefFeedback(null), 2500)
+    }
+  }
+
+  const handleToggleNotify = async (): Promise<void> => {
+    if (notifyOnCrash === null) return
+    const next = !notifyOnCrash
+    setNotifyOnCrash(next)
+    setNotifyFeedback(null)
+    try {
+      const result = await window.api.setNotifyOnCrash(next)
+      if (!result.success) throw new Error(result.error ?? 'erro desconhecido')
+      setNotifyFeedback('saved')
+    } catch (err) {
+      console.error('[settings] Falha ao salvar preferência:', err)
+      // Reverte o toggle — o valor real continua sendo o persistido.
+      setNotifyOnCrash(!next)
+      setNotifyFeedback('error')
+    } finally {
+      if (notifyFeedbackTimer.current) window.clearTimeout(notifyFeedbackTimer.current)
+      notifyFeedbackTimer.current = window.setTimeout(() => setNotifyFeedback(null), 2500)
     }
   }
 
@@ -294,6 +337,58 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
             className={`toggle-console shrink-0 ${
               launchKloudOnStart === true ? 'toggle-console-checked' : ''
             } ${launchKloudOnStart === null ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span className="toggle-console-knob" />
+          </button>
+        </div>
+      </motion.div>
+
+      {/* ── Notificações ─────────────────────────────── */}
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mx-2">
+        Notificações
+      </p>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-6 border-l-4 border-kloud-500/40"
+      >
+        <div className="flex items-center justify-between gap-6 flex-wrap">
+          <div className="flex items-start gap-4 min-w-0">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-kloud-500/10 text-kloud-500 shadow-lg">
+              <Bell size={20} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">
+                Notificar quando um programa parar inesperadamente
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                O Hub avisa com uma notificação do Windows quando um programa iniciado por ele fecha
+                sozinho. O clique na notificação traz o Hub de volta à tela.
+              </p>
+              {notifyFeedback === 'saved' && (
+                <p className="mt-2 text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <Check size={12} /> Salvo
+                </p>
+              )}
+              {notifyFeedback === 'error' && (
+                <p className="mt-2 text-[11px] font-semibold text-red-400">
+                  Não foi possível salvar. Tente de novo.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={notifyOnCrash === true}
+            aria-label="Notificar quando um programa parar inesperadamente"
+            disabled={notifyOnCrash === null}
+            onClick={() => void handleToggleNotify()}
+            className={`toggle-console shrink-0 ${
+              notifyOnCrash === true ? 'toggle-console-checked' : ''
+            } ${notifyOnCrash === null ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <span className="toggle-console-knob" />
           </button>

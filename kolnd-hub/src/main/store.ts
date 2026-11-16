@@ -84,6 +84,8 @@ export interface HubStoreSchema {
   games: StoredGame[]
   /** Preferência: iniciar o Kloud Games junto com o Hub (default false). */
   launchKloudOnStart: boolean
+  /** Preferência: notificar quando um programa gerenciado morrer inesperadamente (default true, opt-out). */
+  notifyOnCrash: boolean
   /** Mapeamento de controle do modo Big Picture; null = nunca configurado. */
   gamepad: GamepadConfig | null
   /** Preferências do modo Big Picture (ex.: efeitos sonoros). */
@@ -382,6 +384,12 @@ const schema: Store.Schema<HubStoreSchema> = {
     type: 'boolean',
     default: false
   },
+  // Default true (opt-out, 07-7.2): chaves novas com default no schema não
+  // exigem migração — o ajv preenche o valor nas instalações antigas.
+  notifyOnCrash: {
+    type: 'boolean',
+    default: true
+  },
   // Objeto livre de propósito — o conteúdo é validado por normalizeGamepadConfig().
   // `type: ['object', 'null']` é obrigatório: um `type: 'object'` simples quebra
   // a leitura quando o valor é null.
@@ -413,6 +421,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`;
       // 1.3.0 garante o default da chave `launchKloudOnStart`;
       // 1.4.0 garante os defaults de `gamepad` (null) e `bigPicture` ({ sounds: true }).
+      // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
           // Baseline — nada a fazer; as chaves já têm defaults pelo schema.
@@ -595,6 +604,34 @@ export function setLaunchKloudOnStart(value: unknown): { success: boolean; error
   }
 }
 
+/** Lê a preferência "notificar quando um programa parar inesperadamente" (default true, opt-out). */
+export function getNotifyOnCrash(): boolean {
+  if (!store) return true
+  try {
+    const value = store.get('notifyOnCrash', true)
+    return typeof value === 'boolean' ? value : true
+  } catch (err) {
+    logger.error('store', 'Falha ao ler notifyOnCrash:', err)
+    return true
+  }
+}
+
+/** Persiste a preferência "notificar quando um programa parar inesperadamente". */
+export function setNotifyOnCrash(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'boolean') {
+    return { success: false, error: 'Valor inválido para a preferência.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('notifyOnCrash', value)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar notifyOnCrash:', message)
+    return { success: false, error: message }
+  }
+}
+
 /** Lê a configuração de controle do Big Picture (null = não configurado/inválida). */
 export function getGamepadConfig(): GamepadConfig | null {
   if (!store) return null
@@ -709,4 +746,8 @@ export function registerPrefsIpc(): void {
   ipcMain.handle('prefs:get', () => getLaunchKloudOnStart())
 
   ipcMain.handle('prefs:set', (_event, value: unknown) => setLaunchKloudOnStart(value))
+
+  ipcMain.handle('prefs:get-notify', () => getNotifyOnCrash())
+
+  ipcMain.handle('prefs:set-notify', (_event, value: unknown) => setNotifyOnCrash(value))
 }

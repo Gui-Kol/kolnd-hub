@@ -44,6 +44,8 @@ declare global {
       // ── Preferências do Hub ───────────────────────────
       getLaunchKloudOnStart: () => Promise<boolean>
       setLaunchKloudOnStart: (value: boolean) => Promise<{ success: boolean; error?: string }>
+      getNotifyOnCrash: () => Promise<boolean>
+      setNotifyOnCrash: (value: boolean) => Promise<{ success: boolean; error?: string }>
 
       // ── App management ──────────────────────────────
       launchApp: (

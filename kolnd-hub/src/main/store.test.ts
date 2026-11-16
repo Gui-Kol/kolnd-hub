@@ -46,6 +46,8 @@ let getStoredGames: typeof import('./store').getStoredGames
 let setStoredGames: typeof import('./store').setStoredGames
 let getLaunchKloudOnStart: typeof import('./store').getLaunchKloudOnStart
 let setLaunchKloudOnStart: typeof import('./store').setLaunchKloudOnStart
+let getNotifyOnCrash: typeof import('./store').getNotifyOnCrash
+let setNotifyOnCrash: typeof import('./store').setNotifyOnCrash
 let getGamepadConfig: typeof import('./store').getGamepadConfig
 let setGamepadConfig: typeof import('./store').setGamepadConfig
 let resetGamepadConfig: typeof import('./store').resetGamepadConfig
@@ -69,6 +71,8 @@ beforeAll(async () => {
   setStoredGames = storeMod.setStoredGames
   getLaunchKloudOnStart = storeMod.getLaunchKloudOnStart
   setLaunchKloudOnStart = storeMod.setLaunchKloudOnStart
+  getNotifyOnCrash = storeMod.getNotifyOnCrash
+  setNotifyOnCrash = storeMod.setNotifyOnCrash
   getGamepadConfig = storeMod.getGamepadConfig
   setGamepadConfig = storeMod.setGamepadConfig
   resetGamepadConfig = storeMod.resetGamepadConfig
@@ -489,7 +493,7 @@ describe('getStoredGames / setStoredGames', () => {
   })
 })
 
-describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
+describe('preferências (launchKloudOnStart / notifyOnCrash / gamepad / bigPicture)', () => {
   it('getLaunchKloudOnStart default false', () => {
     expect(getLaunchKloudOnStart()).toBe(false)
     holder().get.mockImplementation(() => true)
@@ -504,6 +508,25 @@ describe('preferências (launchKloudOnStart / gamepad / bigPicture)', () => {
     const res = setLaunchKloudOnStart(true)
     expect(res.success).toBe(true)
     expect(holder().set).toHaveBeenCalledWith('launchKloudOnStart', true)
+  })
+
+  it('getNotifyOnCrash default true (opt-out)', () => {
+    expect(getNotifyOnCrash()).toBe(true)
+    holder().get.mockImplementation(() => false)
+    expect(getNotifyOnCrash()).toBe(false)
+  })
+
+  it('setNotifyOnCrash exige booleano e faz round-trip', () => {
+    expect(setNotifyOnCrash('sim' as never)).toEqual({
+      success: false,
+      error: 'Valor inválido para a preferência.'
+    })
+    const res = setNotifyOnCrash(false)
+    expect(res.success).toBe(true)
+    expect(holder().set).toHaveBeenCalledWith('notifyOnCrash', false)
+    const res2 = setNotifyOnCrash(true)
+    expect(res2.success).toBe(true)
+    expect(holder().set).toHaveBeenCalledWith('notifyOnCrash', true)
   })
 
   it('getGamepadConfig / setGamepadConfig / resetGamepadConfig', () => {
@@ -555,6 +578,7 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
     expect(getStoredGames()).toEqual([])
     expect(getLaunchKloudOnStart()).toBe(false)
+    expect(getNotifyOnCrash()).toBe(true)
     expect(getGamepadConfig()).toBeNull()
     expect(getBigPicturePrefs()).toEqual({ sounds: true })
 
@@ -572,6 +596,7 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
     expect(getStoredGames()).toEqual([])
     expect(getLaunchKloudOnStart()).toBe(false)
+    expect(getNotifyOnCrash()).toBe(true)
     expect(getGamepadConfig()).toBeNull()
     expect(getBigPicturePrefs()).toEqual({ sounds: true })
   })
@@ -588,6 +613,7 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(setStartupImportance({ a: 'critico' }).success).toBe(false)
     expect(setStoredGames(null).success).toBe(false)
     expect(setLaunchKloudOnStart(true).success).toBe(false)
+    expect(setNotifyOnCrash(true).success).toBe(false)
     expect(setGamepadConfig(validGamepadInput).success).toBe(false)
     expect(setBigPicturePrefs({ sounds: false }).success).toBe(false)
     expect(migrateFromLegacy({ apps: [] }).success).toBe(false)
@@ -737,6 +763,7 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       expect(mod.getConfigSnapshot()).toEqual({ apps: null, startupImportance: null })
       expect(mod.getStoredGames()).toEqual([])
       expect(mod.getLaunchKloudOnStart()).toBe(false)
+      expect(mod.getNotifyOnCrash()).toBe(true)
       expect(mod.getGamepadConfig()).toBeNull()
       expect(mod.getBigPicturePrefs()).toEqual({ sounds: true })
 
@@ -751,6 +778,7 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       })
       expect(mod.setStoredGames(null).success).toBe(false)
       expect(mod.setLaunchKloudOnStart(true).success).toBe(false)
+      expect(mod.setNotifyOnCrash(true).success).toBe(false)
       expect(mod.setGamepadConfig(validGamepadInput).success).toBe(false)
       expect(mod.setBigPicturePrefs({ sounds: false }).success).toBe(false)
       expect(mod.migrateFromLegacy({ apps: [] }).success).toBe(false)
