@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gamepad2, Gamepad, LogOut, X, Mouse, Undo2, Loader2 } from 'lucide-react'
+import { Gamepad2, LogOut, X, Mouse } from 'lucide-react'
 import { BigPictureRail, BigPictureSection } from './BigPictureRail'
 import { BigPictureGames } from './BigPictureGames'
 import { BigPictureControls } from './BigPictureControls'
 import { GamepadSetup } from './GamepadSetup'
 import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPictureTransition'
-import { BigPictureFocusProvider, useBigPictureFocus, useFocusable } from './BigPictureFocus'
+import { BigPictureFocusProvider, useBigPictureFocus } from './BigPictureFocus'
+import { OptionsOverlay, ExitOverlay, DisconnectOverlay } from './BigPictureOverlays'
 import { useGamepad } from '../hooks/useGamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import type { GamepadAction, GamepadConfig } from '../lib/gamepad'
@@ -68,7 +69,7 @@ function useMinuteClock(): string {
  * nem é montado. Ao concluir o setup a home é liberada automaticamente; ao
  * cancelar, volta-se ao Hub. Esc é tratado pelo próprio GamepadSetup.
  */
-function SetupView({
+const SetupView = memo(function SetupView({
   onComplete,
   onExit
 }: {
@@ -107,170 +108,7 @@ function SetupView({
       </div>
     </div>
   )
-}
-
-/** Botão de overlay — mesma anatomia do foco (mouse = gamepad = teclado). */
-function OverlayButton({
-  id,
-  icon: Icon,
-  label,
-  danger,
-  onClick
-}: {
-  id: string
-  icon: typeof LogOut
-  label: string
-  danger?: boolean
-  onClick: () => void
-}): JSX.Element {
-  const { ref, focused, focus } = useFocusable(id)
-
-  const palette = danger
-    ? focused
-      ? 'border-red-400/60 bg-red-500/15 text-red-200 ring-4 ring-red-400/50'
-      : 'border-red-500/25 bg-red-500/5 text-red-300 hover:bg-red-500/10'
-    : focused
-      ? 'border-neon-cyan/50 bg-neon-cyan/10 text-neon-cyan ring-4 ring-neon-cyan/40'
-      : 'border-white/[0.08] bg-white/[0.04] text-slate-200 hover:bg-white/[0.06]'
-
-  return (
-    <button
-      ref={ref}
-      type="button"
-      onClick={onClick}
-      onMouseEnter={focus}
-      onFocus={focus}
-      className={`flex w-full items-center gap-4 rounded-2xl border px-6 py-5 text-xl font-semibold tracking-tight transition-all duration-150 focus:outline-none ${palette}`}
-    >
-      <Icon size={24} strokeWidth={1.75} className="shrink-0" />
-      <span className="min-w-0">{label}</span>
-    </button>
-  )
-}
-
-/** Overlay "Opções" (Start/Menu): configuração de controle ou sair. */
-function OptionsOverlay({
-  onOpenControls,
-  onQuit,
-  onClose
-}: {
-  onOpenControls: () => void
-  onQuit: () => void
-  onClose: () => void
-}): JSX.Element {
-  return (
-    <div
-      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Opções do Big Picture"
-      onClick={onClose}
-    >
-      <div
-        className="w-[30rem] max-w-[90vw] space-y-4 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-6 shadow-2xl shadow-black/60"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 className="px-1 text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Opções</h2>
-        <OverlayButton
-          id="options:controls"
-          icon={Gamepad}
-          label="Configuração de controle"
-          onClick={onOpenControls}
-        />
-        <OverlayButton
-          id="options:quit"
-          icon={LogOut}
-          label="Sair do Big Picture"
-          danger
-          onClick={onQuit}
-        />
-        <p className="px-1 pt-1 text-[11px] 3xl:text-base font-medium uppercase tracking-widest text-slate-400">
-          Esc também fecha
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/** Confirmação de saída ("B" na raiz, Esc, ou item do rail). */
-function ExitOverlay({
-  onCancel,
-  onConfirm
-}: {
-  onCancel: () => void
-  onConfirm: () => void
-}): JSX.Element {
-  return (
-    <div
-      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Sair do Big Picture?"
-      onClick={onCancel}
-    >
-      <div
-        className="w-[32rem] max-w-[90vw] space-y-6 rounded-3xl border border-white/[0.08] bg-[#0d0d14]/95 p-8 text-center shadow-2xl shadow-black/60"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10">
-          <LogOut size={36} strokeWidth={1.5} className="text-red-400" />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-3xl font-black tracking-tight text-white">Sair do Big Picture?</h2>
-          <p className="text-base leading-relaxed text-slate-400">
-            Você voltará ao Hub normal. Nada será fechado — seus programas e a bandeja continuam
-            exatamente como estão.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <OverlayButton
-            id="exit:cancel"
-            icon={Undo2}
-            label="Continuar no Big Picture"
-            onClick={onCancel}
-          />
-          <OverlayButton
-            id="exit:quit"
-            icon={LogOut}
-            label="Sair do Big Picture"
-            danger
-            onClick={onConfirm}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Overlay de "Controle desconectado" (T8) — exibido quando o controle some no
- * meio da sessão. Não-bloqueante para o mouse (pointer-events-none em tudo):
- * o rail e a grade seguem clicáveis por trás, enquanto o gamepad fica inerte
- * por construção (sem pad, nenhuma ação dispara). Some sozinho ao reconectar.
- */
-function DisconnectOverlay(): JSX.Element {
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 z-[56] flex items-center justify-center"
-      role="alertdialog"
-      aria-live="assertive"
-      aria-label="Controle desconectado"
-    >
-      <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-[#0d0d14]/90 px-12 py-10 text-center shadow-2xl shadow-black/70 backdrop-blur-xl">
-        <Loader2
-          size={44}
-          strokeWidth={1.75}
-          className="animate-spin text-neon-cyan"
-          aria-hidden="true"
-        />
-        <h2 className="text-3xl font-black tracking-tight text-white">Controle desconectado</h2>
-        <p className="text-lg leading-relaxed text-slate-300">
-          Reconecte o controle ou use o mouse
-        </p>
-      </div>
-    </div>
-  )
-}
+})
 
 /** Noop estável para o useGamepad enquanto a home ainda não pode receber input
  * (transição T7 em andamento) — o loop continua publicando `connected`, mas
@@ -399,6 +237,16 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
     setFocusScope('options:')
     setFocusedId('options:controls')
   }, [setFocusScope, setFocusedId])
+
+  const openControlsSection = useCallback((): void => {
+    closeOverlay()
+    goToSection('controls')
+  }, [closeOverlay, goToSection])
+
+  const confirmExit = useCallback((): void => {
+    setFocusScope(null)
+    onExit()
+  }, [setFocusScope, onExit])
 
   const goBack = useCallback((): void => {
     if (overlay) {
@@ -655,23 +503,12 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
       {/* ── Overlays (confinam a navegação ao diálogo) ─── */}
       {overlay === 'options' && (
         <OptionsOverlay
-          onOpenControls={() => {
-            closeOverlay()
-            goToSection('controls')
-          }}
+          onOpenControls={openControlsSection}
           onQuit={openExitOverlay}
           onClose={closeOverlay}
         />
       )}
-      {overlay === 'exit' && (
-        <ExitOverlay
-          onCancel={closeOverlay}
-          onConfirm={() => {
-            setFocusScope(null)
-            onExit()
-          }}
-        />
-      )}
+      {overlay === 'exit' && <ExitOverlay onCancel={closeOverlay} onConfirm={confirmExit} />}
 
       {/* ── Toast local do Big Picture ─────────────── */}
       <AnimatePresence>
@@ -703,7 +540,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
 
 /** Fundo do Big Picture (gradiente + glows + scanlines) — alvo da máscara radial
  * de revelação na transição (T7). `maskRadiusPx === null` → sem máscara. */
-function BigPictureBackdrop({
+const BigPictureBackdrop = memo(function BigPictureBackdrop({
   refProp,
   maskRadiusPx
 }: {
@@ -727,7 +564,7 @@ function BigPictureBackdrop({
       <div className="scanlines" />
     </div>
   )
-}
+})
 
 /** Saída: fade curto (~200 ms) de volta ao Hub — a animação cinematográfica
  * (T7) é exclusiva da entrada. */

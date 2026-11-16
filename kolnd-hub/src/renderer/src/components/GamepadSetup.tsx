@@ -26,10 +26,12 @@ import {
   buildAutoConfig,
   GAMEPAD_ACTIONS,
   GAMEPAD_ACTION_LABELS,
-  GAMEPAD_PROFILES
+  GAMEPAD_PROFILES,
+  mappingsEqual
 } from '../lib/gamepad'
 import type { GamepadAction, GamepadButtonMapping, GamepadConfig } from '../lib/gamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
+import { GamepadMappingRow } from './gamepad/GamepadMappingRow'
 
 export interface GamepadSetupProps {
   /** Config existente → começa no ajuste manual; omitido/null → começa na detecção. */
@@ -59,10 +61,6 @@ const DETECT_HINT_AFTER_MS = 30_000
 const LISTEN_POLL_MS = 100
 const NOTICE_DISMISS_MS = 4500
 const GUIDE_BUTTON_INDEX = 16
-
-function mappingsEqual(a: GamepadButtonMapping, b: GamepadButtonMapping): boolean {
-  return GAMEPAD_ACTIONS.every((action) => a[action] === b[action])
-}
 
 function formatConfiguredDate(iso: string): string {
   const date = new Date(iso)
@@ -284,6 +282,22 @@ export function GamepadSetup({
     setConflict(null)
     if (soundsRef.current) playSfx('confirm')
   }, [conflict, draft])
+
+  // Alterna a escuta de botão de uma linha ("Remapear"). Mesma semântica de
+  // antes: sempre limpa o conflito; sem Gamepad API e fora da escuta, avisa
+  // em vez de travar a linha.
+  const toggleListen = useCallback(
+    (action: GamepadAction): void => {
+      setConflict(null)
+      const isListening = listeningAction === action
+      if (!isListening && !gamepadApiAvailable) {
+        showNotice('Gamepad API indisponível — use o seletor "Botão 0–15" para mapear com o mouse.')
+        return
+      }
+      setListeningAction(isListening ? null : action)
+    },
+    [listeningAction, gamepadApiAvailable, showNotice]
+  )
 
   // ── Escuta de botão da linha em "Remapear" (próxima borda captura o índice) ──
   useEffect(() => {
@@ -584,81 +598,20 @@ export function GamepadSetup({
             </p>
 
             <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.08]">
-              {GAMEPAD_ACTIONS.map((action) => {
-                const listening = listeningAction === action
-                const conflictOwner =
-                  conflict && (conflict.owner === action || conflict.action === action)
-                const rowTone = conflictOwner
-                  ? 'border-red-500/40 bg-red-500/10'
-                  : listening
-                    ? 'border-neon-cyan/40 bg-neon-cyan/5'
-                    : 'border-transparent'
-                return (
-                  <li
-                    key={action}
-                    className={`flex flex-wrap items-center gap-3 border-l-4 px-4 py-2.5 transition-colors ${rowTone}`}
-                  >
-                    <span className="w-36 shrink-0 text-sm font-semibold text-slate-200">
-                      {GAMEPAD_ACTION_LABELS[action]}
-                    </span>
-
-                    {listening ? (
-                      <span className="flex min-w-[9rem] flex-1 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-neon-cyan animate-pulse-slow">
-                        Pressione o botão…
-                      </span>
-                    ) : (
-                      <span
-                        className={`inline-flex min-w-[9rem] flex-1 justify-center rounded-lg border px-3 py-1.5 font-mono text-[11px] font-semibold ${
-                          draft[action] === null
-                            ? 'border-white/[0.08] bg-white/[0.03] text-slate-500'
-                            : 'border-neon-cyan/25 bg-neon-cyan/5 text-neon-cyan'
-                        }`}
-                      >
-                        {buttonName(draft[action])}
-                      </span>
-                    )}
-
-                    <div className="flex shrink-0 items-center gap-2">
-                      <select
-                        className="input-gamer !w-32 !px-2 !py-1.5 !text-[11px] font-mono"
-                        value={draft[action] === null ? 'none' : String(draft[action])}
-                        onChange={(event) => {
-                          const value = event.target.value
-                          assignButton(action, value === 'none' ? null : Number(value))
-                        }}
-                        aria-label={`Botão para ${GAMEPAD_ACTION_LABELS[action]}`}
-                      >
-                        <option value="none">Sem botão</option>
-                        {Array.from({ length: 16 }, (_, index) => (
-                          <option key={index} value={index}>
-                            Botão {index}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className={`rounded-lg border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                          listening
-                            ? 'border-neon-cyan/50 bg-neon-cyan/15 text-neon-cyan'
-                            : 'border-white/[0.1] bg-white/[0.04] text-slate-300 hover:border-neon-cyan/40 hover:text-neon-cyan'
-                        }`}
-                        onClick={() => {
-                          setConflict(null)
-                          if (!listening && !gamepadApiAvailable) {
-                            showNotice(
-                              'Gamepad API indisponível — use o seletor "Botão 0–15" para mapear com o mouse.'
-                            )
-                            return
-                          }
-                          setListeningAction(listening ? null : action)
-                        }}
-                      >
-                        {listening ? 'Aguardando…' : 'Remapear'}
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
+              {GAMEPAD_ACTIONS.map((action) => (
+                <GamepadMappingRow
+                  key={action}
+                  action={action}
+                  buttonIndex={draft[action]}
+                  listening={listeningAction === action}
+                  conflictHighlight={
+                    conflict !== null && (conflict.owner === action || conflict.action === action)
+                  }
+                  buttonName={buttonName}
+                  onAssign={assignButton}
+                  onToggleListen={toggleListen}
+                />
+              ))}
             </ul>
 
             {/* Conflito: mesmo botão em duas ações */}
