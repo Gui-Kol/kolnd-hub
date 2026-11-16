@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import {
-  Gamepad2,
-  Plus,
-  ChevronDown,
-  Download,
-  FilePlus2,
-  Loader2,
-  AlertTriangle,
-  X
-} from 'lucide-react'
+import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, AlertTriangle, X } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
+import { Badge, Button, Card, Spinner, Skeleton } from './ui'
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { SteamImportModal, SteamImportState } from './biblioteca/SteamImportModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
@@ -269,35 +261,37 @@ export function Biblioteca(): JSX.Element {
         className="flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight gradient-text bg-gradient-to-r from-steam-blue to-neon-cyan text-shadow">
+          <h2 className="text-[28px] font-bold leading-9 tracking-tight text-ink-primary md:text-[32px] md:leading-10">
             Biblioteca
           </h2>
-          <p className="text-sm text-slate-400 mt-1">Seus jogos instalados, num só lugar</p>
+          <p className="mt-0.5 text-[13px] text-ink-secondary">
+            Seus jogos instalados, num só lugar
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="glass rounded-xl px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-            <Gamepad2 size={12} className="text-slate-400" />
-            <span>
+          <Badge tone="neutral" className="px-3 py-1 text-[11px]">
+            <Gamepad2 size={12} aria-hidden="true" />
+            <span className="tnum">
               {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
             </span>
-          </div>
+          </Badge>
 
           {/* ── Botão "Adicionar Games" + menu ───────── */}
           <div className="relative">
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => setMenuOpen((open) => !open)}
-              className="btn-primary"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
             >
-              <Plus size={16} />
+              <Plus size={16} aria-hidden="true" />
               Adicionar Games
               <ChevronDown
                 size={14}
-                className={`transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+                className={`transition-transform duration-2 ease-standard ${menuOpen ? 'rotate-180' : ''}`}
               />
-            </button>
+            </Button>
 
             <AnimatePresence>
               {menuOpen && (
@@ -313,37 +307,37 @@ export function Biblioteca(): JSX.Element {
                     role="menu"
                     {...entranceProps(reduced, { y: -6, scale: 0.96 }, { duration: 0.15 })}
                     exit={exitProps(reduced, { y: -6, scale: 0.96 })}
-                    className="absolute right-0 z-20 mt-2 w-72 glass-card border border-white/[0.08] shadow-2xl overflow-hidden"
+                    className="absolute right-0 z-dropdown mt-2 w-72 overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-1 shadow-elevation-3"
                   >
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => void handleImportSteam()}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 hover:bg-white/[0.05] transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-ink-primary transition-colors duration-1 ease-standard hover:bg-surface-2"
                     >
-                      <div className="w-9 h-9 rounded-lg bg-steam-blue/10 border border-steam-blue/30 flex items-center justify-center shrink-0">
-                        <Download size={16} className="text-steam-blue" />
-                      </div>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+                        <Download size={16} aria-hidden="true" className="text-ink-secondary" />
+                      </span>
                       <span className="min-w-0">
                         <span className="block font-medium">Importar jogos da Steam</span>
-                        <span className="block text-[11px] text-slate-400 mt-0.5">
+                        <span className="mt-0.5 block text-[11px] text-ink-tertiary">
                           Detecta os jogos instalados via Steam
                         </span>
                       </span>
                     </button>
-                    <div className="h-px bg-white/[0.06]" />
+                    <div aria-hidden="true" className="h-px bg-[var(--border-subtle)]" />
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => void handleAddCustom()}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 hover:bg-white/[0.05] transition-colors"
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-ink-primary transition-colors duration-1 ease-standard hover:bg-surface-2"
                     >
-                      <div className="w-9 h-9 rounded-lg bg-kloud-500/10 border border-kloud-500/30 flex items-center justify-center shrink-0">
-                        <FilePlus2 size={16} className="text-kloud-500" />
-                      </div>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+                        <FilePlus2 size={16} aria-hidden="true" className="text-ink-secondary" />
+                      </span>
                       <span className="min-w-0">
                         <span className="block font-medium">Jogo Personalizado</span>
-                        <span className="block text-[11px] text-slate-400 mt-0.5">
+                        <span className="mt-0.5 block text-[11px] text-ink-tertiary">
                           Escolha um executável (.exe) no seu PC
                         </span>
                       </span>
@@ -358,34 +352,57 @@ export function Biblioteca(): JSX.Element {
 
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-400">
-          <Loader2 size={32} className="animate-spin text-steam-blue" />
-          <p className="text-sm">Carregando sua biblioteca…</p>
+        <div className="flex flex-col gap-6" aria-busy="true">
+          <div className="flex flex-col items-center justify-center gap-3 py-10 text-ink-secondary">
+            <Spinner size={32} label="Carregando sua biblioteca…" />
+            <p className="text-sm">Carregando sua biblioteca…</p>
+          </div>
+          {/* Grade fantasma — skeleton dos tiles, mesmo layout da grade real */}
+          <div
+            aria-hidden="true"
+            className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+          >
+            {Array.from({ length: 10 }, (_, index) => (
+              <div
+                key={index}
+                className="flex flex-col items-center gap-3 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-5 pt-6"
+              >
+                <Skeleton rounded="control" className="h-24 w-24" />
+                <Skeleton rounded="sm" className="h-4 w-4/5" />
+                <div className="flex gap-2">
+                  <Skeleton rounded="pill" className="h-5 w-20" />
+                  <Skeleton rounded="pill" className="h-5 w-16" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : loadError ? (
-        <div className="glass-card p-10 flex flex-col items-center text-center gap-3">
-          <AlertTriangle size={32} className="text-red-400" />
-          <p className="text-sm text-slate-300">Não foi possível carregar sua biblioteca.</p>
-          <p className="text-xs text-slate-400">{loadError}</p>
-          <button type="button" onClick={() => void loadGames()} className="btn-secondary mt-2">
+        <Card className="flex flex-col items-center gap-3 p-10 text-center">
+          <AlertTriangle size={32} aria-hidden="true" className="text-danger" />
+          <p className="text-sm text-ink-primary">Não foi possível carregar sua biblioteca.</p>
+          <p className="text-xs text-ink-secondary">{loadError}</p>
+          <Button variant="secondary" onClick={() => void loadGames()} className="mt-2">
             Tentar novamente
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : games.length === 0 ? (
-        <div className="glass-card p-16 flex flex-col items-center text-center gap-4">
-          <div className="w-20 h-20 rounded-3xl bg-steam-blue/10 border border-steam-blue/20 flex items-center justify-center">
-            <Gamepad2 size={32} className="text-steam-blue" />
+        <Card className="flex flex-col items-center gap-4 p-16 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded-card border border-accent-border bg-accent-muted">
+            <Gamepad2 size={32} aria-hidden="true" className="text-accent" />
           </div>
-          <h3 className="text-lg font-bold text-slate-200">Sua biblioteca está vazia</h3>
-          <p className="text-sm text-slate-400 max-w-md">
-            Clique em <span className="text-slate-300 font-semibold">Adicionar Games</span> para
+          <h3 className="text-lg font-bold tracking-tight text-ink-primary">
+            Sua biblioteca está vazia
+          </h3>
+          <p className="max-w-md text-sm text-ink-secondary">
+            Clique em <span className="font-semibold text-ink-primary">Adicionar Games</span> para
             começar
           </p>
-          <button type="button" onClick={() => setMenuOpen(true)} className="btn-primary mt-2">
-            <Plus size={16} />
+          <Button variant="primary" onClick={() => setMenuOpen(true)} className="mt-2">
+            <Plus size={16} aria-hidden="true" />
             Adicionar Games
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
         /* ── Grade de jogos ─────────────────────────── */
         <BibliotecaGrid

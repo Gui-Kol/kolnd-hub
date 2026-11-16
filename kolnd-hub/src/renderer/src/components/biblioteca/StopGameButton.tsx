@@ -1,12 +1,15 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Square } from 'lucide-react'
 import type { Game } from '../../types'
+import { Tooltip } from '../ui'
 
 /**
  * Botão "Encerrar jogo" — só pode ser pressionado quando o jogo estiver
  * aberto (disabled caso contrário). Confirmação em duas etapas inline
  * ("Encerrar" → "Confirmar?" por 4 s), para não perder progresso por um
- * clique acidental.
+ * clique acidental. Estilo danger outline; foco visível vem do anel global
+ * :focus-visible (sem ring próprio). Balão via Tooltip primitivo (abre no
+ * hover e no foco).
  */
 export const StopGameButton = memo(function StopGameButton({
   game,
@@ -59,40 +62,45 @@ export const StopGameButton = memo(function StopGameButton({
     [confirming, game, onStopped, running]
   )
 
+  const tooltipContent = !running
+    ? 'Abra o jogo para poder encerrá-lo'
+    : confirming
+      ? 'Clique de novo para encerrar o jogo'
+      : `Encerrar ${game.name}`
+
   return (
-    <span
-      role="button"
-      tabIndex={running ? 0 : -1}
-      aria-label={`Encerrar ${game.name}`}
-      aria-disabled={!running}
-      aria-pressed={confirming}
-      title={
-        running
-          ? confirming
-            ? 'Clique de novo para encerrar o jogo'
-            : `Encerrar ${game.name}`
-          : 'O jogo não está em execução'
-      }
-      onClick={(event) => void handleActivate(event)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          void handleActivate(event)
-        }
-      }}
-      className={`absolute top-2 right-12 inline-flex h-[30px] items-center justify-center rounded-lg border border-transparent p-2 text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400/50 ${
-        !running
-          ? 'cursor-not-allowed text-slate-500'
-          : confirming
-            ? 'border-red-500/40 bg-red-500/15 text-red-300'
-            : 'hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 cursor-pointer'
-      }`}
-    >
-      {confirming ? (
-        <span className="text-[9px] font-bold uppercase tracking-wide">Confirmar?</span>
-      ) : (
-        <Square size={14} />
-      )}
+    // Wrapper absoluto posiciona o botão no canto do card; o Tooltip interno
+    // fica no fluxo normal e ancora o balão ao gatilho.
+    <span className="absolute right-12 top-2 z-10">
+      <Tooltip content={tooltipContent} side="top">
+        <span
+          role="button"
+          tabIndex={running ? 0 : -1}
+          aria-label={`Encerrar ${game.name}`}
+          aria-disabled={!running}
+          aria-pressed={confirming}
+          onClick={(event) => void handleActivate(event)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              void handleActivate(event)
+            }
+          }}
+          className={`inline-flex h-[30px] select-none items-center justify-center rounded-sm border p-2 transition-colors duration-1 ease-standard ${
+            !running
+              ? 'cursor-not-allowed border-transparent text-ink-tertiary'
+              : confirming
+                ? 'cursor-pointer border-danger-border bg-danger-bg text-danger'
+                : 'cursor-pointer border-transparent text-danger hover:border-danger-border hover:bg-danger-bg'
+          }`}
+        >
+          {confirming ? (
+            <span className="text-[9px] font-bold uppercase tracking-wider">Confirmar?</span>
+          ) : (
+            <Square size={14} aria-hidden="true" />
+          )}
+        </span>
+      </Tooltip>
     </span>
   )
 })

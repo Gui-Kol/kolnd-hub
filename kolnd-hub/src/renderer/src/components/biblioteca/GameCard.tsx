@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { AlertTriangle, Gamepad2, Pencil } from 'lucide-react'
 import type { Game } from '../../types'
+import { Badge } from '../ui'
 import { StopGameButton } from './StopGameButton'
 
 export interface GameCardProps {
@@ -20,6 +21,8 @@ export interface GameCardProps {
  * Card de jogo da grade da Biblioteca. Memoizado: só re-renderiza quando o
  * próprio jogo, seu ícone, ou os flags running/exeMissing mudam — toast e
  * menu aberto no componente pai não tocam mais nos cards.
+ * Visual: superfície 1 + borda sutil; hover eleva para superfície 2 com borda
+ * de acento (padrão AppCard). Foco visível vem do anel global :focus-visible.
  */
 export const GameCard = memo(function GameCard({
   game,
@@ -35,7 +38,7 @@ export const GameCard = memo(function GameCard({
       type="button"
       onClick={() => void onLaunch(game)}
       title={`Jogar ${game.name}`}
-      className="glass-card glass-hover group relative flex flex-col items-center gap-3 p-5 pt-6 text-center focus:outline-none focus:ring-2 focus:ring-steam-blue/50"
+      className="group relative flex flex-col items-center gap-3 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-5 pt-6 text-center shadow-elevation-1 transition-all duration-2 ease-standard hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2"
     >
       {/* Encerramento pelo Hub — só fica habilitado com o jogo aberto */}
       <StopGameButton game={game} running={running} onStopped={onStopped} />
@@ -57,9 +60,9 @@ export const GameCard = memo(function GameCard({
             onEdit(game)
           }
         }}
-        className="absolute top-2 right-2 p-2 rounded-lg text-slate-400 border border-transparent hover:text-white hover:bg-white/[0.06] hover:border-white/10 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+        className="absolute right-2 top-2 rounded-sm p-2 text-ink-tertiary transition-colors hover:bg-surface-3 hover:text-ink-primary"
       >
-        <Pencil size={14} />
+        <Pencil size={14} aria-hidden="true" />
       </span>
 
       {/* Selo discreto quando o executável não existe mais no disco */}
@@ -80,45 +83,47 @@ export const GameCard = memo(function GameCard({
               onEdit(game)
             }
           }}
-          className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-neon-cyan/70"
+          className="absolute left-2 top-2 cursor-pointer"
         >
-          <AlertTriangle size={12} />
-          .exe não encontrado
+          <Badge tone="warning" className="transition-colors hover:border-[var(--warning)]">
+            <AlertTriangle size={12} aria-hidden="true" />
+            .exe não encontrado
+          </Badge>
         </span>
       )}
 
-      <div className="w-24 h-24 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center overflow-hidden shrink-0 group-hover:border-steam-blue/30 transition-colors">
+      <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
         {icon ? (
           <img
             src={icon}
             alt={`Ícone de ${game.name}`}
-            className="w-full h-full object-contain"
+            className="h-full w-full object-contain"
             draggable={false}
           />
         ) : (
           <Gamepad2
             size={32}
-            className="text-slate-400 group-hover:text-slate-300 transition-colors"
+            aria-hidden="true"
+            className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
           />
         )}
       </div>
 
-      <p className="text-sm font-semibold text-slate-200 leading-snug line-clamp-2 w-full">
+      <p className="line-clamp-2 w-full text-sm font-semibold leading-snug tracking-tight text-ink-primary">
         {game.name}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         {running && (
-          <span
-            className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400"
-            title="O jogo está aberto (processo detectado)"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          <Badge tone="success" title="O jogo está aberto (processo detectado)">
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 animate-pulse rounded-pill bg-success"
+            />
             Em execução
-          </span>
+          </Badge>
         )}
-        <span className={game.origin === 'steam' ? 'badge-steam' : 'badge-kloud'}>
-          {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
-        </span>
+        {/* Badge de origem neutra (STEAM/CUSTOM), sem cor de marca */}
+        <Badge tone="neutral">{game.origin === 'steam' ? 'Steam' : 'Custom'}</Badge>
       </div>
     </button>
   )
