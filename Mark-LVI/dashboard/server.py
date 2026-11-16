@@ -865,6 +865,14 @@ class DashboardServer:
     def _build_app(self) -> "FastAPI":
         app = FastAPI(docs_url=None, redoc_url=None)
 
+        @app.middleware("http")
+        async def _security_headers(request: Request, call_next):
+            resp = await call_next(request)
+            resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+            resp.headers.setdefault("X-Frame-Options", "DENY")
+            resp.headers.setdefault("Referrer-Policy", "no-referrer")
+            return resp
+
         def _valid(tok: str) -> bool:
             """Is this token live? Expired ones are dropped as they are found,
             which keeps the sweep free and needs no background timer."""
@@ -937,10 +945,29 @@ class DashboardServer:
                                 status_code=401)
 
         @app.get("/auto-login")
-        async def auto_login(key: str = ""):
-            """QR code target — validates one-time key, creates session, redirects phone."""
+        async def auto_login(req: Request, key: str = ""):
+            """QR code target — validates one-time key, creates session, redirects phone.
+
+            Throttled exactly like /login: the pairing key is only ~40 bits,
+            so the QR/auto-login path must not be a way to guess it without
+            the rate limit that protects the typed-key path.
+            """
+            who  = _who(req)
+            wait = self._throttle.blocked_for(who)
+            if wait > 0:
+                return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width">
+<style>
+  body{{background:#07090f;color:#dde3ed;font-family:sans-serif;
+       display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}}
+  h2{{color:#f87171;margin-bottom:12px}}p{{color:#5e6a7e;font-size:14px}}
+</style></head>
+<body><div><h2>Too many attempts</h2>
+<p>Try again in {int(wait) + 1} seconds.</p>
+</div></body></html>""", status_code=429)
             now = time.time()
             if not key or key not in self._pending_keys or self._pending_keys[key] <= now:
+                self._throttle.record_failure(who)
                 return HTMLResponse("""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width">
 <style>
@@ -953,6 +980,7 @@ class DashboardServer:
 </div></body></html>""")
 
             del self._pending_keys[key]
+            self._throttle.clear(who)
             tok     = secrets.token_urlsafe(32)
             dev_tok = secrets.token_urlsafe(32)
             self._tokens[tok] = time.time()
@@ -1118,7 +1146,8 @@ class DashboardServer:
                         dest.unlink(missing_ok=True)
                     except Exception:
                         pass
-                    return JSONResponse({"error": str(exc)}, status_code=500)
+                    print(f"[Dashboard] Upload failed: {exc}")
+                    return JSONResponse({"error": "Upload failed"}, status_code=500)
 
                 asyncio.create_task(self.broadcast({
                     "type": "file_received",

@@ -97,4 +97,5 @@ a small built-in fallback — instead of crashing.
 - Settings and keys live in `config/api_keys.json` through
   `memory/config_manager.py`; never write that file directly.
 - Keep to the libraries already in `requirements.txt`.
+- Dashboard remoto: revisão de segurança registrada em `dashboard/SECURITY-REVIEW-2026-11-16.md` (16/11/2026) — ver também `readme.md`, seção "Revisão de segurança do dashboard". Mudanças no dashboard devem preservar: auth em todos os endpoints de controle, TTL de 12 h, rate limit de pairing (incluindo `/auto-login`).
 - Build/instalação: o `setup.py` e o `kolnd-hub/scripts/build-mark-lvi.ps1` instalam `requirements.lock` (pins + hashes) quando ele existe; senão, caem para o `requirements.txt` com aviso. Mexer em dependência = editar `requirements.in` e regenerar o lock (`py -3 -m piptools compile requirements.in --generate-hashes -o requirements.lock`) — nunca editar o lock à mão.

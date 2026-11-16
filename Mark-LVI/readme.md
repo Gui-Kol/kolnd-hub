@@ -747,6 +747,12 @@ Observações:
 
 ---
 
+## Revisão de segurança do dashboard — 16/11/2026
+
+Revisão focada do dashboard remoto (`dashboard/server.py` + `dashboard/static/`) registrada em `dashboard/SECURITY-REVIEW-2026-11-16.md`. Estado: **revisado em 16/11/2026** — todos os endpoints de controle exigem token Bearer com TTL de 12 h; chave de pairing de 8 chars (~40 bits) com validade de 10 min, uso único e rate limit de 6 tentativas/5 min por endereço (agora também no caminho `/auto-login` do QR code, que antes não tinha throttle); binding `0.0.0.0` intencional para LAN; TLS opcional (opt-in); nenhum segredo/token em log. Correções mínimas aplicadas no próprio dashboard (throttle no `/auto-login`, headers de segurança, mensagem de erro de upload sem exceção interna, `login.html` aceitando a chave de 8 chars). Pendências/recomendações fora do escopo: HTTPS obrigatório por default, TTL para `device_token`, token fora da query string, CSP — ver R1–R11 no relatório. Teste in-process passou (14/14); pareamento manual com celular físico fica para sessão na LAN.
+
+---
+
 ## ⚠️ License
 
 Personal and non-commercial use only.
