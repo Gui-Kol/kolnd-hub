@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import { Activity, Cpu, Gamepad2, Wifi, Code, Clock } from 'lucide-react'
+import { Activity, Cpu, Gamepad2, Wifi, Code, Clock, LayoutGrid, AppWindow } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
+import { Badge } from './ui'
 import { AppConfig, AppState } from '../types'
 
 interface DashboardProps {
@@ -13,31 +15,49 @@ interface DashboardProps {
   onStop: (appId: string) => void
 }
 
-const categoryMeta: Record<string, { label: string; icon: any; color: string; glow: string }> = {
+// Grupos diferenciam-se por ÍCONE, não por cor saturada (13.9): ai→acento,
+// demais→neutro. Todos os blocos são surface-2 com borda hairline — sem glow.
+const categoryMeta: Record<string, { label: string; icon: LucideIcon; iconClass: string }> = {
   ai: {
     label: 'Inteligência Artificial',
     icon: Cpu,
-    color: 'text-neon-cyan',
-    glow: 'shadow-glow-cyan'
+    iconClass: 'text-accent'
   },
   gaming: {
     label: 'Gaming',
     icon: Gamepad2,
-    color: 'text-neon-purple',
-    glow: 'shadow-glow-purple'
+    iconClass: 'text-ink-secondary'
   },
   streaming: {
     label: 'Streaming',
     icon: Wifi,
-    color: 'text-playstation-500',
-    glow: 'shadow-glow-blue'
+    iconClass: 'text-ink-secondary'
   },
   dev: {
     label: 'Development',
     icon: Code,
-    color: 'text-kloud-500',
-    glow: 'shadow-glow-orange'
+    iconClass: 'text-ink-secondary'
   }
+}
+
+// Converte #rgb/#rrggbb em rgba() com o alpha pedido — usado pelo hero dinâmico.
+// Cor fora do formato hex → null (o hero cai para surface-1 puro, sem gradiente).
+function hexWithAlpha(hex: string | undefined, alpha: number): string | null {
+  if (!hex) return null
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim())
+  if (!match) return null
+  let h = match[1]
+  if (h.length === 3) {
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('')
+  }
+  const int = parseInt(h, 16)
+  const r = (int >> 16) & 255
+  const g = (int >> 8) & 255
+  const b = int & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps): JSX.Element {
@@ -47,6 +67,16 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
 
   const runningCount = Object.values(appStates).filter((s) => s.status === 'running').length
   const stoppedCount = apps.length - runningCount
+
+  // Assinatura B (aprovada em 13.2): gradiente 120° derivado da cor do app em foco —
+  // primeiro app em execução, senão o primeiro app. Discreto (~10%/4% de opacidade).
+  const focusedApp = apps.find((a) => appStates[a.id]?.status === 'running') ?? apps[0]
+  const heroFrom = focusedApp ? hexWithAlpha(focusedApp.color, 0.1) : null
+  const heroMid = focusedApp ? hexWithAlpha(focusedApp.color, 0.04) : null
+  const heroBackground =
+    heroFrom && heroMid
+      ? `linear-gradient(120deg, ${heroFrom} 0%, ${heroMid} 38%, transparent 65%), var(--surface-1)`
+      : 'var(--surface-1)'
 
   const categories = ['ai', 'gaming', 'streaming', 'dev'] as const
   const groupedApps = categories
@@ -58,87 +88,111 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
     .filter((g) => g.apps.length > 0)
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
-      {/* ── Header estilo perfil Steam ───────────────── */}
-      <motion.div {...entranceProps(reduced, { y: -10 })} className="space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl space-y-6">
+      {/* ── Header-hero (assinatura B) ──────────────────── */}
+      <motion.header
+        {...entranceProps(reduced, { y: -10 })}
+        className="overflow-hidden rounded-card border border-[var(--border-subtle)]"
+        style={{ background: heroBackground }}
+      >
+        <div className="flex flex-col justify-between gap-4 px-6 pb-4 pt-5 md:flex-row md:items-end">
           <div>
-            <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow">
+            <h2 className="text-[28px] font-bold leading-9 tracking-tight text-ink-primary md:text-[32px] md:leading-10">
               Ferramentas
             </h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="mt-0.5 text-[13px] text-ink-secondary">
               Seus programas do ecossistema, num só lugar
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="glass rounded-xl px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <Activity size={12} className="text-slate-400" />
-              <span>{apps.length} títulos</span>
-            </div>
-            <div
-              className="glass rounded-xl px-4 py-2 flex items-center gap-2"
+          <div className="flex items-center gap-2">
+            <Badge tone="neutral" className="px-3 py-1 text-[11px]">
+              <LayoutGrid size={12} aria-hidden="true" />
+              <span className="tnum">{apps.length} títulos</span>
+            </Badge>
+            <Badge
+              tone={runningCount > 0 ? 'success' : 'neutral'}
               role="status"
               aria-live="polite"
+              className="px-3 py-1 text-[11px]"
             >
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-bold text-emerald-400">{runningCount} online</span>
-            </div>
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-pill ${
+                  runningCount > 0 ? 'animate-pulse bg-success' : 'bg-ink-tertiary'
+                }`}
+              />
+              <span className="tnum">{runningCount} online</span>
+            </Badge>
           </div>
         </div>
 
-        <div className="mt-4 glass rounded-2xl p-5 flex items-center gap-6 border border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-              Todos os sistemas operacionais
+        {/* Faixa de status — "Latência: 12ms" é decorativa e mantida por paridade (13.9) */}
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border-subtle)] px-6 py-3 text-xs text-ink-secondary"
+          aria-label="Status geral"
+        >
+          <span className="flex items-center gap-2">
+            <Activity size={13} className="text-success" aria-hidden="true" />
+            Todos os sistemas operacionais
+          </span>
+          <span aria-hidden="true" className="h-4 w-px bg-[var(--border-subtle)]" />
+          <span className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-2 w-2 rounded-pill bg-ink-tertiary" />
+            <span>
+              <span className="tnum font-semibold text-ink-primary">{stoppedCount}</span> offline
             </span>
-          </div>
-          <div className="w-px h-6 bg-white/10" />
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-slate-600" />
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              {stoppedCount} offline
-            </span>
-          </div>
-          <div className="w-px h-6 bg-white/10" />
-          <div className="flex items-center gap-2">
-            <Clock size={14} className="text-slate-400" />
-            <span className="text-xs text-slate-400">Latência: 12ms</span>
-          </div>
+          </span>
+          <span aria-hidden="true" className="h-4 w-px bg-[var(--border-subtle)]" />
+          <span className="flex items-center gap-2">
+            <Clock size={13} className="text-ink-tertiary" aria-hidden="true" />
+            Latência: <span className="tnum font-semibold text-ink-primary">12ms</span>
+          </span>
         </div>
-      </motion.div>
+      </motion.header>
 
-      {/* ── Jogos agrupados por categoria ────────────── */}
+      {/* ── Estado vazio (apps não configurados) ────────── */}
+      {apps.length === 0 && (
+        <div className="rounded-card border border-[var(--border-subtle)] bg-surface-1 px-6 py-16 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+            <AppWindow size={20} className="text-ink-secondary" aria-hidden="true" />
+          </div>
+          <h3 className="mt-4 text-base font-semibold text-ink-primary">
+            Nenhum programa configurado
+          </h3>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Configure em Configurações para adicionar os programas do ecossistema.
+          </p>
+        </div>
+      )}
+
+      {/* ── Grupos por categoria ─────────────────────────── */}
       {groupedApps.map((group, gi) => {
         const Icon = group.icon
         return (
-          <motion.div
+          <motion.section
             key={group.category}
-            {...entranceProps(reduced, { y: 20 }, { delay: 0.1 + gi * 0.08 })}
+            aria-label={group.label}
+            {...entranceProps(reduced, { y: 20 }, { delay: 0.1 + gi * 0.05 })}
             className="space-y-3"
           >
-            {/* Cabeçalho da categoria estilo Steam */}
-            <div className="flex items-center gap-3 mb-1">
+            {/* Cabeçalho do grupo: ícone em bloco surface-2, label caption, contador chip */}
+            <div className="flex items-center gap-3">
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  group.color
-                } ${group.glow}`}
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-[var(--border-subtle)] bg-surface-2 ${group.iconClass}`}
               >
-                <Icon size={18} className="text-white" />
+                <Icon size={15} aria-hidden="true" />
               </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest">
-                  {group.label}
-                </h3>
-                <div className="h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 bg-white/[0.03] px-2 py-0.5 rounded-full border border-white/10">
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+                {group.label}
+              </h3>
+              <span className="tnum rounded-pill border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] text-ink-tertiary">
                 {group.apps.length}
               </span>
+              <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
             </div>
 
             {/* Cards em grade */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {group.apps.map((app, i) => (
                 <AppCard
                   key={app.id}
@@ -147,11 +201,11 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
                   onLaunch={() => onLaunch(app)}
                   onStop={() => onStop(app.id)}
                   onClick={() => setSelectedApp(app)}
-                  delay={0.15 + gi * 0.08 + i * 0.03}
+                  delay={0.15 + gi * 0.05 + i * 0.03}
                 />
               ))}
             </div>
-          </motion.div>
+          </motion.section>
         )
       })}
 
