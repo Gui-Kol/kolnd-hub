@@ -116,7 +116,7 @@ mais handlers inline em `index.ts`:
 | `registerTempCleanerIpc`                 | `tempCleaner.ts`       | `system:clean-temp`                                                                                                                                                                                                                   |
 | `registerGamesIpc`                       | `games.ts`             | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
 | `registerSteamIpc`                       | `steamScanner.ts`      | `steam:import`                                                                                                                                                                                                                        |
-| `registerUninstallIpc`                   | `uninstaller.ts`       | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
+| `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`) | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`       |
 | inline em `index.ts`                     | —                      | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
 **Regra de ouro: o main nunca confia no que chega por IPC, e o renderer também não confia
@@ -252,7 +252,7 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
    tentativas); se não conseguir, o MSI não é chamado. Remove programa, serviço
    `KLOUD_GAMESsvc`, regras de firewall, PATH e atalhos.
 2. **Kolnd Hub** (só no app empacotado, com desinstalador NSIS presente) — sequência em
-   `runHubUninstallSteps` (`uninstaller.ts`):
+   `runHubUninstallSteps` (`uninstall/hub.ts`; re-exportado pelo barrel `uninstaller.ts`):
    1. resolve o desinstalador NSIS (se não achar, nada é apagado e o erro aparece na hora);
    2. roda o fluxo do Kloud Games (UAC) — se falhar/UAC negado, pausa:
       "Desinstalar só o Hub?" ou "Cancelar";
@@ -318,7 +318,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Jogos / Steam                          | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`                                   |
 | Kloud Games (estado)                   | `kolnd-hub/src/main/kloudGames.ts`                                                 |
 | Startup do PC                          | `kolnd-hub/src/main/startupManager.ts`                                             |
-| Desinstalação                          | `kolnd-hub/src/main/uninstaller.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
+| Desinstalação                          | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
 | Diagnóstico                            | `kolnd-hub/src/main/diagnostic.ts`                                                 |
 | Preload (`window.api`)                 | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                  |
 | Big Picture (nav. espacial)            | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                     |
