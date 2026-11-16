@@ -6,15 +6,14 @@ import {
   Trash2,
   RefreshCw,
   Plus,
-  CheckCircle2,
-  Trash,
-  Square,
   Play,
   AlertTriangle,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Trash
 } from 'lucide-react'
 import { PcUpdates } from './PcUpdates'
 import { PcCleanup } from './PcCleanup'
+import { Badge, Button, Card } from './ui'
 import {
   StartupItem,
   ImportanceLevel,
@@ -42,6 +41,23 @@ const appImportance = (app: AppConfig): ImportanceLevel =>
     location: 'registro',
     scope: 'usuario'
   })
+
+// Matiz semântico preservado (13.14): crítico=vermelho→danger · recomendado=âmbar→
+// warning · opcional=azul→accent · inútil=cinza→neutral. Sem cores novas.
+const IMPORTANCE_BADGE_TONE: Record<ImportanceLevel, 'danger' | 'warning' | 'accent' | 'neutral'> =
+  {
+    critico: 'danger',
+    recomendado: 'warning',
+    opcional: 'accent',
+    inutil: 'neutral'
+  }
+
+const IMPORTANCE_DOT_CLASS: Record<ImportanceLevel, string> = {
+  critico: 'bg-danger',
+  recomendado: 'bg-warn',
+  opcional: 'bg-accent',
+  inutil: 'bg-ink-tertiary'
+}
 
 interface InicializacaoProps {
   pcName: string
@@ -149,44 +165,35 @@ export function Inicializacao({
   const isAddSelectedAll =
     appsNotInStartup.length > 0 && appsNotInStartup.every((a) => selectedToAdd.has(a.id))
 
-  const categoryColor = (category: string) => {
-    const colors: Record<string, string> = {
-      ai: 'text-neon-cyan',
-      gaming: 'text-neon-purple-light',
-      streaming: 'text-playstation-300',
-      dev: 'text-kloud-500'
-    }
-    return colors[category] ?? 'text-slate-400'
-  }
+  const categoryColor = (category: string): string =>
+    category === 'ai' ? 'text-accent' : 'text-ink-tertiary'
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="mx-auto max-w-7xl space-y-6">
       {/* ── Header ───────────────────────────────────── */}
       <motion.div
         {...entranceProps(reduced, { y: -10 })}
-        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
+        className="flex flex-col justify-between gap-4 md:flex-row md:items-center"
       >
         <div className="space-y-1">
-          <h2 className="text-3xl font-bold text-white tracking-tight gradient-text gradient-rainbow text-shadow flex items-center gap-3">
-            <Monitor size={24} className="text-playstation-400 shrink-0" />
+          <h2 className="flex items-center gap-3 text-[28px] font-bold leading-9 tracking-tight text-ink-primary md:text-[32px] md:leading-10">
+            <Monitor size={24} className="shrink-0 text-accent" aria-hidden="true" />
             {pcName}
           </h2>
-          <p className="text-sm text-slate-400">Manutenção e inicialização do seu PC</p>
+          <p className="text-[13px] text-ink-secondary">Manutenção e inicialização do seu PC</p>
         </div>
 
         {activeTab === 'inicializacao' && (
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={handleRefresh}
             disabled={refreshing}
-            className={`flex items-center gap-2.5 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 shadow ${
-              refreshing
-                ? 'opacity-60 cursor-not-allowed'
-                : 'bg-gradient-to-r from-kloud-500 to-nintendo-500 text-white shadow-glow-red hover:from-kloud-600 hover:to-nintendo-600'
-            }`}
+            className="shadow-elevation-1"
           >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
             {refreshing ? 'Atualizando...' : 'Sincronizar'}
-          </button>
+          </Button>
         )}
       </motion.div>
 
@@ -194,7 +201,7 @@ export function Inicializacao({
       <div
         role="tablist"
         aria-label="Seções do PC"
-        className="glass rounded-2xl p-2 flex flex-col sm:flex-row gap-2"
+        className="flex flex-col gap-1 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-1.5 sm:flex-row"
       >
         {PC_TABS.map(({ id, label, icon: Icon }) => {
           const active = activeTab === id
@@ -204,13 +211,13 @@ export function Inicializacao({
               role="tab"
               aria-selected={active}
               onClick={() => goToTab(id)}
-              className={`flex items-center justify-center gap-2.5 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 flex-1 ${
+              className={`flex flex-1 items-center justify-center gap-2.5 rounded-control border px-5 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors duration-2 ${
                 active
-                  ? 'bg-gradient-to-r from-kloud-500 to-nintendo-500 text-white shadow-glow-red'
-                  : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                  ? 'border-accent-border bg-accent-muted text-accent'
+                  : 'border-transparent text-ink-secondary hover:bg-surface-2 hover:text-ink-primary'
               }`}
             >
-              <Icon size={16} className="shrink-0" />
+              <Icon size={16} className="shrink-0" aria-hidden="true" />
               {label}
             </button>
           )
@@ -221,63 +228,63 @@ export function Inicializacao({
       {activeTab === 'inicializacao' && (
         <>
           {/* ── Seção: iniciam com o PC ──────────────────── */}
-          <motion.div {...entranceProps(reduced, { y: 10 })} className="space-y-3">
+          <motion.section {...entranceProps(reduced, { y: 10 })} className="space-y-3">
             {/* Cabeçalho com controles de lote */}
-            <div
-              className={`glass rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                selectedToRemove.size > 0 ? 'border-red-500/30 bg-red-500/5 shadow-glow-red' : ''
+            <Card
+              className={`flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center ${
+                selectedToRemove.size > 0 ? 'border-danger-border bg-danger-bg' : ''
               }`}
             >
               <div className="flex items-center gap-3">
-                <Monitor size={16} className="text-playstation-400 shrink-0" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2 text-accent">
+                  <Monitor size={16} aria-hidden="true" />
+                </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3 className="text-sm font-semibold text-ink-primary">
                     Iniciam com o {pcName} ({items.length})
                   </h3>
                   {selectedToRemove.size > 0 && (
-                    <p className="text-[10px] font-bold text-red-400 mt-0.5">
+                    <Badge tone="danger" className="mt-1.5">
                       {selectedToRemove.size} selecionado{selectedToRemove.size > 1 ? 's' : ''}
-                    </p>
+                    </Badge>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="flex w-full items-center gap-2 md:w-auto">
                 {selectedToRemove.size > 0 ? (
                   <>
-                    <button
-                      onClick={clearSelectRemove}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-bold text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
-                    >
+                    <Button variant="ghost" size="sm" onClick={clearSelectRemove}>
                       Limpar seleção
-                    </button>
-                    <button
-                      onClick={handleRemoveBatch}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-red-400 font-bold border border-red-500/30 hover:bg-red-500/10 hover:text-red-300 transition-colors"
-                    >
-                      <Trash size={14} /> Remover selecionados
-                    </button>
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={handleRemoveBatch}>
+                      <Trash size={14} aria-hidden="true" /> Remover selecionados (
+                      {selectedToRemove.size})
+                    </Button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      onClick={isRemoveSelectedAll ? clearSelectRemove : selectAllRemove}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-bold text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      {isRemoveSelectedAll ? 'Selecionar nada' : 'Selecionar tudo'}
-                    </button>
-                  </>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={isRemoveSelectedAll ? clearSelectRemove : selectAllRemove}
+                  >
+                    {isRemoveSelectedAll ? 'Selecionar nada' : 'Selecionar tudo'}
+                  </Button>
                 )}
               </div>
-            </div>
+            </Card>
 
             {items.length === 0 ? (
-              <div className="glass rounded-2xl p-10 text-center border-dashed border-white/[0.08]">
-                <AlertTriangle size={32} className="mx-auto mb-3 text-slate-400" />
-                <p className="text-[12px] font-medium text-slate-400">
+              <Card className="border-dashed p-10 text-center">
+                <AlertTriangle
+                  size={32}
+                  className="mx-auto mb-3 text-ink-tertiary"
+                  aria-hidden="true"
+                />
+                <p className="text-[12px] font-medium text-ink-secondary">
                   Nenhum título configurado para iniciar com o {pcName}.
                 </p>
-              </div>
+              </Card>
             ) : (
               <div className="space-y-3">
                 {items.map((item) => {
@@ -288,46 +295,47 @@ export function Inicializacao({
                     <motion.div
                       key={item.id}
                       {...entranceProps(reduced, { y: 10 })}
-                      className={`glass rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
-                        isSelected ? 'border-red-500/30 bg-red-500/5 ring-1 ring-red-500/20' : ''
+                      className={`group flex flex-col justify-between gap-4 rounded-card border bg-surface-1 p-4 transition-colors duration-2 md:flex-row md:items-center ${
+                        isSelected
+                          ? 'border-danger-border bg-danger-bg'
+                          : 'border-[var(--border-subtle)]'
                       }`}
                     >
                       {/* Checkbox de seleção */}
-                      <div className="shrink-0">
-                        <button
-                          onClick={() => toggleSelectRemove(item.id)}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                            isSelected
-                              ? 'bg-red-500 text-white border-red-500 shadow-glow-red'
-                              : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
-                          }`}
-                        >
-                          {isSelected ? (
-                            <CheckCircle2 size={16} fill="white" />
-                          ) : (
-                            <Square size={16} />
-                          )}
-                        </button>
+                      <div className="flex shrink-0 items-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectRemove(item.id)}
+                          aria-label={`Selecionar ${item.name}`}
+                          className="h-5 w-5 shrink-0 accent-accent"
+                        />
                       </div>
 
                       {/* ── Nome / caminho / local ─────────── */}
-                      <div className="flex flex-col md:flex-row md:items-center gap-4 min-w-0 flex-1">
-                        <div className="w-11 h-11 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
-                          <Monitor size={20} className="text-slate-400" />
+                      <div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row md:items-center">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+                          <Monitor size={20} className="text-ink-tertiary" aria-hidden="true" />
                         </div>
-                        <div className="flex flex-col min-w-0">
-                          <div className="text-sm font-bold text-white truncate" title={item.name}>
+                        <div className="flex min-w-0 flex-col">
+                          <div
+                            className="truncate text-sm font-semibold text-ink-primary"
+                            title={item.name}
+                          >
                             {item.name}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1.5">
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-ink-tertiary">
                             <span className="flex items-center gap-1">
                               {STARTUP_LOCATION_LABEL[item.location]}
                             </span>
-                            <span className="w-px h-2 bg-white/10" />
+                            <span
+                              aria-hidden="true"
+                              className="h-2 w-px bg-[var(--border-subtle)]"
+                            />
                             <span>{STARTUP_SCOPE_LABEL[item.scope]}</span>
                           </div>
                           <code
-                            className="text-[10px] text-slate-400 truncate mt-2 block leading-tight"
+                            className="mt-2 block truncate font-mono text-[10px] leading-tight text-ink-tertiary"
                             title={item.path}
                           >
                             {item.path}
@@ -336,146 +344,140 @@ export function Inicializacao({
                       </div>
 
                       {/* ── Importância (somente leitura) ────────────────────── */}
-                      <div className="flex flex-col md:flex-row md:items-center gap-3 shrink-0 w-full md:w-auto">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <div className="flex w-full shrink-0 flex-col gap-3 md:w-auto md:flex-row md:items-center">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
                           Importância
                         </span>
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold border`}
-                          style={{ color: meta.color }}
-                        >
+                        <Badge tone={IMPORTANCE_BADGE_TONE[level]}>
                           <span
-                            className="w-2 h-2 rounded-full"
-                            style={{ background: meta.color }}
+                            aria-hidden="true"
+                            className={`h-2 w-2 rounded-pill ${IMPORTANCE_DOT_CLASS[level]}`}
                           />
                           {meta.label}
-                        </span>
+                        </Badge>
                       </div>
 
                       {/* ── Ação individual ───────────────── */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          variant="subtle-danger"
+                          size="sm"
                           onClick={() => handleRemove(item)}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-bold text-red-400 hover:bg-red-500/10 hover:text-red-300 border border-red-500/20 transition-colors"
                         >
-                          <Trash2 size={14} /> Remover
-                        </button>
+                          <Trash2 size={14} aria-hidden="true" /> Remover
+                        </Button>
                       </div>
                     </motion.div>
                   )
                 })}
               </div>
             )}
-          </motion.div>
+          </motion.section>
 
           {/* ── Seção: não iniciam com o PC ────────────────── */}
-          <motion.div {...entranceProps(reduced, { y: 10 })} className="space-y-3">
-            <div
-              className={`glass rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                selectedToAdd.size > 0
-                  ? 'border-emerald-500/30 bg-emerald-500/5 shadow-glow-cyan'
-                  : ''
+          <motion.section {...entranceProps(reduced, { y: 10 })} className="space-y-3">
+            <Card
+              className={`flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center ${
+                selectedToAdd.size > 0 ? 'border-success-border bg-success-bg' : ''
               }`}
             >
               <div className="flex items-center gap-3">
-                <Plus size={16} className="text-emerald-400 shrink-0" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2 text-success">
+                  <Plus size={16} aria-hidden="true" />
+                </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3 className="text-sm font-semibold text-ink-primary">
                     Não iniciam com o {pcName} ({appsNotInStartup.length})
                   </h3>
                   {selectedToAdd.size > 0 && (
-                    <p className="text-[10px] font-bold text-emerald-400 mt-0.5">
+                    <Badge tone="success" className="mt-1.5">
                       {selectedToAdd.size} selecionado{selectedToAdd.size > 1 ? 's' : ''}
-                    </p>
+                    </Badge>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="flex w-full items-center gap-2 md:w-auto">
                 {selectedToAdd.size > 0 ? (
                   <>
-                    <button
-                      onClick={clearSelectAdd}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-bold text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
-                    >
+                    <Button variant="ghost" size="sm" onClick={clearSelectAdd}>
                       Limpar seleção
-                    </button>
-                    <button
-                      onClick={handleAddBatch}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-emerald-400 font-bold border border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors"
-                    >
-                      <Plus size={14} /> Adicionar selecionados
-                    </button>
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={handleAddBatch}>
+                      <Plus size={14} aria-hidden="true" /> Adicionar selecionados (
+                      {selectedToAdd.size})
+                    </Button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      onClick={isAddSelectedAll ? clearSelectAdd : selectAllAdd}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-bold text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      {isAddSelectedAll ? 'Selecionar nada' : 'Selecionar tudo'}
-                    </button>
-                  </>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={isAddSelectedAll ? clearSelectAdd : selectAllAdd}
+                  >
+                    {isAddSelectedAll ? 'Selecionar nada' : 'Selecionar tudo'}
+                  </Button>
                 )}
               </div>
-            </div>
+            </Card>
 
             {appsNotInStartup.length === 0 ? (
-              <div className="glass rounded-2xl p-10 text-center border-dashed border-white/[0.08]">
-                <Play size={32} className="mx-auto mb-3 text-emerald-400" />
-                <p className="text-[12px] font-bold text-emerald-400">
+              <Card className="border-dashed p-10 text-center">
+                <Play size={32} className="mx-auto mb-3 text-success" aria-hidden="true" />
+                <p className="text-[12px] font-semibold text-success">
                   Todos os títulos já iniciam com o {pcName}! 🎮
                 </p>
-              </div>
+              </Card>
             ) : (
               <div className="space-y-3">
                 {appsNotInStartup.map((app) => {
                   const isSelected = selectedToAdd.has(app.id)
+                  const appLevel = appImportance(app)
                   return (
                     <motion.div
                       key={app.id}
                       {...entranceProps(reduced, { y: 10 })}
-                      className={`glass rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
+                      className={`group flex flex-col justify-between gap-4 rounded-card border bg-surface-1 p-4 transition-colors duration-2 md:flex-row md:items-center ${
                         isSelected
-                          ? 'border-emerald-500/30 bg-emerald-500/5 ring-1 ring-emerald-500/20'
-                          : ''
+                          ? 'border-success-border bg-success-bg'
+                          : 'border-[var(--border-subtle)]'
                       }`}
                     >
                       {/* Checkbox de seleção */}
-                      <div className="shrink-0">
-                        <button
-                          onClick={() => toggleSelectAdd(app.id)}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                            isSelected
-                              ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-cyan'
-                              : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
-                          }`}
-                        >
-                          {isSelected ? (
-                            <CheckCircle2 size={16} fill="white" />
-                          ) : (
-                            <Square size={16} />
-                          )}
-                        </button>
+                      <div className="flex shrink-0 items-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectAdd(app.id)}
+                          aria-label={`Selecionar ${app.name}`}
+                          className="h-5 w-5 shrink-0 accent-accent"
+                        />
                       </div>
 
-                      <div className="flex flex-col md:flex-row md:items-center gap-4 min-w-0 flex-1">
-                        <div className="w-11 h-11 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
-                          <span className="text-lg">{app.icon}</span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row md:items-center">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+                          <span className="text-lg" aria-hidden="true">
+                            {app.icon}
+                          </span>
                         </div>
-                        <div className="flex flex-col min-w-0">
-                          <div className="text-sm font-bold text-white truncate" title={app.name}>
+                        <div className="flex min-w-0 flex-col">
+                          <div
+                            className="truncate text-sm font-semibold text-ink-primary"
+                            title={app.name}
+                          >
                             {app.name}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1.5">
-                            <span className={`font-bold ${categoryColor(app.category)}`}>
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-ink-tertiary">
+                            <span className={`font-semibold ${categoryColor(app.category)}`}>
                               {app.category.toUpperCase()}
                             </span>
-                            <span className="w-px h-2 bg-white/10" />
+                            <span
+                              aria-hidden="true"
+                              className="h-2 w-px bg-[var(--border-subtle)]"
+                            />
                             <span>Configurado no Hub</span>
                           </div>
                           <code
-                            className="text-[10px] text-slate-400 truncate mt-2 block leading-tight"
+                            className="mt-2 block truncate font-mono text-[10px] leading-tight text-ink-tertiary"
                             title={app.command}
                           >
                             {app.command}
@@ -484,53 +486,51 @@ export function Inicializacao({
                       </div>
 
                       {/* ── Importância (ao adicionar) ────────────────────── */}
-                      <div className="flex flex-col md:flex-row md:items-center gap-3 shrink-0 w-full md:w-auto">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <div className="flex w-full shrink-0 flex-col gap-3 md:w-auto md:flex-row md:items-center">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
                           Importância
                         </span>
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold border`}
-                          style={{ color: labels[appImportance(app)].color }}
-                        >
+                        <Badge tone={IMPORTANCE_BADGE_TONE[appLevel]}>
                           <span
-                            className="w-2 h-2 rounded-full"
-                            style={{ background: labels[appImportance(app)].color }}
+                            aria-hidden="true"
+                            className={`h-2 w-2 rounded-pill ${IMPORTANCE_DOT_CLASS[appLevel]}`}
                           />
-                          {labels[appImportance(app)].label}
-                        </span>
+                          {labels[appLevel].label}
+                        </Badge>
                       </div>
 
                       {/* ── Ação individual ───────────────── */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => handleAdd(app)}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 border border-emerald-500/20 transition-colors"
-                        >
-                          <Play size={14} /> Adicionar
-                        </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button variant="primary" size="sm" onClick={() => handleAdd(app)}>
+                          <Play size={14} aria-hidden="true" /> Adicionar
+                        </Button>
                       </div>
                     </motion.div>
                   )
                 })}
               </div>
             )}
-          </motion.div>
+          </motion.section>
 
           {/* ── Legenda de importância ───────────────────── */}
           <motion.div
             {...entranceProps(reduced)}
-            className="glass rounded-2xl p-5 flex flex-wrap gap-3 items-center border-l-4 border-neon-purple/50"
+            className="flex flex-wrap items-center gap-3 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-5"
           >
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-3">
+            <span aria-hidden="true" className="h-6 w-[3px] rounded-pill bg-accent" />
+            <span className="mr-3 text-[10px] font-semibold uppercase tracking-widest text-ink-tertiary">
               Níveis de importância
             </span>
             {IMPORTANCE_LEVELS.map((l) => {
               const m = labels[l]
               return (
                 <span key={l} className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: m.color }} />
-                  <span className="text-[11px] font-bold text-slate-300">{m.label}</span>
-                  <span className="text-[10px] text-slate-400">{m.subtitle}</span>
+                  <span
+                    aria-hidden="true"
+                    className={`h-2 w-2 rounded-pill ${IMPORTANCE_DOT_CLASS[l]}`}
+                  />
+                  <span className="text-[11px] font-semibold text-ink-secondary">{m.label}</span>
+                  <span className="text-[10px] text-ink-tertiary">{m.subtitle}</span>
                 </span>
               )
             })}

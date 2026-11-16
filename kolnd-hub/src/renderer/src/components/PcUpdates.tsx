@@ -10,13 +10,12 @@ import {
   ChevronRight,
   ExternalLink,
   Loader2,
-  Minus,
   RefreshCw,
-  Square,
   Store,
   X
 } from 'lucide-react'
 import { WingetListResult } from '../types'
+import { Button, Card } from './ui'
 
 /** Link da página do App Installer na Microsoft Store (para quem não tem winget). */
 const APP_INSTALLER_STORE_URL = 'https://apps.microsoft.com/detail/9NBLGGH4NNS1'
@@ -34,7 +33,7 @@ interface SummaryState {
   tone: 'ok' | 'warn' | 'error'
 }
 
-/** Checkbox quadrado no estilo da página (usado por linha e no "Selecionar todos"). */
+/** Checkbox nativo com acento (não há primitivo Checkbox); `indeterminate` p/ estado misto. */
 interface SelectBoxProps {
   state: 'off' | 'on' | 'partial'
   disabled?: boolean
@@ -43,26 +42,21 @@ interface SelectBoxProps {
 }
 
 function SelectBox({ state, disabled, onToggle, title }: SelectBoxProps): JSX.Element {
-  const active = state !== 'off'
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = state === 'partial'
+  }, [state])
   return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={state === 'partial' ? 'mixed' : state === 'on'}
-      aria-label={title ?? 'Selecionar'}
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={state !== 'off'}
       disabled={disabled}
-      onClick={onToggle}
+      onChange={onToggle}
+      aria-label={title ?? 'Selecionar'}
       title={title}
-      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all shrink-0 border disabled:opacity-40 disabled:cursor-not-allowed ${
-        active
-          ? 'bg-kloud-500 text-white border-kloud-500 shadow-glow-red'
-          : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/30 hover:text-white'
-      }`}
-    >
-      {state === 'on' && <CheckCircle2 size={16} fill="white" />}
-      {state === 'partial' && <Minus size={16} />}
-      {state === 'off' && <Square size={16} />}
-    </button>
+      className="h-5 w-5 shrink-0 accent-accent disabled:cursor-not-allowed disabled:opacity-40"
+    />
   )
 }
 
@@ -71,28 +65,28 @@ function StatusBadge({ state }: { state: ItemState }): JSX.Element {
   switch (state.status) {
     case 'aguardando':
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-700/20 border border-slate-600/40 text-slate-400">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-[var(--border-strong)] bg-surface-2 px-2.5 py-1 text-[10px] font-bold text-ink-tertiary">
           aguardando…
         </span>
       )
     case 'atualizando':
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-kloud-500/10 border border-kloud-500/30 text-kloud-500">
-          <Loader2 size={12} className="animate-spin" />
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-accent-border bg-accent-muted px-2.5 py-1 text-[10px] font-bold text-accent">
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
           atualizando…
         </span>
       )
     case 'concluido':
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-          <CheckCircle2 size={12} />
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-success-border bg-success-bg px-2.5 py-1 text-[10px] font-bold text-success">
+          <CheckCircle2 size={12} aria-hidden="true" />
           concluído
         </span>
       )
     case 'cancelado':
       return (
         <span
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400"
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-warn-border bg-warn-bg px-2.5 py-1 text-[10px] font-bold text-warn"
           title={
             state.exitCode !== undefined
               ? `Código de saída: ${state.exitCode ?? 'desconhecido'}`
@@ -105,10 +99,10 @@ function StatusBadge({ state }: { state: ItemState }): JSX.Element {
     case 'erro':
       return (
         <span
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-red-500/10 border border-red-500/30 text-red-400"
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-danger-border bg-danger-bg px-2.5 py-1 text-[10px] font-bold text-danger"
           title={`Código de saída: ${state.exitCode ?? 'desconhecido'}`}
         >
-          <AlertTriangle size={12} />
+          <AlertTriangle size={12} aria-hidden="true" />
           erro
         </span>
       )
@@ -302,55 +296,61 @@ export function PcUpdates(): JSX.Element {
 
   if (loading && !result) {
     body = (
-      <div className="glass rounded-2xl p-12 text-center">
-        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-kloud-500" />
-        <p className="text-sm font-bold text-white">Verificando atualizações…</p>
-        <p className="text-[12px] text-slate-400 mt-1.5">
+      <Card className="p-12 text-center">
+        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-accent" aria-hidden="true" />
+        <p className="text-sm font-semibold text-ink-primary">Verificando atualizações…</p>
+        <p className="mt-1.5 text-[12px] text-ink-secondary">
           Isso pode levar alguns segundos na primeira vez.
         </p>
-      </div>
+      </Card>
     )
   } else if (result && !result.ok && result.wingetMissing) {
     body = (
-      <div className="glass rounded-2xl p-10 text-center border-kloud-500/20">
-        <Store size={32} className="mx-auto mb-4 text-kloud-500" />
-        <p className="text-sm font-bold text-white">winget não encontrado</p>
-        <p className="text-[12px] text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
+      <Card className="border-accent-border p-10 text-center">
+        <Store size={32} className="mx-auto mb-4 text-accent" aria-hidden="true" />
+        <p className="text-sm font-semibold text-ink-primary">winget não encontrado</p>
+        <p className="mx-auto mt-2 max-w-md text-[12px] leading-relaxed text-ink-secondary">
           Para listar e instalar atualizações de programas, instale ou atualize o{' '}
-          <span className="text-white font-bold">App Installer</span> (ele traz o winget) pela
-          Microsoft Store — depois clique em “Verificar novamente”.
+          <span className="font-semibold text-ink-primary">App Installer</span> (ele traz o winget)
+          pela Microsoft Store — depois clique em “Verificar novamente”.
         </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
-          <button onClick={handleOpenStore} className="btn-primary">
-            <ExternalLink size={14} /> Abrir a Microsoft Store
-          </button>
-          <button onClick={check} className="btn-secondary">
-            <RefreshCw size={14} /> Verificar novamente
-          </button>
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Button variant="primary" size="md" onClick={handleOpenStore}>
+            <ExternalLink size={14} aria-hidden="true" /> Abrir a Microsoft Store
+          </Button>
+          <Button variant="secondary" size="md" onClick={check}>
+            <RefreshCw size={14} aria-hidden="true" /> Verificar novamente
+          </Button>
         </div>
-      </div>
+      </Card>
     )
   } else if (result && !result.ok) {
     body = (
-      <div className="glass rounded-2xl p-10 text-center border-red-500/20">
-        <AlertTriangle size={32} className="mx-auto mb-4 text-red-400" />
-        <p className="text-sm font-bold text-white">Não foi possível verificar as atualizações</p>
-        <p className="text-[12px] text-slate-400 mt-2 max-w-lg mx-auto leading-relaxed">
+      <Card className="border-danger-border p-10 text-center" role="alert">
+        <AlertTriangle size={32} className="mx-auto mb-4 text-danger" aria-hidden="true" />
+        <p className="text-sm font-semibold text-ink-primary">
+          Não foi possível verificar as atualizações
+        </p>
+        <p className="mx-auto mt-2 max-w-lg text-[12px] leading-relaxed text-ink-secondary">
           {result.error ?? 'Algo deu errado ao consultar o winget.'}
         </p>
 
         {result.rawLog && (
-          <div className="mt-5 text-left max-w-2xl mx-auto">
+          <div className="mx-auto mt-5 max-w-2xl text-left">
             <button
               onClick={() => setShowRawLog((v) => !v)}
-              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white transition-colors mx-auto"
+              className="mx-auto flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary transition-colors duration-2 hover:text-ink-primary"
               aria-expanded={showRawLog}
             >
-              {showRawLog ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {showRawLog ? (
+                <ChevronDown size={12} aria-hidden="true" />
+              ) : (
+                <ChevronRight size={12} aria-hidden="true" />
+              )}
               Detalhes técnicos
             </button>
             {showRawLog && (
-              <pre className="input-gamer mt-3 max-h-48 overflow-auto text-[10px] leading-relaxed whitespace-pre-wrap break-all">
+              <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-3 font-mono text-[10px] leading-relaxed text-ink-secondary">
                 {result.rawLog}
               </pre>
             )}
@@ -358,75 +358,69 @@ export function PcUpdates(): JSX.Element {
         )}
 
         <div className="mt-6">
-          <button onClick={check} className="btn-primary">
-            <RefreshCw size={14} /> Verificar novamente
-          </button>
+          <Button variant="primary" size="md" onClick={check}>
+            <RefreshCw size={14} aria-hidden="true" /> Verificar novamente
+          </Button>
         </div>
-      </div>
+      </Card>
     )
   } else if (result?.ok && items.length === 0) {
     body = (
-      <div className="glass rounded-2xl p-12 text-center border-emerald-500/20">
-        <CheckCircle2 size={32} className="mx-auto mb-4 text-emerald-400" />
-        <p className="text-sm font-bold text-emerald-400">Nenhuma atualização disponível 🎉</p>
-        <p className="text-[12px] text-slate-400 mt-1.5">
+      <Card className="border-success-border p-12 text-center">
+        <CheckCircle2 size={32} className="mx-auto mb-4 text-success" aria-hidden="true" />
+        <p className="text-sm font-semibold text-success">Nenhuma atualização disponível 🎉</p>
+        <p className="mt-1.5 text-[12px] text-ink-secondary">
           Tudo certo por aqui — seus programas estão em dia.
         </p>
         <div className="mt-6">
-          <button
-            onClick={check}
-            disabled={loading}
-            className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          <Button variant="secondary" size="md" onClick={check} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
             {loading ? 'Verificando…' : 'Verificar novamente'}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     )
   } else {
     body = (
       <div className="space-y-4">
-        <div className="glass rounded-2xl p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Card className="space-y-4 p-5">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
-              <ArrowUpCircle size={18} className="text-kloud-500 shrink-0" />
+              <ArrowUpCircle size={18} className="shrink-0 text-accent" aria-hidden="true" />
               <div>
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-semibold text-ink-primary">
                   {items.length} atualização{items.length === 1 ? '' : 'ões'} disponível
                   {items.length === 1 ? '' : 'is'}
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="mt-0.5 text-[10px] text-ink-tertiary">
                   Segundo o winget, direto do seu PC
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={check}
-                disabled={running || loading}
-                className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={check} disabled={running || loading}>
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
                 {loading ? 'Verificando…' : 'Verificar novamente'}
-              </button>
+              </Button>
               {!running ? (
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={runQueue}
                   disabled={selectedCount === 0 || loading}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ArrowUpCircle size={14} /> Atualizar selecionados ({selectedCount})
-                </button>
+                  <ArrowUpCircle size={14} aria-hidden="true" /> Atualizar selecionados (
+                  {selectedCount})
+                </Button>
               ) : (
-                <button onClick={cancelQueue} className="btn-danger">
-                  <X size={14} /> Cancelar
-                </button>
+                <Button variant="danger" size="sm" onClick={cancelQueue}>
+                  <X size={14} aria-hidden="true" /> Cancelar
+                </Button>
               )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
             <div className="flex items-center gap-2">
               <SelectBox
                 state={allSelected ? 'on' : someSelected ? 'partial' : 'off'}
@@ -437,7 +431,7 @@ export function PcUpdates(): JSX.Element {
               <button
                 onClick={toggleAll}
                 disabled={running || loading}
-                className="text-[11px] font-bold text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-[11px] font-semibold text-ink-secondary transition-colors duration-2 hover:text-ink-primary disabled:cursor-not-allowed disabled:opacity-50"
                 aria-pressed={allSelected}
               >
                 Selecionar todos
@@ -445,26 +439,33 @@ export function PcUpdates(): JSX.Element {
             </div>
 
             {running && progress ? (
-              <div className="flex items-center gap-3 flex-1 min-w-[180px] max-w-md">
-                <div className="h-2 rounded-full bg-white/[0.06] flex-1 overflow-hidden">
+              <div className="flex min-w-[180px] max-w-md flex-1 items-center gap-3">
+                <div
+                  className="h-2 flex-1 overflow-hidden rounded-pill bg-surface-2"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={progress.total}
+                  aria-valuenow={progress.done}
+                  aria-label="Progresso das atualizações"
+                >
                   <div
-                    className="h-full bg-gradient-to-r from-kloud-500 to-nintendo-500 transition-all duration-300"
+                    className="h-full bg-accent transition-all duration-3"
                     style={{ width: `${(progress.done / progress.total) * 100}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">
+                <span className="tnum whitespace-nowrap text-[10px] font-semibold text-ink-secondary">
                   {progress.done}/{progress.total} concluídos
                 </span>
               </div>
             ) : (
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-ink-tertiary">
                 Uma de cada vez, para não conflitar
               </span>
             )}
           </div>
-        </div>
+        </Card>
 
-        <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+        <div className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
           {items.map((item) => {
             const state = itemStates[item.id]
             const isChecked = selected.has(item.id)
@@ -473,39 +474,46 @@ export function PcUpdates(): JSX.Element {
               <motion.div
                 key={item.id}
                 {...entranceProps(reduced, { y: 10 })}
-                className={`glass rounded-xl p-4 transition-colors ${
-                  isChecked ? 'border-kloud-500/30 bg-kloud-500/5' : ''
-                } ${state?.status === 'erro' ? 'border-red-500/20' : ''}`}
+                className={`rounded-card border bg-surface-1 p-4 transition-colors duration-2 ${
+                  isChecked
+                    ? 'border-accent-border bg-accent-muted'
+                    : state?.status === 'erro'
+                      ? 'border-danger-border'
+                      : 'border-[var(--border-subtle)]'
+                }`}
               >
-                <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  <div className="flex items-center gap-4 min-w-0 flex-1">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                  <div className="flex min-w-0 flex-1 items-center gap-4">
                     <SelectBox
                       state={isChecked ? 'on' : 'off'}
                       disabled={running}
                       onToggle={() => toggleOne(item.id)}
                       title={running ? 'Aguarde a fila terminar' : 'Selecionar'}
                     />
-                    <div className="w-11 h-11 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
-                      <ArrowUpCircle size={20} className="text-kloud-500" />
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
+                      <ArrowUpCircle size={20} className="text-accent" aria-hidden="true" />
                     </div>
-                    <div className="flex flex-col min-w-0">
-                      <div className="text-sm font-bold text-white truncate" title={item.name}>
+                    <div className="flex min-w-0 flex-col">
+                      <div
+                        className="truncate text-sm font-semibold text-ink-primary"
+                        title={item.name}
+                      >
                         {item.name}
                       </div>
                       <code
-                        className="text-[10px] text-slate-400 truncate mt-1.5 block leading-tight"
+                        className="mt-1.5 block truncate font-mono text-[10px] leading-tight text-ink-tertiary"
                         title={item.id}
                       >
                         {item.id}
                       </code>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2.5 shrink-0 pl-10 md:pl-0 text-[11px]">
-                    <span className="text-slate-400 font-mono" title="Versão atual">
+                  <div className="flex shrink-0 items-center gap-2.5 pl-10 text-[11px] md:pl-0">
+                    <span className="font-mono text-ink-secondary" title="Versão atual">
                       {item.currentVersion || 'desconhecida'}
                     </span>
-                    <ArrowRight size={12} className="text-slate-400" />
-                    <span className="text-neon-cyan font-bold font-mono" title="Versão disponível">
+                    <ArrowRight size={12} className="text-ink-tertiary" aria-hidden="true" />
+                    <span className="font-mono font-semibold text-accent" title="Versão disponível">
                       {item.availableVersion || 'desconhecida'}
                     </span>
                     {state && (
@@ -519,24 +527,28 @@ export function PcUpdates(): JSX.Element {
                 {state &&
                   (state.status === 'erro' || state.status === 'cancelado') &&
                   state.log && (
-                    <div className="mt-3 border-t border-white/[0.06] pt-3">
+                    <div className="mt-3 border-t border-[var(--border-subtle)] pt-3">
                       <button
                         onClick={() => toggleLog(item.id)}
-                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white transition-colors"
+                        className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary transition-colors duration-2 hover:text-ink-primary"
                         aria-expanded={isExpanded}
                       >
-                        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        {isExpanded ? (
+                          <ChevronDown size={12} aria-hidden="true" />
+                        ) : (
+                          <ChevronRight size={12} aria-hidden="true" />
+                        )}
                         {state.status === 'erro' ? 'Detalhes do erro' : 'Detalhes'}
                       </button>
                       {isExpanded && (
                         <>
-                          <p className="text-[10px] text-slate-400 mt-2">
+                          <p className="mt-2 text-[10px] text-ink-secondary">
                             Código de saída:{' '}
-                            <code className="text-slate-300 font-mono">
+                            <code className="font-mono text-ink-primary">
                               {state.exitCode ?? 'desconhecido'}
                             </code>
                           </p>
-                          <pre className="input-gamer mt-2 max-h-40 overflow-auto text-[10px] leading-relaxed whitespace-pre-wrap break-all">
+                          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-3 font-mono text-[10px] leading-relaxed text-ink-secondary">
                             {state.log}
                           </pre>
                         </>
@@ -552,9 +564,9 @@ export function PcUpdates(): JSX.Element {
   }
 
   const summaryStyles: Record<SummaryState['tone'], string> = {
-    ok: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-300',
-    warn: 'border-amber-500/25 bg-amber-500/5 text-amber-300',
-    error: 'border-red-500/25 bg-red-500/5 text-red-300'
+    ok: 'border-success-border bg-success-bg text-success',
+    warn: 'border-warn-border bg-warn-bg text-warn',
+    error: 'border-danger-border bg-danger-bg text-danger'
   }
 
   return (
@@ -562,22 +574,22 @@ export function PcUpdates(): JSX.Element {
       {summary && (
         <div
           role="status"
-          className={`rounded-2xl px-4 py-3 flex items-center justify-between gap-3 border ${summaryStyles[summary.tone]}`}
+          className={`flex items-center justify-between gap-3 rounded-card border px-4 py-3 ${summaryStyles[summary.tone]}`}
         >
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
             {summary.tone === 'ok' ? (
-              <CheckCircle2 size={16} className="shrink-0" />
+              <CheckCircle2 size={16} className="shrink-0" aria-hidden="true" />
             ) : (
-              <AlertTriangle size={16} className="shrink-0" />
+              <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
             )}
-            <p className="text-[12px] font-bold">{summary.text}</p>
+            <p className="text-[12px] font-semibold">{summary.text}</p>
           </div>
           <button
             onClick={() => setSummary(null)}
-            className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 transition-opacity"
+            className="shrink-0 rounded-sm p-0.5 opacity-70 transition-opacity duration-2 hover:opacity-100"
             aria-label="Fechar aviso"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       )}
