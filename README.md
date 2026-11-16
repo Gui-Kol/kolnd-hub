@@ -201,6 +201,8 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 ## Documentação adicional
 
 - `kolnd-hub/README.md` — detalhes do aplicativo (comandos, qualidade/CI, primeira execução, UAC e antivírus, solução de problemas)
+- `kolnd-hub/AGENTS.md` — regras operacionais para agentes e contribuidores do Hub
+- `docs/architecture.md` — arquitetura técnica do Hub (processos, IPC, store + migrações, first-run, Big Picture, segurança)
 - `docs/RELEASE.md` — guia/checklist de release passo a passo (fonte única do processo)
 - `Mark-LVI/readme.md` — documentação do assistente JARVIS
 - `kloud-games/AGENTS.md` — instruções de build/teste do Kloud Games
