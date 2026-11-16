@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, AlertTriangle, X } from 'lucide-react'
+import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, AlertTriangle } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
-import { Badge, Button, Card, Spinner, Skeleton } from './ui'
+import { Badge, Button, Card, Spinner, Skeleton, Toast } from './ui'
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { SteamImportModal, SteamImportState } from './biblioteca/SteamImportModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
 
-interface Toast {
+interface LocalToast {
   id: number
   text: string
 }
@@ -29,7 +29,7 @@ export function Biblioteca(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [toast, setToast] = useState<Toast | null>(null)
+  const [toast, setToast] = useState<LocalToast | null>(null)
   // Guarda contra reentrada enquanto o seletor/extração/salvamento está em curso.
   const [addingCustom, setAddingCustom] = useState(false)
   const [steamImport, setSteamImport] = useState<SteamImportState>({ phase: 'idle' })
@@ -43,16 +43,10 @@ export function Biblioteca(): JSX.Element {
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
 
+  // 6 s de auto-dismiss — o primitivo Toast cuida do timer e do fechar manual.
   const showToast = useCallback((text: string): void => {
     setToast({ id: Date.now(), text })
   }, [])
-
-  // Auto-dismiss do toast local.
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 6000)
-    return (): void => window.clearTimeout(timer)
-  }, [toast])
 
   const loadGames = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -435,28 +429,16 @@ export function Biblioteca(): JSX.Element {
         )}
       </AnimatePresence>
 
-      {/* ── Toast local ─────────────────────────────── */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            key={toast.id}
-            {...entranceProps(reduced, { y: 20, scale: 0.95 })}
-            exit={exitProps(reduced, { y: 10, scale: 0.95 })}
-            className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-steam-blue/25 bg-[#0d1420]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
-          >
-            <Gamepad2 size={16} className="mt-0.5 shrink-0 text-steam-blue" />
-            <p className="text-xs leading-relaxed text-slate-100">{toast.text}</p>
-            <button
-              type="button"
-              onClick={() => setToast(null)}
-              className="ml-2 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-white"
-              aria-label="Fechar aviso"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Toast local (primitivo Toast; coexiste com o toast global do App) ── */}
+      {toast && (
+        <Toast
+          key={toast.id}
+          kind="info"
+          message={toast.text}
+          duration={6000}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

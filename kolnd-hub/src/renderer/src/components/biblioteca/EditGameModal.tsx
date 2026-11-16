@@ -1,7 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { useReducedMotion, entranceProps, exitProps } from '../../lib/motion'
-import { useFocusTrap } from '../../lib/useFocusTrap'
+import { memo, useCallback, useState } from 'react'
 import {
   Gamepad2,
   Pencil,
@@ -12,9 +9,10 @@ import {
   Trash2
 } from 'lucide-react'
 import type { Game } from '../../types'
+import { Button, Input, Modal } from '../ui'
 interface EditGameModalProps {
   game: Game
-  /** dataURL do ícone atual (cacheado na grade) ou null para o fallback visual. */
+  /** dataURL do ícone atual (cacheada na grade) ou null para o fallback visual. */
   currentIcon: string | null
   /** Selo inicial de executável ausente (verificado na grade). */
   exeMissing: boolean
@@ -44,8 +42,6 @@ export const EditGameModal = memo(function EditGameModal({
   onSaved,
   onRemoved
 }: EditGameModalProps): JSX.Element {
-  // Entrada/saída do modal viram fade curto com reduce.
-  const reduced = useReducedMotion()
   const [name, setName] = useState(game.name)
   const [exePath, setExePath] = useState(game.exePath)
   const [localExeMissing, setLocalExeMissing] = useState(exeMissing)
@@ -69,18 +65,6 @@ export const EditGameModal = memo(function EditGameModal({
     if (busy) return
     onClose()
   }, [busy, onClose])
-
-  // Esc fecha o modal (descarta as alterações), salvo durante salvar/remover.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') requestClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return (): void => window.removeEventListener('keydown', onKeyDown)
-  }, [requestClose])
-
-  // Prende o foco no modal; o 1º focável (campo Nome) recebe o foco ao abrir.
-  const trapRef = useFocusTrap({ active: true })
 
   const handlePickImage = useCallback(async (): Promise<void> => {
     if (iconBusy || busy) return
@@ -213,206 +197,197 @@ export const EditGameModal = memo(function EditGameModal({
     }
   }, [confirmingRemove, removing, game.id, game.name, showToast, onRemoved])
 
+  // Esc fecha o modal (descarta as alterações), salvo durante salvar/remover — o
+  // Modal repassa onEscape ao trap só quando !disableClose (busy bloqueia Esc/backdrop/X).
+  // O trap do Modal também devolve o foco ao card que abriu o modal ao desmontar.
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop — fecha descartando as alterações */}
-      <button
-        type="button"
-        aria-label="Fechar"
-        disabled={busy}
-        className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm disabled:cursor-default"
-        onClick={requestClose}
-      />
-      <motion.div
-        ref={trapRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Editar Game"
-        {...entranceProps(reduced, { y: 12, scale: 0.95 }, { duration: 0.18 })}
-        exit={exitProps(reduced, { y: 8, scale: 0.97 })}
-        className="relative glass-card border border-white/[0.08] shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto p-6"
-      >
-        {/* ── Cabeçalho ─────────────────────────────── */}
-        <div className="flex items-center gap-3 pb-4 border-b border-white/[0.06]">
-          <div className="w-11 h-11 rounded-xl bg-playstation-500/10 border border-playstation-500/30 flex items-center justify-center shrink-0">
-            <Pencil size={18} className="text-playstation-400" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-base font-bold text-slate-100">Editar Game</h3>
-            <p className="text-[11px] text-slate-400 truncate">{game.name}</p>
-          </div>
-        </div>
-
-        <div className="space-y-5 pt-5">
-          {/* ── Nome do jogo ─────────────────────────── */}
-          <div>
-            <label htmlFor="edit-game-name" className="label-panel">
-              Nome do jogo
-            </label>
-            <input
-              id="edit-game-name"
-              type="text"
-              value={name}
-              disabled={busy}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Nome do jogo"
-              className="input-gamer"
-            />
-            {trimmedName.length === 0 && (
-              <p className="text-[11px] text-amber-400 mt-1.5">O nome não pode ficar vazio.</p>
-            )}
-          </div>
-
-          {/* ── Executável ───────────────────────────── */}
-          <div>
-            <span className="label-panel">Executável</span>
-            <p className="rounded-lg border border-white/[0.06] bg-black/30 px-3 py-2 text-[11px] font-mono text-slate-400 break-all">
-              {exePath}
-            </p>
-            {localExeMissing && (
-              <p className="flex items-center gap-1.5 text-[11px] text-amber-400 mt-1.5">
-                <AlertTriangle size={12} />
-                Executável não encontrado no disco. Escolha o caminho correto ou remova o jogo.
-              </p>
-            )}
-            <div className="flex items-center gap-3 mt-2">
-              <button
-                type="button"
-                onClick={() => void handlePickExe()}
-                disabled={busy}
-                className="btn-secondary !px-4 !py-2 !text-[10px]"
-              >
-                Alterar…
-              </button>
-              <span className="text-[10px] text-slate-400 leading-snug">
-                O jogo inicia a partir da pasta do executável.
-              </span>
-            </div>
-          </div>
-
-          {/* ── Ícone/capa ───────────────────────────── */}
-          <div>
-            <span className="label-panel">Ícone / capa</span>
-            <div className="flex items-start gap-4">
-              <div className="w-20 h-20 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center overflow-hidden shrink-0">
-                {previewIcon ? (
-                  <img
-                    src={previewIcon}
-                    alt={`Ícone de ${trimmedName || game.name}`}
-                    className="w-full h-full object-contain"
-                    draggable={false}
-                  />
-                ) : (
-                  <Gamepad2 size={32} className="text-slate-400" />
-                )}
-              </div>
-              <div className="flex flex-col items-start gap-2 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => void handlePickImage()}
-                  disabled={busy || iconBusy}
-                  className="btn-secondary !px-4 !py-2 !text-[10px]"
-                >
-                  {iconBusy ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <ImagePlus size={14} />
-                  )}
-                  Escolher imagem…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleRestoreExeIcon()}
-                  disabled={busy || iconBusy}
-                  className="btn-ghost !px-3 !py-1.5 text-[11px]"
-                >
-                  <RotateCcw size={12} />
-                  Restaurar ícone do executável
-                </button>
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  Formatos aceitos: PNG, JPG e WebP. .ico não é suportado.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Remover jogo (confirmação em duas etapas) ── */}
-          <div className="border-t border-white/[0.06] pt-4">
-            {confirmingRemove ? (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
-                <p className="flex items-center gap-2 text-sm font-bold text-red-300">
-                  <AlertTriangle size={16} />
-                  Tem certeza?
-                </p>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  <span className="font-semibold text-slate-200">{game.name}</span> sairá da sua
-                  biblioteca. O arquivo do jogo não será apagado do computador.
-                </p>
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingRemove(false)}
-                    disabled={removing}
-                    className="btn-ghost"
-                  >
-                    Voltar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleRemove()}
-                    disabled={removing}
-                    className="btn-danger !px-4 !py-2"
-                  >
-                    {removing ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Removendo…
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={14} />
-                        Remover definitivamente
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+    <Modal
+      ariaLabel="Editar Game"
+      onClose={requestClose}
+      disableClose={busy}
+      footer={
+        <>
+          <Button variant="ghost" onClick={requestClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button variant="primary" onClick={() => void handleSave()} disabled={!canSave}>
+            {saving ? (
+              <>
+                <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                Salvando…
+              </>
             ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmingRemove(true)}
-                disabled={busy}
-                className="btn-danger w-full"
-              >
-                <Trash2 size={14} />
-                Remover jogo
-              </button>
+              'Salvar alterações'
             )}
-          </div>
+          </Button>
+        </>
+      }
+    >
+      {/* ── Cabeçalho ─────────────────────────────── */}
+      <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] pb-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-accent-border bg-accent-muted">
+          <Pencil size={18} aria-hidden="true" className="text-accent" />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-base font-bold text-ink-primary">Editar Game</h3>
+          <p className="truncate text-[11px] text-ink-secondary">{game.name}</p>
+        </div>
+      </div>
 
-          {/* ── Rodapé ─────────────────────────────────── */}
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
-            <button type="button" onClick={requestClose} disabled={busy} className="btn-ghost">
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={!canSave}
-              className="btn-primary"
+      <div className="space-y-5 pt-5">
+        {/* ── Nome do jogo ─────────────────────────── */}
+        <div>
+          <label
+            htmlFor="edit-game-name"
+            className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-tertiary"
+          >
+            Nome do jogo
+          </label>
+          <Input
+            id="edit-game-name"
+            type="text"
+            value={name}
+            disabled={busy}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Nome do jogo"
+            error={trimmedName.length === 0}
+            errorMessage={trimmedName.length === 0 ? 'O nome não pode ficar vazio.' : undefined}
+            data-autofocus
+          />
+        </div>
+
+        {/* ── Executável ───────────────────────────── */}
+        <div>
+          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">
+            Executável
+          </span>
+          <p className="break-all rounded-control border border-[var(--border-subtle)] bg-surface-sunken px-3 py-2 font-mono text-[11px] text-ink-secondary">
+            {exePath}
+          </p>
+          {localExeMissing && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-warn">
+              <AlertTriangle size={12} aria-hidden="true" />
+              Executável não encontrado no disco. Escolha o caminho correto ou remova o jogo.
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handlePickExe()}
+              disabled={busy}
             >
-              {saving ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Salvando…
-                </>
-              ) : (
-                'Salvar alterações'
-              )}
-            </button>
+              Alterar…
+            </Button>
+            <span className="text-[10px] leading-snug text-ink-tertiary">
+              O jogo inicia a partir da pasta do executável.
+            </span>
           </div>
         </div>
-      </motion.div>
-    </div>
+
+        {/* ── Ícone/capa ───────────────────────────── */}
+        <div>
+          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">
+            Ícone / capa
+          </span>
+          <div className="flex items-start gap-4">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-2">
+              {previewIcon ? (
+                <img
+                  src={previewIcon}
+                  alt={`Ícone de ${trimmedName || game.name}`}
+                  className="h-full w-full object-contain"
+                  draggable={false}
+                />
+              ) : (
+                <Gamepad2 size={32} aria-hidden="true" className="text-ink-tertiary" />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col items-start gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handlePickImage()}
+                disabled={busy || iconBusy}
+              >
+                {iconBusy ? (
+                  <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <ImagePlus size={14} aria-hidden="true" />
+                )}
+                Escolher imagem…
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleRestoreExeIcon()}
+                disabled={busy || iconBusy}
+              >
+                <RotateCcw size={12} aria-hidden="true" />
+                Restaurar ícone do executável
+              </Button>
+              <p className="text-[10px] leading-snug text-ink-tertiary">
+                Formatos aceitos: PNG, JPG e WebP. .ico não é suportado.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Remover jogo (confirmação em duas etapas) ── */}
+        <div className="border-t border-[var(--border-subtle)] pt-4">
+          {confirmingRemove ? (
+            <div className="space-y-3 rounded-card border border-danger-border bg-danger-bg p-4">
+              <p className="flex items-center gap-2 text-sm font-bold text-danger">
+                <AlertTriangle size={16} aria-hidden="true" />
+                Tem certeza?
+              </p>
+              <p className="text-xs leading-relaxed text-ink-secondary">
+                <span className="font-semibold text-ink-primary">{game.name}</span> sairá da sua
+                biblioteca. O arquivo do jogo não será apagado do computador.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmingRemove(false)}
+                  disabled={removing}
+                >
+                  Voltar
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => void handleRemove()}
+                  disabled={removing}
+                >
+                  {removing ? (
+                    <>
+                      <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                      Removendo…
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} aria-hidden="true" />
+                      Remover definitivamente
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="danger"
+              onClick={() => setConfirmingRemove(true)}
+              disabled={busy}
+              className="w-full"
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Remover jogo
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   )
 })
