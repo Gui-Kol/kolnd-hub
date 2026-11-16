@@ -6,11 +6,6 @@ import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard 
 import { join, dirname } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { ProcessManager, setBaseDir } from './processManager'
-import {
-  ensureKloudGamesInstalled,
-  getKloudGamesStatus,
-  invalidateKloudGamesRunningCache
-} from './kloudGames'
 import { isFirstRun } from './firstRun'
 import { registerSystemIpc } from './ipc/system'
 import { registerStartupIpc } from './ipc/startup'
@@ -38,6 +33,7 @@ import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
 import { registerDialogIpc } from './ipc/dialog'
 import { registerWindowIpc } from './ipc/window'
 import { registerAppIpc } from './ipc/app'
+import { registerKloudGamesIpc } from './ipc/kloudGames'
 import { shutdownHub, confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
 import { logger } from './logger'
@@ -250,6 +246,9 @@ app.whenReady().then(() => {
   // Registra os canais IPC de gestao de programas (launch/stop/status/logs/shutdown).
   registerAppIpc(ctx)
 
+  // Registra os canais IPC do Kloud Games (launch/status).
+  registerKloudGamesIpc(ctx)
+
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
 
@@ -259,39 +258,6 @@ app.whenReady().then(() => {
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
-  })
-
-  // ── IPC: Kloud Games ─────────────────────────────
-  // Abrir: procura o .exe (estado salvo → pasta do Hub → Program Files).
-  // Se não encontrar, abre o MSI embutido para instalação (UAC), detecta o
-  // caminho do .exe e salva tudo em %APPDATA%\kolnd-hub\kloud-games.paths.json (userData;
-  // o conteúdo legado em resources/programs/kloud-games é migrado automaticamente).
-  ipcMain.handle('kloud-games:launch', async () => {
-    const ensured = await ensureKloudGamesInstalled()
-    if (!ensured.success || !ensured.exePath) {
-      return { success: false, error: ensured.error ?? 'Kloud Games não está disponível.' }
-    }
-
-    const exePath = ensured.exePath
-    const cwd = dirname(exePath)
-    const launch = processManager.launch('kloud-games', `"${exePath}"`, cwd)
-    if (launch.success) {
-      invalidateKloudGamesRunningCache()
-    }
-    return {
-      success: launch.success,
-      error: launch.error,
-      exePath,
-      cwd,
-      installedNow: ensured.installedNow ?? false
-    }
-  })
-
-  // Status: retorna os caminhos salvos (usado pelo renderer ao abrir). O
-  // principal é barato: escritas idênticas são elididas e o tasklist fica
-  // cacheado por ~2 s (ver kloudGames.ts).
-  ipcMain.handle('kloud-games:status', async () => {
-    return getKloudGamesStatus()
   })
 
   // ── IPC: Desinstalar o Kolnd Hub (T5) ────────────
