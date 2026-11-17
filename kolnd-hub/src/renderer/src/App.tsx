@@ -119,7 +119,7 @@ function App(): JSX.Element {
       })
   }, [applyKloudGamesConfig])
 
-  // Nome do computador (exibe na aba lateral e na página de inicialização).
+  // Nome do computador (exibe na titlebar, no mega menu e na página de inicialização).
   useEffect(() => {
     window.api
       .systemPcName()
@@ -136,7 +136,7 @@ function App(): JSX.Element {
 
     const init = async (): Promise<void> => {
       await Promise.allSettled([
-        // Perfil do sistema (nome do PC, usado na sidebar e inicialização).
+        // Perfil do sistema (nome do PC, usado na titlebar e inicialização).
         window.api.systemPcName().then((name) => {
           if (mounted) setPcName(name)
         }),
@@ -535,8 +535,8 @@ function App(): JSX.Element {
   }, [])
 
   // ── Big Picture: entrada sempre passa pelo gate ─────────────
-  // Único ponto de decisão (todos os caminhos de entrada — botão da sidebar,
-  // deep-links futuros — passam por aqui):
+  // Único ponto de decisão (todos os caminhos de entrada — botão da topbar,
+  // mega menu, deep-links futuros — passam por aqui):
   //   controle configurado (ou store ilegível tratada como ausente) inexistente
   //   → gate de configuração ('setup'); config válida → home ('active').
   const enterBigPicture = useCallback((): void => {
@@ -629,9 +629,11 @@ function App(): JSX.Element {
             currentPage={currentPage}
             onNavigate={setCurrentPage}
             runningCount={runningCount}
+            toolCount={apps.length}
             pcName={pcName}
             onExit={() => setExitModalOpen(true)}
             onEnterBigPicture={enterBigPicture}
+            onOpenSearch={() => setSearchOpen(true)}
           >
             {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
                 easing --ease-standard; uma camada por página. Com reduce: 0 ms.

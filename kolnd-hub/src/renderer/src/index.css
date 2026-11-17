@@ -4,7 +4,8 @@
 
 /* ─────────────────────────────────────────────────────────────
    TOKENS DE DESIGN — 13.2 aprovado (16/11/2026) implementado em 13.4.
-   Acento: opção A — Azul-aço Steam (#66c0f4). Dark-only.
+   Acento: âmbar #e2a33f (decisão D1 do Modelo 03 — shell "Estação", 16/11/2026;
+   substitui o azul-aço #66c0f4). Dark-only.
    Mapa token → uso (um por linha):
    --bg-base           Fundo do app (body)                    · #0e141b
    --bg-sunken         Wells/tracks/inputs, scrollbar track   · #090e13
@@ -16,15 +17,15 @@
    --text-primary      Títulos/corpo                          · #e8eaed
    --text-secondary    Metadados/descrições                   · #a8b3bd
    --text-tertiary     Labels/legendas                        · #7d8894
-   --accent            Acento único (botões, links, ativo)    · #66c0f4
-   --accent-hover      Hover do acento                        · #8fd3ff
-   --accent-active     Pressionado/active do acento           · #4aa8e0
-   --accent-contrast   Texto sobre acento                     · #0b1d29
-   --accent-muted      Fundo translúcido do acento (12%)      · rgba(102,192,244,.12)
-   --accent-border     Borda translúcida do acento (32%)      · rgba(102,192,244,.32)
+   --accent            Acento único (botões, links, ativo)    · #e2a33f
+   --accent-hover      Hover do acento                        · #f0bb63
+   --accent-active     Pressionado/active do acento           · #c98d2f
+   --accent-contrast   Texto sobre acento                     · #241705
+   --accent-muted      Fundo translúcido do acento (12%)      · rgba(226,163,63,.12)
+   --accent-border     Borda translúcida do acento (32%)      · rgba(226,163,63,.32)
    --focus-ring        Anel de foco global (= acento, 2px+2px offset)
    --success           Semântica sucesso (fixa)                · #47c476 (+muted .12 / border .30)
-   --warning           Semântica aviso (fixa)                 · #e3b341 (+muted .12 / border .30)
+   --warning           Semântica aviso (fixa, retunada em D1)  · #f5d76e (+muted .12 / border .30)
    --danger            Semântica erro/perigo (fixa)           · #f06048 (+muted .12 / border .30)
    --shadow-sm/md/lg   Elevação fria curta (surface, não glow)
    --highlight         Inset highlight opcional (só surface-3)
@@ -41,10 +42,12 @@
    text-tertiary  sobre surface-2/3   =  4.34 /  3.87          ✗ AA texto pequeno —
                   usar ≥3:1 apenas para texto grande/ícones; labels sobre
                   surface-2/3 devem migrar para text-secondary na 13.6+
-   accent         sobre bg-base       =  9.18                  ✓ AA
-   accent         sobre surface-1     =  8.43 · surface-3 = 6.92  ✓ AA
-   accent-contrast sobre accent       =  8.52                  ✓ AA (>8:1)
-   success/warning/danger sobre surface-1 = 7.63 / 8.73 / 5.24  ✓ AA
+   accent         sobre bg-base       =  8.41                  ✓ AA
+   accent         sobre surface-1     =  7.72 · surface-3 = 6.34  ✓ AA
+   accent-contrast sobre accent       =  7.95                  ✓ AA (D1)
+   success/danger sobre surface-1     =  7.63 / 5.24            ✓ AA
+   warning (#f5d76e) sobre surface-1  = 12.00 · surface-2 = 11.05  ✓ AA
+   (warning retunado em D1 para não colidir com o acento âmbar)
    ───────────────────────────────────────────────────────────── */
 :root {
   /* Superfícies */
@@ -61,22 +64,22 @@
   --text-secondary: #a8b3bd;
   --text-tertiary: #7d8894;
 
-  /* Acento (opção A) */
-  --accent: #66c0f4;
-  --accent-hover: #8fd3ff;
-  --accent-active: #4aa8e0;
-  --accent-contrast: #0b1d29;
-  --accent-muted: rgba(102, 192, 244, 0.12);
-  --accent-border: rgba(102, 192, 244, 0.32);
-  --focus-ring: #66c0f4;
+  /* Acento (D1 — âmbar do Modelo 03) */
+  --accent: #e2a33f;
+  --accent-hover: #f0bb63;
+  --accent-active: #c98d2f;
+  --accent-contrast: #241705;
+  --accent-muted: rgba(226, 163, 63, 0.12);
+  --accent-border: rgba(226, 163, 63, 0.32);
+  --focus-ring: #e2a33f;
 
   /* Semânticas (fixas, funcionais) */
   --success: #47c476;
   --success-muted: rgba(71, 196, 118, 0.12);
   --success-border: rgba(71, 196, 118, 0.3);
-  --warning: #e3b341;
-  --warning-muted: rgba(227, 179, 65, 0.12);
-  --warning-border: rgba(227, 179, 65, 0.3);
+  --warning: #f5d76e;
+  --warning-muted: rgba(245, 215, 110, 0.12);
+  --warning-border: rgba(245, 215, 110, 0.3);
   --danger: #f06048;
   --danger-muted: rgba(240, 96, 72, 0.12);
   --danger-border: rgba(240, 96, 72, 0.3);

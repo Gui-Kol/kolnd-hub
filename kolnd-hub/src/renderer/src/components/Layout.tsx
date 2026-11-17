@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
-import { Sidebar } from './Sidebar'
-import { Badge, IconButton } from './ui'
-import { Minus, Square, X, Zap } from 'lucide-react'
+import { Minus, Monitor, Square, X, Zap } from 'lucide-react'
+import { Topbar } from './Topbar'
+import { IconButton } from './ui'
 import { Page } from '../types'
 
 interface LayoutProps {
@@ -9,19 +9,30 @@ interface LayoutProps {
   currentPage: Page
   onNavigate: (page: Page) => void
   runningCount: number
+  /** Total de ferramentas configuradas — mostrado no card "Sessão" do mega menu. */
+  toolCount: number
   pcName?: string | null
   onExit?: () => void
   onEnterBigPicture?: () => void
+  /** Abre a busca global existente (o App é dono do estado `searchOpen`). */
+  onOpenSearch: () => void
 }
 
+/**
+ * Shell do Hub — moldura horizontal "Estação": titlebar 40 px, topbar 56 px
+ * com mega menu e conteúdo em largura total. A topbar fica FORA do container
+ * rolável; só o `<main>` rola.
+ */
 export function Layout({
   children,
   currentPage,
   onNavigate,
   runningCount,
+  toolCount,
   pcName,
   onExit,
-  onEnterBigPicture
+  onEnterBigPicture,
+  onOpenSearch
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
@@ -34,24 +45,28 @@ export function Layout({
       >
         Pular para o conteúdo
       </a>
-      {/* ── Title bar ────────────────────────────────── */}
-      <div className="title-bar h-12 flex items-center justify-between px-5 bg-surface-1 border-b border-[var(--border-subtle)] z-chrome">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center">
-            <Zap size={14} className="text-accent-contrast" />
+      {/* ── Title bar (40 px): marca · nome do PC · controles da janela ── */}
+      <div className="title-bar flex h-10 shrink-0 items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-surface-sunken pl-4 pr-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm bg-accent">
+            <Zap size={13} className="text-accent-contrast" aria-hidden="true" />
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-ink-primary tracking-tight">Kolnd Hub</span>
-            {runningCount > 0 && (
-              <Badge tone="success" role="status" className="w-fit mt-0.5">
-                {runningCount} ativo{runningCount > 1 ? 's' : ''}
-              </Badge>
-            )}
-          </div>
+          <span className="shrink-0 text-[13px] font-semibold tracking-tight text-ink-primary">
+            Kolnd Hub
+          </span>
+          {pcName && (
+            <span
+              className="flex min-w-0 items-center gap-1.5 rounded-pill border border-[var(--border-subtle)] bg-surface-1 px-2 py-0.5 text-[10.5px] text-ink-tertiary"
+              title={pcName}
+            >
+              <Monitor size={11} aria-hidden="true" className="shrink-0" />
+              <span className="max-w-[180px] truncate">{pcName}</span>
+            </span>
+          )}
         </div>
 
         {/* Window controls */}
-        <div className="title-bar-no-drag flex items-center gap-1">
+        <div className="title-bar-no-drag flex shrink-0 items-center gap-1">
           <IconButton
             variant="ghost"
             size="sm"
@@ -79,20 +94,23 @@ export function Layout({
         </div>
       </div>
 
-      {/* ── Main content area ────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          currentPage={currentPage}
-          onNavigate={onNavigate}
-          pcName={pcName}
-          onExit={onExit}
-          onEnterBigPicture={onEnterBigPicture}
-        />
-        {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}
-        <main id="conteudo" tabIndex={-1} className="flex-1 overflow-y-auto p-8 pb-12">
-          {children}
-        </main>
-      </div>
+      {/* ── Topbar (56 px): navegação horizontal, status, busca, BP e mega ── */}
+      <Topbar
+        currentPage={currentPage}
+        onNavigate={onNavigate}
+        runningCount={runningCount}
+        toolCount={toolCount}
+        pcName={pcName}
+        onOpenSearch={onOpenSearch}
+        onExit={onExit}
+        onEnterBigPicture={onEnterBigPicture}
+      />
+
+      {/* ── Main content area — largura total, único container rolável ── */}
+      {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}
+      <main id="conteudo" tabIndex={-1} className="flex-1 overflow-y-auto p-8 pb-12">
+        {children}
+      </main>
     </div>
   )
 }

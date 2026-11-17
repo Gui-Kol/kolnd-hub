@@ -68,14 +68,14 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
   const runningCount = Object.values(appStates).filter((s) => s.status === 'running').length
   const stoppedCount = apps.length - runningCount
 
-  // Assinatura B (aprovada em 13.2): gradiente 120° derivado da cor do app em foco —
-  // primeiro app em execução, senão o primeiro app. Discreto (~10%/4% de opacidade).
+  // Assinatura B (aprovada em 13.2; realçada no refresh do Modelo 03): gradiente
+  // 120° derivado da cor do app em foco — primeiro app em execução, senão o primeiro.
   const focusedApp = apps.find((a) => appStates[a.id]?.status === 'running') ?? apps[0]
-  const heroFrom = focusedApp ? hexWithAlpha(focusedApp.color, 0.1) : null
-  const heroMid = focusedApp ? hexWithAlpha(focusedApp.color, 0.04) : null
+  const heroFrom = focusedApp ? hexWithAlpha(focusedApp.color, 0.16) : null
+  const heroMid = focusedApp ? hexWithAlpha(focusedApp.color, 0.05) : null
   const heroBackground =
     heroFrom && heroMid
-      ? `linear-gradient(120deg, ${heroFrom} 0%, ${heroMid} 38%, transparent 65%), var(--surface-1)`
+      ? `linear-gradient(120deg, ${heroFrom} 0%, ${heroMid} 45%, transparent 72%), var(--surface-1)`
       : 'var(--surface-1)'
 
   const categories = ['ai', 'gaming', 'streaming', 'dev'] as const
@@ -89,22 +89,25 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {/* ── Header-hero (assinatura B) ──────────────────── */}
+      {/* ── Header-hero (assinatura B, refresh Modelo 03) ── */}
       <motion.header
         {...entranceProps(reduced, { y: -10 })}
         className="overflow-hidden rounded-card border border-[var(--border-subtle)]"
         style={{ background: heroBackground }}
       >
-        <div className="flex flex-col justify-between gap-4 px-6 pb-4 pt-5 md:flex-row md:items-end">
-          <div>
-            <h2 className="text-[28px] font-bold leading-9 tracking-tight text-ink-primary md:text-[32px] md:leading-10">
+        <div className="flex flex-col justify-between gap-5 px-6 pb-6 pt-7 sm:px-8 lg:flex-row lg:items-end">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
+              Central de controle
+            </p>
+            <h2 className="mt-2 text-[32px] font-bold leading-10 tracking-tight text-ink-primary md:text-[36px] md:leading-[44px]">
               Ferramentas
             </h2>
-            <p className="mt-0.5 text-[13px] text-ink-secondary">
+            <p className="mt-1.5 max-w-xl text-[13.5px] leading-5 text-ink-secondary">
               Seus programas do ecossistema, num só lugar
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge tone="neutral" className="px-3 py-1 text-[11px]">
               <LayoutGrid size={12} aria-hidden="true" />
               <span className="tnum">{apps.length} títulos</span>
@@ -123,12 +126,22 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
               />
               <span className="tnum">{runningCount} online</span>
             </Badge>
+            {/* Latência é decorativa e mantida por paridade (13.9) — agora em chip */}
+            <Badge
+              tone="neutral"
+              className="px-3 py-1 text-[11px]"
+              aria-label="Latência 12 milissegundos"
+            >
+              <Clock size={12} aria-hidden="true" />
+              <span className="tnum">12 ms</span>
+            </Badge>
           </div>
         </div>
 
-        {/* Faixa de status — "Latência: 12ms" é decorativa e mantida por paridade (13.9) */}
+        {/* Faixa de status: estado geral + quantos estão offline (a latência
+            saiu daqui para o chip acima, sem duplicar o dado). */}
         <div
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border-subtle)] px-6 py-3 text-xs text-ink-secondary"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border-subtle)] px-6 py-3 text-xs text-ink-secondary sm:px-8"
           aria-label="Status geral"
         >
           <span className="flex items-center gap-2">
@@ -141,11 +154,6 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
             <span>
               <span className="tnum font-semibold text-ink-primary">{stoppedCount}</span> offline
             </span>
-          </span>
-          <span aria-hidden="true" className="h-4 w-px bg-[var(--border-subtle)]" />
-          <span className="flex items-center gap-2">
-            <Clock size={13} className="text-ink-tertiary" aria-hidden="true" />
-            Latência: <span className="tnum font-semibold text-ink-primary">12ms</span>
           </span>
         </div>
       </motion.header>

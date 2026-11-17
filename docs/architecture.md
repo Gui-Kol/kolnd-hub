@@ -216,8 +216,8 @@ Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para
 ## 6. Big Picture
 
 Modo TV/gamepad em tela cheia (estilo Steam Big Picture). Entrada: botão **Big Picture**
-na Sidebar (`Layout.tsx`/`Sidebar.tsx`); sem controle configurado, o Hub abre a configuração
-antes de liberar a home.
+na topbar (ícone) ou no mega menu do "Mais" (`Topbar.tsx`/`MegaMenu.tsx`); sem controle
+configurado, o Hub abre a configuração antes de liberar a home.
 
 - **Tela cheia**: IPC `window:set-fullscreen` usa `setFullScreen` (NÃO `maximize`, NÃO
   `kiosk`) — Alt+F4 continua funcionando. Os bounds da janela são guardados antes de
