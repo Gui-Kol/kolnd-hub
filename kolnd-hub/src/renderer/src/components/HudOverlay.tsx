@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { HUD_DEFAULT_WIDTH } from '../../../shared/hud'
+import { hudColumnCount } from '../lib/hudLayout'
 import type { HudScale, HudUpdate } from '../types'
 
 /**
@@ -116,15 +118,20 @@ interface MetricProps {
 }
 
 function Metric({ label, value, unit, testId, typography }: MetricProps): JSX.Element {
+  // Linha normal: rótulo à esquerda e valor à direita. `flex-wrap` + `ml-auto`
+  // garantem que, quando o valor não couber ao lado do rótulo, ele desça para
+  // a linha de baixo continuando alinhado à direita — nunca cortado. O
+  // `whitespace-nowrap` impede que o número quebre no meio (ex.: `3.200` em
+  // duas linhas), que é o que deixava dígitos fora do painel em 180 px.
   return (
-    <div className="flex min-w-0 items-baseline justify-between gap-2">
+    <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
       <dt
-        className={`${typography.label} shrink-0 font-medium uppercase tracking-[0.12em] text-white/40`}
+        className={`${typography.label} whitespace-nowrap font-medium uppercase tracking-[0.12em] text-white/40`}
       >
         {label}
       </dt>
       <dd
-        className={`${typography.value} min-w-0 text-right font-semibold tabular-nums text-white/90`}
+        className={`${typography.value} ml-auto whitespace-nowrap text-right font-semibold tabular-nums text-white/90`}
         data-testid={testId}
       >
         {value}
@@ -149,7 +156,7 @@ function Section({ title, testId, typography, subtitle, children }: SectionProps
   return (
     <section
       data-testid={testId}
-      className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-2.5 pb-2 pt-1.5"
+      className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-2 pb-1.5 pt-1"
     >
       <p
         className={`${typography.label} border-b border-white/[0.06] pb-1 font-semibold uppercase tracking-[0.18em] text-white/45`}
@@ -159,7 +166,7 @@ function Section({ title, testId, typography, subtitle, children }: SectionProps
       {subtitle && (
         <p className="mt-1 break-words text-[10px] leading-snug text-white/50">{subtitle}</p>
       )}
-      <dl className="mt-1.5 space-y-1">{children}</dl>
+      <dl className="mt-1 space-y-0.5">{children}</dl>
     </section>
   )
 }
@@ -235,31 +242,42 @@ export function HudOverlay(): JSX.Element {
   const totalSource =
     measuredTotal !== null ? 'medido' : estimatedTotal !== null ? 'estimado' : null
 
+  // D1: 1 coluna abaixo de 300 px (180–290); 2 colunas de 300 a 560 — o padrão
+  // 300 usa o layout compacto, que cabe na altura de uma área de trabalho 720p.
+  // Antes do primeiro push usamos o padrão 300, que já é 2 colunas.
+  const columns = hudColumnCount(update?.size.width ?? HUD_DEFAULT_WIDTH)
+
   return (
     <div
       ref={rootRef}
       data-testid="hud-overlay"
-      className="flex w-full flex-col gap-2.5 overflow-visible rounded-[14px] border border-white/[0.08] bg-[rgba(8,12,17,0.78)] p-3 text-white backdrop-blur-md"
+      className="flex w-full flex-col gap-2 overflow-visible rounded-[14px] border border-white/[0.08] bg-[rgba(8,12,17,0.78)] p-2.5 text-white backdrop-blur-md"
     >
-      {/* Destaque: FPS + frametime, sem título acima. */}
-      <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-2">
+      {/* Destaque: FPS + frametime, sem título acima. Também quebra linha
+          (`flex-wrap` + `ml-auto`) em escalas grandes com largura estreita,
+          para o número do FPS ou o frametime nunca vazar do painel. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-white/[0.07] pb-1.5">
         <div className="min-w-0">
-          <p className={`${typography.label} font-medium uppercase tracking-[0.2em] text-white/40`}>
+          <p
+            className={`${typography.label} whitespace-nowrap font-medium uppercase tracking-[0.2em] text-white/40`}
+          >
             FPS
           </p>
           <p
-            className={`${typography.fps} font-semibold leading-none tracking-tight text-accent tabular-nums`}
+            className={`${typography.fps} whitespace-nowrap font-semibold leading-none tracking-tight text-accent tabular-nums`}
             data-testid="hud-fps"
           >
             {fps === null ? <Dash /> : formatInt(fps)}
           </p>
         </div>
-        <div className="min-w-0 text-right">
-          <p className={`${typography.label} font-medium uppercase tracking-[0.2em] text-white/40`}>
+        <div className="ml-auto min-w-0 text-right">
+          <p
+            className={`${typography.label} whitespace-nowrap font-medium uppercase tracking-[0.2em] text-white/40`}
+          >
             Frametime
           </p>
           <p
-            className={`${typography.value} font-semibold leading-none text-white/90 tabular-nums`}
+            className={`${typography.value} whitespace-nowrap font-semibold leading-none text-white/90 tabular-nums`}
             data-testid="hud-frametime"
           >
             {frametime === null ? (
@@ -274,7 +292,7 @@ export function HudOverlay(): JSX.Element {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <Section title="CPU" testId="hud-cpu" typography={typography} subtitle={cpu?.model ?? null}>
           <Metric
             label="Uso"
@@ -448,11 +466,14 @@ export function HudOverlay(): JSX.Element {
         </Section>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] pt-1.5">
-        <span className={`${typography.label} text-white/35`} data-testid="hud-updated">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-white/[0.07] pt-1">
+        <span
+          className={`${typography.label} whitespace-nowrap text-white/35`}
+          data-testid="hud-updated"
+        >
           {update ? formatTime(update.capturedAt) : 'aguardando…'}
         </span>
-        <span className={`${typography.label} text-white/30`}>
+        <span className={`${typography.label} ml-auto whitespace-nowrap text-white/30`}>
           {fpsActive ? 'ETW local · sem injeção' : 'sem medição de FPS'}
         </span>
       </div>

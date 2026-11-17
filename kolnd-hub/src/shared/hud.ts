@@ -31,7 +31,12 @@ export const HUD_WIDTH_STEP = 10
 export const HUD_DEFAULT_WIDTH = 300
 
 export const HUD_MIN_HEIGHT = 120
-export const HUD_MAX_HEIGHT = 900
+/**
+ * Teto de sanidade da altura (não do layout): em 300 px/grande o conteúdo já
+ * mede ~888 px e um nome de CPU/GPU que quebre mais uma linha passaria de 900.
+ * O limite real é a área de trabalho — `fitHudHeight` aplica esse corte.
+ */
+export const HUD_MAX_HEIGHT = 1200
 /** Altura inicial antes da primeira medição; o overlay ajusta em seguida. */
 export const HUD_INITIAL_HEIGHT = 240
 
@@ -93,6 +98,20 @@ export function normalizeHudHeight(input: unknown): number {
     return HUD_INITIAL_HEIGHT
   }
   return Math.min(HUD_MAX_HEIGHT, Math.max(HUD_MIN_HEIGHT, Math.ceil(input)))
+}
+
+/**
+ * Altura final da janela: a medição normalizada nunca pode passar da área de
+ * trabalho menos as duas margens (topo e rodapé). Sem esse corte, um conteúdo
+ * mais alto que a tela faria a parte de baixo (o rodapé) ficar fora do monitor.
+ * `workAreaHeight` desconhecido não limita — melhor manter a medição do que
+ * inventar um teto. Área minúscula ainda respeita o piso mínimo do HUD.
+ */
+export function fitHudHeight(measured: unknown, workAreaHeight: number): number {
+  const height = normalizeHudHeight(measured)
+  if (typeof workAreaHeight !== 'number' || !Number.isFinite(workAreaHeight)) return height
+  const available = workAreaHeight - 2 * HUD_MARGIN_PX
+  return Math.max(HUD_MIN_HEIGHT, Math.min(height, available))
 }
 
 /** Estado devolvido pelo IPC `hud:get` (config + registro atual). */

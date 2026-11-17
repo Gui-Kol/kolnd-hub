@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   acceleratorFromKeyEvent,
+  fitHudHeight,
   formatAcceleratorLabel,
   HUD_DEFAULT_SHORTCUT,
   isValidAccelerator,
@@ -116,12 +117,42 @@ describe('tamanho do HUD', () => {
     expect(normalizeHudScale('COMPACTA')).toBe('normal')
   })
 
-  it('normalizeHudHeight arredonda para cima e mantém 120–900', () => {
+  it('normalizeHudHeight arredonda para cima e mantém 120–1200', () => {
     expect(normalizeHudHeight(300.2)).toBe(301)
     expect(normalizeHudHeight(50)).toBe(120)
-    expect(normalizeHudHeight(5000)).toBe(900)
+    expect(normalizeHudHeight(5000)).toBe(1200)
     expect(normalizeHudHeight(0)).toBe(240)
     expect(normalizeHudHeight(Number.NaN)).toBe(240)
     expect(normalizeHudHeight('300')).toBe(240)
+  })
+
+  // A altura medida precisa caber na área de trabalho: sem isso, um conteúdo
+  // alto demais (ex.: 300 px/grande com um nome que quebra linha) deixaria o
+  // rodapé fora do monitor.
+  it('fitHudHeight mantém a altura medida quando cabe na área de trabalho', () => {
+    expect(fitHudHeight(888, 1040)).toBe(888)
+    expect(fitHudHeight(814, 1040)).toBe(814)
+  })
+
+  it('fitHudHeight trunca no espaço disponível (área − 2 × margem)', () => {
+    expect(fitHudHeight(1200, 1040)).toBe(1016)
+    expect(fitHudHeight(5000, 1040)).toBe(1016)
+  })
+
+  it('fitHudHeight ignora área de trabalho inválida e devolve a altura normalizada', () => {
+    expect(fitHudHeight(888, Number.NaN)).toBe(888)
+    expect(fitHudHeight(888, undefined as unknown as number)).toBe(888)
+    expect(fitHudHeight(888, Number.POSITIVE_INFINITY)).toBe(888)
+  })
+
+  it('fitHudHeight respeita o piso mínimo mesmo em área de trabalho minúscula', () => {
+    expect(fitHudHeight(888, 100)).toBe(120)
+    expect(fitHudHeight(888, 0)).toBe(120)
+  })
+
+  it('fitHudHeight usa a altura inicial para medição inválida, respeitando o teto', () => {
+    expect(fitHudHeight(Number.NaN, 1040)).toBe(240)
+    expect(fitHudHeight(undefined, 1040)).toBe(240)
+    expect(fitHudHeight('300', 200)).toBe(176)
   })
 })

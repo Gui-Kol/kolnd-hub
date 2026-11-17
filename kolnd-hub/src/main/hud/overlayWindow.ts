@@ -3,6 +3,7 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { logger } from '../logger'
 import {
+  fitHudHeight,
   HUD_DEFAULT_WIDTH,
   HUD_INITIAL_HEIGHT,
   HUD_MARGIN_PX,
@@ -40,7 +41,8 @@ export function computeHudBounds(
     x: workArea.x + HUD_MARGIN_PX,
     y: workArea.y + HUD_MARGIN_PX,
     width: normalizeHudWidth(width),
-    height: normalizeHudHeight(height)
+    // Nunca maior que a área de trabalho: o rodapé ficaria fora do monitor.
+    height: fitHudHeight(height, workArea.height)
   }
 }
 
