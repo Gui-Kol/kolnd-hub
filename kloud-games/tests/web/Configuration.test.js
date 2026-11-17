@@ -41,7 +41,7 @@ describe('configuration accessibility', () => {
     })
 
     for (const input of wrapper.findAll('#global_prep_cmd tbody input')) {
-      expect(wrapper.get(`label[for="${input.attributes('id')}"]`).classes()).toContain('visually-hidden')
+      expect(wrapper.get(`label[for="${input.attributes('id')}"]`).classes()).toContain('kg-visually-hidden')
     }
   })
 
@@ -93,7 +93,7 @@ describe('configuration accessibility', () => {
     })
 
     for (const input of remappingWrapper.findAll('tbody input')) {
-      expect(remappingWrapper.get(`label[for="${input.attributes('id')}"]`).classes()).toContain('visually-hidden')
+      expect(remappingWrapper.get(`label[for="${input.attributes('id')}"]`).classes()).toContain('kg-visually-hidden')
     }
   })
 })

@@ -12,12 +12,12 @@ const config = ref(props.config)
 </script>
 
 <template>
-  <div class="mb-3" v-if="platform !== 'macos'">
-    <label for="adapter_name" class="form-label">{{ $t('config.adapter_name') }}</label>
-    <input type="text" class="form-control" id="adapter_name"
+  <div class="kg-field" v-if="platform !== 'macos'">
+    <label for="adapter_name" class="kg-label">{{ $t('config.adapter_name') }}</label>
+    <input type="text" class="kg-input" id="adapter_name"
            :placeholder="$tp('config.adapter_name_placeholder', '/dev/dri/renderD128')"
            v-model="config.adapter_name" />
-    <div class="form-text">
+    <div class="kg-help">
       <PlatformLayout :platform="platform">
         <template #windows>
           {{ $t('config.adapter_name_desc_windows') }}<br>

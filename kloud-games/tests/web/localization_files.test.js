@@ -31,7 +31,8 @@ describe('localization JSON files', () => {
   })
 
   it.each(localeFiles)('%s contains no corrupted localization placeholders', file => {
-    const messages = JSON.parse(readFileSync(resolve(localeDirectory, file), 'utf8'))
+    // Some catalogs ship a UTF-8 BOM; JSON.parse rejects it even though browsers strip it.
+    const messages = JSON.parse(readFileSync(resolve(localeDirectory, file), 'utf8').replace(/^\uFEFF/, ''))
 
     expect(findCorruptedMessages(messages), `Corrupted localization placeholders in ${file}`).toEqual([])
   })

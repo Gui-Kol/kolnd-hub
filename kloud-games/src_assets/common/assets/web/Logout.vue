@@ -1,21 +1,19 @@
 <template>
-  <Navbar-Simple></Navbar-Simple>
-  <div class="container py-5">
-    <div class="row justify-content-center">
-      <div class="col-md-8 col-lg-6">
-        <div class="card">
-          <div class="card-body text-center">
-            <h1 class="h3 mb-3">{{ $t('logout.logged_out') }}</h1>
-            <p class="text-muted mb-4">{{ $t('logout.logged_out_desc') }}</p>
-            <a class="btn btn-primary" href="./">
-              <log-in :size="18" class="icon"></log-in>
-              {{ $t('logout.login') }}
-            </a>
-          </div>
+  <NavbarSimple></NavbarSimple>
+  <main class="kg-main kg-main--narrow" style="justify-content: center; min-height: 60vh">
+    <section class="kg-card" aria-labelledby="logout-title">
+      <div class="kg-card-pad kg-stack-3 kg-center">
+        <h1 id="logout-title" style="font-size: 23px">{{ $t('logout.logged_out') }}</h1>
+        <p class="kg-muted">{{ $t('logout.logged_out_desc') }}</p>
+        <div>
+          <a class="kg-btn kg-btn-primary" href="./">
+            <LogIn :size="16" class="kg-icon" aria-hidden="true"></LogIn>
+            {{ $t('logout.login') }}
+          </a>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
+  </main>
 </template>
 
 <script>

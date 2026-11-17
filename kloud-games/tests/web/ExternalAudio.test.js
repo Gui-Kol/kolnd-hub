@@ -60,7 +60,9 @@ describe('externally managed audio configuration', () => {
   })
 
   it('provides the standard documentation table and a working configuration shortcut', () => {
-    const section = configDocumentation.split('### external_audio\n')[1].split('\n### ')[0]
+    // Normalize CRLF so the section lookup also works on Windows checkouts.
+    const documentation = configDocumentation.replaceAll('\r\n', '\n')
+    const section = documentation.split('### external_audio\n')[1].split('\n### ')[0]
     // Doxygen emits configuration headings as h2 and gives tables this class.
     document.body.innerHTML = '<input id="host-authority" value="localhost:47990">'
       + '<h2>external_audio</h2>' + section.replace('<table>', '<table class="doxtable">')

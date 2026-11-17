@@ -1,414 +1,334 @@
 ﻿<template>
-  <Navbar></Navbar>
-  <div id="content" class="container">
-    <h1 class="my-4">{{ $t('index.welcome') }}</h1>
-    <p>{{ $t('index.description') }}</p>
+  <AppShell>
+    <HostHero
+      :config="config"
+      :clients-count="clientsCount"
+      :encoder-label="encoderLabel"
+      :load-failed="configLoadFailed"
+    />
 
-    <!-- Fatal Errors Alert -->
-    <div class="alert alert-danger my-4" v-if="fancyLogs.some(x => x.level === 'Fatal')">
-      <div>
-        <div class="d-flex align-items-center mb-3">
-          <alert-circle :size="32" class="icon-lg me-3"></alert-circle>
-          <div v-html="$t('index.startup_errors')"></div>
-        </div>
-        <ul class="mb-3">
-          <li v-for="v in fancyLogs.filter(x => x.level === 'Fatal')" :key="`${v.timestamp}-${v.value}`">{{v.value}}</li>
+    <!-- Erros fatais -->
+    <section
+      v-if="fatalLogs.length"
+      class="kg-callout kg-callout-danger"
+      data-notice="fatal"
+      role="alert"
+    >
+      <AlertCircle :size="18" class="kg-icon" aria-hidden="true"></AlertCircle>
+      <div class="kg-grow">
+        <strong>{{ startupErrorsText }}</strong>
+        <ul class="kg-mt-2">
+          <li v-for="entry in fatalLogs" :key="`${entry.timestamp}-${entry.message}`">{{ entry.message }}</li>
         </ul>
-        <RouterLink class="btn btn-danger" to="/troubleshooting#logs">
-          <file-text :size="18" class="icon"></file-text>
-          View Logs
+        <RouterLink class="kg-btn kg-btn-danger kg-btn-sm kg-mt-2" to="/troubleshooting#logs">
+          <FileText :size="14" class="kg-icon" aria-hidden="true"></FileText>
+          {{ $t('troubleshooting.logs') }}
         </RouterLink>
       </div>
-    </div>
+    </section>
 
-    <div class="alert alert-warning my-4" v-if="missingPermissions.length">
-      <div class="d-flex align-items-center gap-3 mb-2">
-        <alert-triangle :size="24" class="icon"></alert-triangle>
+    <!-- Permissoes obrigatorias ausentes -->
+    <section
+      v-if="missingPermissions.length"
+      class="kg-callout kg-callout-warning"
+      data-notice="permissions"
+      role="alert"
+    >
+      <AlertTriangle :size="18" class="kg-icon" aria-hidden="true"></AlertTriangle>
+      <div class="kg-grow">
         <strong>{{ $t('index.permissions_missing_title') }}</strong>
+        <p class="kg-mt-2">{{ $t('index.permissions_missing_desc') }}</p>
+        <RouterLink class="kg-btn kg-btn-warning kg-btn-sm kg-mt-2" to="/troubleshooting#permissions">
+          {{ $t('index.permissions_review') }}
+        </RouterLink>
       </div>
-      <p>{{ $t('index.permissions_missing_desc') }}</p>
-      <RouterLink class="btn btn-warning" to="/troubleshooting#permissions">
-        {{ $t('index.permissions_review') }}
-      </RouterLink>
-    </div>
+    </section>
 
-    <!-- Virtual gamepad broker status -->
-    <div class="alert my-4" :class="virtualInputNotice.alertClass" v-if="virtualInputNotice">
-      <div>
-        <div class="d-flex align-items-center mb-3">
-          <alert-triangle v-if="virtualInputNotice.warning" :size="32" class="icon-lg me-3"></alert-triangle>
-          <info v-else :size="32" class="icon-lg me-3"></info>
-          <div>
-            <p class="mb-1"><strong>{{ $t(virtualInputNotice.title) }}</strong></p>
-            <p v-for="message in virtualInputNotice.messages" :key="message.key" class="mb-1">
-              {{ $t(message.key, message.params || {}) }}
-            </p>
-          </div>
-        </div>
-        <RouterLink class="btn" :class="virtualInputNotice.buttonClass" :to="virtualInputNotice.to">
-          <gamepad-2 v-if="virtualInputNotice.chooseDriver" :size="18" class="icon"></gamepad-2>
-          <wrench v-else :size="18" class="icon"></wrench>
+    <!-- Entrada virtual -->
+    <section
+      v-if="virtualInputNotice"
+      class="kg-callout"
+      :class="virtualInputNotice.tone === 'warning' ? 'kg-callout-warning' : 'kg-callout-info'"
+      data-notice="virtual-input"
+      :role="virtualInputNotice.warning ? 'alert' : 'status'"
+    >
+      <AlertTriangle v-if="virtualInputNotice.warning" :size="18" class="kg-icon" aria-hidden="true"></AlertTriangle>
+      <Info v-else :size="18" class="kg-icon" aria-hidden="true"></Info>
+      <div class="kg-grow">
+        <strong>{{ $t(virtualInputNotice.title) }}</strong>
+        <p v-for="message in virtualInputNotice.messages" :key="message.key" class="kg-mt-2">
+          {{ $t(message.key, message.params || {}) }}
+        </p>
+        <RouterLink class="kg-btn kg-btn-sm kg-mt-2" :class="virtualInputNotice.warning ? 'kg-btn-warning' : 'kg-btn-secondary'" :to="virtualInputNotice.to">
+          <Gamepad2 v-if="virtualInputNotice.chooseDriver" :size="14" class="kg-icon" aria-hidden="true"></Gamepad2>
+          <Wrench v-else :size="14" class="kg-icon" aria-hidden="true"></Wrench>
           {{ $t(virtualInputNotice.action) }}
         </RouterLink>
       </div>
-    </div>
+    </section>
 
-    <!-- Version -->
-    <div class="card my-4">
-      <div class="card-body" v-if="version">
-        <h2>Version {{version.version}}</h2>
-
-        <div v-if="loading" class="my-3">
-          {{ $t('index.loading_latest') }}
+    <!-- Indicadores com fonte real -->
+    <section class="kg-grid kg-grid-3" :aria-label="$t('index.host_status')">
+      <article class="kg-card kg-stat">
+        <div class="kg-stat-top">
+          <span class="kg-label">{{ $t('index.clients_paired') }}</span>
+          <span class="kg-icon-wrap" aria-hidden="true"><Monitor :size="14"></Monitor></span>
         </div>
-
-        <div class="alert alert-success my-3" v-if="buildVersionIsDirty">
-          <package :size="18" class="icon"></package>
-          {{ $t('index.version_dirty') }} 🌇
+        <p class="kg-value">{{ clientsCount === null ? '—' : clientsCount }}</p>
+        <p class="kg-foot">
+          <RouterLink to="/pin">{{ $t('pin.clients_title') }}</RouterLink>
+        </p>
+      </article>
+      <article class="kg-card kg-stat">
+        <div class="kg-stat-top">
+          <span class="kg-label">{{ $t('index.encoder') }}</span>
+          <span class="kg-icon-wrap" aria-hidden="true"><Cpu :size="14"></Cpu></span>
         </div>
-
-        <div class="alert alert-info my-3" v-if="installedVersionNotStable">
-          <info :size="18" class="icon"></info>
-          {{ $t('index.installed_version_not_stable') }}
+        <p class="kg-value">{{ encoderLabel }}</p>
+        <p class="kg-foot">
+          {{ config?.hevc_mode !== undefined ? `HEVC ${config.hevc_mode}` : '' }}
+          {{ config?.av1_mode !== undefined ? `· AV1 ${config.av1_mode}` : '' }}
+        </p>
+      </article>
+      <article class="kg-card kg-stat">
+        <div class="kg-stat-top">
+          <span class="kg-label">{{ $t('index.health') }}</span>
+          <span class="kg-icon-wrap" aria-hidden="true"><Activity :size="14"></Activity></span>
         </div>
+        <p class="kg-value" :class="healthRows.some(row => row.tone === 'warning') ? 'kg-text-warning' : ''">
+          {{ healthRows.some(row => row.tone === 'warning') ? $t('index.health_attention') : $t('index.health_ok') }}
+        </p>
+        <p class="kg-foot">
+          {{ config?.platform || '' }}
+        </p>
+      </article>
+    </section>
 
-        <div v-else-if="(!preReleaseBuildAvailable || !notifyPreReleases) && !stableBuildAvailable && !buildVersionIsDirty">
-          <div class="alert alert-success my-3">
-            <check-circle :size="18" class="icon"></check-circle>
-            {{ $t('index.version_latest') }}
-          </div>
-        </div>
+    <section class="kg-grid kg-grid-2">
+      <HealthPanel :rows="healthRows" />
+      <RecentActivity :entries="recentEntries" />
+    </section>
 
-        <div v-if="notifyPreReleases && preReleaseBuildAvailable">
-          <div class="alert alert-warning my-3">
-            <!-- header row -->
-            <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
-              <div class="d-flex align-items-center gap-3 flex-wrap">
-                <alert-circle :size="18" class="icon"></alert-circle>
-                <span>{{ $t('index.new_pre_release') }}</span>
-                <h5 class="mb-0">{{ preReleaseVersion.release.name }}</h5>
-              </div>
-              <a class="btn btn-success flex-shrink-0" :href="preReleaseVersion.release.html_url" target="_blank">
-                <download :size="18" class="icon"></download>
-                {{ $t('index.download') }}
-              </a>
-            </div>
+    <VersionCard
+      :version="versionLabel"
+      :github-version="githubVersion"
+      :pre-release-version="preReleaseVersion"
+      :notify-pre-releases="notifyPreReleases"
+      :loading="loading"
+      :dirty="buildVersionIsDirty"
+      :not-stable="installedVersionNotStable"
+      :stable-available="stableBuildAvailable"
+      :pre-release-available="preReleaseBuildAvailable"
+    />
 
-            <!-- body row (full width) -->
-            <div class="markdown-body release-notes" v-html="convertMarkdownToHtml(preReleaseVersion.release.body)"></div>
-          </div>
-        </div>
-
-        <div v-if="stableBuildAvailable">
-          <div class="alert alert-warning my-3">
-            <!-- header row -->
-            <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
-              <div class="d-flex align-items-center gap-3 flex-wrap">
-                <alert-circle :size="18" class="icon"></alert-circle>
-                <span>{{ $t('index.new_stable') }}</span>
-                <h5 class="mb-0">{{ githubVersion.release.name }}</h5>
-              </div>
-              <a class="btn btn-success flex-shrink-0" :href="githubVersion.release.html_url" target="_blank">
-                <download :size="18" class="icon"></download>
-                {{ $t('index.download') }}
-              </a>
-            </div>
-
-            <!-- body row (full width) -->
-            <div class="markdown-body release-notes" v-html="convertMarkdownToHtml(githubVersion.release.body)"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Legal -->
-    <div class="my-4">
-      <Resource-Card></Resource-Card>
-    </div>
-  </div>
+    <ResourceCard />
+  </AppShell>
 </template>
 
 <script>
-  import { marked } from 'marked'
-  import Navbar from './Navbar.vue'
-  import ResourceCard from './ResourceCard.vue'
-  import KLOUD_GAMESVersion from './KLOUD_GAMES_version'
-  import {
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  Cpu,
+  FileText,
+  Gamepad2,
+  Info,
+  Monitor,
+  Wrench,
+} from '@lucide/vue'
+import DOMPurify from 'dompurify'
+import AppShell from './components/AppShell.vue'
+import HealthPanel from './components/home/HealthPanel.vue'
+import HostHero from './components/home/HostHero.vue'
+import RecentActivity from './components/home/RecentActivity.vue'
+import VersionCard from './components/home/VersionCard.vue'
+import ResourceCard from './ResourceCard.vue'
+import KLOUD_GAMESVersion from './KLOUD_GAMES_version'
+import { buildHealthRows, buildVirtualInputNotice, missingRequiredPermissions } from './components/home/notices'
+import { publishHostMeta } from './components/host-meta'
+import { parseLogEntries, recentLogEntries } from './components/diagnostics/log-utils'
+
+/**
+ * @brief Mapa de rotulos i18n dos codificadores conhecidos.
+ *
+ * @param {object} config Host configuration.
+ * @return {string} Localized encoder label or an empty string.
+ */
+function encoderLabel(config) {
+  if (!config) return ''
+  const encoder = config.encoder
+  if (!encoder || encoder === 'auto') return 'index.encoder_auto'
+  return String(encoder)
+}
+
+export default {
+  components: {
+    Activity,
     AlertCircle,
     AlertTriangle,
+    Cpu,
     FileText,
-    Wrench,
-    Package,
+    Gamepad2,
     Info,
-    CheckCircle,
-    Download,
-    Gamepad2
-  } from '@lucide/vue'
+    Monitor,
+    Wrench,
+    AppShell,
+    HealthPanel,
+    HostHero,
+    RecentActivity,
+    ResourceCard,
+    VersionCard,
+  },
+  data() {
+    return {
+      config: null,
+      configLoadFailed: false,
+      clientsCount: null,
+      version: null,
+      githubVersion: null,
+      notifyPreReleases: false,
+      preReleaseVersion: null,
+      loading: true,
+      logs: null,
+      platform: '',
+      controllerEnabled: false,
+      gamepadDriver: '',
+      virtualhid: null,
+      virtualhidLicense: null,
+      vigembus: null,
+      permissions: [],
+    }
+  },
+  async created() {
+    try {
+      const config = await fetch('./api/config').then(response => response.json())
+      this.config = config
+      publishHostMeta(config)
+      this.notifyPreReleases = config.notify_pre_releases
+      this.platform = config.platform
+      this.controllerEnabled = config.controller !== 'disabled'
+      this.gamepadDriver = config.gamepad_driver || ''
+      this.version = new KLOUD_GAMESVersion(null, config.version)
+    } catch (error) {
+      console.error(error)
+      this.configLoadFailed = true
+    }
 
-  // Configure marked to allow HTML
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-    headerIds: true,
-    mangle: false,
-    sanitize: false
-  });
+    this.clientsCount = await fetch('./api/clients/list')
+      .then(response => response.json())
+      .then(body => (body.status === true && Array.isArray(body.named_certs) ? body.named_certs.length : 0))
+      .catch(() => null)
 
-  console.log("Hello, KLOUD_GAMES!")
-  export default {
-    components: {
-      Navbar,
-      ResourceCard,
-      AlertCircle,
-      AlertTriangle,
-      FileText,
-      Wrench,
-      Package,
-      Info,
-      CheckCircle,
-      Download,
-      Gamepad2
-    },
-    data() {
-      return {
-        version: null,
-        githubVersion: null,
-        notifyPreReleases: false,
-        preReleaseVersion: null,
-        loading: true,
-        logs: null,
-        platform: "",
-        controllerEnabled: false,
-        gamepadDriver: '',
-        virtualhid: null,
-        virtualhidLicense: null,
-        vigembus: null,
-        permissions: [],
-      }
-    },
-    async created() {
+    try {
+      const response = await fetch('./api/permissions')
+      this.permissions = (await response.json()).permissions || []
+    } catch (error) {
+      console.error('Failed to fetch permission status:', error)
+    }
+
+    // A GitHub outage must not mark the local configuration as unavailable.
+    try {
+      this.githubVersion = new KLOUD_GAMESVersion(
+        await fetch('https://api.github.com/repos/KLOUD_GAMESStream/KLOUD_GAMES/releases/latest').then(response => response.json()),
+        null,
+      )
+      const releases = await fetch('https://api.github.com/repos/KLOUD_GAMESStream/KLOUD_GAMES/releases').then(response => response.json())
+      const preRelease = Array.isArray(releases) ? releases.find(release => release.prerelease) : null
+      this.preReleaseVersion = preRelease ? new KLOUD_GAMESVersion(preRelease, null) : null
+    } catch (error) {
+      console.error('Failed to fetch release information:', error)
+    }
+
+    if (this.platform === 'windows' || this.platform === 'macos') {
       try {
-        let config = await fetch("./api/config").then((r) => r.json());
-        this.notifyPreReleases = config.notify_pre_releases;
-        this.platform = config.platform;
-        this.controllerEnabled = config.controller !== "disabled";
-        this.gamepadDriver = config.gamepad_driver || '';
-        this.version = new KLOUD_GAMESVersion(null, config.version);
-        try {
-          const response = await fetch('./api/permissions');
-          this.permissions = (await response.json()).permissions || [];
-        } catch (e) {
-          console.error('Failed to fetch permission status:', e);
+        const virtualInputStatus = await fetch('./api/virtual-input/status').then(response => response.json())
+        this.virtualhid = virtualInputStatus.virtualhid
+        if (this.platform === 'windows') {
+          this.vigembus = virtualInputStatus.vigembus
         }
-        console.log("Version: ", this.version.version)
-        this.githubVersion = new KLOUD_GAMESVersion(await fetch("https://api.github.com/repos/KLOUD_GAMESStream/KLOUD_GAMES/releases/latest").then((r) => r.json()), null);
-        console.log("GitHub Version: ", this.githubVersion.version)
-        this.preReleaseVersion = new KLOUD_GAMESVersion((await fetch("https://api.github.com/repos/KLOUD_GAMESStream/KLOUD_GAMES/releases").then((r) => r.json())).find(release => release.prerelease), null);
-        console.log("Pre-Release Version: ", this.preReleaseVersion.version)
-
-        // Read the broker version on both platforms to identify development builds.
-        if (this.platform === 'windows' || this.platform === 'macos') {
-          try {
-            const virtualInputStatus = await fetch("./api/virtual-input/status").then((r) => r.json());
-            this.virtualhid = virtualInputStatus.virtualhid;
-            if (this.platform === 'windows') {
-              this.vigembus = virtualInputStatus.vigembus;
-            }
-          } catch (e) {
-            console.error("Failed to fetch virtual input driver status:", e);
-          }
-        }
-        if (this.platform === 'windows' || this.platform === 'macos') {
-          try {
-            this.virtualhidLicense = await fetch("./api/virtual-input/license").then((r) => r.json());
-          } catch (e) {
-            console.error("Failed to fetch Virtual HID Broker license status:", e);
-          }
-        }
-      } catch (e) {
-        console.error(e);
+      } catch (error) {
+        console.error('Failed to fetch virtual input driver status:', error)
       }
       try {
-        this.logs = (await fetch("./api/logs").then(r => r.text()))
-      } catch (e) {
-        console.error(e);
-      }
-      this.loading = false;
-    },
-    computed: {
-      /** Return required permissions that the current platform can check and has not granted. */
-      missingPermissions() {
-        return this.permissions.filter(permission => permission.required && permission.verifiable && permission.status !== 'granted');
-      },
-      /**
-       * Build the virtual-input message shown on the home page.
-       * Warn about broker or gamepad driver issues when virtual gamepads are enabled.
-       */
-      virtualInputNotice() {
-        if (!this.controllerEnabled || this.gamepadDriver === 'none') {
-          return null;
-        }
-
-        if (this.platform === 'macos') {
-          return this.buildMacosVirtualInputNotice();
-        }
-
-        if (this.platform !== 'windows' || !this.virtualhid || !this.vigembus) {
-          return null;
-        }
-
-        const vigembusUsable = this.vigembus.installed && this.vigembus.version_compatible;
-
-        if (!this.gamepadDriver) {
-          return this.buildVirtualInputNotice(false, 'index.gamepad_driver_choice_title', [{
-            key: 'index.gamepad_driver_choice_desc',
-          }], {
-            action: 'index.choose_gamepad_driver',
-            chooseDriver: true,
-            to: '/config#gamepad_driver',
-          });
-        }
-
-        if (this.gamepadDriver === 'vigembus') {
-          return this.buildVigembusNotice(vigembusUsable);
-        }
-
-        if (this.virtualhid.installed) {
-          return this.buildInstalledVirtualhidNotice(vigembusUsable);
-        }
-
-        if (this.gamepadDriver === 'virtualhid') {
-          return this.buildVirtualInputNotice(true, 'index.virtualhid_broker_unavailable_title', [{ key: 'index.virtualhid_required_desc' }]);
-        }
-
-        if (this.controllerEnabled && !vigembusUsable) {
-          return this.buildVirtualInputNotice(true, 'index.virtual_input_unavailable_title', [{ key: 'index.virtual_input_unavailable_desc' }]);
-        }
-
-        return this.buildVirtualInputNotice(
-          false,
-          'index.virtualhid_optional_title',
-          [{ key: this.controllerEnabled ? 'index.virtualhid_optional_vigembus_desc' : 'index.virtualhid_optional_desc' }],
-        );
-      },
-      installedVersionNotStable() {
-        if (!this.githubVersion || !this.version) {
-          return false;
-        }
-        return this.version.isGreater(this.githubVersion);
-      },
-      stableBuildAvailable() {
-        if (!this.githubVersion || !this.version) {
-          return false;
-        }
-        return this.githubVersion.isGreater(this.version);
-      },
-      preReleaseBuildAvailable() {
-        if (!this.preReleaseVersion || !this.githubVersion || !this.version) {
-          return false;
-        }
-        return this.preReleaseVersion.isGreater(this.version) && this.preReleaseVersion.isGreater(this.githubVersion);
-      },
-      buildVersionIsDirty() {
-        return this.version.version?.split(".").length === 5 &&
-          this.version.version.includes("dirty")
-      },
-      /** Parse the text errors, calculating the text, the timestamp and the level */
-      fancyLogs() {
-        if (!this.logs) return [];
-        let regex = /(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}]):\s/g;
-        let rawLogLines = (this.logs.split(regex)).splice(1);
-        let logLines = []
-        for (let i = 0; i < rawLogLines.length; i += 2) {
-          logLines.push({ timestamp: rawLogLines[i], level: rawLogLines[i + 1].split(":")[0], value: rawLogLines[i + 1] });
-        }
-        return logLines;
-      }
-    },
-    methods: {
-      /**
-       * Build the macOS broker notice, prioritizing license and service warnings.
-       *
-       * @returns {object|null} Warning or development-build notice, when applicable.
-       */
-      buildMacosVirtualInputNotice() {
-        if (this.virtualhidLicense && !this.virtualhidLicense.licensed) {
-          return this.virtualhidLicense.service_available
-            ? this.buildVirtualInputNotice(true, 'index.virtualhid_macos_license_title', [{ key: 'index.virtualhid_macos_license_desc' }])
-            : this.buildVirtualInputNotice(true, 'index.virtualhid_broker_unavailable_title', [{ key: 'index.virtualhid_macos_broker_desc' }]);
-        }
-        return this.virtualhid?.development_version
-          ? this.buildVirtualInputNotice(false, 'index.virtualhid_development_title', [{ key: 'index.virtualhid_development_desc' }])
-          : null;
-      },
-      /**
-       * Build a home-page notice for the current virtual-input state.
-       *
-       * @param {boolean} warning Whether the notice represents an actionable warning.
-       * @param {string} title Localization key for the notice title.
-       * @param {object[]} messages Localized message descriptors.
-       * @param {object} options Optional action and destination overrides.
-       * @returns {object} Notice data consumed by the template.
-       */
-      buildVirtualInputNotice(warning, title, messages, options = {}) {
-        return {
-          action: options.action || 'index.review_virtual_input',
-          alertClass: warning ? 'alert-warning' : 'alert-info',
-          buttonClass: warning ? 'btn-warning' : 'btn-info',
-          chooseDriver: options.chooseDriver || false,
-          to: options.to || '/troubleshooting#virtualhid',
-          messages,
-          title,
-          warning,
-        };
-      },
-      /**
-       * Build the notice for an explicitly selected ViGEmBus backend.
-       *
-       * @param {boolean} vigembusUsable Whether ViGEmBus is installed and compatible.
-       * @returns {object|null} Warning data, or no notice when ViGEmBus is usable.
-       */
-      buildVigembusNotice(vigembusUsable) {
-        if (!this.controllerEnabled || vigembusUsable) {
-          return null;
-        }
-        return this.buildVirtualInputNotice(true, 'index.vigembus_required_title', [{
-          key: this.vigembus.installed ? 'index.vigembus_outdated_desc' : 'index.vigembus_not_installed_desc',
-          params: { version: this.vigembus.version, supported_versions: this.vigembus.supported_versions },
-        }]);
-      },
-      /**
-       * Build the notice for an installed Virtual HID Driver.
-       *
-       * @param {boolean} vigembusUsable Whether ViGEmBus is available as a fallback.
-       * @returns {object|null} Warning or informational data, or no notice when fully usable.
-       */
-      buildInstalledVirtualhidNotice(vigembusUsable) {
-        const messages = [];
-        if (!this.virtualhid.version_compatible && !this.virtualhid.development_version) {
-          messages.push({
-            key: 'index.virtualhid_outdated_desc',
-            params: { version: this.virtualhid.version, supported_versions: this.virtualhid.supported_versions },
-          });
-        }
-        if (this.virtualhidLicense && !this.virtualhidLicense.licensed) {
-          const licenseMessageKey = this.gamepadDriver === 'all' && vigembusUsable ?
-            'index.virtualhid_license_invalid_fallback_desc' :
-            'index.virtualhid_license_invalid_desc';
-          messages.push({ key: licenseMessageKey });
-        }
-        if (messages.length) {
-          return this.buildVirtualInputNotice(true, 'index.virtualhid_attention_title', messages);
-        }
-        if (this.virtualhid.development_version) {
-          return this.buildVirtualInputNotice(false, 'index.virtualhid_development_title', [{ key: 'index.virtualhid_development_desc' }]);
-        }
-        return null;
-      },
-      convertMarkdownToHtml(markdown) {
-        if (!markdown) return '';
-        return marked.parse(markdown);
+        this.virtualhidLicense = await fetch('./api/virtual-input/license').then(response => response.json())
+      } catch (error) {
+        console.error('Failed to fetch Virtual HID Broker license status:', error)
       }
     }
-  }
+    try {
+      this.logs = await fetch('./api/logs').then(response => response.text())
+    } catch (error) {
+      console.error(error)
+    }
+    this.loading = false
+  },
+  computed: {
+    /** @return {object|null} Virtual-input notice for the current host state. */
+    virtualInputNotice() {
+      return buildVirtualInputNotice({
+        platform: this.platform,
+        controllerEnabled: this.controllerEnabled,
+        gamepadDriver: this.gamepadDriver,
+        virtualhid: this.virtualhid,
+        vigembus: this.vigembus,
+        virtualhidLicense: this.virtualhidLicense,
+      })
+    },
+    /** @return {object[]} Required permissions that are not granted. */
+    missingPermissions() {
+      return missingRequiredPermissions(this.permissions)
+    },
+    /** @return {Array<object>} Host-health rows derived from real API values. */
+    healthRows() {
+      return buildHealthRows({
+        platform: this.platform,
+        permissions: this.permissions,
+        virtualhid: this.virtualhid,
+        gamepadDriver: this.gamepadDriver,
+        upnp: this.config?.upnp,
+        port: this.config?.port,
+        stream_audio: this.config?.stream_audio,
+        audio_sink: this.config?.audio_sink,
+        virtual_sink: this.config?.virtual_sink,
+      })
+    },
+    /** @return {Array<object>} Latest log entries (max 5). */
+    recentEntries() {
+      return recentLogEntries(this.logs, 5)
+    },
+    /** @return {Array<object>} Fatal log entries. */
+    fatalLogs() {
+      return parseLogEntries(this.logs).filter(entry => entry.level === 'Fatal')
+    },
+    /** @return {string} Localized encoder label. */
+    encoderLabel() {
+      const key = encoderLabel(this.config)
+      return key.startsWith('index.') ? this.$t(key) : key
+    },
+    /** @return {string} Installed version string. */
+    versionLabel() {
+      return this.version?.version || ''
+    },
+    /** @return {string} Startup error heading without inline HTML markup. */
+    startupErrorsText() {
+      return DOMPurify.sanitize(this.$t('index.startup_errors'), { ALLOWED_TAGS: [] })
+    },
+    installedVersionNotStable() {
+      if (!this.githubVersion || !this.version) return false
+      return this.version.isGreater(this.githubVersion)
+    },
+    stableBuildAvailable() {
+      if (!this.githubVersion || !this.version) return false
+      return this.githubVersion.isGreater(this.version)
+    },
+    preReleaseBuildAvailable() {
+      if (!this.preReleaseVersion || !this.githubVersion || !this.version) return false
+      return this.preReleaseVersion.isGreater(this.version) && this.preReleaseVersion.isGreater(this.githubVersion)
+    },
+    buildVersionIsDirty() {
+      return this.version?.version?.split('.').length === 5 && this.version.version.includes('dirty')
+    },
+  },
+}
 </script>

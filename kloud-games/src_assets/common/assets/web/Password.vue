@@ -1,70 +1,76 @@
 <template>
-  <Navbar></Navbar>
-  <div id="content" class="container">
-    <div class="my-4">
-      <h1>{{ $t('password.password_change') }}</h1>
-      <p>{{ $t('password.password_change_desc') }}</p>
+  <AppShell>
+    <div class="kg-page-head">
+      <div>
+        <h1>{{ $t('password.password_change') }}</h1>
+        <p class="kg-sub">{{ $t('password.password_change_desc') }}</p>
+      </div>
     </div>
-    <form @submit.prevent="save">
-      <div class="card">
-        <div class="card-body">
-          <div class="row">
-            <div class="col-md-6">
-              <h4>{{ $t('password.current_creds') }}</h4>
-              <div class="mb-3">
-                <label for="currentUsername" class="form-label">{{ $t('_common.username') }}</label>
-                <input required type="text" class="form-control" id="currentUsername"
-                  v-model="passwordData.currentUsername" />
-              </div>
-              <div class="mb-3">
-                <label for="currentPassword" class="form-label">{{ $t('_common.password') }}</label>
-                <input autocomplete="current-password" type="password" class="form-control" id="currentPassword"
-                  v-model="passwordData.currentPassword" />
-              </div>
+    <form class="kg-stack-4" @submit.prevent="save">
+      <div class="kg-grid kg-grid-2">
+        <section class="kg-card" aria-labelledby="current-creds-title">
+          <div class="kg-card-head">
+            <h2 id="current-creds-title">{{ $t('password.current_creds') }}</h2>
+          </div>
+          <div class="kg-card-pad kg-stack-4">
+            <div class="kg-field">
+              <label for="currentUsername" class="kg-label">{{ $t('_common.username') }}</label>
+              <input required id="currentUsername" v-model="passwordData.currentUsername" class="kg-input" type="text" autocomplete="username" />
             </div>
-            <div class="col-md-6">
-              <h4>{{ $t('password.new_creds') }}</h4>
-              <div class="mb-3">
-                <label for="newUsername" class="form-label">{{ $t('_common.username') }}</label>
-                <input type="text" class="form-control" id="newUsername" v-model="passwordData.newUsername" />
-                <div class="form-text">{{ $t('password.new_username_desc') }}</div>
-              </div>
-              <div class="mb-3">
-                <label for="newPassword" class="form-label">{{ $t('_common.password') }}</label>
-                <input autocomplete="new-password" required type="password" class="form-control" id="newPassword"
-                  v-model="passwordData.newPassword" />
-              </div>
-              <div class="mb-3">
-                <label for="confirmNewPassword" class="form-label">{{ $t('password.confirm_password') }}</label>
-                <input autocomplete="new-password" required type="password" class="form-control" id="confirmNewPassword"
-                  v-model="passwordData.confirmNewPassword" />
-              </div>
+            <div class="kg-field">
+              <label for="currentPassword" class="kg-label">{{ $t('_common.password') }}</label>
+              <input id="currentPassword" v-model="passwordData.currentPassword" class="kg-input" type="password" autocomplete="current-password" />
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="kg-card" aria-labelledby="new-creds-title">
+          <div class="kg-card-head">
+            <h2 id="new-creds-title">{{ $t('password.new_creds') }}</h2>
+          </div>
+          <div class="kg-card-pad kg-stack-4">
+            <div class="kg-field">
+              <label for="newUsername" class="kg-label">{{ $t('_common.username') }}</label>
+              <input id="newUsername" v-model="passwordData.newUsername" class="kg-input" type="text" autocomplete="username" />
+              <p class="kg-help">{{ $t('password.new_username_desc') }}</p>
+            </div>
+            <div class="kg-field">
+              <label for="newPassword" class="kg-label">{{ $t('_common.password') }}</label>
+              <input required id="newPassword" v-model="passwordData.newPassword" class="kg-input" type="password" autocomplete="new-password" />
+            </div>
+            <div class="kg-field">
+              <label for="confirmNewPassword" class="kg-label">{{ $t('password.confirm_password') }}</label>
+              <input required id="confirmNewPassword" v-model="passwordData.confirmNewPassword" class="kg-input" type="password" autocomplete="new-password" />
+            </div>
+          </div>
+        </section>
       </div>
-      <div class="alert alert-danger my-3" v-if="error"><b>Error: </b>{{error}}</div>
-      <div class="alert alert-success my-3" v-if="success">
-        <b>{{ $t('_common.success') }}</b> {{ $t('password.success_msg') }}
+
+      <div v-if="error" class="kg-callout kg-callout-danger" role="alert">
+        <strong>{{ $t('_common.error') }}</strong> {{ error }}
       </div>
-      <div class="mb-3 mt-4">
-        <button type="submit" class="btn btn-primary">
-          <save :size="18" class="icon"></save>
+      <div v-if="success" class="kg-callout kg-callout-success" role="status">
+        <strong>{{ $t('_common.success') }}</strong> {{ $t('password.success_msg') }}
+      </div>
+
+      <div>
+        <button type="submit" class="kg-btn kg-btn-primary">
+          <Save :size="16" class="kg-icon" aria-hidden="true"></Save>
           {{ $t('_common.save') }}
         </button>
       </div>
     </form>
-  </div>
+  </AppShell>
 </template>
 
 <script>
-  import Navbar from './Navbar.vue'
+  import AppShell from './components/AppShell.vue'
   import { apiFetch } from './fetch_utils'
   import { Save } from '@lucide/vue'
 
   export default {
     components: {
-      Navbar,
+      AppShell,
       Save,
     },
     data() {

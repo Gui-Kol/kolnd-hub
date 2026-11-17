@@ -20,7 +20,7 @@ const model = defineModel({
 </script>
 
 <template>
-  <select :id="id" class="form-select" :class="{ 'is-invalid': !isValidVirtualKeyCode(model) }"
+  <select :id="id" class="kg-select" :class="{ 'is-invalid': !isValidVirtualKeyCode(model) }"
           v-model="model" required>
     <option value="" disabled>{{ $t('config.keybindings_select') }}</option>
     <option v-if="model && !hasVirtualKeyCodeOption(model)" :value="model">

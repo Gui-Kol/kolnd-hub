@@ -1,0 +1,8 @@
+{
+  "status": true,
+  "named_certs": [
+    { "name": "Living room TV", "uuid": "d1f2a3b4-0001-4c5d-8e9f-000000000001", "enabled": true },
+    { "name": "Steam Deck", "uuid": "d1f2a3b4-0002-4c5d-8e9f-000000000002", "enabled": false },
+    { "name": "", "uuid": "d1f2a3b4-0003-4c5d-8e9f-000000000003", "enabled": true }
+  ]
+}

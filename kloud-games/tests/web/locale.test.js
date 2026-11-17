@@ -1,10 +1,5 @@
 ﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('vue-i18n', () => ({
-  createI18n: vi.fn(options => options),
-}))
-
-import { createI18n } from 'vue-i18n'
 import createKLOUD_GAMESI18n, { loadLocaleMessages } from '../../src_assets/common/assets/web/locale.js'
 
 describe('locale initialization', () => {
@@ -14,7 +9,6 @@ describe('locale initialization', () => {
   })
 
   beforeEach(() => {
-    createI18n.mockClear()
     document.documentElement.removeAttribute('lang')
   })
 
@@ -28,10 +22,10 @@ describe('locale initialization', () => {
     expect(fetch).toHaveBeenCalledWith('./api/configLocale')
     expect(fetch).toHaveBeenCalledWith('./assets/locale/de.json')
     expect(document.documentElement.lang).toBe('de')
-    expect(i18n.locale).toBe('de')
-    expect(i18n.fallbackLocale).toBe('en')
-    expect(i18n.messages.en).toBeDefined()
-    expect(i18n.messages.de).toEqual({ greeting: 'Hallo' })
+    expect(i18n.global.locale).toBe('de')
+    expect(i18n.global.fallbackLocale).toBe('en')
+    expect(i18n.global.messages.en).toBeDefined()
+    expect(i18n.global.getLocaleMessage('de')).toEqual({ greeting: 'Hallo' })
   })
 
   it.each([
@@ -46,8 +40,8 @@ describe('locale initialization', () => {
     const i18n = await createKLOUD_GAMESI18n()
 
     expect(document.documentElement.lang).toBe('en')
-    expect(i18n.locale).toBe('en')
-    expect(Object.keys(i18n.messages)).toEqual(['en'])
+    expect(i18n.global.locale).toBe('en')
+    expect(Object.keys(i18n.global.messages)).toEqual(['en'])
   })
 
   it('falls back to English when a bundled translation fails to load', async () => {

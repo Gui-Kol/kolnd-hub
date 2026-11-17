@@ -1,0 +1,17 @@
+{
+  "virtualhid": {
+    "installed": true,
+    "version": "2026.914.1218",
+    "version_compatible": true,
+    "minimum_version": "2026.914.1218",
+    "supported_versions": ">= 2026.914.1218",
+    "development_version": false
+  },
+  "vigembus": {
+    "installed": false,
+    "version": "",
+    "version_compatible": false,
+    "minimum_version": "1.17.333.0",
+    "supported_versions": ">= 1.17.333.0"
+  }
+}

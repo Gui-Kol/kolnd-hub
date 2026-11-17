@@ -1,0 +1,77 @@
+/**
+ * @file tokens.css
+ * @brief Tokens semanticos do design system do Kloud Games (linguagem Kolnd Hub).
+ *
+ * Os valores de cor vivem em `themes.css` (uma paleta por tema). Este arquivo
+ * define as constantes estruturais: tipografia, espacamento, raio, movimento,
+ * camadas, sombras de fallback e dimensoes do shell.
+ */
+
+:root {
+  /* Tipografia */
+  --kg-font-sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --kg-font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --kg-text-2xs: 10px;
+  --kg-text-xs: 11px;
+  --kg-text-sm: 12.5px;
+  --kg-text-base: 13.5px;
+  --kg-text-md: 14px;
+  --kg-text-lg: 16px;
+  --kg-text-xl: 20px;
+  --kg-text-2xl: 26px;
+  --kg-text-3xl: 32px;
+  --kg-line-tight: 1.15;
+  --kg-line-base: 1.45;
+  --kg-line-relaxed: 1.55;
+
+  /* Espacamento */
+  --kg-space-1: 4px;
+  --kg-space-2: 8px;
+  --kg-space-3: 12px;
+  --kg-space-4: 16px;
+  --kg-space-5: 20px;
+  --kg-space-6: 24px;
+  --kg-space-7: 32px;
+  --kg-space-8: 48px;
+
+  /* Raio */
+  --kg-radius-sm: 8px;
+  --kg-radius-control: 10px;
+  --kg-radius-card: 12px;
+  --kg-radius-pill: 9999px;
+
+  /* Movimento */
+  --kg-motion-fast: 120ms;
+  --kg-motion-base: 180ms;
+  --kg-motion-slow: 240ms;
+  --kg-motion-screen: 360ms;
+  --kg-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Camadas */
+  --kg-z-rail: 30;
+  --kg-z-chrome: 40;
+  --kg-z-dropdown: 50;
+  --kg-z-toast: 60;
+  --kg-z-overlay: 80;
+  --kg-z-modal: 100;
+
+  /* Sombras (sobrescritas por tema) */
+  --kg-shadow-sm: 0 1px 2px rgba(2, 8, 16, 0.4);
+  --kg-shadow-md: 0 8px 24px rgba(2, 8, 16, 0.45);
+  --kg-shadow-lg: 0 16px 48px rgba(2, 8, 16, 0.55);
+  --kg-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Shell */
+  --kg-brandstrip-h: 40px;
+  --kg-topbar-h: 56px;
+  --kg-content-max: 1280px;
+
+  /* Alvos minimos */
+  --kg-tap-min: 32px;
+  --kg-control-h: 38px;
+
+  /* Transicoes nomeadas */
+  --kg-transition-control: border-color var(--kg-motion-base) var(--kg-ease-out),
+    background-color var(--kg-motion-base) var(--kg-ease-out),
+    color var(--kg-motion-base) var(--kg-ease-out);
+}

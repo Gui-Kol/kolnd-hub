@@ -30,7 +30,12 @@
     "success": "Success!",
     "undo_cmd": "Undo Command",
     "username": "Username",
-    "warning": "Warning!"
+    "warning": "Warning!",
+    "skip_to_content": "Skip to content",
+    "local_server": "Local server",
+    "main_navigation": "Main navigation",
+    "not_available": "Not available",
+    "status": "Status"
   },
   "apps": {
     "actions": "Actions",
@@ -105,7 +110,14 @@
     "wait_all": "Continue streaming until all app processes exit",
     "wait_all_desc": "This will continue streaming until all processes started by the app have terminated. When unchecked, streaming will stop when the initial app process exits, even if other app processes are still running.",
     "working_dir": "Working Directory",
-    "working_dir_desc": "The working directory that should be passed to the process. For example, some applications use the working directory to search for configuration files. If not set, KLOUD_GAMES will default to the parent directory of the command"
+    "working_dir_desc": "The working directory that should be passed to the process. For example, some applications use the working directory to search for configuration files. If not set, KLOUD_GAMES will default to the parent directory of the command",
+    "details": "Details",
+    "open_editor": "Edit application",
+    "inspector_empty": "Select an application to inspect its details.",
+    "prep_count": "prep commands",
+    "detached_count": "detached commands",
+    "exit_timeout_short": "exit timeout",
+    "output_short": "output"
   },
   "config": {
     "adapter_name": "Adapter Name",
@@ -484,7 +496,16 @@
     "wan_encryption_mode": "WAN Encryption Mode",
     "wan_encryption_mode_1": "Enabled for supported clients (default)",
     "wan_encryption_mode_2": "Required for all clients",
-    "wan_encryption_mode_desc": "This determines when encryption will be used when streaming over the Internet. Encryption can reduce streaming performance, particularly on less powerful hosts and clients."
+    "wan_encryption_mode_desc": "This determines when encryption will be used when streaming over the Internet. Encryption can reduce streaming performance, particularly on less powerful hosts and clients.",
+    "unsaved_changes": "{count} unsaved changes",
+    "no_changes": "No unsaved changes",
+    "discard": "Discard",
+    "apply_restart": "Apply and restart",
+    "search_no_results": "No results found for \"{query}\"",
+    "search_results": "{count} matching option(s)",
+    "search_hint": "Search by option name",
+    "host_detected": "Detected host",
+    "restart_warning": "Applying restarts the streaming service and disconnects active sessions."
   },
   "index": {
     "permissions_missing_title": "KLOUD_GAMES needs permissions",
@@ -524,7 +545,31 @@
     "virtualhid_outdated_desc": "The installed libvirtualhid driver version (v{version}) is not supported. Supported versions: {supported_versions}.",
     "virtualhid_outdated_title": "libvirtualhid Driver Outdated",
     "virtualhid_required_desc": "Virtual HID Broker is selected, but it is not installed. Install it and activate a paid license, or choose a different gamepad driver in Input configuration.",
-    "welcome": "Hello, KLOUD_GAMES!"
+    "welcome": "Hello, KLOUD_GAMES!",
+    "host_status": "Host status",
+    "health": "Host health",
+    "health_ok": "No issues detected",
+    "health_attention": "Attention required",
+    "recent_activity": "Recent activity",
+    "activity_desc": "Latest entries from the host log.",
+    "no_activity": "No recent log entries available.",
+    "clients_paired": "Paired clients",
+    "encoder": "Encoder",
+    "encoder_auto": "Automatic",
+    "version_title": "Version and updates",
+    "config_loaded": "Configuration loaded",
+    "config_failed": "Configuration unavailable",
+    "platform": "Platform",
+    "port_label": "Port",
+    "shortcuts": "Shortcuts",
+    "release_notes": "Release notes",
+    "installed_version": "Installed version",
+    "permissions_ok": "Permissions granted",
+    "virtual_input_ok": "Virtual input ready",
+    "audio_configured": "Audio configured",
+    "audio_default": "Default audio device",
+    "network_upnp": "UPnP enabled",
+    "network_upnp_off": "UPnP disabled"
   },
   "navbar": {
     "applications": "Applications",
@@ -591,7 +636,15 @@
     "send": "Send",
     "unknown_address": "Unknown address",
     "unknown_device": "Unknown device",
-    "warning_msg": "Make sure you have access to the client you are pairing with. This software can give total control to your computer, so be careful!"
+    "warning_msg": "Make sure you have access to the client you are pairing with. This software can give total control to your computer, so be careful!",
+    "pairing_requests": "Pairing requests",
+    "auto_refresh": "Refreshes every 2 seconds",
+    "clients_title": "Paired clients",
+    "clients_desc": "Devices allowed to connect to this host.",
+    "pin_label": "PIN",
+    "pin_hint": "Enter the 4-digit PIN shown on the client.",
+    "enable_client": "Enable client",
+    "unpair_client": "Unpair client"
   },
   "resource_card": {
     "documentation": "Documentation",
@@ -742,7 +795,15 @@
     "virtualhid_license_state_licensed": "Licensed",
     "virtualhid_license_state_unavailable": "Unavailable",
     "virtualhid_license_state_unlicensed": "Unlicensed",
-    "virtualhid_macos_license_desc": "An active machine license is required for virtual gamepads on macOS. The broker must be installed, running, and allowed under System Settings > Privacy & Security > Device Control and Data Access. KLOUD_GAMES sends license actions to the local broker and does not save your key."
+    "virtualhid_macos_license_desc": "An active machine license is required for virtual gamepads on macOS. The broker must be installed, running, and allowed under System Settings > Privacy & Security > Device Control and Data Access. KLOUD_GAMES sends license actions to the local broker and does not save your key.",
+    "logs_copy": "Copy logs",
+    "logs_copied": "Logs copied",
+    "logs_empty": "No log entries.",
+    "logs_jump_top": "Jump to top",
+    "logs_jump_bottom": "Jump to bottom",
+    "logs_prev": "Previous warning or error",
+    "logs_next": "Next warning or error",
+    "actions_title": "Maintenance actions"
   },
   "featured": {
     "category_filter": "Category filter",

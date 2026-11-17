@@ -1,20 +1,33 @@
-﻿<template>
-  <nav class="navbar navbar-KLOUD_GAMES">
-    <div class="container-fluid">
-      <span class="navbar-brand" title="KLOUD_GAMES">
-        <img src="/images/logo-KLOUD_GAMES-45.png" height="45" alt="KLOUD_GAMES">
-      </span>
-      <ThemeToggle/>
-    </div>
-  </nav>
-</template>
+﻿<script>
+import { Zap } from '@lucide/vue'
+import ThemeMenu from './components/ThemeMenu.vue'
+import Notification from './Notification.vue'
 
-<script>
-import ThemeToggle from './ThemeToggle.vue'
-
+/**
+ * @file NavbarSimple.vue
+ * @brief Faixa minima para paginas sem navegacao (Welcome/Logout).
+ *
+ * Mantem a identidade e o seletor de tema; nao faz requisicoes.
+ */
 export default {
-  components: {
-    ThemeToggle,
-  },
+  name: 'NavbarSimple',
+  components: { ThemeMenu, Notification, Zap },
 }
 </script>
+
+<template>
+  <div>
+    <div class="kg-brandstrip">
+      <div class="kg-brandstrip-left">
+        <div class="kg-brandmark" aria-hidden="true">
+          <Zap :size="14"></Zap>
+        </div>
+        <span class="kg-brandname">Kloud Games</span>
+      </div>
+      <div class="kg-brandstrip-right">
+        <ThemeMenu />
+      </div>
+    </div>
+    <Notification />
+  </div>
+</template>

@@ -37,7 +37,7 @@ describe('Checkbox', () => {
     expect(wrapper.get('label').attributes('for')).toBe('test-option')
     expect(wrapper.get('label').text()).toContain('config.test-option')
     expect(wrapper.get('label').text()).toContain('Enabled by default')
-    expect(wrapper.findAll('.form-text')[1].text()).toBe('config.test-option_desc')
+    expect(wrapper.findAll('.kg-check-help')[1].text()).toBe('config.test-option_desc')
   })
 
   it('preserves string values when the checkbox changes', async () => {

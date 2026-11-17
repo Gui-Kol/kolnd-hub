@@ -51,24 +51,15 @@ function addRemappingEntry() {
 <template>
   <PlatformLayout :platform="platform">
     <template #windows>
-      <div class="mb-3 accordion">
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button" type="button" data-bs-toggle="collapse"
-                    data-bs-target="#panelsStayOpen-collapseOne">
-              {{ $t('config.dd_options_header') }}
-            </button>
-          </h2>
-          <div id="panelsStayOpen-collapseOne" class="accordion-collapse collapse show"
-               aria-labelledby="panelsStayOpen-headingOne">
-            <div class="accordion-body">
-
-              <!-- Configuration option -->
-              <div class="mb-3">
-                <label for="dd_configuration_option" class="form-label">
+      <details class="kg-card kg-card-pad kg-mt-3" open>
+      <summary class="kg-label" style="cursor: pointer">{{ $t('config.dd_options_header') }}</summary>
+      <div class="kg-stack-3 kg-mt-3">
+<!-- Configuration option -->
+              <div class="kg-field">
+                <label for="dd_configuration_option" class="kg-label">
                   {{ $t('config.dd_configuration_option') }}
                 </label>
-                <select id="dd_configuration_option" class="form-select" v-model="config.dd_configuration_option">
+                <select id="dd_configuration_option" class="kg-select" v-model="config.dd_configuration_option">
                   <option value="disabled">{{ $t('_common.disabled_def') }}</option>
                   <option value="verify_only">{{ $t('config.dd_config_verify_only') }}</option>
                   <option value="ensure_active">{{ $t('config.dd_config_ensure_active') }}</option>
@@ -78,67 +69,67 @@ function addRemappingEntry() {
               </div>
 
               <!-- Resolution option -->
-              <div class="mb-3" v-if="config.dd_configuration_option !== 'disabled'">
-                <label for="dd_resolution_option" class="form-label">
+              <div class="kg-field" v-if="config.dd_configuration_option !== 'disabled'">
+                <label for="dd_resolution_option" class="kg-label">
                   {{ $t('config.dd_resolution_option') }}
                 </label>
-                <select id="dd_resolution_option" class="form-select" v-model="config.dd_resolution_option">
+                <select id="dd_resolution_option" class="kg-select" v-model="config.dd_resolution_option">
                   <option value="disabled">{{ $t('config.dd_resolution_option_disabled') }}</option>
                   <option value="auto">{{ $t('config.dd_resolution_option_auto') }}</option>
                   <option value="manual">{{ $t('config.dd_resolution_option_manual') }}</option>
                 </select>
-                <div class="form-text"
+                <div class="kg-help"
                      v-if="config.dd_resolution_option === 'auto' || config.dd_resolution_option === 'manual'">
                   {{ $t('config.dd_resolution_option_ogs_desc') }}
                 </div>
 
                 <!-- Manual resolution -->
-                <div class="mt-2 ps-4" v-if="config.dd_resolution_option === 'manual'">
-                  <label for="dd_manual_resolution" class="form-label">
+                <div class="kg-mt-2 kg-ps-4" v-if="config.dd_resolution_option === 'manual'">
+                  <label for="dd_manual_resolution" class="kg-label">
                     {{ $t('config.dd_manual_resolution') }}
                   </label>
-                  <input type="text" class="form-control" id="dd_manual_resolution" placeholder="2560x1440"
+                  <input type="text" class="kg-input" id="dd_manual_resolution" placeholder="2560x1440"
                          v-model="config.dd_manual_resolution" />
                 </div>
               </div>
 
               <!-- Refresh rate option -->
-              <div class="mb-3" v-if="config.dd_configuration_option !== 'disabled'">
-                <label for="dd_refresh_rate_option" class="form-label">
+              <div class="kg-field" v-if="config.dd_configuration_option !== 'disabled'">
+                <label for="dd_refresh_rate_option" class="kg-label">
                   {{ $t('config.dd_refresh_rate_option') }}
                 </label>
-                <select id="dd_refresh_rate_option" class="form-select" v-model="config.dd_refresh_rate_option">
+                <select id="dd_refresh_rate_option" class="kg-select" v-model="config.dd_refresh_rate_option">
                   <option value="disabled">{{ $t('config.dd_refresh_rate_option_disabled') }}</option>
                   <option value="auto">{{ $t('config.dd_refresh_rate_option_auto') }}</option>
                   <option value="manual">{{ $t('config.dd_refresh_rate_option_manual') }}</option>
                 </select>
 
                 <!-- Manual refresh rate -->
-                <div class="mt-2 ps-4" v-if="config.dd_refresh_rate_option === 'manual'">
-                  <label for="dd_manual_refresh_rate" class="form-label">
+                <div class="kg-mt-2 kg-ps-4" v-if="config.dd_refresh_rate_option === 'manual'">
+                  <label for="dd_manual_refresh_rate" class="kg-label">
                     {{ $t('config.dd_manual_refresh_rate') }}
                   </label>
-                  <input type="text" class="form-control" id="dd_manual_refresh_rate" placeholder="59.9558"
+                  <input type="text" class="kg-input" id="dd_manual_refresh_rate" placeholder="59.9558"
                          v-model="config.dd_manual_refresh_rate" />
                 </div>
               </div>
 
               <!-- HDR option -->
-              <div class="mb-3" v-if="config.dd_configuration_option !== 'disabled'">
-                <label for="dd_hdr_option" class="form-label">
+              <div class="kg-field" v-if="config.dd_configuration_option !== 'disabled'">
+                <label for="dd_hdr_option" class="kg-label">
                   {{ $t('config.dd_hdr_option') }}
                 </label>
-                <select id="dd_hdr_option" class="mb-3 form-select" v-model="config.dd_hdr_option">
+                <select id="dd_hdr_option" class="kg-field kg-select" v-model="config.dd_hdr_option">
                   <option value="disabled">{{ $t('config.dd_hdr_option_disabled') }}</option>
                   <option value="auto">{{ $t('config.dd_hdr_option_auto') }}</option>
                 </select>
                 <!-- HDR toggle -->
-                <label for="dd_wa_hdr_toggle_delay" class="form-label">
+                <label for="dd_wa_hdr_toggle_delay" class="kg-label">
                   {{ $t('config.dd_wa_hdr_toggle_delay') }}
                 </label>
-                <input type="number" class="form-control" id="dd_wa_hdr_toggle_delay" placeholder="0" min="0" max="3000"
+                <input type="number" class="kg-input" id="dd_wa_hdr_toggle_delay" placeholder="0" min="0" max="3000"
                        v-model="config.dd_wa_hdr_toggle_delay" />
-                <div class="form-text">
+                <div class="kg-help">
                   {{ $t('config.dd_wa_hdr_toggle_delay_desc_1') }}
                   <br>
                   {{ $t('config.dd_wa_hdr_toggle_delay_desc_2') }}
@@ -148,19 +139,19 @@ function addRemappingEntry() {
               </div>
 
               <!-- Config revert delay -->
-              <div class="mb-3" v-if="config.dd_configuration_option !== 'disabled'">
-                <label for="dd_config_revert_delay" class="form-label">
+              <div class="kg-field" v-if="config.dd_configuration_option !== 'disabled'">
+                <label for="dd_config_revert_delay" class="kg-label">
                   {{ $t('config.dd_config_revert_delay') }}
                 </label>
-                <input type="number" class="form-control" id="dd_config_revert_delay" placeholder="3000" min="0"
+                <input type="number" class="kg-input" id="dd_config_revert_delay" placeholder="3000" min="0"
                        v-model="config.dd_config_revert_delay" />
-                <div class="form-text">
+                <div class="kg-help">
                   {{ $t('config.dd_config_revert_delay_desc') }}
                 </div>
               </div>
 
               <!-- Config revert on disconnect -->
-              <div class="mb-3" v-if="config.dd_configuration_option !== 'disabled'">
+              <div class="kg-field" v-if="config.dd_configuration_option !== 'disabled'">
                 <Checkbox id="dd_config_revert_on_disconnect"
                   locale-prefix="config"
                   v-model="config.dd_config_revert_on_disconnect"
@@ -169,12 +160,12 @@ function addRemappingEntry() {
               </div>
 
               <!-- Display mode remapping -->
-              <div class="mb-3" v-if="canBeRemapped()">
-                <label for="dd_mode_remapping" class="form-label">
+              <div class="kg-field" v-if="canBeRemapped()">
+                <label for="dd_mode_remapping" class="kg-label">
                   {{ $t('config.dd_mode_remapping') }}
                 </label>
-                <div id="dd_mode_remapping" class="d-flex flex-column">
-                  <div class="form-text">
+                <div id="dd_mode_remapping" class="kg-row kg-stack-2">
+                  <div class="kg-help">
                     {{ $t('config.dd_mode_remapping_desc_1') }}<br>
                     {{ $t('config.dd_mode_remapping_desc_2') }}<br>
                     {{ $t('config.dd_mode_remapping_desc_3') }}<br>
@@ -188,7 +179,7 @@ function addRemappingEntry() {
                   </div>
                 </div>
 
-                <table class="table" v-if="config.dd_mode_remapping[getRemappingType()].length > 0">
+                <table class="kg-table" v-if="config.dd_mode_remapping[getRemappingType()].length > 0">
                   <thead>
                     <tr>
                       <th scope="col" v-if="getRemappingType() !== REFRESH_RATE_ONLY">
@@ -210,49 +201,47 @@ function addRemappingEntry() {
                   <tbody>
                     <tr v-for="(value, idx) in config.dd_mode_remapping[getRemappingType()]" :key="idx">
                       <td v-if="getRemappingType() !== REFRESH_RATE_ONLY">
-                        <label :for="`dd-requested-resolution-${idx}`" class="visually-hidden">
+                        <label :for="`dd-requested-resolution-${idx}`" class="kg-visually-hidden">
                           {{ $t('config.dd_mode_remapping_requested_resolution') }}
                         </label>
-                        <input :id="`dd-requested-resolution-${idx}`" type="text" class="form-control monospace" v-model="value.requested_resolution"
+                        <input :id="`dd-requested-resolution-${idx}`" type="text" class="kg-input kg-mono" v-model="value.requested_resolution"
                                :placeholder="'1920x1080'" />
                       </td>
                       <td v-if="getRemappingType() !== RESOLUTION_ONLY">
-                        <label :for="`dd-requested-fps-${idx}`" class="visually-hidden">
+                        <label :for="`dd-requested-fps-${idx}`" class="kg-visually-hidden">
                           {{ $t('config.dd_mode_remapping_requested_fps') }}
                         </label>
-                        <input :id="`dd-requested-fps-${idx}`" type="text" class="form-control monospace" v-model="value.requested_fps"
+                        <input :id="`dd-requested-fps-${idx}`" type="text" class="kg-input kg-mono" v-model="value.requested_fps"
                                :placeholder="'60'" />
                       </td>
                       <td v-if="getRemappingType() !== REFRESH_RATE_ONLY">
-                        <label :for="`dd-final-resolution-${idx}`" class="visually-hidden">
+                        <label :for="`dd-final-resolution-${idx}`" class="kg-visually-hidden">
                           {{ $t('config.dd_mode_remapping_final_resolution') }}
                         </label>
-                        <input :id="`dd-final-resolution-${idx}`" type="text" class="form-control monospace" v-model="value.final_resolution"
+                        <input :id="`dd-final-resolution-${idx}`" type="text" class="kg-input kg-mono" v-model="value.final_resolution"
                                :placeholder="'2560x1440'" />
                       </td>
                       <td v-if="getRemappingType() !== RESOLUTION_ONLY">
-                        <label :for="`dd-final-refresh-rate-${idx}`" class="visually-hidden">
+                        <label :for="`dd-final-refresh-rate-${idx}`" class="kg-visually-hidden">
                           {{ $t('config.dd_mode_remapping_final_refresh_rate') }}
                         </label>
-                        <input :id="`dd-final-refresh-rate-${idx}`" type="text" class="form-control monospace" v-model="value.final_refresh_rate"
+                        <input :id="`dd-final-refresh-rate-${idx}`" type="text" class="kg-input kg-mono" v-model="value.final_refresh_rate"
                                :placeholder="'119.95'" />
                       </td>
                       <td>
-                        <button class="btn btn-danger" @click="config.dd_mode_remapping[getRemappingType()].splice(idx, 1)">
+                        <button class="kg-btn kg-btn-danger" @click="config.dd_mode_remapping[getRemappingType()].splice(idx, 1)">
                           <Trash2 :size="16" />
                         </button>
                       </td>
                     </tr>
                   </tbody>
                 </table>
-                <button class="ms-0 mt-2 btn btn-success" style="margin: 0 auto" @click="addRemappingEntry()">
+                <button class="kg-mt-2 kg-btn kg-btn-success" style="margin: 0 auto" @click="addRemappingEntry()">
                   &plus; {{ $t('config.dd_mode_remapping_add') }}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
+        </details>
     </template>
     <template #freebsd>
     </template>

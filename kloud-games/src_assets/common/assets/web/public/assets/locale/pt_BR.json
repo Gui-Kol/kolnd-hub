@@ -30,7 +30,12 @@
     "success": "Sucesso!",
     "undo_cmd": "Comando Desfazer",
     "username": "Nome de usuário",
-    "warning": "Atenção!"
+    "warning": "Atenção!",
+    "skip_to_content": "Pular para o conteúdo",
+    "local_server": "Servidor local",
+    "main_navigation": "Navegação principal",
+    "not_available": "Não disponível",
+    "status": "Status"
   },
   "apps": {
     "actions": "Ações",
@@ -105,7 +110,14 @@
     "wait_all": "Continuar a transmissão até que todos os processos do aplicativo sejam encerrados",
     "wait_all_desc": "Isso continuará a transmissão até que todos os processos iniciados pelo aplicativo tenham sido encerrados. Quando desmarcada, a transmissão será interrompida quando o processo inicial do aplicativo for encerrado, mesmo que outros processos do aplicativo ainda estejam em execução.",
     "working_dir": "Diretório de trabalho",
-    "working_dir_desc": "O diretório de trabalho que deve ser passado para o processo. Por exemplo, alguns aplicativos usam o diretório de trabalho para procurar arquivos de configuração. Se não for definido, o padrão do KLOUD_GAMES será o diretório pai do comando"
+    "working_dir_desc": "O diretório de trabalho que deve ser passado para o processo. Por exemplo, alguns aplicativos usam o diretório de trabalho para procurar arquivos de configuração. Se não for definido, o padrão do KLOUD_GAMES será o diretório pai do comando",
+    "details": "Detalhes",
+    "open_editor": "Editar aplicativo",
+    "inspector_empty": "Selecione um aplicativo para ver os detalhes.",
+    "prep_count": "comandos de preparação",
+    "detached_count": "comandos destacados",
+    "exit_timeout_short": "timeout de saída",
+    "output_short": "saída"
   },
   "config": {
     "adapter_name": "Nome do adaptador",
@@ -482,7 +494,16 @@
     "wan_encryption_mode": "Modo de criptografia WAN",
     "wan_encryption_mode_1": "Ativado para clientes compatíveis (padrão)",
     "wan_encryption_mode_2": "Necessário para todos os clientes",
-    "wan_encryption_mode_desc": "Isso determina quando a criptografia será usada durante a transmissão pela Internet. A criptografia pode reduzir o desempenho da transmissão, principalmente em hosts e clientes menos potentes."
+    "wan_encryption_mode_desc": "Isso determina quando a criptografia será usada durante a transmissão pela Internet. A criptografia pode reduzir o desempenho da transmissão, principalmente em hosts e clientes menos potentes.",
+    "unsaved_changes": "{count} alterações não salvas",
+    "no_changes": "Nenhuma alteração não salva",
+    "discard": "Descartar",
+    "apply_restart": "Aplicar e reiniciar",
+    "search_no_results": "Nenhum resultado para \"{query}\"",
+    "search_results": "{count} opção(ões) encontrada(s)",
+    "search_hint": "Buscar pelo nome da opção",
+    "host_detected": "Host detectado",
+    "restart_warning": "Aplicar reinicia o serviço de streaming e desconecta sessões ativas."
   },
   "index": {
     "permissions_missing_title": "O KLOUD_GAMES precisa de permissões",
@@ -522,7 +543,31 @@
     "virtualhid_outdated_desc": "A versão do driver libvirtualhid instalada (v{version}) não é suportada. Versões suportadas: {supported_versions}.",
     "virtualhid_outdated_title": "Motorista libvirtualhid desatualizado",
     "virtualhid_required_desc": "O Virtual HID Driver está selecionado, mas não está instalado. Instale-a e ative uma licença paga, ou escolha um driver de controle diferente na configuração de entrada.",
-    "welcome": "Olá, KLOUD_GAMES!"
+    "welcome": "Olá, KLOUD_GAMES!",
+    "host_status": "Status do host",
+    "health": "Saúde do host",
+    "health_ok": "Nenhum problema detectado",
+    "health_attention": "Atenção necessária",
+    "recent_activity": "Atividade recente",
+    "activity_desc": "Últimas entradas do log do host.",
+    "no_activity": "Nenhuma entrada de log disponível.",
+    "clients_paired": "Clientes pareados",
+    "encoder": "Codificador",
+    "encoder_auto": "Automático",
+    "version_title": "Versão e atualizações",
+    "config_loaded": "Configuração carregada",
+    "config_failed": "Configuração indisponível",
+    "platform": "Plataforma",
+    "port_label": "Porta",
+    "shortcuts": "Atalhos",
+    "release_notes": "Notas da versão",
+    "installed_version": "Versão instalada",
+    "permissions_ok": "Permissões concedidas",
+    "virtual_input_ok": "Entrada virtual pronta",
+    "audio_configured": "Áudio configurado",
+    "audio_default": "Dispositivo de áudio padrão",
+    "network_upnp": "UPnP habilitado",
+    "network_upnp_off": "UPnP desabilitado"
   },
   "navbar": {
     "applications": "Aplicativos",
@@ -589,7 +634,15 @@
     "send": "Enviar",
     "unknown_address": "Endereço desconhecido",
     "unknown_device": "Dispositivo desconhecido",
-    "warning_msg": "Certifique-se de ter acesso ao cliente com o qual está fazendo o emparelhamento. Esse software pode dar controle total ao seu computador, portanto, tenha cuidado!"
+    "warning_msg": "Certifique-se de ter acesso ao cliente com o qual está fazendo o emparelhamento. Esse software pode dar controle total ao seu computador, portanto, tenha cuidado!",
+    "pairing_requests": "Solicitações de pareamento",
+    "auto_refresh": "Atualiza a cada 2 segundos",
+    "clients_title": "Clientes pareados",
+    "clients_desc": "Dispositivos autorizados a conectar neste host.",
+    "pin_label": "PIN",
+    "pin_hint": "Digite o PIN de 4 dígitos exibido no cliente.",
+    "enable_client": "Habilitar cliente",
+    "unpair_client": "Desparear cliente"
   },
   "resource_card": {
     "documentation": "Documentação",
@@ -740,7 +793,15 @@
     "virtualhid_license_state_licensed": "Licenciado",
     "virtualhid_license_state_unavailable": "Unavailable",
     "virtualhid_license_state_unlicensed": "Sem licença",
-    "virtualhid_macos_license_desc": "Uma licença de máquina ativa é necessária para gamepads virtuais no macOS. O corretor deve ser instalado, em execução e permitido em Configurações do Sistema > Privacidade e Segurança > Controle de Dispositivos e Acesso de Dados. O sol envia ações de licença para o corretor local e não salva a sua chave."
+    "virtualhid_macos_license_desc": "Uma licença de máquina ativa é necessária para gamepads virtuais no macOS. O corretor deve ser instalado, em execução e permitido em Configurações do Sistema > Privacidade e Segurança > Controle de Dispositivos e Acesso de Dados. O sol envia ações de licença para o corretor local e não salva a sua chave.",
+    "logs_copy": "Copiar logs",
+    "logs_copied": "Logs copiados",
+    "logs_empty": "Nenhuma entrada de log.",
+    "logs_jump_top": "Ir ao topo",
+    "logs_jump_bottom": "Ir ao fim",
+    "logs_prev": "Aviso ou erro anterior",
+    "logs_next": "Próximo aviso ou erro",
+    "actions_title": "Ações de manutenção"
   },
   "featured": {
     "category_filter": "Filtro de categoria",

@@ -19,11 +19,11 @@ const outputNamePlaceholder = _outputNamePlaceholder;  // NOSONAR(javascript:S14
 </script>
 
 <template>
-  <div class="mb-3">
-    <label for="output_name" class="form-label">{{ $t('config.output_name') }}</label>
-    <input type="text" class="form-control" id="output_name" :placeholder="outputNamePlaceholder"
+  <div class="kg-field">
+    <label for="output_name" class="kg-label">{{ $t('config.output_name') }}</label>
+    <input type="text" class="kg-input" id="output_name" :placeholder="outputNamePlaceholder"
            v-model="config.output_name"/>
-    <div class="form-text">
+    <div class="kg-help">
       {{ $tp('config.output_name_desc') }}<br>
       <PlatformLayout :platform="platform">
         <template #windows>
