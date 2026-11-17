@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelo 02 · Biblioteca — Kloud Games</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      /* Layout: toolbar · grade de posters · inspetor fixo */
+      .apps-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 330px;
+        gap: 16px;
+        align-items: start;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .search-field {
+        position: relative;
+        flex: 1;
+        min-width: 220px;
+        max-width: 380px;
+      }
+      .search-field .i {
+        position: absolute;
+        top: 11px;
+        left: 12px;
+        color: var(--text-tertiary);
+      }
+      .search-field .input {
+        padding-left: 36px;
+        padding-right: 44px;
+      }
+      .search-field .kbd {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .poster-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      @media (max-width: 1180px) {
+        .poster-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 1080px) {
+        .apps-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 620px) {
+        .poster-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .app-card {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-card);
+        background: var(--surface-1);
+        box-shadow: var(--shadow-sm), var(--highlight);
+        transition: border-color var(--motion-slow) var(--ease-out), box-shadow var(--motion-slow) var(--ease-out),
+          transform var(--motion-slow) var(--ease-out);
+        cursor: pointer;
+      }
+      .app-card:hover {
+        border-color: var(--accent-border);
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
+      }
+      .app-card.selected {
+        border-color: var(--accent-border);
+        box-shadow: var(--shadow-md), 0 0 0 1px var(--accent-border);
+      }
+      .poster {
+        position: relative;
+        aspect-ratio: 3 / 4;
+        overflow: hidden;
+        background: var(--surface-2);
+      }
+      .poster-art {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 54px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: rgba(255, 255, 255, 0.82);
+        text-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+      }
+      .poster-art::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 70% 18%, rgba(255, 255, 255, 0.14), transparent 45%),
+          repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
+          linear-gradient(180deg, transparent 45%, rgba(9, 14, 19, 0.92) 100%);
+      }
+      .poster-top {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 6px;
+        z-index: 2;
+      }
+      .poster-bottom {
+        position: absolute;
+        right: 12px;
+        bottom: 10px;
+        left: 12px;
+        z-index: 2;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .poster-bottom .path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        opacity: 0.85;
+      }
+      .app-card-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px 14px 14px;
+      }
+      .app-card-body h3 {
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .app-card-body .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+      .app-card-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: auto;
+      }
+      .app-card-actions .btn {
+        flex: 1;
+      }
+
+      /* Inspetor */
+      .inspector {
+        position: sticky;
+        top: 84px;
+      }
+      .inspector-hero {
+        position: relative;
+        height: 132px;
+        overflow: hidden;
+        border-radius: var(--radius-card) var(--radius-card) 0 0;
+        background: linear-gradient(135deg, #3a2a12 0%, #6b431a 45%, #1b2430 100%);
+      }
+      .inspector-hero::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 74% 22%, rgba(255, 255, 255, 0.16), transparent 48%),
+          linear-gradient(180deg, transparent 30%, var(--surface-1) 100%);
+      }
+      .inspector-hero .initial {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 46px;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.85);
+        text-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+      }
+      .inspector-head {
+        position: relative;
+        z-index: 2;
+        margin-top: -30px;
+        padding: 0 18px;
+        display: flex;
+        align-items: flex-end;
+        gap: 12px;
+      }
+      .inspector-icon {
+        display: flex;
+        width: 44px;
+        height: 44px;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-control);
+        background: var(--surface-2);
+        color: var(--text-primary);
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .kv {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 9px 18px;
+        border-top: 1px solid var(--border-subtle);
+        font-size: 11.5px;
+      }
+      .kv .k {
+        color: var(--text-tertiary);
+      }
+      .kv .v {
+        text-align: right;
+        color: var(--text-secondary);
+      }
+      .inspector-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 14px 18px 18px;
+        border-top: 1px solid var(--border-subtle);
+      }
+      .empty-slot {
+        display: flex;
+        aspect-ratio: 3 / 4;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--radius-card);
+        color: var(--text-tertiary);
+        font-size: 11.5px;
+        text-align: center;
+        padding: 18px;
+        transition: border-color var(--motion-base) var(--ease-out), color var(--motion-base) var(--ease-out);
+      }
+      .empty-slot:hover {
+        border-color: var(--accent-border);
+        color: var(--text-secondary);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandstrip">
+        <div class="brandstrip-left">
+          <div class="brandmark" aria-hidden="true">
+            <svg class="i sm fill" viewBox="0 0 24 24"><polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" /></svg>
+          </div>
+          <span class="brandname">Kolnd <span>· Kloud Games</span></span>
+          <span class="pill-meta">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span class="truncate">KOLND-STREAM · 172.16.0.10</span>
+          </span>
+        </div>
+        <div class="brandstrip-right"><span>Servidor local</span><span>·</span><span>v0.0.0</span></div>
+      </div>
+
+      <header class="topbar">
+        <nav class="nav" aria-label="Navegação principal">
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>
+            <span class="lbl">Início</span>
+          </a>
+          <a class="navlink" href="#" aria-current="page">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span class="lbl">Aplicativos</span>
+            <span class="count">8</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            <span class="lbl">Pareamento</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
+            <span class="lbl">Configurações</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+            <span class="lbl">Diagnóstico</span>
+          </a>
+        </nav>
+        <div class="topbar-right">
+          <span class="badge neutral"><span class="dot" aria-hidden="true"></span> 0 sessões</span>
+          <button class="searchbtn" type="button">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+            <span class="lbl">Buscar…</span>
+            <kbd class="kbd">/</kbd>
+          </button>
+          <button class="morebtn" type="button" aria-expanded="false">
+            Mais
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <h1>Aplicativos</h1>
+            <p class="sub">
+              Tudo o que os clientes Moonlight podem abrir neste host. Capas, comandos e diretórios ficam no mesmo
+              lugar; o Hub e o Kloud Games compartilham a mesma lista.
+            </p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-secondary" type="button">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="10" cy="17" r="2" />
+              </svg>
+              Ordenar
+            </button>
+            <button class="btn btn-primary" type="button">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Novo aplicativo
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <div class="search-field">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+            <input class="input" type="search" placeholder="Buscar por nome, comando ou tag" aria-label="Buscar aplicativos" />
+            <kbd class="kbd">/</kbd>
+          </div>
+          <div class="chips" role="group" aria-label="Filtrar por tipo">
+            <button class="chip" type="button" aria-pressed="true">Todos <span class="n">8</span></button>
+            <button class="chip" type="button" aria-pressed="false">Jogos <span class="n">4</span></button>
+            <button class="chip" type="button" aria-pressed="false">Desktop <span class="n">2</span></button>
+            <button class="chip" type="button" aria-pressed="false">Ferramentas <span class="n">2</span></button>
+          </div>
+          <div class="ml-auto seg" role="group" aria-label="Modo de exibição">
+            <button type="button" aria-pressed="true" aria-label="Grade">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+            </button>
+            <button type="button" aria-pressed="false" aria-label="Lista">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="apps-layout">
+          <!-- Grade de aplicativos -->
+          <div class="poster-grid">
+            <!-- selecionado -->
+            <article class="app-card selected" tabindex="0">
+              <div class="poster">
+                <div class="poster-art" style="background: linear-gradient(150deg, #6b431a 0%, #3a2a12 55%, #121a22 100%)">C</div>
+                <div class="poster-top">
+                  <span class="badge warning">Admin</span>
+                  <span class="badge neutral">Jogo</span>
+                </div>
+                <div class="poster-bottom">
+                  <div class="path">C:\Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe</div>
+                  <div class="row" style="margin-top: 4px; gap: 5px">
+                    <span class="tag">Steam</span>
+                    <span class="tag">HDR</span>
+                  </div>
+                </div>
+              </div>
+              <div class="app-card-body">
+                <h3>Cyberpunk 2077</h3>
+                <div class="meta">
+                  <span class="tag">Prep-cmd</span>
+                  <span class="tag">Auto-detach</span>
+                </div>
+                <div class="app-card-actions">
+                  <button class="btn btn-secondary sm" type="button">
+                    <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                    </svg>
+                    Editar
+                  </button>
+                  <button class="btn btn-ghost sm" type="button" aria-label="Mais ações">
+                    <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="6" cy="12" r="1" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1" fill="currentColor" />
+                      <circle cx="18" cy="12" r="1" fill="currentColor" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="app-card" tabindex="0">
+              <div class="poster">
+                <div class="poster-art" style="background: linear-gradient(150deg, #1b3a44 0%, #14262e 55%, #121a22 100%)">D</div>
+                <div class="poster-top"><span class="badge accent">Desktop</span></div>
+                <div class="poster-bottom">
+                  <div class="path">C:\Windows\System32\mstsc.exe</div>
+                  <div class="row" style="margin-top: 4px; gap: 5px"><span class="tag">Global prep</span></div>
+                </div>
+              </div>
+              <div class="app-card-body">
+                <h3>Desktop</h3>
+                <div class="meta"><span class="tag">Sem prep-cmd</span></div>
+                <div class="app-card-actions">
+                  <button class="btn btn-secondary sm" type="button">Editar</button>
+                  <button class="btn btn-ghost sm" type="button" aria-label="Mais ações">···</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="app-card" tabindex="0">
+              <div class="poster">
+                <div class="poster-art" style="background: linear-gradient(150deg, #3a2450 0%, #241a3a 55%, #121a22 100%)">S</div>
+                <div class="poster-top"><span class="badge neutral">Jogo</span></div>
+                <div class="poster-bottom">
+                  <div class="path">C:\Program Files (x86)\Steam\steamapps\...</div>
+                  <div class="row" style="margin-top: 4px; gap: 5px"><span class="tag">Steam</span><span class="tag">Big Picture</span></div>
+                </div>
+              </div>
+              <div class="app-card-body">
+                <h3>Steam Big Picture</h3>
+                <div class="meta"><span class="tag">Prep-cmd</span></div>
+                <div class="app-card-actions">
+                  <button class="btn btn-secondary sm" type="button">Editar</button>
+                  <button class="btn btn-ghost sm" type="button" aria-label="Mais ações">···</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="app-card" tabindex="0">
+              <div class="poster">
+                <div class="poster-art" style="background: linear-gradient(150deg, #2a3620 0%, #1c2417 55%, #121a22 100%)">B</div>
+                <div class="poster-top"><span class="badge neutral">Ferramenta</span></div>
+                <div class="poster-bottom">
+                  <div class="path">C:\Program Files\Blender Foundation\blender.exe</div>
+                  <div class="row" style="margin-top: 4px; gap: 5px"><span class="tag">CUDA</span></div>
+                </div>
+              </div>
+              <div class="app-card-body">
+                <h3>Blender</h3>
+                <div class="meta"><span class="tag">Sem prep-cmd</span></div>
+                <div class="app-card-actions">
+                  <button class="btn btn-secondary sm" type="button">Editar</button>
+                  <button class="btn btn-ghost sm" type="button" aria-label="Mais ações">···</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="app-card" tabindex="0">
+              <div class="poster">
+                <div class="poster-art" style="background: linear-gradient(150deg, #4a2330 0%, #2a151d 55%, #121a22 100%)">E</div>
+                <div class="poster-top"><span class="badge neutral">Jogo</span><span class="badge warning">Admin</span></div>
+                <div class="poster-bottom">
+                  <div class="path">C:\Games\Elden Ring\Game\eldenring.exe</div>
+                  <div class="row" style="margin-top: 4px; gap: 5px"><span class="tag">Detached</span></div>
+                </div>
+              </div>
+              <div class="app-card-body">
+                <h3>Elden Ring</h3>
+                <div class="meta"><span class="tag">Prep-cmd</span><span class="tag">Exit-cmd</span></div>
+                <div class="app-card-actions">
+                  <button class="btn btn-secondary sm" type="button">Editar</button>
+                  <button class="btn btn-ghost sm" type="button" aria-label="Mais ações">···</button>
+                </div>
+              </div>
+            </article>
+
+            <!-- vazio: adicionar -->
+            <button class="empty-slot" type="button">
+              <svg class="i lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              <span>Adicionar aplicativo ao host</span>
+            </button>
+          </div>
+
+          <!-- Inspetor do aplicativo selecionado -->
+          <aside class="card inspector" aria-label="Detalhes do aplicativo">
+            <div class="inspector-hero">
+              <div class="initial" aria-hidden="true">C</div>
+            </div>
+            <div class="inspector-head">
+              <div class="inspector-icon" aria-hidden="true">C</div>
+              <div style="padding-bottom: 2px">
+                <h2 style="font-size: 16px; letter-spacing: -0.01em">Cyberpunk 2077</h2>
+                <div class="row wrap" style="margin-top: 5px">
+                  <span class="badge neutral">Jogo</span>
+                  <span class="badge warning">Admin</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 14px">
+              <div class="kv"><span class="k">Executável</span><span class="v mono">Cyberpunk2077.exe</span></div>
+              <div class="kv"><span class="k">Diretório</span><span class="v mono">C:\Games\Cyberpunk 2077\bin\x64</span></div>
+              <div class="kv"><span class="k">Origem</span><span class="v">Steam</span></div>
+              <div class="kv"><span class="k">Última execução</span><span class="v tnum">hoje, 21:04</span></div>
+              <div class="kv"><span class="k">Tempo médio</span><span class="v tnum">1 h 48 min</span></div>
+              <div class="kv"><span class="k">Sessões (30 d)</span><span class="v tnum">6</span></div>
+            </div>
+
+            <div class="inspector-actions">
+              <button class="btn btn-primary block" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 4 20 12 6 20" /></svg>
+                Iniciar no host
+              </button>
+              <button class="btn btn-secondary block" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                Editar aplicativo
+              </button>
+              <button class="btn btn-subtle-danger block" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                </svg>
+                Remover do host
+              </button>
+            </div>
+          </aside>
+        </div>
+
+        <p class="mockup-note">
+          <a href="index.html">← Modelos</a>
+          <strong style="color: var(--text-secondary)">Modelo 02 · Biblioteca</strong>
+          — grade com inspetor lateral; substitui o modal central do Bootstrap por um painel persistente.
+        </p>
+      </main>
+    </div>
+  </body>
+</html>

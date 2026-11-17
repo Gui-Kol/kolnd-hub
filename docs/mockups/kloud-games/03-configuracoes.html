@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelo 03 · Configurações — Kloud Games</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      /* Layout: trilho de seções + formulário + resumo do host */
+      .settings-layout {
+        display: grid;
+        grid-template-columns: 224px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .settings-content {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 272px;
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 1180px) {
+        .settings-content {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 900px) {
+        .settings-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .rail {
+        position: sticky;
+        top: 84px;
+        padding: 10px;
+      }
+      .rail .search-field {
+        position: relative;
+        margin-bottom: 10px;
+      }
+      .rail .search-field .i {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: var(--text-tertiary);
+      }
+      .rail .input {
+        height: 32px;
+        padding-left: 32px;
+        font-size: 12px;
+        background: var(--bg-sunken);
+        border-color: transparent;
+      }
+      .rail .input:focus {
+        border-color: var(--accent-border);
+      }
+      .rail-group {
+        padding: 6px 0 2px;
+      }
+      .rail-group + .rail-group {
+        margin-top: 6px;
+        border-top: 1px solid var(--border-subtle);
+        padding-top: 10px;
+      }
+      .rail-label {
+        padding: 0 8px 6px;
+        color: var(--text-tertiary);
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .rail-item {
+        position: relative;
+        display: flex;
+        width: 100%;
+        height: 34px;
+        align-items: center;
+        gap: 9px;
+        padding: 0 9px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 12.5px;
+        font-weight: 500;
+        transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+      }
+      .rail-item:hover {
+        background: var(--surface-2);
+        color: var(--text-primary);
+      }
+      .rail-item[aria-current='true'] {
+        background: var(--surface-2);
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      .rail-item[aria-current='true']::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 0;
+        width: 2px;
+        border-radius: var(--radius-pill);
+        background: var(--accent);
+      }
+      .rail-item .i {
+        color: var(--text-tertiary);
+      }
+      .rail-item[aria-current='true'] .i {
+        color: var(--accent);
+      }
+      .rail-item .tick {
+        margin-left: auto;
+        color: var(--text-tertiary);
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .form-card {
+        padding: 18px;
+      }
+      .form-card + .form-card {
+        margin-top: 16px;
+      }
+      .form-card h2 {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .form-card .card-sub {
+        margin-top: 3px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+      }
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 16px;
+      }
+      @media (max-width: 620px) {
+        .field-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .field-grid .field + .field {
+        margin-top: 0;
+      }
+
+      input[type='range'] {
+        width: 100%;
+        height: 22px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      .savebar {
+        position: sticky;
+        bottom: 16px;
+        z-index: var(--z-rail);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-top: 16px;
+        padding: 12px 16px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-card);
+        background: color-mix(in srgb, var(--surface-3) 92%, transparent);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: var(--shadow-lg);
+      }
+      .savebar .msg {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .savebar .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .summary-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 9px 18px;
+        border-top: 1px solid var(--border-subtle);
+        font-size: 11.5px;
+      }
+      .summary-row:first-of-type {
+        border-top: none;
+      }
+      .summary-row .k {
+        color: var(--text-tertiary);
+      }
+      .summary-row .v {
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-align: right;
+      }
+      .encoder-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-control);
+        background: var(--surface-2);
+        font-size: 11.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandstrip">
+        <div class="brandstrip-left">
+          <div class="brandmark" aria-hidden="true">
+            <svg class="i sm fill" viewBox="0 0 24 24"><polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" /></svg>
+          </div>
+          <span class="brandname">Kolnd <span>· Kloud Games</span></span>
+          <span class="pill-meta">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span class="truncate">KOLND-STREAM · 172.16.0.10</span>
+          </span>
+        </div>
+        <div class="brandstrip-right"><span>Servidor local</span><span>·</span><span>v0.0.0</span></div>
+      </div>
+
+      <header class="topbar">
+        <nav class="nav" aria-label="Navegação principal">
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>
+            <span class="lbl">Início</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span class="lbl">Aplicativos</span>
+            <span class="count">8</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            <span class="lbl">Pareamento</span>
+          </a>
+          <a class="navlink" href="#" aria-current="page">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
+            <span class="lbl">Configurações</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+            <span class="lbl">Diagnóstico</span>
+          </a>
+        </nav>
+        <div class="topbar-right">
+          <span class="badge warning"><span class="dot warning" aria-hidden="true"></span> 3 não salvas</span>
+          <button class="searchbtn" type="button">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+            <span class="lbl">Buscar opção…</span>
+            <kbd class="kbd">/</kbd>
+          </button>
+          <button class="morebtn" type="button" aria-expanded="false">
+            Mais
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <h1>Configurações</h1>
+            <p class="sub">
+              Ajustes que valem para todas as sessões deste host. Alterações em vídeo, áudio e rede só entram em vigor
+              depois de aplicar e reiniciar o serviço.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <!-- Trilho de seções -->
+          <aside class="card rail" aria-label="Seções de configuração">
+            <div class="search-field">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+              <input class="input" type="search" placeholder="Buscar opção" aria-label="Buscar opção de configuração" />
+            </div>
+
+            <div class="rail-group">
+              <p class="rail-label">Geral</p>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                  <circle cx="16" cy="7" r="2" />
+                  <circle cx="10" cy="17" r="2" />
+                </svg>
+                Geral
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="2" y="7" width="20" height="10" rx="5" />
+                  <path d="M7 12h3M8.5 10.5v3" />
+                  <circle cx="16" cy="11" r=".7" fill="currentColor" />
+                  <circle cx="18" cy="13" r=".7" fill="currentColor" />
+                </svg>
+                Entrada
+              </button>
+              <button class="rail-item" type="button" aria-current="true">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M11 5 6 9H3v6h3l5 4z" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                </svg>
+                Áudio/Vídeo
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2 12.5a16 16 0 0 1 20 0M5.5 16a11 11 0 0 1 13 0M9 19.2a6 6 0 0 1 6 0" />
+                  <circle cx="12" cy="22" r=".6" fill="currentColor" />
+                </svg>
+                Rede
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                </svg>
+                Arquivos
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                </svg>
+                Avançado
+              </button>
+            </div>
+
+            <div class="rail-group">
+              <p class="rail-label">Codificadores</p>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" /></svg>
+                NVENC
+                <span class="tick">auto</span>
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" /></svg>
+                AMD AMF
+              </button>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" /></svg>
+                Software
+              </button>
+            </div>
+
+            <div class="rail-group">
+              <p class="rail-label">Sessão</p>
+              <button class="rail-item" type="button">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+                Sair
+              </button>
+            </div>
+          </aside>
+
+          <div class="settings-content">
+            <!-- Formulário -->
+            <form>
+              <section class="card form-card" aria-labelledby="sec-video">
+                <div class="between">
+                  <div>
+                    <h2 id="sec-video">Vídeo</h2>
+                    <p class="card-sub">Codificação, resolução e formato da sessão.</p>
+                  </div>
+                  <span class="badge accent">Alterado</span>
+                </div>
+
+                <div class="field-grid">
+                  <div class="field">
+                    <label class="label" for="adapter">Adaptador de vídeo</label>
+                    <select class="select" id="adapter">
+                      <option>NVIDIA GeForce RTX 4070</option>
+                      <option>Intel UHD Graphics 770</option>
+                      <option>Codificação por software</option>
+                    </select>
+                    <p class="help">Detectado automaticamente pelo serviço.</p>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="encoder">Codificador</label>
+                    <select class="select" id="encoder">
+                      <option>NVENC · HEVC (H.265)</option>
+                      <option>NVENC · AV1</option>
+                      <option>NVENC · H.264</option>
+                    </select>
+                    <p class="help">AV1 exige cliente compatível.</p>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="res">Resolução de saída</label>
+                    <select class="select" id="res">
+                      <option>2560 × 1440 (1440p)</option>
+                      <option>3840 × 2160 (4K)</option>
+                      <option>1920 × 1080 (1080p)</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fps">Taxa de quadros</label>
+                    <select class="select" id="fps">
+                      <option>60 fps</option>
+                      <option>120 fps</option>
+                      <option>30 fps</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="switch-row mt-3">
+                  <div>
+                    <p class="t">HDR</p>
+                    <p class="d">Ativa metadados HDR quando o cliente e o monitor suportam.</p>
+                  </div>
+                  <button class="switch" type="button" role="switch" aria-checked="true" aria-label="HDR"></button>
+                </div>
+                <div class="switch-row">
+                  <div>
+                    <p class="t">Ajustar resolução automaticamente</p>
+                    <p class="d">O host negocia a resolução com o cliente a cada conexão.</p>
+                  </div>
+                  <button class="switch" type="button" role="switch" aria-checked="false" aria-label="Ajustar resolução automaticamente"></button>
+                </div>
+              </section>
+
+              <section class="card form-card" aria-labelledby="sec-audio">
+                <div>
+                  <h2 id="sec-audio">Áudio</h2>
+                  <p class="card-sub">Dispositivo de captura e volume enviado ao cliente.</p>
+                </div>
+
+                <div class="field-grid">
+                  <div class="field">
+                    <label class="label" for="adev">Dispositivo</label>
+                    <select class="select" id="adev">
+                      <option>Alto-falantes (Realtek)</option>
+                      <option>Kloud Virtual Audio</option>
+                      <option>NVIDIA HDMI Output</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="channels">Canais</label>
+                    <select class="select" id="channels">
+                      <option>Estéreo (2.0)</option>
+                      <option>Surround 5.1</option>
+                      <option>Surround 7.1</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="field mt-3">
+                  <label class="label" for="vol">
+                    Volume do host
+                    <span class="ml-auto tnum subtle" style="letter-spacing: 0; text-transform: none; font-weight: 500">72%</span>
+                  </label>
+                  <input id="vol" type="range" min="0" max="100" value="72" />
+                  <p class="help">Aplicado na próxima sessão. Não altera o volume do sistema operacional.</p>
+                </div>
+
+                <div class="switch-row mt-3">
+                  <div>
+                    <p class="t">Silenciar áudio do host</p>
+                    <p class="d">O som continua indo para o cliente, mas não sai nos alto-falantes locais.</p>
+                  </div>
+                  <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Silenciar áudio do host"></button>
+                </div>
+              </section>
+
+              <section class="card form-card" aria-labelledby="sec-network">
+                <div>
+                  <h2 id="sec-network">Rede e transmissão</h2>
+                  <p class="card-sub">Portas, descoberta e limite de banda.</p>
+                </div>
+
+                <div class="field-grid">
+                  <div class="field">
+                    <label class="label" for="port">Porta base</label>
+                    <input class="input mono" id="port" type="text" value="47989" />
+                    <p class="help">Faixa usada: base … base+6 (TCP e UDP).</p>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="bitrate">Bitrate máximo</label>
+                    <select class="select" id="bitrate">
+                      <option>12 Mbps</option>
+                      <option>20 Mbps</option>
+                      <option>50 Mbps (LAN)</option>
+                    </select>
+                    <p class="help">Clientes ainda podem pedir menos na conexão.</p>
+                  </div>
+                </div>
+
+                <div class="switch-row mt-3">
+                  <div>
+                    <p class="t">UPnP / NAT-PMP</p>
+                    <p class="d">Abre as portas automaticamente no roteador. Deixe desligado se você usa VPN ou firewall manual.</p>
+                  </div>
+                  <button class="switch" type="button" role="switch" aria-checked="false" aria-label="UPnP e NAT-PMP"></button>
+                </div>
+              </section>
+
+              <!-- Barra de salvar (sticky, única no formulário) -->
+              <div class="savebar" role="region" aria-label="Alterações pendentes">
+                <span class="msg">
+                  <span class="dot warning" aria-hidden="true"></span>
+                  3 alterações não salvas · vídeo, áudio e rede
+                </span>
+                <div class="actions">
+                  <button class="btn btn-ghost sm" type="button">Descartar</button>
+                  <button class="btn btn-secondary sm" type="button">
+                    <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" /><polyline points="20 4 20 10 14 10" /></svg>
+                    Aplicar e reiniciar
+                  </button>
+                  <button class="btn btn-primary sm" type="submit">
+                    <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5z" /><path d="M8 4v6h7V4M8 20v-6h8v6" /></svg>
+                    Salvar
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <!-- Resumo do host -->
+            <aside class="stack-3" aria-label="Resumo do host">
+              <section class="card">
+                <div class="card-head">
+                  <h2>Host detectado</h2>
+                  <span class="badge success"><span class="dot success" aria-hidden="true"></span> Online</span>
+                </div>
+                <div class="summary-row"><span class="k">Sistema</span><span class="v">Windows 11 24H2</span></div>
+                <div class="summary-row"><span class="k">GPU</span><span class="v">RTX 4070 · 12 GB</span></div>
+                <div class="summary-row"><span class="k">Driver</span><span class="v tnum">572.16</span></div>
+                <div class="summary-row"><span class="k">Encoder</span><span class="v">NVENC HEVC</span></div>
+                <div class="summary-row"><span class="k">Monitor</span><span class="v">2560 × 1440 · 165 Hz</span></div>
+                <div class="summary-row"><span class="k">Uptime</span><span class="v tnum">3 h 42 min</span></div>
+                <div class="card-foot" style="padding: 12px 18px">
+                  <a href="#">Detalhes do sistema</a>
+                </div>
+              </section>
+
+              <section class="card card-pad">
+                <p class="label">Perfil de configuração</p>
+                <select class="select mt-2" aria-label="Perfil de configuração">
+                  <option>LAN · 1440p60 · HEVC</option>
+                  <option>Internet · 1080p60 · H.264</option>
+                  <option>Personalizado</option>
+                </select>
+                <div class="encoder-pill mt-3">
+                  <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>
+                  <span class="grow">Alterar perfil reinicia o serviço</span>
+                </div>
+                <p class="help mt-2">Perfis são sugestões de valores; nada é aplicado sem salvar.</p>
+              </section>
+
+              <div class="callout warning">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 22 20H2z" /><path d="M12 9v5" /></svg>
+                <span>
+                  <strong>1 sessão ativa.</strong> Salvar vídeo ou áudio derruba a conexão atual por alguns segundos.
+                </span>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <p class="mockup-note">
+          <a href="index.html">← Modelos</a>
+          <strong style="color: var(--text-secondary)">Modelo 03 · Configurações</strong>
+          — trilho de seções + formulário em cards + resumo do host; barra de salvar sticky com estado sujo explícito.
+        </p>
+      </main>
+    </div>
+  </body>
+</html>

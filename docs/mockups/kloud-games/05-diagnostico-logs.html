@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelo 05 · Diagnóstico — Kloud Games</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      /* Layout: resumo de 3 colunas, verificações + logs, ferramentas de suporte */
+      .diag-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 1080px) {
+        .diag-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .check-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 13px 18px;
+        border-top: 1px solid var(--border-subtle);
+      }
+      .check-row:first-child {
+        border-top: none;
+      }
+      .check-row:hover {
+        background: var(--surface-2);
+      }
+      .check-row .grow {
+        min-width: 0;
+      }
+      .check-row .t {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .check-row .d {
+        margin-top: 2px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+      }
+      .check-row .action {
+        flex: none;
+        padding-top: 1px;
+      }
+      .status-glyph {
+        display: flex;
+        width: 26px;
+        height: 26px;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-pill);
+        background: var(--surface-2);
+      }
+      .status-glyph.ok {
+        color: var(--success);
+        border-color: var(--success-border);
+        background: var(--success-muted);
+      }
+      .status-glyph.warn {
+        color: var(--warning);
+        border-color: var(--warning-border);
+        background: var(--warning-muted);
+      }
+      .status-glyph.bad {
+        color: var(--danger);
+        border-color: var(--danger-border);
+        background: var(--danger-muted);
+      }
+
+      .log-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+      .log-toolbar .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+      .log-toolbar .chip {
+        height: 26px;
+        padding: 0 9px;
+        font-size: 11px;
+      }
+      .log-toolbar .follow {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-left: auto;
+        color: var(--text-tertiary);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .terminal {
+        border-radius: 0;
+        max-height: 372px;
+      }
+
+      .tool-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      @media (max-width: 620px) {
+        .tool-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .tool {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-control);
+        background: var(--surface-2);
+        text-align: left;
+        transition: border-color var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
+      }
+      .tool:hover {
+        border-color: var(--border-strong);
+        background: var(--surface-3);
+      }
+      .tool .t {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .tool .d {
+        margin-top: 2px;
+        color: var(--text-tertiary);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+      .tool.danger:hover {
+        border-color: var(--danger-border);
+        background: var(--danger-muted);
+      }
+      .tool.danger .t,
+      .tool.danger .i {
+        color: var(--danger);
+      }
+
+      .diag-stat {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+      }
+      .diag-stat .v {
+        margin-top: 1px;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .diag-stat .l {
+        color: var(--text-tertiary);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .diag-stat .s {
+        margin-top: 2px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandstrip">
+        <div class="brandstrip-left">
+          <div class="brandmark" aria-hidden="true">
+            <svg class="i sm fill" viewBox="0 0 24 24"><polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" /></svg>
+          </div>
+          <span class="brandname">Kolnd <span>· Kloud Games</span></span>
+          <span class="pill-meta">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span class="truncate">KOLND-STREAM · 172.16.0.10</span>
+          </span>
+        </div>
+        <div class="brandstrip-right"><span>Servidor local</span><span>·</span><span>v0.0.0</span></div>
+      </div>
+
+      <header class="topbar">
+        <nav class="nav" aria-label="Navegação principal">
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>
+            <span class="lbl">Início</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span class="lbl">Aplicativos</span>
+            <span class="count">8</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            <span class="lbl">Pareamento</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
+            <span class="lbl">Configurações</span>
+          </a>
+          <a class="navlink" href="#" aria-current="page">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+            <span class="lbl">Diagnóstico</span>
+            <span class="count">1</span>
+          </a>
+        </nav>
+        <div class="topbar-right">
+          <span class="badge warning"><span class="dot warning" aria-hidden="true"></span> 1 aviso</span>
+          <button class="searchbtn" type="button">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+            <span class="lbl">Buscar…</span>
+            <kbd class="kbd">/</kbd>
+          </button>
+          <button class="morebtn" type="button" aria-expanded="false">
+            Mais
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <h1>Diagnóstico</h1>
+            <p class="sub">
+              Verificações do host, estado dos drivers de gamepad e logs ao vivo. O pacote de diagnóstico é montado
+              localmente — nada é enviado para fora da máquina.
+            </p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost" type="button">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6" /><polyline points="20 4 20 10 14 10" /></svg>
+              Recarregar
+            </button>
+            <button class="btn btn-secondary" type="button">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              </svg>
+              Abrir pasta de logs
+            </button>
+            <button class="btn btn-primary" type="button">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+              </svg>
+              Copiar diagnóstico
+            </button>
+          </div>
+        </div>
+
+        <!-- Resumo -->
+        <section class="grid grid-3" aria-label="Resumo do diagnóstico">
+          <article class="card diag-stat">
+            <span class="status-glyph warn" aria-hidden="true">
+              <svg class="i sm" viewBox="0 0 24 24"><path d="M12 3 22 20H2z" /><path d="M12 9v5" /></svg>
+            </span>
+            <div>
+              <p class="l">Permissões</p>
+              <p class="v">3 de 4 concedidas</p>
+              <p class="s">Entrada aguarda autorização</p>
+            </div>
+          </article>
+          <article class="card diag-stat">
+            <span class="status-glyph ok" aria-hidden="true">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+            </span>
+            <div>
+              <p class="l">Drivers de gamepad</p>
+              <p class="v">3 de 3 ativos</p>
+              <p class="s">ViGEmBus 1.22 · VirtualHID 1.4.2</p>
+            </div>
+          </article>
+          <article class="card diag-stat">
+            <span class="status-glyph ok" aria-hidden="true">
+              <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+            </span>
+            <div>
+              <p class="l">Rede</p>
+              <p class="v">Portas abertas</p>
+              <p class="s">47984-47990 · UPnP ativo</p>
+            </div>
+          </article>
+        </section>
+
+        <div class="diag-grid">
+          <!-- Verificações -->
+          <section class="card" aria-labelledby="checks-title">
+            <div class="card-head">
+              <h2 id="checks-title">Verificações do sistema</h2>
+              <span class="hint">última execução há 2 min</span>
+            </div>
+
+            <div>
+              <div class="check-row">
+                <span class="status-glyph ok" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Permissão de rede local</p>
+                  <p class="d">Necessária para descobrir clientes Moonlight na LAN.</p>
+                </div>
+                <span class="badge success">Concedida</span>
+              </div>
+
+              <div class="check-row">
+                <span class="status-glyph ok" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Captura de tela</p>
+                  <p class="d">Usada pelo codificador para compor os frames da sessão.</p>
+                </div>
+                <span class="badge success">Concedida</span>
+              </div>
+
+              <div class="check-row">
+                <span class="status-glyph warn" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Entrada · controle virtual</p>
+                  <p class="d">O Windows pede confirmação para instalar o driver de gamepad virtual.</p>
+                </div>
+                <div class="action">
+                  <button class="btn btn-secondary sm" type="button">Solicitar</button>
+                </div>
+              </div>
+
+              <div class="check-row">
+                <span class="status-glyph ok" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Regras de firewall</p>
+                  <p class="d">7 regras de entrada liberadas para o executável do serviço.</p>
+                </div>
+                <span class="badge success">OK</span>
+              </div>
+
+              <div class="check-row">
+                <span class="status-glyph ok" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><polyline points="4 12 9 17 20 6" /></svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Serviço do host</p>
+                  <p class="d">KLOUD_GAMESService · Iniciado · reinício automático em falha.</p>
+                </div>
+                <span class="badge success">Ativo</span>
+              </div>
+
+              <div class="check-row">
+                <span class="status-glyph" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                    <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+                  </svg>
+                </span>
+                <div class="grow">
+                  <p class="t">Codificador de hardware</p>
+                  <p class="d">NVENC detectado. Teste de 10 s executado com sucesso.</p>
+                </div>
+                <button class="btn btn-ghost sm" type="button">Testar</button>
+              </div>
+            </div>
+
+            <div class="card-foot">
+              <span>Verificações rodam ao abrir esta página</span>
+              <a href="#">Ver histórico</a>
+            </div>
+          </section>
+
+          <!-- Logs -->
+          <section class="card" aria-labelledby="logs-title">
+            <div class="card-head">
+              <h2 id="logs-title">Logs ao vivo</h2>
+              <span class="hint">montagem local</span>
+            </div>
+            <div class="log-toolbar">
+              <div class="chips" role="group" aria-label="Filtrar nível de log">
+                <button class="chip" type="button" aria-pressed="true">Todos</button>
+                <button class="chip" type="button" aria-pressed="false">Info</button>
+                <button class="chip" type="button" aria-pressed="false">Aviso</button>
+                <button class="chip" type="button" aria-pressed="false">Erro</button>
+              </div>
+              <span class="follow">
+                Seguir
+                <button class="switch sm" type="button" role="switch" aria-checked="true" aria-label="Seguir logs"></button>
+              </span>
+            </div>
+            <div class="terminal" role="log" aria-live="polite" aria-label="Log do Kloud Games">
+              <div class="line"><span class="ts">21:04:02.118</span><span class="lvl info">info</span><span class="msg">Configuration loaded from C:\ProgramData\KloudGames\config</span></div>
+              <div class="line"><span class="ts">21:04:02.204</span><span class="lvl info">info</span><span class="msg">Encoder: nvenc · codec: hevc · 2560x1440@60</span></div>
+              <div class="line"><span class="ts">21:04:02.377</span><span class="lvl info">info</span><span class="msg">Display device initialized: \\.\DISPLAY1</span></div>
+              <div class="line"><span class="ts">21:04:02.512</span><span class="lvl warn">warn</span><span class="msg">Virtual gamepad driver ViGEmBus 1.21.0 is older than supported 1.22.0</span></div>
+              <div class="line"><span class="ts">21:04:02.640</span><span class="lvl info">info</span><span class="msg">HTTP server listening on 0.0.0.0:47989</span></div>
+              <div class="line"><span class="ts">21:04:02.802</span><span class="lvl info">info</span><span class="msg">RTSP server listening on 0.0.0.0:48010</span></div>
+              <div class="line"><span class="ts">21:04:05.019</span><span class="lvl info">info</span><span class="msg">UPnP: mapped ports 47984-47990 on router 192.168.0.1</span></div>
+              <div class="line"><span class="ts">21:04:11.884</span><span class="lvl info">info</span><span class="msg">Client paired: 192.168.0.42 (Galaxy Tab S9)</span></div>
+              <div class="line"><span class="ts">21:04:12.003</span><span class="lvl info">info</span><span class="msg">Session started: app "Desktop" · client 192.168.0.21</span></div>
+              <div class="line error"><span class="ts">21:04:12.447</span><span class="lvl error">error</span><span class="msg">Audio capture: device change detected, reinitializing stream</span></div>
+              <div class="line"><span class="ts">21:04:12.690</span><span class="lvl info">info</span><span class="msg">Audio stream reinitialized: 48000 Hz · 2 ch · 16 bit</span></div>
+              <div class="line"><span class="ts">21:04:13.002</span><span class="lvl debug">debug</span><span class="msg">Video stats: 60.0 fps · 8.4 Mbps · 9 ms rtt</span></div>
+            </div>
+            <div class="card-foot">
+              <span>Tail de 500 linhas · atualiza a cada 2 s · <span class="mono">%APPDATA%\KloudGames\logs</span></span>
+              <a href="#">Abrir log completo</a>
+            </div>
+          </section>
+        </div>
+
+        <!-- Ferramentas -->
+        <section class="card" aria-labelledby="tools-title">
+          <div class="card-head">
+            <h2 id="tools-title">Ferramentas de suporte</h2>
+            <span class="hint">ações imediatas</span>
+          </div>
+          <div class="card-pad">
+            <div class="tool-grid">
+              <button class="tool" type="button">
+                <span class="status-glyph" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24">
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+                  </svg>
+                </span>
+                <span>
+                  <span class="t">Copiar diagnóstico</span>
+                  <span class="d">Versão, GPU, drivers, portas e as 200 últimas linhas de log — vai para a área de transferência.</span>
+                </span>
+              </button>
+
+              <button class="tool" type="button">
+                <span class="status-glyph" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24">
+                    <path d="M12 3v12M7 10l5 5 5-5" />
+                    <path d="M4 19h16" />
+                  </svg>
+                </span>
+                <span>
+                  <span class="t">Baixar pacote de logs</span>
+                  <span class="d">Gera um .zip com os logs rotacionados e o config.json (sem senhas).</span>
+                </span>
+              </button>
+
+              <button class="tool" type="button">
+                <span class="status-glyph" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6" /><polyline points="20 4 20 10 14 10" /></svg>
+                </span>
+                <span>
+                  <span class="t">Reiniciar serviço</span>
+                  <span class="d">Derruba a sessão ativa por ~10 s e reaplica a configuração salva.</span>
+                </span>
+              </button>
+
+              <button class="tool danger" type="button">
+                <span class="status-glyph bad" aria-hidden="true">
+                  <svg class="i sm" viewBox="0 0 24 24">
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
+                  </svg>
+                </span>
+                <span>
+                  <span class="t">Remover pareamentos</span>
+                  <span class="d">Desconecta todos os clientes. Cada um precisa de um novo PIN para voltar.</span>
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span>Nada é enviado automaticamente · crashReporter local</span>
+            <a href="#">Política de privacidade</a>
+          </div>
+        </section>
+
+        <p class="mockup-note">
+          <a href="index.html">← Modelos</a>
+          <strong style="color: var(--text-secondary)">Modelo 05 · Diagnóstico</strong>
+          — verificações acionáveis + logs filtráveis em terminal; substitui a página longa de troubleshooting por um painel.
+        </p>
+      </main>
+    </div>
+  </body>
+</html>
