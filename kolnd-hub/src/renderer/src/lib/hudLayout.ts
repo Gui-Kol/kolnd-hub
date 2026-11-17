@@ -15,9 +15,9 @@ export const HUD_TWO_COLUMN_MIN_WIDTH = 300
  * Número de colunas do grid de seções para a largura vigente do HUD.
  *
  * O renderer recebe a largura por push (`update.size.width`); antes do primeiro
- * push o componente usa `HUD_DEFAULT_WIDTH` (300), que já cai em 1 coluna.
- * Entrada inválida também cai em 1 — o pior caso é o layout estreito, nunca um
- * grid que estoura a janela.
+ * push o componente usa `HUD_DEFAULT_WIDTH` (300), que já cai em 2 colunas.
+ * Entrada inválida cai em 1 — o pior caso é o layout estreito, nunca um grid
+ * de duas colunas em janela estreita.
  */
 export function hudColumnCount(width: number): 1 | 2 {
   if (typeof width !== 'number' || !Number.isFinite(width)) return 1
