@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import { Monitor, Trash2, RefreshCw, Plus, Play, ArrowUpCircle, Trash } from 'lucide-react'
+import { Monitor, Trash2, RefreshCw, Plus, Play, ArrowUpCircle, Trash, Gauge } from 'lucide-react'
 import { PcUpdates } from './PcUpdates'
 import { PcCleanup } from './PcCleanup'
+import { PcBenchmark } from './PcBenchmark'
 import { Badge, Button, Card, EmptyState } from './ui'
 import {
   StartupItem,
@@ -16,12 +17,13 @@ import {
 import { AppConfig } from '../types'
 import { classifyImportance } from '../lib/startup'
 
-type PcTab = 'inicializacao' | 'atualizacoes' | 'limpeza'
+type PcTab = 'inicializacao' | 'atualizacoes' | 'limpeza' | 'benchmark'
 
 const PC_TABS: Array<{ id: PcTab; label: string; icon: typeof Monitor }> = [
   { id: 'inicializacao', label: 'Inicialização', icon: Monitor },
   { id: 'atualizacoes', label: 'Atualizações', icon: ArrowUpCircle },
-  { id: 'limpeza', label: 'Limpeza', icon: Trash2 }
+  { id: 'limpeza', label: 'Limpeza', icon: Trash2 },
+  { id: 'benchmark', label: 'Benchmark', icon: Gauge }
 ]
 
 const appImportance = (app: AppConfig): ImportanceLevel =>
@@ -534,6 +536,9 @@ export function Inicializacao({
 
       {/* ── Aba: Limpeza (temporários do sistema) ────────── */}
       {activeTab === 'limpeza' && <PcCleanup />}
+
+      {/* ── Aba: Benchmark de CPU ────────────────────────── */}
+      {activeTab === 'benchmark' && <PcBenchmark />}
     </div>
   )
 }

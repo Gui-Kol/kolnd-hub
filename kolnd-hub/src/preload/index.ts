@@ -172,6 +172,95 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('system:clean-temp'),
 
+  // ── Benchmark de CPU (Meu PC) ────────────────────
+  // Tipos duplicados de propósito (main/preload/renderer não se importam).
+  runBenchmark: (): Promise<
+    | {
+        ok: true
+        cancelled?: boolean
+        single: number
+        multi: number
+        ratio: number
+        cores: number
+        model: string
+        threads: number
+        durationMs: number
+        tests: Array<{ id: string; label: string; single: number; multi: number }>
+      }
+    | { ok: false; cancelled?: boolean; error: string }
+  > => ipcRenderer.invoke('benchmark:run'),
+
+  cancelBenchmark: (): Promise<{ ok: boolean; cancelled: boolean }> =>
+    ipcRenderer.invoke('benchmark:cancel'),
+
+  benchmarkInfo: (): Promise<{ cores: number; model: string }> =>
+    ipcRenderer.invoke('benchmark:info'),
+
+  benchmarkHistory: (): Promise<
+    Array<{
+      id: string
+      at: string
+      single: number
+      multi: number
+      ratio: number
+      cores: number
+      model: string
+      tests: Array<{ id: string; label: string; single: number; multi: number }>
+    }>
+  > => ipcRenderer.invoke('benchmark:history'),
+
+  clearBenchmarkHistory: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('benchmark:history-clear'),
+
+  onBenchmarkProgress: (
+    callback: (progress: {
+      phase: 'single' | 'multi'
+      testId: string
+      testLabel: string
+      testIndex: number
+      testCount: number
+      percent: number
+    }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: {
+        phase: 'single' | 'multi'
+        testId: string
+        testLabel: string
+        testIndex: number
+        testCount: number
+        percent: number
+      }
+    ): void => callback(progress)
+    ipcRenderer.on('benchmark:progress', handler)
+    return () => ipcRenderer.removeListener('benchmark:progress', handler)
+  },
+
+  startBenchmarkStress: (): Promise<{ ok: boolean; threads?: number; error?: string }> =>
+    ipcRenderer.invoke('benchmark:stress-start'),
+
+  stopBenchmarkStress: (): Promise<{
+    ok: boolean
+    elapsedMs?: number
+    checksumOk?: boolean
+    error?: string
+  }> => ipcRenderer.invoke('benchmark:stress-stop'),
+
+  // Sinal de vida para o watchdog do estresse (a interface chama a cada 2 s).
+  ackBenchmarkStress: (): Promise<void> => ipcRenderer.invoke('benchmark:stress-ack'),
+
+  onBenchmarkStressProgress: (
+    callback: (progress: { elapsedMs: number; threads: number; checksumOk: boolean }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: { elapsedMs: number; threads: number; checksumOk: boolean }
+    ): void => callback(progress)
+    ipcRenderer.on('benchmark:stress-progress', handler)
+    return () => ipcRenderer.removeListener('benchmark:stress-progress', handler)
+  },
+
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<
     Array<{

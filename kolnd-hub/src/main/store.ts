@@ -90,6 +90,8 @@ export interface HubStoreSchema {
   gamepad: GamepadConfig | null
   /** Preferências do modo Big Picture (ex.: efeitos sonoros). */
   bigPicture: BigPicturePrefs
+  /** Últimas execuções do benchmark de CPU (mais recente primeiro, cap 20). */
+  benchmarkHistory: BenchmarkEntry[]
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -102,6 +104,26 @@ export interface HubStoreSchema {
 /** Preferências do modo Big Picture (chave `bigPicture`). */
 export interface BigPicturePrefs {
   sounds: boolean
+}
+
+/** Nota de um teste individual do benchmark (MOps/s em cada fase). */
+export interface BenchmarkTestScore {
+  id: string
+  label: string
+  single: number
+  multi: number
+}
+
+/** Execução concluída do benchmark persistida em `benchmarkHistory`. */
+export interface BenchmarkEntry {
+  id: string
+  at: string
+  single: number
+  multi: number
+  ratio: number
+  cores: number
+  model: string
+  tests: BenchmarkTestScore[]
 }
 
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
@@ -331,6 +353,77 @@ export function normalizeBigPicturePrefs(input: unknown): BigPicturePrefs {
   return { sounds: true }
 }
 
+/** Teto do histórico local: 20 execuções bastam para comparar tendências. */
+const MAX_BENCHMARK_HISTORY = 20
+const MAX_BENCHMARK_TEXT = 200
+const MAX_BENCHMARK_ID = 64
+
+/** Número finito e não negativo; qualquer outro valor → null (entrada inválida). */
+function readBenchmarkNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
+  return value
+}
+
+/**
+ * Valida/normaliza a nota de uma carga. Entrada inválida → null (é descartada
+ * da lista de testes, nunca derruba o histórico inteiro).
+ */
+export function normalizeBenchmarkTestScore(input: unknown): BenchmarkTestScore | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const raw = input as Record<string, unknown>
+  const id = typeof raw.id === 'string' ? raw.id.trim().slice(0, MAX_BENCHMARK_ID) : ''
+  const label = typeof raw.label === 'string' ? raw.label.trim().slice(0, MAX_BENCHMARK_TEXT) : ''
+  if (!id || !label) return null
+  const single = readBenchmarkNumber(raw.single)
+  const multi = readBenchmarkNumber(raw.multi)
+  if (single === null || multi === null) return null
+  return { id, label, single, multi }
+}
+
+/**
+ * Valida/normaliza uma execução do histórico vinda do disco ou do IPC.
+ * `tests` inválido vira `[]`; números não finitos/negativos descartam a
+ * entrada; strings longas são cortadas para não inflar o config.json.
+ */
+export function normalizeBenchmarkEntry(input: unknown): BenchmarkEntry | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const raw = input as Record<string, unknown>
+
+  const id = typeof raw.id === 'string' ? raw.id.trim().slice(0, MAX_BENCHMARK_ID) : ''
+  const at = typeof raw.at === 'string' ? raw.at.trim().slice(0, MAX_BENCHMARK_TEXT) : ''
+  const model = typeof raw.model === 'string' ? raw.model.trim().slice(0, MAX_BENCHMARK_TEXT) : ''
+  if (!id || !at || !model) return null
+
+  const single = readBenchmarkNumber(raw.single)
+  const multi = readBenchmarkNumber(raw.multi)
+  const ratio = readBenchmarkNumber(raw.ratio)
+  const cores = readBenchmarkNumber(raw.cores)
+  if (single === null || multi === null || ratio === null || cores === null) return null
+
+  const tests = Array.isArray(raw.tests)
+    ? raw.tests
+        .map(normalizeBenchmarkTestScore)
+        .filter((test): test is BenchmarkTestScore => test !== null)
+    : []
+
+  return { id, at, single, multi, ratio, cores: Math.trunc(cores), model, tests }
+}
+
+/** Normaliza a lista do histórico, deduplicando por id e aplicando o cap de 20. */
+export function normalizeBenchmarkHistory(input: unknown): BenchmarkEntry[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const out: BenchmarkEntry[] = []
+  for (const item of input) {
+    const entry = normalizeBenchmarkEntry(item)
+    if (!entry || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    out.push(entry)
+    if (out.length >= MAX_BENCHMARK_HISTORY) break
+  }
+  return out
+}
+
 const schema: Store.Schema<HubStoreSchema> = {
   apps: {
     type: 'array',
@@ -403,6 +496,27 @@ const schema: Store.Schema<HubStoreSchema> = {
     properties: {
       sounds: { type: 'boolean' }
     }
+  },
+  // Histórico local do benchmark (fonte de verdade da comparação "melhor
+  // resultado nesta máquina"). O conteúdo é normalizado no getter/setter.
+  benchmarkHistory: {
+    type: 'array',
+    default: [],
+    items: {
+      type: 'object',
+      required: ['id', 'at', 'single', 'multi', 'ratio', 'cores', 'model'],
+      additionalProperties: true,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        at: { type: 'string' },
+        single: { type: 'number' },
+        multi: { type: 'number' },
+        ratio: { type: 'number' },
+        cores: { type: 'number' },
+        model: { type: 'string' },
+        tests: { type: 'array' }
+      }
+    }
   }
 }
 
@@ -420,7 +534,8 @@ function createStore(): Store<HubStoreSchema> | null {
       // não foram aplicadas. 1.0.0 é a baseline; 1.1.0 normaliza apps antigos
       // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`;
       // 1.3.0 garante o default da chave `launchKloudOnStart`;
-      // 1.4.0 garante os defaults de `gamepad` (null) e `bigPicture` ({ sounds: true }).
+      // 1.4.0 garante os defaults de `gamepad` (null) e `bigPicture` ({ sounds: true });
+      // 1.5.0 garante a chave `benchmarkHistory` (lista normalizada, cap 20).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -455,6 +570,14 @@ function createStore(): Store<HubStoreSchema> | null {
             s.set('gamepad', normalizeGamepadConfig(s.get('gamepad', null)))
             // Garante a chave `bigPicture` com `{ sounds: true }` como default.
             s.set('bigPicture', normalizeBigPicturePrefs(s.get('bigPicture', { sounds: true })))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.5.0': (s): void => {
+          try {
+            // Garante a chave `benchmarkHistory` (lista normalizada, cap 20).
+            s.set('benchmarkHistory', normalizeBenchmarkHistory(s.get('benchmarkHistory', [])))
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -727,6 +850,52 @@ export function setBigPicturePrefs(input: unknown): { success: boolean; error?: 
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar bigPicture:', message)
     return { success: false, error: message }
+  }
+}
+
+/** Lê o histórico do benchmark (sempre normalizado; [] quando indisponível). */
+export function getBenchmarkHistory(): BenchmarkEntry[] {
+  if (!store) return []
+  try {
+    return normalizeBenchmarkHistory(store.get('benchmarkHistory', []))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler benchmarkHistory:', err)
+    return []
+  }
+}
+
+/**
+ * Adiciona uma execução ao histórico (mais recente primeiro, cap 20).
+ * Entrada inválida é ignorada sem quebrar — devolve `false` nesse caso.
+ */
+export function addBenchmarkEntry(input: unknown): boolean {
+  const entry = normalizeBenchmarkEntry(input)
+  if (!entry) return false
+  if (!store) return false
+  try {
+    const current = getBenchmarkHistory()
+    const next = [entry, ...current.filter((item) => item.id !== entry.id)].slice(
+      0,
+      MAX_BENCHMARK_HISTORY
+    )
+    store.set('benchmarkHistory', next)
+    return true
+  } catch (err) {
+    logger.error('store', 'Falha ao salvar benchmarkHistory:', err)
+    return false
+  }
+}
+
+/** Apaga o histórico do benchmark (mantém a preferência de comparação vazia). */
+export function clearBenchmarkHistory(): boolean {
+  if (!store) return false
+  try {
+    store.set('benchmarkHistory', [])
+    logger.info('store', 'histórico do benchmark apagado')
+    return true
+  } catch (err) {
+    logger.error('store', 'Falha ao apagar benchmarkHistory:', err)
+    return false
   }
 }
 

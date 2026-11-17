@@ -134,6 +134,60 @@ declare global {
         error?: string
       }>
 
+      // ── Benchmark de CPU (Meu PC) ────────────────────
+      runBenchmark: () => Promise<
+        | {
+            ok: true
+            cancelled?: boolean
+            single: number
+            multi: number
+            ratio: number
+            cores: number
+            model: string
+            threads: number
+            durationMs: number
+            tests: Array<{ id: string; label: string; single: number; multi: number }>
+          }
+        | { ok: false; cancelled?: boolean; error: string }
+      >
+      cancelBenchmark: () => Promise<{ ok: boolean; cancelled: boolean }>
+      benchmarkInfo: () => Promise<{ cores: number; model: string }>
+      benchmarkHistory: () => Promise<
+        Array<{
+          id: string
+          at: string
+          single: number
+          multi: number
+          ratio: number
+          cores: number
+          model: string
+          tests: Array<{ id: string; label: string; single: number; multi: number }>
+        }>
+      >
+      clearBenchmarkHistory: () => Promise<{ success: boolean }>
+      onBenchmarkProgress: (
+        callback: (progress: {
+          phase: 'single' | 'multi'
+          testId: string
+          testLabel: string
+          testIndex: number
+          testCount: number
+          percent: number
+        }) => void
+      ) => () => void
+      startBenchmarkStress: () => Promise<{ ok: boolean; threads?: number; error?: string }>
+      stopBenchmarkStress: () => Promise<{
+        ok: boolean
+        elapsedMs?: number
+        checksumOk?: boolean
+        error?: string
+      }>
+      /** Sinal de vida para o watchdog do estresse (a interface chama a cada 2 s). */
+      ackBenchmarkStress: () => Promise<void>
+      onBenchmarkStressProgress: (
+        callback: (progress: { elapsedMs: number; threads: number; checksumOk: boolean }) => void
+      ) => () => void
+
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<
         Array<{

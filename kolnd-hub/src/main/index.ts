@@ -17,6 +17,7 @@ import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
+import { registerBenchmarkIpc } from './benchmark'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
@@ -132,6 +133,17 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
   // `query-session-end` (Windows) existe no runtime do Electron, mas ainda não
   // está nas typings do Electron 28; registra via EventEmitter mínimo.
   ;(mainWindow as unknown as NodeJS.EventEmitter).on('query-session-end', markQuitting)
+
+  // Diagnóstico de UI travada: o Chromium emite `unresponsive` quando o
+  // renderer fica segundos sem processar o event loop (ex.: carga pesada de
+  // CPU). Antes disso o sintoma só aparecia como "o Hub parou de funcionar"
+  // sem nenhuma pista no log.
+  mainWindow.on('unresponsive', () => {
+    logger.warn('window', 'janela não respondeu (renderer ocupado)')
+  })
+  mainWindow.on('responsive', () => {
+    logger.info('window', 'janela voltou a responder')
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (isAllowedExternalUrl(details.url)) {
@@ -278,6 +290,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC da limpeza de arquivos temporários.
   registerTempCleanerIpc()
+
+  // Registra os canais IPC do benchmark de CPU e do teste de estresse.
+  registerBenchmarkIpc()
 
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()

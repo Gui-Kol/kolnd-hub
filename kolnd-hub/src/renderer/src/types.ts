@@ -153,6 +153,67 @@ export interface CleanResult {
   error?: string
 }
 
+/** Nota de uma carga do benchmark (MOps/s em cada fase). */
+export interface BenchmarkTestScore {
+  id: string
+  label: string
+  single: number
+  multi: number
+}
+
+/** Resultado do benchmark de CPU (IPC `benchmark:run`). */
+export type BenchmarkResult =
+  | {
+      ok: true
+      cancelled?: boolean
+      single: number
+      multi: number
+      ratio: number
+      cores: number
+      model: string
+      threads: number
+      durationMs: number
+      tests: BenchmarkTestScore[]
+    }
+  | { ok: false; cancelled?: boolean; error: string }
+
+/** Progresso do run: percentual global (0–100) considerando as duas fases. */
+export interface BenchmarkProgress {
+  phase: 'single' | 'multi'
+  testId: string
+  testLabel: string
+  testIndex: number
+  testCount: number
+  percent: number
+}
+
+/** Execução persistida no histórico local (electron-store). */
+export interface BenchmarkHistoryEntry {
+  id: string
+  at: string
+  single: number
+  multi: number
+  ratio: number
+  cores: number
+  model: string
+  tests: BenchmarkTestScore[]
+}
+
+/** Progresso do teste de estresse (evento `benchmark:stress-progress`). */
+export interface StressProgress {
+  elapsedMs: number
+  threads: number
+  checksumOk: boolean
+}
+
+/** Resultado da parada do teste de estresse (IPC `benchmark:stress-stop`). */
+export interface StressResult {
+  ok: boolean
+  elapsedMs?: number
+  checksumOk?: boolean
+  error?: string
+}
+
 export const STARTUP_LOCATION_LABEL: Record<StartupItem['location'], string> = {
   registro: 'Registro',
   'pasta-inicializacao': 'Pasta de inicialização'

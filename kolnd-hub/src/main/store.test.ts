@@ -60,6 +60,11 @@ let normalizeGame: typeof import('./store').normalizeGame
 let normalizeGames: typeof import('./store').normalizeGames
 let normalizeGamepadConfig: typeof import('./store').normalizeGamepadConfig
 let normalizeBigPicturePrefs: typeof import('./store').normalizeBigPicturePrefs
+let normalizeBenchmarkEntry: typeof import('./store').normalizeBenchmarkEntry
+let normalizeBenchmarkHistory: typeof import('./store').normalizeBenchmarkHistory
+let getBenchmarkHistory: typeof import('./store').getBenchmarkHistory
+let addBenchmarkEntry: typeof import('./store').addBenchmarkEntry
+let clearBenchmarkHistory: typeof import('./store').clearBenchmarkHistory
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -85,6 +90,11 @@ beforeAll(async () => {
   normalizeGames = storeMod.normalizeGames
   normalizeGamepadConfig = storeMod.normalizeGamepadConfig
   normalizeBigPicturePrefs = storeMod.normalizeBigPicturePrefs
+  normalizeBenchmarkEntry = storeMod.normalizeBenchmarkEntry
+  normalizeBenchmarkHistory = storeMod.normalizeBenchmarkHistory
+  getBenchmarkHistory = storeMod.getBenchmarkHistory
+  addBenchmarkEntry = storeMod.addBenchmarkEntry
+  clearBenchmarkHistory = storeMod.clearBenchmarkHistory
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -621,9 +631,9 @@ describe('config.json corrompido (leitura lançando)', () => {
   })
 })
 
-// ── migrações de schema (cadeia 1.0.0 → 1.4.0) ─────────────────
+// ── migrações de schema (cadeia 1.0.0 → 1.5.0) ─────────────────
 
-describe('migrações de schema (cadeia 1.0.0 → 1.4.0)', () => {
+describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
   type FakeStore = {
     data: Record<string, unknown>
     get: (key: string, def?: unknown) => unknown
@@ -649,7 +659,7 @@ describe('migrações de schema (cadeia 1.0.0 → 1.4.0)', () => {
   }
 
   const runChain = (s: FakeStore): void => {
-    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0']) {
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0']) {
       migrationsOf()[version](s)
     }
   }
@@ -680,6 +690,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.4.0)', () => {
     // 1.4.0 garantiu gamepad (null) e bigPicture (default)
     expect(s.data.gamepad).toBeNull()
     expect(s.data.bigPicture).toEqual({ sounds: true })
+    // 1.5.0 garantiu benchmarkHistory vazio
+    expect(s.data.benchmarkHistory).toEqual([])
   })
 
   it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
@@ -726,9 +738,159 @@ describe('migrações de schema (cadeia 1.0.0 → 1.4.0)', () => {
         throw new Error('arquivo inconsistente')
       }
     }
-    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0']) {
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0']) {
       expect(() => migrationsOf()[version](s)).not.toThrow()
     }
+  })
+
+  it('1.5.0 normaliza benchmarkHistory (inválidos descartados, cap 20)', () => {
+    const s = makeFakeStore({
+      benchmarkHistory: [
+        {
+          id: 'ok',
+          at: '2026-11-16T00:00:00.000Z',
+          single: 10,
+          multi: 20,
+          ratio: 2,
+          cores: 4,
+          model: 'CPU de Teste',
+          tests: 'lixo'
+        },
+        {
+          id: 'ruim',
+          at: '2026-11-16T00:00:00.000Z',
+          single: -1,
+          multi: 20,
+          ratio: 2,
+          cores: 4,
+          model: 'CPU de Teste'
+        },
+        'lixo'
+      ]
+    })
+    migrationsOf()['1.5.0'](s)
+    expect(s.data.benchmarkHistory).toEqual([
+      {
+        id: 'ok',
+        at: '2026-11-16T00:00:00.000Z',
+        single: 10,
+        multi: 20,
+        ratio: 2,
+        cores: 4,
+        model: 'CPU de Teste',
+        tests: []
+      }
+    ])
+  })
+})
+
+// ── benchmarkHistory (histórico local do benchmark de CPU) ─────
+
+describe('benchmarkHistory', () => {
+  const makeEntry = (id = 'bench-1', at = '2026-11-16T10:00:00.000Z'): Record<string, unknown> => ({
+    id,
+    at,
+    single: 120.5,
+    multi: 800.25,
+    ratio: 6.64,
+    cores: 8,
+    model: 'CPU de Teste',
+    tests: [
+      { id: 'integers', label: 'Inteiros (ARX)', single: 100, multi: 700 },
+      { id: 'sha', label: 'SHA-256', single: 20, multi: 140 }
+    ]
+  })
+
+  it('normaliza uma execução válida (trim, cortes e testes)', () => {
+    const entry = normalizeBenchmarkEntry({
+      ...makeEntry('  bench-1  '),
+      model: 'x'.repeat(500),
+      cores: 8.9,
+      tests: [
+        { id: 'integers', label: 'Inteiros (ARX)', single: 100, multi: 700 },
+        { id: '', label: 'inválido', single: 1, multi: 1 },
+        'lixo'
+      ]
+    })
+    expect(entry).not.toBeNull()
+    expect(entry?.id).toBe('bench-1')
+    expect(entry?.model).toHaveLength(200)
+    expect(entry?.cores).toBe(8)
+    expect(entry?.tests).toHaveLength(1)
+  })
+
+  it('descarta entradas com números inválidos/negativos ou campos ausentes', () => {
+    expect(normalizeBenchmarkEntry(null)).toBeNull()
+    expect(normalizeBenchmarkEntry('texto')).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), single: -1 })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), multi: Infinity })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), ratio: '6' })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), cores: NaN })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), id: '' })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), at: '' })).toBeNull()
+    expect(normalizeBenchmarkEntry({ ...makeEntry(), model: '' })).toBeNull()
+  })
+
+  it('tests inválido vira [] sem derrubar a execução', () => {
+    const entry = normalizeBenchmarkEntry({ ...makeEntry(), tests: 'nada' })
+    expect(entry?.tests).toEqual([])
+  })
+
+  it('normalizeBenchmarkHistory: não-array → [], deduplica e aplica cap 20', () => {
+    expect(normalizeBenchmarkHistory(null)).toEqual([])
+    const many = Array.from({ length: 25 }, (_, index) => makeEntry(`bench-${index}`))
+    const capped = normalizeBenchmarkHistory([...many, many[0], 'lixo'])
+    expect(capped).toHaveLength(20)
+    expect(capped[0].id).toBe('bench-0')
+    expect(capped[19].id).toBe('bench-19')
+  })
+
+  it('addBenchmarkEntry insere no topo e respeita o cap de 20', () => {
+    const h = holder()
+    const existing = Array.from({ length: 20 }, (_, index) => makeEntry(`bench-${index}`))
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'benchmarkHistory' ? existing : def
+    )
+    expect(addBenchmarkEntry(makeEntry('novo'))).toBe(true)
+    expect(h.set).toHaveBeenCalledTimes(1)
+    const saved = h.set.mock.calls[0][1] as Array<{ id: string }>
+    expect(saved).toHaveLength(20)
+    expect(saved[0].id).toBe('novo')
+    expect(saved[19].id).toBe('bench-18')
+  })
+
+  it('addBenchmarkEntry ignora entrada inválida sem tocar no disco', () => {
+    const h = holder()
+    expect(addBenchmarkEntry({ id: 'x' })).toBe(false)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+
+  it('addBenchmarkEntry substitui a mesma execução pelo id (sem duplicar)', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'benchmarkHistory' ? [makeEntry('bench-1')] : def
+    )
+    expect(addBenchmarkEntry(makeEntry('bench-1'))).toBe(true)
+    const saved = h.set.mock.calls[0][1] as Array<{ id: string }>
+    expect(saved).toHaveLength(1)
+  })
+
+  it('getBenchmarkHistory normaliza o disco e tolera falha de leitura', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'benchmarkHistory' ? [makeEntry('bench-1'), 'lixo'] : def
+    )
+    expect(getBenchmarkHistory()).toHaveLength(1)
+    h.get.mockImplementation(() => {
+      throw new Error('corrompido')
+    })
+    expect(getBenchmarkHistory()).toEqual([])
+  })
+
+  it('clearBenchmarkHistory grava lista vazia', () => {
+    const h = holder()
+    expect(clearBenchmarkHistory()).toBe(true)
+    expect(h.set).toHaveBeenCalledWith('benchmarkHistory', [])
   })
 })
 
