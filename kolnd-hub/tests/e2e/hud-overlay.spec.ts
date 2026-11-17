@@ -119,8 +119,12 @@ function writeFpsSample(fpsDir: string, timestamp: string): void {
 interface HudLayoutSnapshot {
   /** Elementos cujo conteúdo é mais largo que a própria caixa. */
   overflow: string[]
-  /** Elementos com texto próprio cujo retângulo sai do painel ou da janela. */
+  /** Nós de VALOR (`dd`/rótulos) que saem do painel ou ficam meio cortados. */
   outside: string[]
+  /** Rodapé (hora/origem do FPS) fora da janela — permitido em tela baixa. */
+  outsideChrome: string[]
+  /** Valores inteiramente abaixo da janela (físico quando o conteúdo excede a tela). */
+  belowFold: string[]
   cpuX: number
   gpuX: number
   contentHeight: number
@@ -133,6 +137,11 @@ interface HudLayoutSnapshot {
  *
  * Devolve listas legíveis (com retângulos/medidas) para que uma falha mostre
  * exatamente qual nó cortou número ou vazou do painel — não só "falhou".
+ *
+ * A janela nunca é maior que a área de trabalho (D7'): quando o conteúdo passa
+ * do teto da tela, o que está inteiramente abaixo da borda é físico e esperado
+ * (`belowFold`); o que continua sendo defeito é número fora do painel na
+ * horizontal ou cruzando a borda (meio visível) — isso entra em `outside`.
  */
 async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
   return hud.evaluate(() => {
@@ -161,25 +170,43 @@ async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
         (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > 0
       )
     )
-    const outside = textOwners
-      .filter((element) => {
-        const rect = element.getBoundingClientRect()
-        return (
-          rect.left < panel.left - 0.5 ||
-          rect.right > panel.right + 0.5 ||
-          rect.right > window.innerWidth ||
-          rect.bottom > window.innerHeight + 0.5
-        )
-      })
-      .map((element) => {
-        const rect = element.getBoundingClientRect()
-        return (
-          `${describe(element)} left=${rect.left.toFixed(1)} right=${rect.right.toFixed(1)}` +
-          ` bottom=${rect.bottom.toFixed(1)}` +
-          ` painel=${panel.left.toFixed(1)}–${panel.right.toFixed(1)}` +
-          ` janela=${window.innerWidth}×${window.innerHeight}`
-        )
-      })
+
+    const contentOverflows = panel.height > window.innerHeight + 1
+    const footer = document.querySelector('[data-testid="hud-updated"]')?.parentElement ?? null
+
+    const issueOf = (element: Element): 'ok' | 'below' | 'cut' => {
+      const rect = element.getBoundingClientRect()
+      const horizontal =
+        rect.left < panel.left - 0.5 ||
+        rect.right > panel.right + 0.5 ||
+        rect.right > window.innerWidth
+      if (horizontal) return 'cut'
+      if (rect.bottom <= window.innerHeight + 0.5) return 'ok'
+      if (rect.top > window.innerHeight) return 'below'
+      return 'cut'
+    }
+
+    const detailOf = (element: Element): string => {
+      const rect = element.getBoundingClientRect()
+      return (
+        `${describe(element)} left=${rect.left.toFixed(1)} right=${rect.right.toFixed(1)}` +
+        ` top=${rect.top.toFixed(1)} bottom=${rect.bottom.toFixed(1)}` +
+        ` painel=${panel.left.toFixed(1)}–${panel.right.toFixed(1)}` +
+        ` janela=${window.innerWidth}×${window.innerHeight}`
+      )
+    }
+
+    const chromeNodes = footer ? textOwners.filter((element) => footer.contains(element)) : []
+    const valueNodes = textOwners.filter((element) => !chromeNodes.includes(element))
+
+    const isViolation = (issue: 'ok' | 'below' | 'cut'): boolean =>
+      issue === 'cut' || (issue === 'below' && !contentOverflows)
+
+    const outside = valueNodes.filter((element) => isViolation(issueOf(element))).map(detailOf)
+    const belowFold = valueNodes.filter((element) => issueOf(element) === 'below').map(detailOf)
+    const outsideChrome = chromeNodes
+      .filter((element) => isViolation(issueOf(element)))
+      .map(detailOf)
 
     const xOf = (testId: string): number | null => {
       const element = document.querySelector(`[data-testid="${testId}"]`)
@@ -194,7 +221,16 @@ async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
     const fps = document.querySelector('[data-testid="hud-fps"]')
     const fpsFontPx = fps ? Number.parseFloat(getComputedStyle(fps).fontSize) : 0
 
-    return { overflow, outside, cpuX, gpuX, contentHeight: panel.height, fpsFontPx }
+    return {
+      overflow,
+      outside,
+      outsideChrome,
+      belowFold,
+      cpuX,
+      gpuX,
+      contentHeight: panel.height,
+      fpsFontPx
+    }
   })
 }
 
@@ -449,9 +485,11 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
   mkdirSync(shotsDir, { recursive: true })
 
   const app = await launchApp(fpsDir)
+  let mainWindow: Page | null = null
 
   try {
     const window = await app.firstWindow()
+    mainWindow = window
     await expect(window.getByRole('heading', { name: 'Ferramentas' })).toBeVisible({
       timeout: 45_000
     })
@@ -461,8 +499,8 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
     const hud = await waitForHudPage(app)
     await expect(hud.getByTestId('hud-overlay')).toBeVisible({ timeout: 30_000 })
 
-    // Larguras onde o layout já falhou + as decisões D1 (180/300 → 1 coluna,
-    // 340/560 → 2 colunas).
+    // Larguras onde o layout já falhou + D1' (180–290 → 1 coluna, 300–560 →
+    // 2 colunas: o padrão 300 precisa ser o layout compacto para caber em 720p).
     const matrix = [
       { width: 180, scale: 'normal' },
       { width: 300, scale: 'normal' },
@@ -479,16 +517,20 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
       expect(resized.success, `hudSetSize ${width}px/${scale}`).toBe(true)
 
       // Amostra fresca: o cabeçalho precisa aparecer completo no screenshot.
-      writeFpsSample(fpsDir, new Date().toISOString())
-      await expect
-        .poll(async () => hud.getByTestId('hud-fps').innerText(), {
-          timeout: 20_000,
-          intervals: [500]
-        })
-        .toBe('60')
+      // Reescrevemos a cada 500 ms enquanto esperamos: o agent só aceita a
+      // amostra por 3 s e um `schtasks` lento pode atrasar a leitura (flake).
+      let fpsText = ''
+      const fpsDeadline = Date.now() + 20_000
+      while (Date.now() < fpsDeadline) {
+        writeFpsSample(fpsDir, new Date().toISOString())
+        fpsText = await hud.getByTestId('hud-fps').innerText()
+        if (fpsText === '60') break
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      expect(fpsText, `FPS em ${width}px/${scale}`).toBe('60')
 
-      // A janela acompanha a largura configurada e continua exatamente do
-      // tamanho do conteúdo (altura automática preservada — D5).
+      // A janela acompanha a largura configurada e a altura é
+      // `min(conteúdo, área útil)` (D7': nunca maior que a área de trabalho).
       await expect
         .poll(
           async () => {
@@ -499,14 +541,15 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
                 document.querySelector('[data-testid="hud-overlay"]')?.getBoundingClientRect()
                   .height ?? 0
             )
-            return Math.abs(info.bounds.height - content)
+            const expected = Math.min(content, info.workArea.height - 24)
+            return Math.abs(info.bounds.height - expected)
           },
           { timeout: 15_000, intervals: [200] }
         )
         .toBeLessThanOrEqual(2)
 
       // O grid usa a largura do último push (~1 Hz); espera a coluna esperada.
-      const stacked = width < 340
+      const stacked = width < 300
       const expectedFpsFontPx = scale === 'grande' ? 46 : 38
       await expect
         .poll(
@@ -521,32 +564,56 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
         )
         .toBe(true)
 
-      // (a) nenhum elemento com conteúdo mais largo que a caixa e (b) nenhum
-      // texto fora do painel/janela.
+      // (a) nenhum elemento com conteúdo mais largo que a caixa; (b) nenhum
+      // valor fora do painel/janela — em tela baixa o que fica inteiramente
+      // abaixo da janela é físico (D9) e só o rodapé pode sobrar.
       const layout = await inspectHudLayout(hud)
       expect(layout, `layout do HUD em ${width}px/${scale}`).not.toBeNull()
       expect(layout!.overflow, `overflow em ${width}px/${scale}`).toEqual([])
-      expect(layout!.outside, `fora do painel em ${width}px/${scale}`).toEqual([])
 
-      // (d) altura da janela = altura do conteúdo (±2 px).
       const info = await hudWindowInfo(app)
       expect(info, 'janela do HUD não encontrada no main').not.toBeNull()
+      const availableHeight = info!.workArea.height - 24
+      const fits = layout!.contentHeight <= availableHeight + 0.5
+      if (fits) {
+        expect(layout!.outside, `fora do painel em ${width}px/${scale}`).toEqual([])
+        expect(layout!.outsideChrome, `rodapé fora da janela em ${width}px/${scale}`).toEqual([])
+      } else {
+        // Caso físico (tela baixa): a janela é menor que o conteúdo por D7'.
+        console.log(
+          `[e2e/hud] conteúdo ${layout!.contentHeight.toFixed(1)} > área útil ` +
+            `${availableHeight}: rodapé fora da janela (esperado)` +
+            (layout!.belowFold.length > 0
+              ? ` · ${layout!.belowFold.length} nó(s) de valor abaixo da dobra`
+              : '')
+        )
+        // Nada meio visível/cortado na horizontal: valores ficam no painel.
+        expect(layout!.outside, `número cortado em ${width}px/${scale}`).toEqual([])
+      }
+
+      // (d) altura da janela = min(conteúdo, área útil) (±2 px).
       expect(info!.bounds.width).toBe(width)
-      expect(Math.abs(info!.bounds.height - layout!.contentHeight)).toBeLessThanOrEqual(2)
+      const expectedHeight = Math.min(layout!.contentHeight, availableHeight)
+      expect(Math.abs(info!.bounds.height - expectedHeight)).toBeLessThanOrEqual(2)
 
       await hud.screenshot({ path: join(shotsDir, `hud-${width}-${scale}.png`) })
       console.log(
         `[e2e/hud] layout ${width}px/${scale}: ${stacked ? 1 : 2} coluna(s)` +
           ` · cpu.x=${layout!.cpuX.toFixed(1)} · gpu.x=${layout!.gpuX.toFixed(1)}` +
           ` · janela=${info!.bounds.width}×${info!.bounds.height}` +
-          ` · conteúdo=${layout!.contentHeight.toFixed(1)}px`
+          ` · conteúdo=${layout!.contentHeight.toFixed(1)}px` +
+          ` · área útil=${availableHeight}`
       )
     }
-
-    // Devolve o padrão: execuções seguintes não herdam 560 px do teste acima.
-    await window.evaluate(() => window.api.hudSetSize({ width: 300, scale: 'normal' }))
-    await window.evaluate(() => window.api.hudSetVisible(false))
   } finally {
+    // D10: restaura o padrão e oculta o HUD mesmo em falha — o userData é
+    // compartilhado e `hud.visible=true` contaminaria o próximo teste.
+    if (mainWindow) {
+      await mainWindow
+        .evaluate(() => window.api.hudSetSize({ width: 300, scale: 'normal' }))
+        .catch(() => undefined)
+      await mainWindow.evaluate(() => window.api.hudSetVisible(false)).catch(() => undefined)
+    }
     await app.close().catch(() => {
       try {
         app.process().kill()
