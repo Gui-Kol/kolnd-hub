@@ -11,3 +11,6 @@ resources/programs/MarkLVI/
 resources/programs/kloud-games/KLOUD_GAMES.exe
 resources/programs/kloud-games/assets/
 resources/programs/kloud-games/kloud-games.paths.json
+
+# Driver auxiliar WinRing0 (baixado por scripts/fetch-winring0.ps1; binário nunca entra no git)
+resources/drivers/*.sys

@@ -4,6 +4,22 @@ import { contextBridge, ipcRenderer } from 'electron'
 // aqui nem no `index.d.ts`. Qualquer mudança nos 12 controles/índices
 // acontece no shared; drift vira erro de compilação nos três processos.
 import type { GamepadConfig } from '../shared/gamepad'
+import type { DriverStatusInfo, HwSnapshot, InstallDriverResult } from '../shared/hwmon'
+import type {
+  DisplayConfirmResult,
+  DisplayInfo,
+  DisplayRevertedEvent,
+  DisplaySetResult
+} from '../shared/display'
+import type {
+  FpsAutoActionResult,
+  FpsAutoStatus,
+  FpsStartResult,
+  FpsStatusInfo,
+  FpsStopResult,
+  FpsUpdate
+} from '../shared/fps'
+import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 
 const api = {
   // ── Sistema ─────────────────────────────────────
@@ -186,6 +202,8 @@ const api = {
         threads: number
         durationMs: number
         tests: Array<{ id: string; label: string; single: number; multi: number }>
+        /** Alguma carga continuou com spread > 25 % mesmo após a repetição. */
+        unstable: boolean
       }
     | { ok: false; cancelled?: boolean; error: string }
   > => ipcRenderer.invoke('benchmark:run'),
@@ -259,6 +277,117 @@ const api = {
     ): void => callback(progress)
     ipcRenderer.on('benchmark:stress-progress', handler)
     return () => ipcRenderer.removeListener('benchmark:stress-progress', handler)
+  },
+
+  // ── Monitor de hardware (Meu PC) ─────────────────
+  // Tipos vêm de `src/shared/hwmon.ts` — sem duplicação entre processos.
+  hwmonSnapshot: (): Promise<HwSnapshot> => ipcRenderer.invoke('hwmon:snapshot'),
+
+  hwmonStart: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('hwmon:start'),
+
+  hwmonStop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('hwmon:stop'),
+
+  hwmonDriverStatus: (): Promise<DriverStatusInfo> => ipcRenderer.invoke('hwmon:driver-status'),
+
+  hwmonInstallDriver: (): Promise<InstallDriverResult> =>
+    ipcRenderer.invoke('hwmon:install-driver'),
+
+  onHwMonitorUpdate: (callback: (snapshot: HwSnapshot) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: HwSnapshot): void =>
+      callback(snapshot)
+    ipcRenderer.on('hwmon:update', handler)
+    return () => ipcRenderer.removeListener('hwmon:update', handler)
+  },
+
+  // ── Tela (Meu PC) ───────────────────────────────
+  // Tipos vêm de `src/shared/display.ts` — sem duplicação entre processos.
+  getDisplayInfo: (): Promise<DisplayInfo> => ipcRenderer.invoke('display:get'),
+
+  setDisplayResolution: (
+    displayId: string,
+    width: number,
+    height: number,
+    refreshHz: number
+  ): Promise<DisplaySetResult> =>
+    ipcRenderer.invoke('display:set-resolution', displayId, width, height, refreshHz),
+
+  setDisplayScale: (displayId: string, percent: number): Promise<DisplaySetResult> =>
+    ipcRenderer.invoke('display:set-scale', displayId, percent),
+
+  confirmDisplayChange: (): Promise<DisplayConfirmResult> =>
+    ipcRenderer.invoke('display:confirm-change'),
+
+  revertDisplayChange: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('display:revert-change'),
+
+  onDisplayReverted: (callback: (event: DisplayRevertedEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: DisplayRevertedEvent): void =>
+      callback(payload)
+    ipcRenderer.on('display:change-reverted', handler)
+    return () => ipcRenderer.removeListener('display:change-reverted', handler)
+  },
+
+  // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
+  // Opt-in explícito: `fpsStart` pede permissão de administrador (UAC).
+  fpsStatus: (): Promise<FpsStatusInfo> => ipcRenderer.invoke('fps:status'),
+
+  fpsStart: (): Promise<FpsStartResult> => ipcRenderer.invoke('fps:start'),
+
+  fpsStop: (): Promise<FpsStopResult> => ipcRenderer.invoke('fps:stop'),
+
+  onFpsUpdate: (callback: (update: FpsUpdate) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, update: FpsUpdate): void => callback(update)
+    ipcRenderer.on('fps:update', handler)
+    return () => ipcRenderer.removeListener('fps:update', handler)
+  },
+
+  // ── FPS automático (tarefa no logon) ──────────────
+  // Instalar/remover pede UAC explícito; a leitura de `latest.json` é passiva.
+  fpsAutoStatus: (): Promise<FpsAutoStatus> => ipcRenderer.invoke('fps:auto-status'),
+
+  fpsAutoInstall: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-install'),
+
+  fpsAutoRemove: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-remove'),
+
+  onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: FpsAutoStatus): void =>
+      callback(status)
+    ipcRenderer.on('fps:auto-update', handler)
+    return () => ipcRenderer.removeListener('fps:auto-update', handler)
+  },
+
+  // ── Sobreposição (HUD) ────────────────────────────
+  // Tipos canônicos em `src/shared/hud.ts`.
+  hudGet: (): Promise<HudStatus> => ipcRenderer.invoke('hud:get'),
+
+  hudSetShortcut: (
+    shortcut: string
+  ): Promise<{ success: boolean; status: HudStatus; error?: string }> =>
+    ipcRenderer.invoke('hud:set-shortcut', shortcut),
+
+  hudSetVisible: (visible: boolean): Promise<HudStatus> =>
+    ipcRenderer.invoke('hud:set-visible', visible),
+
+  hudSetSize: (
+    size: Partial<HudSize>
+  ): Promise<{ success: boolean; status: HudStatus; error?: string }> =>
+    ipcRenderer.invoke('hud:set-size', size),
+
+  hudReportSize: (height: number): Promise<{ height: number }> =>
+    ipcRenderer.invoke('hud:report-size', { height }),
+
+  onHudStatus: (callback: (status: HudStatus) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: HudStatus): void => callback(status)
+    ipcRenderer.on('hud:status', handler)
+    return () => ipcRenderer.removeListener('hud:status', handler)
+  },
+
+  hudToggle: (): Promise<HudStatus> => ipcRenderer.invoke('hud:toggle'),
+
+  onHudUpdate: (callback: (update: HudUpdate) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, update: HudUpdate): void => callback(update)
+    ipcRenderer.on('hud:update', handler)
+    return () => ipcRenderer.removeListener('hud:update', handler)
   },
 
   // ── Biblioteca de jogos ──────────────────────────

@@ -1,10 +1,23 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import { Monitor, Trash2, RefreshCw, Plus, Play, ArrowUpCircle, Trash, Gauge } from 'lucide-react'
+import {
+  Activity,
+  Monitor,
+  MonitorCog,
+  Trash2,
+  RefreshCw,
+  Plus,
+  Play,
+  ArrowUpCircle,
+  Trash,
+  Gauge
+} from 'lucide-react'
 import { PcUpdates } from './PcUpdates'
 import { PcCleanup } from './PcCleanup'
 import { PcBenchmark } from './PcBenchmark'
+import { PcMonitor } from './PcMonitor'
+import { PcDisplay } from './PcDisplay'
 import { Badge, Button, Card, EmptyState } from './ui'
 import {
   StartupItem,
@@ -17,13 +30,15 @@ import {
 import { AppConfig } from '../types'
 import { classifyImportance } from '../lib/startup'
 
-type PcTab = 'inicializacao' | 'atualizacoes' | 'limpeza' | 'benchmark'
+type PcTab = 'inicializacao' | 'tela' | 'atualizacoes' | 'limpeza' | 'benchmark' | 'monitor'
 
 const PC_TABS: Array<{ id: PcTab; label: string; icon: typeof Monitor }> = [
   { id: 'inicializacao', label: 'Inicialização', icon: Monitor },
+  { id: 'tela', label: 'Tela', icon: MonitorCog },
   { id: 'atualizacoes', label: 'Atualizações', icon: ArrowUpCircle },
   { id: 'limpeza', label: 'Limpeza', icon: Trash2 },
-  { id: 'benchmark', label: 'Benchmark', icon: Gauge }
+  { id: 'benchmark', label: 'Benchmark', icon: Gauge },
+  { id: 'monitor', label: 'Monitor', icon: Activity }
 ]
 
 const appImportance = (app: AppConfig): ImportanceLevel =>
@@ -86,6 +101,8 @@ export function Inicializacao({
   // A aba Atualizações só é montada na primeira visita — e fica montada (oculta)
   // depois disso, para não desmontar a fila de atualizações em andamento.
   const [atualizacoesMounted, setAtualizacoesMounted] = useState(false)
+  // Tela: montar uma vez evita recompilar o C# do script a cada troca de aba.
+  const [telaMounted, setTelaMounted] = useState(false)
 
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true)
@@ -148,6 +165,7 @@ export function Inicializacao({
   const goToTab = (tab: PcTab): void => {
     setActiveTab(tab)
     if (tab === 'atualizacoes') setAtualizacoesMounted(true)
+    if (tab === 'tela') setTelaMounted(true)
   }
 
   const clearSelectAdd = (): void => {
@@ -194,7 +212,7 @@ export function Inicializacao({
       <div
         role="tablist"
         aria-label="Seções do PC"
-        className="flex flex-col gap-1 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-1.5 sm:flex-row"
+        className="flex flex-col gap-1 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-1.5 sm:flex-row sm:flex-wrap"
       >
         {PC_TABS.map(({ id, label, icon: Icon }) => {
           const active = activeTab === id
@@ -527,6 +545,13 @@ export function Inicializacao({
         </>
       )}
 
+      {/* ── Aba: Tela (escala + resolução) — montada na 1ª visita e mantida ── */}
+      {telaMounted && (
+        <div className={activeTab === 'tela' ? '' : 'hidden'}>
+          <PcDisplay />
+        </div>
+      )}
+
       {/* ── Aba: Atualizações (winget) — montada na 1ª visita e mantida montada ── */}
       {atualizacoesMounted && (
         <div className={activeTab === 'atualizacoes' ? '' : 'hidden'}>
@@ -539,6 +564,9 @@ export function Inicializacao({
 
       {/* ── Aba: Benchmark de CPU ────────────────────────── */}
       {activeTab === 'benchmark' && <PcBenchmark />}
+
+      {/* ── Aba: Monitor de hardware ─────────────────────── */}
+      {activeTab === 'monitor' && <PcMonitor />}
     </div>
   )
 }

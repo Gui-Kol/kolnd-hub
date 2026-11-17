@@ -1,10 +1,27 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import type { WebContents } from 'electron'
 import * as os from 'os'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
+import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { logger } from './logger'
-import { BENCHMARK_WORKER_SOURCE } from './benchmarkWorkerSource'
+import { BENCHMARK_STRESS_SOURCE } from './benchmarkWorkerSource'
+import { BENCHMARK_RUNNER_SOURCE } from './benchmarkRunnerSource'
+import { runRunner, type RunnerLoadResult } from './benchmarkRunner'
+import {
+  BENCHMARK_REFERENCES,
+  computeRatio,
+  hasUnstableLoad,
+  isUnstableSpread,
+  median,
+  multiReps,
+  roundScore,
+  singleReps,
+  spreadRatio,
+  weightedPhaseScore
+} from './benchmarkScore'
 import {
   addBenchmarkEntry,
   clearBenchmarkHistory,
@@ -15,17 +32,24 @@ import {
 /**
  * Benchmark de CPU do Kolnd Hub.
  *
- * Regras que explicam o desenho:
- * - Toda a computação roda em `worker_threads`; o main só orquestra e mede o
- *   relógio. Um kernel síncrono no main congelaria IPC, tray e a própria janela.
- * - O worker é criado por string (`eval: true`). Nesta versão do electron-vite
- *   (2.3) não há suporte a `?nodeWorker`, e um caminho relativo dentro do asar
- *   seria frágil no empacotamento. A string é CommonJS autocontida.
- * - A métrica é MOps/s (milhões de operações por segundo) por carga. O score de
- *   cada fase é a média geométrica dos cinco testes; a razão multi/single é
- *   apenas `multi / single`. Nada é normalizado contra banco remoto — não é
- *   comparável ao CPU-Z (a escala deles depende do serviço online).
+ * Regras que explicam o desenho atual (v2):
+ * - A computação roda em **processos filhos** (`process.execPath` +
+ *   `ELECTRON_RUN_AS_NODE=1`), nunca em `worker_threads` do main: a partir da
+ *   2ª execução na mesma sessão o V8 dos workers caía para interpretado
+ *   (medido: inteiros 1021 → 73 MOps, SHA idêntico) e sobrava CPU girando.
+ * - Cada filho roda um script CJS autocontido gerado em
+ *   `<userData>/benchmark/kolnd-bench-runner.js` — não há caminho confiável
+ *   dentro do asar e o script é reescrito só quando o conteúdo muda.
+ * - Trabalho **fixo** por carga (não duração fixa): aquecimento descartado,
+ *   3 repetições e mediana. O mesmo trabalho em toda execução é o que torna o
+ *   resultado comparável entre runs.
+ * - Fases `single` (1 filho) e `multi` (N = núcleos lógicos, cap 32) com as
+ *   5 cargas; total de 1 + N processos por run.
+ * - Nota normalizada por carga e média aritmética ponderada — a escala está
+ *   documentada em `benchmarkScore.ts` e no rodapé da interface.
  * - Execução única por vez: benchmark e estresse são mutuamente exclusivos.
+ * - Nenhum filho sobrevive ao run: fim, cancelamento, timeout e `will-quit`
+ *   matam todos (órfão de benchmark é bug).
  */
 
 /** Mesma forma persistida em `benchmarkHistory` (fonte em `store.ts`). */
@@ -44,8 +68,11 @@ export type BenchmarkResult =
       cores: number
       model: string
       threads: number
+      /** Tempo total do run (ms) — informativo, não entra em nenhuma nota. */
       durationMs: number
       tests: BenchmarkTestScore[]
+      /** Alguma carga continuou com spread > 25 % mesmo após a repetição. */
+      unstable: boolean
     }
   | { ok: false; cancelled?: boolean; error: string }
 
@@ -87,10 +114,14 @@ export const BENCHMARK_TESTS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'sha', label: 'SHA-256' }
 ]
 
-export const DEFAULT_TEST_DURATION_MS = 600
+/** Repetições por carga; a nota usa a mediana (o pior/ruído não decide). */
+export const BENCHMARK_REPEATS = 3
+
 export const MAX_THREADS = 32
-const DEFAULT_WARMUP_MS = 80
-const SAFETY_TIMEOUT_MS = 10_000
+
+const RUNNER_DIR_NAME = 'benchmark'
+const RUNNER_FILE_NAME = 'kolnd-bench-runner.js'
+
 const BUSY_ERROR = 'Já existe um teste em andamento. Aguarde ou pare o teste atual.'
 /**
  * Progresso do estresse é agregado no main e enviado num único evento a cada
@@ -109,78 +140,19 @@ export const STRESS_ACK_TIMEOUT_MS = 10_000
 /** Erros com mensagem já amigável (nunca um stack trace cru para a interface). */
 class BenchmarkError extends Error {}
 
-// ── Cálculos puros (testados em benchmark.test.ts) ───────────────
-
-/** Média geométrica dos valores positivos e finitos; lista vazia → 0. */
-export function geometricMean(values: number[]): number {
-  const valid = values.filter((value) => Number.isFinite(value) && value > 0)
-  if (valid.length === 0) return 0
-  const sumLogs = valid.reduce((sum, value) => sum + Math.log(value), 0)
-  return Math.exp(sumLogs / valid.length)
-}
-
-/** Converte operações contadas em MOps/s. */
-export function opsToMops(ops: number, elapsedMs: number): number {
-  if (!Number.isFinite(ops) || !Number.isFinite(elapsedMs) || ops <= 0 || elapsedMs <= 0) return 0
-  return ops / (elapsedMs / 1000) / 1_000_000
-}
-
-/**
- * Agregação da fase multi: soma das operações de todos os workers dividida pelo
- * tempo decorrido da fase (o maior `elapsedMs`, já que rodaram em paralelo).
- */
-export function aggregateMops(samples: ReadonlyArray<{ ops: number; elapsedMs: number }>): number {
-  if (samples.length === 0) return 0
-  const totalOps = samples.reduce((sum, sample) => sum + sample.ops, 0)
-  const elapsedMs = Math.max(...samples.map((sample) => sample.elapsedMs))
-  return opsToMops(totalOps, elapsedMs)
-}
-
-/** Razão multi/single; single inválido → 0 (a interface exibe "—"). */
-export function computeRatio(multi: number, single: number): number {
-  if (!Number.isFinite(multi) || !Number.isFinite(single) || single <= 0 || multi < 0) return 0
-  return multi / single
-}
-
-/**
- * Regra do watchdog do estresse: o renderer precisa dar sinal de vida. Puro
- * para poder ser testado sem timers — a decisão depende só dos instantes.
- */
-export function shouldStopForMissingAck(
-  now: number,
-  lastAckAt: number,
-  timeoutMs: number = STRESS_ACK_TIMEOUT_MS
-): boolean {
-  if (!Number.isFinite(now) || !Number.isFinite(lastAckAt)) return false
-  return now - lastAckAt > timeoutMs
-}
-
-function roundScore(value: number): number {
-  if (!Number.isFinite(value) || value < 0) return 0
-  return Math.round(value * 100) / 100
-}
-
-function clampThreads(value: number): number {
-  const cores = os.cpus().length || 1
-  const requested = Number.isFinite(value) ? Math.trunc(value) : cores
-  return Math.max(1, Math.min(requested, MAX_THREADS))
-}
-
-function clampDuration(value: number | undefined): number {
-  if (!Number.isFinite(value)) return DEFAULT_TEST_DURATION_MS
-  return Math.max(50, Math.min(10_000, Math.trunc(value as number)))
-}
-
 // ── Estado (execução única por vez) ──────────────────────────────
 
 interface BenchmarkSession {
   cancelled: boolean
-  workers: Set<Worker>
+  /** Filhos vivos do run: mortos no fim, no cancelamento, no timeout e no quit. */
+  children: Set<ChildProcess>
 }
 
-interface WorkerSample {
-  ops: number
-  elapsedMs: number
+interface LoadMeasurement {
+  id: string
+  mops: number
+  spread: number
+  unstable: boolean
 }
 
 interface StressSession {
@@ -210,98 +182,174 @@ export function getBenchmarkInfo(): { cores: number; model: string } {
   }
 }
 
-// ── Execução do benchmark ────────────────────────────────────────
-
-function terminateWorkers(workers: Iterable<Worker>): void {
-  for (const worker of workers) {
-    // `terminate()` é assíncrono e nunca lança para worker já encerrado.
-    void worker.terminate().catch(() => undefined)
-  }
-}
-
-function terminateSession(session: BenchmarkSession): void {
-  terminateWorkers(session.workers)
-  session.workers.clear()
+function clampThreads(value: number): number {
+  const cores = os.cpus().length || 1
+  const requested = Number.isFinite(value) ? Math.trunc(value) : cores
+  return Math.max(1, Math.min(requested, MAX_THREADS))
 }
 
 /**
- * Roda uma carga em um worker e resolve com as operações contadas. Timeout de
- * segurança bem acima da duração pedida: se estourar, o worker é encerrado e o
- * usuário recebe uma mensagem amigável.
+ * Regra do watchdog do estresse: o renderer precisa dar sinal de vida. Puro
+ * para poder ser testado sem timers — a decisão depende só dos instantes.
  */
-function runKernelWorker(
-  session: BenchmarkSession,
-  testId: string,
-  durationMs: number
-): Promise<WorkerSample> {
-  return new Promise<WorkerSample>((resolve, reject) => {
-    let worker: Worker
+export function shouldStopForMissingAck(
+  now: number,
+  lastAckAt: number,
+  timeoutMs: number = STRESS_ACK_TIMEOUT_MS
+): boolean {
+  if (!Number.isFinite(now) || !Number.isFinite(lastAckAt)) return false
+  return now - lastAckAt > timeoutMs
+}
+
+// ── Script do runner (processo filho) ────────────────────────────
+
+/**
+ * Grava o runner em `<userData>/benchmark/kolnd-bench-runner.js` e devolve o
+ * caminho. Reescreve só quando o conteúdo muda, para não gerar escrita em disco
+ * a cada execução.
+ *
+ * Exceção consciente à regra "config só no store": isto não é configuração, é
+ * um artefato de execução gerado pelo app (o caminho dentro do asar não é
+ * executável de forma confiável). O conteúdo é uma constante do bundle.
+ */
+async function ensureRunnerScript(): Promise<string> {
+  const directory = path.join(app.getPath('userData'), RUNNER_DIR_NAME)
+  const scriptPath = path.join(directory, RUNNER_FILE_NAME)
+  await fs.mkdir(directory, { recursive: true })
+  const current = await fs.readFile(scriptPath, 'utf8').catch(() => null)
+  if (current !== BENCHMARK_RUNNER_SOURCE) {
+    await fs.writeFile(scriptPath, BENCHMARK_RUNNER_SOURCE, 'utf8')
+  }
+  return scriptPath
+}
+
+/**
+ * Timeout de segurança por filho. Não é o tempo da medição (o trabalho é
+ * fixo): cobre inicialização do processo + aquecimentos + repetições com folga
+ * de ~2× o pior caso medido com todos os núcleos saturados.
+ */
+function runnerTimeoutMs(loadCount: number): number {
+  return 12_000 + Math.max(1, loadCount) * 9_000
+}
+
+// ── Execução do benchmark ────────────────────────────────────────
+
+function killChildren(session: BenchmarkSession): void {
+  for (const child of session.children) {
+    // `kill()` no Windows encerra o processo na hora; nunca lança para PID morto
+    // pelo try/catch porque o filho pode ter fechado entre a iteração e a chamada.
     try {
-      worker = new Worker(BENCHMARK_WORKER_SOURCE, {
-        eval: true,
-        workerData: { mode: 'bench', testId, durationMs, warmupMs: DEFAULT_WARMUP_MS }
-      })
+      child.kill()
     } catch {
-      reject(new BenchmarkError('Não foi possível iniciar o teste de CPU. Tente novamente.'))
-      return
+      // já encerrado
+    }
+  }
+  session.children.clear()
+}
+
+interface MeasureOptions {
+  session: BenchmarkSession
+  scriptPath: string
+  loadIds: ReadonlyArray<string>
+  workers: number
+  repeats: number
+  /** Avisa o início de cada carga (progresso da interface). */
+  onLoadStart?: (id: string) => void
+}
+
+/**
+ * Mede as cargas pedidas com `workers` filhos em paralelo e devolve, por carga,
+ * a mediana das repetições e o spread.
+ *
+ * Fase single: a série é a do único filho (1 amostra por repetição).
+ * Fase multi: a série é agregada por repetição (soma das ops dos filhos ÷ maior
+ * tempo). O spread é medido na série que produz a nota — medir o spread interno
+ * de cada filho só capturaria escalonamento do SO, não a medição da carga.
+ */
+async function measureLoads(options: MeasureOptions): Promise<Map<string, LoadMeasurement>> {
+  const { session, scriptPath, loadIds, workers, repeats } = options
+
+  const results = await Promise.all(
+    Array.from({ length: workers }, (_, index) =>
+      runRunner({
+        scriptPath,
+        config: { loads: [...loadIds], repeats },
+        timeoutMs: runnerTimeoutMs(loadIds.length),
+        onChild: (child) => {
+          session.children.add(child)
+          child.once('close', () => session.children.delete(child))
+        },
+        // Só o primeiro filho guia o progresso: 16 filhos reportando a mesma
+        // carga gerariam 16 eventos idênticos por passo.
+        onEvent:
+          index === 0
+            ? (event) => {
+                if (event.type === 'load') options.onLoadStart?.(event.id)
+              }
+            : undefined
+      })
+    )
+  )
+
+  const measurements = new Map<string, LoadMeasurement>()
+  for (const id of loadIds) {
+    const perChild: RunnerLoadResult[] = []
+    for (const result of results) {
+      const load = result.find((item) => item.id === id)
+      if (!load) throw new BenchmarkError('Uma das cargas não retornou resultado. Tente novamente.')
+      perChild.push(load)
     }
 
-    session.workers.add(worker)
-    let settled = false
-
-    const finish = (error: Error | null, sample?: WorkerSample): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      session.workers.delete(worker)
-      void worker.terminate().catch(() => undefined)
-      if (error) reject(error)
-      else resolve(sample as WorkerSample)
-    }
-
-    const timeout = setTimeout(() => {
-      finish(
-        new BenchmarkError(
-          'O teste demorou mais que o esperado e foi interrompido. Feche programas pesados e tente novamente.'
-        )
-      )
-    }, durationMs + SAFETY_TIMEOUT_MS)
-
-    // Worker não tem canal de saída visível; só mensagens tipadas entram.
-    worker.on('message', (message: unknown) => {
-      if (!message || typeof message !== 'object') return
-      const data = message as Record<string, unknown>
-      if (data.type === 'result') {
-        const ops = typeof data.ops === 'number' ? data.ops : NaN
-        const elapsedMs = typeof data.elapsedMs === 'number' ? data.elapsedMs : NaN
-        if (!Number.isFinite(ops) || !Number.isFinite(elapsedMs) || elapsedMs <= 0) {
-          finish(new BenchmarkError('O teste retornou um resultado inválido. Tente novamente.'))
-          return
-        }
-        finish(null, { ops, elapsedMs })
-      } else if (data.type === 'error') {
-        finish(new BenchmarkError('Não foi possível executar uma das cargas de CPU.'))
-      }
+    const series = workers === 1 ? singleReps(perChild[0]) : multiReps(perChild)
+    const spread = spreadRatio(series)
+    measurements.set(id, {
+      id,
+      mops: median(series),
+      spread,
+      unstable: isUnstableSpread(spread)
     })
+  }
+  return measurements
+}
 
-    worker.on('error', () => {
-      logger.warn('benchmark', 'worker de benchmark falhou')
-      finish(new BenchmarkError('Não foi possível executar uma das cargas de CPU.'))
-    })
+/**
+ * Mede a fase e, se alguma carga vier com spread > 25 %, repete **apenas essas
+ * cargas** uma vez (nunca mais que uma: instabilidade persistente vira badge,
+ * não retry infinito).
+ */
+async function measurePhase(
+  options: MeasureOptions
+): Promise<{ measurements: Map<string, LoadMeasurement>; unstable: boolean }> {
+  const first = await measureLoads(options)
+  const retryIds = options.loadIds.filter((id) => first.get(id)?.unstable)
 
-    worker.on('exit', () => {
-      finish(new BenchmarkError('O teste de CPU foi interrompido inesperadamente.'))
-    })
-  })
+  if (retryIds.length === 0) return { measurements: first, unstable: false }
+
+  logger.warn(
+    'benchmark',
+    `repetindo carga(s) com spread alto (${retryIds.join(', ')}) na fase de ${options.workers} processo(s)`
+  )
+
+  // Sem `onLoadStart` na repetição: a barra de progresso já passou desse passo.
+  const retried = await measureLoads({ ...options, loadIds: retryIds, onLoadStart: undefined })
+  for (const id of retryIds) {
+    const replacement = retried.get(id)
+    // Se continuar instável, o número é mostrado mesmo assim (nunca esconder).
+    if (replacement) first.set(id, replacement)
+  }
+
+  return { measurements: first, unstable: hasUnstableLoad([...first.values()]) }
 }
 
 export interface BenchmarkRunOptions {
-  /** Duração por teste em ms. Usado apenas pelos testes automatizados. */
-  durationMs?: number
   /** Subconjunto de cargas. Usado apenas pelos testes automatizados. */
   tests?: ReadonlyArray<{ id: string; label: string }>
-  /** Workers da fase multi. O IPC sempre usa o número de núcleos. */
+  /** Processos da fase multi. O IPC sempre usa o número de núcleos. */
   threads?: number
+  /** Repetições por carga. Usado apenas pelos testes automatizados. */
+  repeats?: number
+  /** Caminho do runner. Usado apenas pelos testes automatizados. */
+  runnerScriptPath?: string
   onProgress?: (progress: BenchmarkProgress) => void
 }
 
@@ -324,74 +372,101 @@ function notifyProgress(
 export async function runBenchmark(options: BenchmarkRunOptions = {}): Promise<BenchmarkResult> {
   if (isBenchmarkBusy()) return { ok: false, error: BUSY_ERROR }
 
-  const session: BenchmarkSession = { cancelled: false, workers: new Set() }
+  const session: BenchmarkSession = { cancelled: false, children: new Set() }
   activeBenchmark = session
+  const startedAt = Date.now()
 
-  const tests = options.tests && options.tests.length > 0 ? options.tests : BENCHMARK_TESTS
-  const durationMs = clampDuration(options.durationMs)
+  const requested = options.tests && options.tests.length > 0 ? options.tests : BENCHMARK_TESTS
+  // Somente cargas conhecidas entram na nota (defesa contra entrada arbitrária).
+  const tests = requested.filter((test) => BENCHMARK_REFERENCES[test.id])
+  const loads = tests.length > 0 ? tests : [...BENCHMARK_TESTS]
   const threads = clampThreads(options.threads ?? os.cpus().length)
+  const repeats = Math.min(5, Math.max(1, Math.trunc(options.repeats ?? BENCHMARK_REPEATS)))
   const info = getBenchmarkInfo()
-  const totalSteps = tests.length * 2
+  const totalSteps = loads.length * 2
   let step = 0
 
+  const emit = (phase: 'single' | 'multi', index: number): void => {
+    const test = loads[Math.min(index, loads.length - 1)]
+    notifyProgress(options.onProgress, {
+      phase,
+      testId: test.id,
+      testLabel: test.label,
+      testIndex: Math.min(index, loads.length - 1) + 1,
+      testCount: loads.length,
+      percent: Math.round((step / totalSteps) * 100)
+    })
+  }
+
   try {
-    const perTest: BenchmarkTestScore[] = []
-    const singleValues: number[] = []
-    const multiValues: number[] = []
-
-    for (const phase of ['single', 'multi'] as const) {
-      for (let index = 0; index < tests.length; index++) {
-        if (session.cancelled) {
-          return { ok: false, cancelled: true, error: 'Execução cancelada.' }
-        }
-
-        const test = tests[index]
-        // Avisa antes de começar: a barra avança em cada teste das duas fases.
-        notifyProgress(options.onProgress, {
-          phase,
-          testId: test.id,
-          testLabel: test.label,
-          testIndex: index + 1,
-          testCount: tests.length,
-          percent: Math.round((step / totalSteps) * 100)
-        })
-
-        let mops = 0
-        if (phase === 'single') {
-          const sample = await runKernelWorker(session, test.id, durationMs)
-          mops = opsToMops(sample.ops, sample.elapsedMs)
-          singleValues.push(mops)
-          perTest.push({ id: test.id, label: test.label, single: roundScore(mops), multi: 0 })
-        } else {
-          // N workers simultâneos para a mesma carga; a soma das operações
-          // dividida pelo tempo da fase representa a vazão multi-thread real.
-          const samples = await Promise.all(
-            Array.from({ length: threads }, () => runKernelWorker(session, test.id, durationMs))
-          )
-          mops = aggregateMops(samples)
-          multiValues.push(mops)
-          perTest[index].multi = roundScore(mops)
-        }
-
-        if (session.cancelled) {
-          return { ok: false, cancelled: true, error: 'Execução cancelada.' }
-        }
-
-        step += 1
-        notifyProgress(options.onProgress, {
-          phase,
-          testId: test.id,
-          testLabel: test.label,
-          testIndex: index + 1,
-          testCount: tests.length,
-          percent: Math.round((step / totalSteps) * 100)
-        })
-      }
+    const scriptPath = options.runnerScriptPath ?? (await ensureRunnerScript())
+    if (session.cancelled) {
+      return { ok: false, cancelled: true, error: 'Execução cancelada.' }
     }
 
-    const single = roundScore(geometricMean(singleValues))
-    const multi = roundScore(geometricMean(multiValues))
+    // ── Fase single: um único filho roda as 5 cargas ──
+    emit('single', 0)
+    const singlePhase = await measurePhase({
+      session,
+      scriptPath,
+      loadIds: loads.map((test) => test.id),
+      workers: 1,
+      repeats,
+      onLoadStart: (id) => {
+        const index = loads.findIndex((test) => test.id === id)
+        if (index < 0) return
+        step = index
+        emit('single', index)
+      }
+    })
+    if (session.cancelled) return { ok: false, cancelled: true, error: 'Execução cancelada.' }
+
+    step = loads.length
+    // ── Fase multi: N filhos em paralelo, cada um com as 5 cargas ──
+    emit('multi', 0)
+    const multiPhase = await measurePhase({
+      session,
+      scriptPath,
+      loadIds: loads.map((test) => test.id),
+      workers: threads,
+      repeats,
+      onLoadStart: (id) => {
+        const index = loads.findIndex((test) => test.id === id)
+        if (index < 0) return
+        step = loads.length + index
+        emit('multi', index)
+      }
+    })
+    if (session.cancelled) return { ok: false, cancelled: true, error: 'Execução cancelada.' }
+
+    step = totalSteps
+    emit('multi', loads.length - 1)
+
+    const perTest: BenchmarkTestScore[] = []
+    const singleLoads: Array<{ id: string; mops: number }> = []
+    const multiLoads: Array<{ id: string; mops: number }> = []
+
+    for (const test of loads) {
+      const single = singlePhase.measurements.get(test.id)
+      const multi = multiPhase.measurements.get(test.id)
+      if (!single || !multi) {
+        throw new BenchmarkError('Uma das cargas não retornou resultado. Tente novamente.')
+      }
+      singleLoads.push({ id: test.id, mops: single.mops })
+      multiLoads.push({ id: test.id, mops: multi.mops })
+      perTest.push({
+        id: test.id,
+        label: test.label,
+        single: roundScore(single.mops),
+        multi: roundScore(multi.mops)
+      })
+    }
+
+    const single = roundScore(weightedPhaseScore(singleLoads))
+    const multi = roundScore(weightedPhaseScore(multiLoads))
     const ratio = Math.round(computeRatio(multi, single) * 100) / 100
+    const unstable = singlePhase.unstable || multiPhase.unstable
+    const durationMs = Math.max(0, Date.now() - startedAt)
 
     // Persistência é best-effort: falha de disco não invalida a medição.
     try {
@@ -411,7 +486,9 @@ export async function runBenchmark(options: BenchmarkRunOptions = {}): Promise<B
 
     logger.info(
       'benchmark',
-      `benchmark concluído: single ${single} · multi ${multi} · ${threads} thread(s)`
+      `benchmark concluído: single ${single} · multi ${multi} · ${threads} processo(s)${
+        unstable ? ' · instável' : ''
+      }`
     )
 
     return {
@@ -423,7 +500,8 @@ export async function runBenchmark(options: BenchmarkRunOptions = {}): Promise<B
       model: info.model,
       threads,
       durationMs,
-      tests: perTest
+      tests: perTest,
+      unstable
     }
   } catch (err) {
     if (session.cancelled) {
@@ -438,17 +516,17 @@ export async function runBenchmark(options: BenchmarkRunOptions = {}): Promise<B
           : 'Não foi possível concluir o benchmark. Tente novamente em alguns instantes.'
     }
   } finally {
-    terminateSession(session)
+    killChildren(session)
     if (activeBenchmark === session) activeBenchmark = null
   }
 }
 
-/** Cancela o run ativo (worker encerrado na hora); sem run, não faz nada. */
+/** Cancela o run ativo (filhos mortos na hora); sem run, não faz nada. */
 export function cancelBenchmark(): { ok: boolean; cancelled: boolean } {
   const session = activeBenchmark
   if (!session) return { ok: true, cancelled: false }
   session.cancelled = true
-  terminateSession(session)
+  killChildren(session)
   logger.info('benchmark', 'benchmark cancelado pelo usuário')
   return { ok: true, cancelled: true }
 }
@@ -470,6 +548,13 @@ function sendStressProgress(session: StressSession): void {
   }
 }
 
+function terminateWorkers(workers: Iterable<Worker>): void {
+  for (const worker of workers) {
+    // `terminate()` é assíncrono e nunca lança para worker já encerrado.
+    void worker.terminate().catch(() => undefined)
+  }
+}
+
 /** Inicia a carga contínua em todos os núcleos (sem pontuação). */
 export function startStress(sender: WebContents | null = null): StressStartResult {
   if (isBenchmarkBusy()) return { ok: false, error: BUSY_ERROR }
@@ -487,9 +572,8 @@ export function startStress(sender: WebContents | null = null): StressStartResul
 
   try {
     for (let index = 0; index < threads; index++) {
-      const worker = new Worker(BENCHMARK_WORKER_SOURCE, {
-        eval: true,
-        workerData: { mode: 'stress' }
+      const worker = new Worker(BENCHMARK_STRESS_SOURCE, {
+        eval: true
       })
       // Cada worker reporta o próprio checksum; o envio à interface é feito
       // pelo timer agregado abaixo (uma mensagem por sessão, não por worker).
@@ -589,8 +673,8 @@ export function registerBenchmarkIpc(): void {
   ipcMain.handle('benchmark:info', () => getBenchmarkInfo())
 
   ipcMain.handle('benchmark:run', (event) =>
-    // O handler não aceita parâmetros do renderer: duração, cargas e threads
-    // são decididas aqui — nada do renderer entra na execução.
+    // O handler não aceita parâmetros do renderer: cargas, processos e
+    // repetições são decididas aqui — nada do renderer entra na execução.
     runBenchmark({ onProgress: (progress) => sendBenchmarkProgress(event.sender, progress) })
   )
 
@@ -609,7 +693,7 @@ export function registerBenchmarkIpc(): void {
     acknowledgeStress()
   })
 
-  // Encerrar o app nunca pode deixar um worker de estresse girando.
+  // Encerrar o app nunca pode deixar um filho/worker de carga girando.
   app.once('will-quit', () => {
     cancelBenchmark()
     stopStress()

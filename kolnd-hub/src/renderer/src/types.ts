@@ -49,6 +49,52 @@ export type {
   GamepadConfig
 } from './lib/gamepad'
 
+// Tipos do monitor de hardware (Fase A) — fonte única em `src/shared/hwmon.ts`.
+export type {
+  DriverStatus,
+  DriverStatusInfo,
+  HwCpu,
+  HwGpu,
+  HwPower,
+  HwPowerSourceCpu,
+  HwPowerSourceGpu,
+  HwRam,
+  HwSnapshot,
+  HwSources,
+  HwSpecs,
+  InstallDriverResult
+} from '../../shared/hwmon'
+
+// Tipos de escala/resolução de tela (aba Tela em Meu PC) — `src/shared/display.ts`.
+export type {
+  DisplayChangeTicket,
+  DisplayConfirmResult,
+  DisplayDescriptor,
+  DisplayInfo,
+  DisplayMode,
+  DisplayResolution,
+  DisplayRevertedEvent,
+  DisplayScaleInfo,
+  DisplaySetResult
+} from '../../shared/display'
+
+// Tipos da medição de FPS/frametime por ETW — fonte única em `src/shared/fps.ts`.
+export type {
+  FpsAutoActionResult,
+  FpsAutoSample,
+  FpsAutoState,
+  FpsAutoStatus,
+  FpsInactiveReason,
+  FpsStartResult,
+  FpsState,
+  FpsStatusInfo,
+  FpsStopResult,
+  FpsUpdate
+} from '../../shared/fps'
+
+// Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
+export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
+
 /** Relatório da importação de jogos da Steam (IPC `steam:import`). */
 export interface SteamImportResult {
   ok: boolean
@@ -174,6 +220,8 @@ export type BenchmarkResult =
       threads: number
       durationMs: number
       tests: BenchmarkTestScore[]
+      /** Alguma carga continuou com spread > 25 % mesmo após a repetição. */
+      unstable: boolean
     }
   | { ok: false; cancelled?: boolean; error: string }
 

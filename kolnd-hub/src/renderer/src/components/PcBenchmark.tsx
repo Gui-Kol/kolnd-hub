@@ -14,8 +14,14 @@ import {
 import { BenchmarkHistoryEntry, BenchmarkProgress, BenchmarkResult, StressProgress } from '../types'
 import { Badge, Button, Card, Modal } from './ui'
 
-/** Formata MOps/s com uma casa decimal no padrão pt-BR. */
-function formatScore(value: number): string {
+/** Nota em pontos, com 2 casas (mesma resolução da escala exibida). */
+function formatPoints(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** MOps/s de uma carga, com 1 casa. */
+function formatMops(value: number): string {
   if (!Number.isFinite(value)) return '—'
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
@@ -247,7 +253,6 @@ export function PcBenchmark(): JSX.Element {
   const bestMulti = history.reduce((best, entry) => Math.max(best, entry.multi), 0)
   const singleDelta = result?.ok && previous ? deltaPercent(result.single, previous.single) : null
   const multiDelta = result?.ok && previous ? deltaPercent(result.multi, previous.multi) : null
-  const multiPerThread = result?.ok && result.threads > 0 ? result.multi / result.threads : null
 
   return (
     <div className="space-y-4">
@@ -262,7 +267,8 @@ export function PcBenchmark(): JSX.Element {
           </h3>
           <p className="mx-auto max-w-lg text-[12px] leading-relaxed text-ink-secondary">
             Mede inteiros, ponto flutuante, memória, AES e SHA-256 em single e multi-thread. Tudo
-            roda na sua máquina, em workers separados — nada sai daqui. Leva cerca de 7 segundos.
+            roda na sua máquina, em processos separados — nada sai daqui. Leva de 15 a 30 segundos,
+            dependendo do número de núcleos.
           </p>
         </div>
 
@@ -352,6 +358,14 @@ export function PcBenchmark(): JSX.Element {
                   <span> vs. execução anterior</span>
                 </p>
               )}
+              {result.unstable && (
+                <Badge
+                  tone="warning"
+                  title="A variação entre repetições passou de 25% e continuou alta após uma nova medição. O número exibido é o medido."
+                >
+                  Instável
+                </Badge>
+              )}
               <Badge tone="accent">Multi/Single {formatRatio(result.ratio)}×</Badge>
             </div>
           </div>
@@ -363,7 +377,7 @@ export function PcBenchmark(): JSX.Element {
               </p>
               <p className="flex items-baseline gap-1.5">
                 <span className="text-[30px] font-bold leading-none tracking-tight text-ink-primary">
-                  {formatScore(result.single)}
+                  {formatPoints(result.single)}
                 </span>
                 <span className="text-[11px] text-ink-tertiary">pts</span>
               </p>
@@ -381,7 +395,7 @@ export function PcBenchmark(): JSX.Element {
                     />
                   </div>
                   <p className="text-[10px] text-ink-tertiary">
-                    melhor resultado nesta máquina: {formatScore(bestSingle)} pts
+                    melhor resultado nesta máquina: {formatPoints(bestSingle)} pts
                   </p>
                 </div>
               )}
@@ -393,7 +407,7 @@ export function PcBenchmark(): JSX.Element {
               </p>
               <p className="flex items-baseline gap-1.5">
                 <span className="text-[30px] font-bold leading-none tracking-tight text-ink-primary">
-                  {formatScore(result.multi)}
+                  {formatPoints(result.multi)}
                 </span>
                 <span className="text-[11px] text-ink-tertiary">pts</span>
               </p>
@@ -411,13 +425,12 @@ export function PcBenchmark(): JSX.Element {
                     />
                   </div>
                   <p className="text-[10px] text-ink-tertiary">
-                    melhor resultado nesta máquina: {formatScore(bestMulti)} pts
+                    melhor resultado nesta máquina: {formatPoints(bestMulti)} pts
                   </p>
                 </div>
               )}
               <p className="text-[10px] text-ink-tertiary">
-                em {result.threads} thread{result.threads === 1 ? '' : 's'}
-                {multiPerThread !== null ? ` · ${formatScore(multiPerThread)} pts por thread` : ''}
+                em {result.threads} process{result.threads === 1 ? 'o' : 'os'} em paralelo
               </p>
             </Card>
           </div>
@@ -446,10 +459,10 @@ export function PcBenchmark(): JSX.Element {
                     <tr key={test.id} className="border-t border-[var(--border-subtle)]">
                       <td className="py-1.5 pr-3 text-ink-secondary">{test.label}</td>
                       <td className="py-1.5 pr-3 text-right font-mono text-ink-primary">
-                        {formatScore(test.single)}
+                        {formatMops(test.single)}
                       </td>
                       <td className="py-1.5 pr-3 text-right font-mono text-ink-primary">
-                        {formatScore(test.multi)}
+                        {formatMops(test.multi)}
                       </td>
                       <td className="py-1.5 text-right font-mono text-ink-secondary">
                         {test.single > 0 ? `${formatRatio(test.multi / test.single)}×` : '—'}
@@ -460,7 +473,9 @@ export function PcBenchmark(): JSX.Element {
               </table>
             </div>
             <p className="text-[10px] leading-relaxed text-ink-tertiary">
-              score = média geométrica dos MOps/s dos 5 testes — não comparável ao CPU-Z
+              MOps/s são a mediana de 3 repetições de trabalho fixo. A nota usa a escala Kolnd
+              calibrada em um Ryzen 7 5700X (single ≈ 582 · multi ≈ 4.700) — próxima da escala do
+              CPU-Z, mas não é o score oficial dele.
             </p>
           </Card>
         </motion.div>
@@ -569,11 +584,11 @@ export function PcBenchmark(): JSX.Element {
                 <div className="flex flex-wrap items-center gap-3">
                   <span>
                     Single{' '}
-                    <span className="font-mono text-ink-primary">{formatScore(entry.single)}</span>
+                    <span className="font-mono text-ink-primary">{formatPoints(entry.single)}</span>
                   </span>
                   <span>
                     Multi{' '}
-                    <span className="font-mono text-ink-primary">{formatScore(entry.multi)}</span>
+                    <span className="font-mono text-ink-primary">{formatPoints(entry.multi)}</span>
                   </span>
                   <span className="text-[10px] text-ink-tertiary">
                     {entry.cores} núcleo{entry.cores === 1 ? '' : 's'}

@@ -2,6 +2,22 @@
 // aqui nem no `index.ts`. Qualquer mudança nos 12 controles/índices acontece
 // no shared; drift vira erro de compilação nos três processos.
 import type { GamepadConfig } from '../shared/gamepad'
+import type { DriverStatusInfo, HwSnapshot, InstallDriverResult } from '../shared/hwmon'
+import type {
+  DisplayConfirmResult,
+  DisplayInfo,
+  DisplayRevertedEvent,
+  DisplaySetResult
+} from '../shared/display'
+import type {
+  FpsAutoActionResult,
+  FpsAutoStatus,
+  FpsStartResult,
+  FpsStatusInfo,
+  FpsStopResult,
+  FpsUpdate
+} from '../shared/fps'
+import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 
 declare global {
   interface Window {
@@ -147,6 +163,8 @@ declare global {
             threads: number
             durationMs: number
             tests: Array<{ id: string; label: string; single: number; multi: number }>
+            /** Alguma carga continuou com spread > 25 % mesmo após a repetição. */
+            unstable: boolean
           }
         | { ok: false; cancelled?: boolean; error: string }
       >
@@ -187,6 +205,57 @@ declare global {
       onBenchmarkStressProgress: (
         callback: (progress: { elapsedMs: number; threads: number; checksumOk: boolean }) => void
       ) => () => void
+
+      // ── Monitor de hardware (Meu PC) ─────────────────
+      // Tipos canônicos em `src/shared/hwmon.ts`.
+      hwmonSnapshot: () => Promise<HwSnapshot>
+      hwmonStart: () => Promise<{ ok: boolean }>
+      hwmonStop: () => Promise<{ ok: boolean }>
+      hwmonDriverStatus: () => Promise<DriverStatusInfo>
+      hwmonInstallDriver: () => Promise<InstallDriverResult>
+      onHwMonitorUpdate: (callback: (snapshot: HwSnapshot) => void) => () => void
+
+      // ── Tela (Meu PC) ───────────────────────────────
+      // Tipos canônicos em `src/shared/display.ts`.
+      getDisplayInfo: () => Promise<DisplayInfo>
+      setDisplayResolution: (
+        displayId: string,
+        width: number,
+        height: number,
+        refreshHz: number
+      ) => Promise<DisplaySetResult>
+      setDisplayScale: (displayId: string, percent: number) => Promise<DisplaySetResult>
+      confirmDisplayChange: () => Promise<DisplayConfirmResult>
+      revertDisplayChange: () => Promise<{ ok: boolean; error?: string }>
+      onDisplayReverted: (callback: (event: DisplayRevertedEvent) => void) => () => void
+
+      // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
+      // Tipos canônicos em `src/shared/fps.ts`; `fpsStart` pede UAC.
+      fpsStatus: () => Promise<FpsStatusInfo>
+      fpsStart: () => Promise<FpsStartResult>
+      fpsStop: () => Promise<FpsStopResult>
+      onFpsUpdate: (callback: (update: FpsUpdate) => void) => () => void
+
+      // ── FPS automático (tarefa agendada no logon) ────
+      fpsAutoStatus: () => Promise<FpsAutoStatus>
+      fpsAutoInstall: () => Promise<FpsAutoActionResult>
+      fpsAutoRemove: () => Promise<FpsAutoActionResult>
+      onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void) => () => void
+
+      // ── Sobreposição (HUD) ───────────────────────────
+      // Tipos canônicos em `src/shared/hud.ts`.
+      hudGet: () => Promise<HudStatus>
+      hudSetShortcut: (
+        shortcut: string
+      ) => Promise<{ success: boolean; status: HudStatus; error?: string }>
+      hudSetVisible: (visible: boolean) => Promise<HudStatus>
+      hudSetSize: (
+        size: Partial<HudSize>
+      ) => Promise<{ success: boolean; status: HudStatus; error?: string }>
+      hudReportSize: (height: number) => Promise<{ height: number }>
+      onHudStatus: (callback: (status: HudStatus) => void) => () => void
+      hudToggle: () => Promise<HudStatus>
+      onHudUpdate: (callback: (update: HudUpdate) => void) => () => void
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

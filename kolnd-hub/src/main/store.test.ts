@@ -65,6 +65,11 @@ let normalizeBenchmarkHistory: typeof import('./store').normalizeBenchmarkHistor
 let getBenchmarkHistory: typeof import('./store').getBenchmarkHistory
 let addBenchmarkEntry: typeof import('./store').addBenchmarkEntry
 let clearBenchmarkHistory: typeof import('./store').clearBenchmarkHistory
+let normalizeHudConfig: typeof import('./store').normalizeHudConfig
+let getHudConfig: typeof import('./store').getHudConfig
+let setHudShortcut: typeof import('./store').setHudShortcut
+let setHudVisible: typeof import('./store').setHudVisible
+let setHudSize: typeof import('./store').setHudSize
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -95,6 +100,11 @@ beforeAll(async () => {
   getBenchmarkHistory = storeMod.getBenchmarkHistory
   addBenchmarkEntry = storeMod.addBenchmarkEntry
   clearBenchmarkHistory = storeMod.clearBenchmarkHistory
+  normalizeHudConfig = storeMod.normalizeHudConfig
+  getHudConfig = storeMod.getHudConfig
+  setHudShortcut = storeMod.setHudShortcut
+  setHudVisible = storeMod.setHudVisible
+  setHudSize = storeMod.setHudSize
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -591,6 +601,12 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(getNotifyOnCrash()).toBe(true)
     expect(getGamepadConfig()).toBeNull()
     expect(getBigPicturePrefs()).toEqual({ sounds: true })
+    expect(getHudConfig()).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
 
     // Recuperação: a leitura volta a funcionar e o set reescreve um config válido.
     h.get.mockImplementation((_key: string, def: unknown) => def)
@@ -609,6 +625,12 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(getNotifyOnCrash()).toBe(true)
     expect(getGamepadConfig()).toBeNull()
     expect(getBigPicturePrefs()).toEqual({ sounds: true })
+    expect(getHudConfig()).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
   })
 
   it('set* com disco/escritura falhando → { success: false }, sem exceção crua', () => {
@@ -626,14 +648,16 @@ describe('config.json corrompido (leitura lançando)', () => {
     expect(setNotifyOnCrash(true).success).toBe(false)
     expect(setGamepadConfig(validGamepadInput).success).toBe(false)
     expect(setBigPicturePrefs({ sounds: false }).success).toBe(false)
+    expect(setHudShortcut('Control+Alt+K').success).toBe(false)
+    expect(setHudVisible(true).success).toBe(false)
     expect(migrateFromLegacy({ apps: [] }).success).toBe(false)
     expect(resetGamepadConfig().success).toBe(false)
   })
 })
 
-// ── migrações de schema (cadeia 1.0.0 → 1.5.0) ─────────────────
+// ── migrações de schema (cadeia 1.0.0 → 1.6.0) ─────────────────
 
-describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
+describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
   type FakeStore = {
     data: Record<string, unknown>
     get: (key: string, def?: unknown) => unknown
@@ -659,7 +683,16 @@ describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
   }
 
   const runChain = (s: FakeStore): void => {
-    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0']) {
+    for (const version of [
+      '1.0.0',
+      '1.1.0',
+      '1.2.0',
+      '1.3.0',
+      '1.4.0',
+      '1.5.0',
+      '1.6.0',
+      '1.7.0'
+    ]) {
       migrationsOf()[version](s)
     }
   }
@@ -692,6 +725,13 @@ describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
     expect(s.data.bigPicture).toEqual({ sounds: true })
     // 1.5.0 garantiu benchmarkHistory vazio
     expect(s.data.benchmarkHistory).toEqual([])
+    // 1.6.0/1.7.0 garantiram hud com atalho padrão, oculto e tamanho padrão
+    expect(s.data.hud).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
   })
 
   it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
@@ -738,7 +778,16 @@ describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
         throw new Error('arquivo inconsistente')
       }
     }
-    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0']) {
+    for (const version of [
+      '1.0.0',
+      '1.1.0',
+      '1.2.0',
+      '1.3.0',
+      '1.4.0',
+      '1.5.0',
+      '1.6.0',
+      '1.7.0'
+    ]) {
       expect(() => migrationsOf()[version](s)).not.toThrow()
     }
   })
@@ -781,6 +830,52 @@ describe('migrações de schema (cadeia 1.0.0 → 1.5.0)', () => {
         tests: []
       }
     ])
+  })
+
+  it('1.6.0 normaliza hud (atalho inválido → default, visible não-booleano → false)', () => {
+    const s = makeFakeStore({
+      hud: { shortcut: 'tecla-errada', visible: 'sim' }
+    })
+    migrationsOf()['1.6.0'](s)
+    expect(s.data.hud).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
+
+    const valid = makeFakeStore({ hud: { shortcut: 'alt+ctrl+k', visible: true } })
+    migrationsOf()['1.6.0'](valid)
+    expect(valid.data.hud).toEqual({
+      shortcut: 'Control+Alt+K',
+      visible: true,
+      width: 300,
+      scale: 'normal'
+    })
+  })
+
+  it('1.7.0 acrescenta largura/escala padrão sem perder atalho e visibilidade', () => {
+    const legacy = makeFakeStore({
+      hud: { shortcut: 'Control+Shift+F9', visible: true }
+    })
+    migrationsOf()['1.7.0'](legacy)
+    expect(legacy.data.hud).toEqual({
+      shortcut: 'Control+Shift+F9',
+      visible: true,
+      width: 300,
+      scale: 'normal'
+    })
+
+    const invalid = makeFakeStore({
+      hud: { shortcut: 'Control+Shift+F9', visible: true, width: 9999, scale: 'gigante' }
+    })
+    migrationsOf()['1.7.0'](invalid)
+    expect(invalid.data.hud).toEqual({
+      shortcut: 'Control+Shift+F9',
+      visible: true,
+      width: 560,
+      scale: 'normal'
+    })
   })
 })
 
@@ -894,6 +989,161 @@ describe('benchmarkHistory', () => {
   })
 })
 
+// ── hud (sobreposição) ─────────────────────────────────────────
+
+describe('hud', () => {
+  it('normalizeHudConfig cai no default com shortcut inválido', () => {
+    const defaults = {
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    }
+    expect(normalizeHudConfig(null)).toEqual(defaults)
+    expect(normalizeHudConfig({ shortcut: '', visible: true })).toEqual({
+      ...defaults,
+      visible: true
+    })
+    expect(normalizeHudConfig({ shortcut: 'M', visible: 'sim' })).toEqual(defaults)
+    expect(normalizeHudConfig({ shortcut: 'ctrl+alt+k', visible: true })).toEqual({
+      ...defaults,
+      shortcut: 'Control+Alt+K',
+      visible: true
+    })
+  })
+
+  it('normalizeHudConfig normaliza largura/escala e descarta valores fora da faixa', () => {
+    expect(normalizeHudConfig({ width: 200, scale: 'compacta' })).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 200,
+      scale: 'compacta'
+    })
+    expect(normalizeHudConfig({ width: 9999, scale: 'gigante' })).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 560,
+      scale: 'normal'
+    })
+    expect(normalizeHudConfig({ width: '400' })).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
+  })
+
+  it('getHudConfig devolve o default sem store e normaliza o disco', () => {
+    expect(getHudConfig()).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
+    holder().get.mockImplementation((key: string, def: unknown) =>
+      key === 'hud' ? { shortcut: 'Alt+Shift+F9', visible: true, width: 420, scale: 'grande' } : def
+    )
+    expect(getHudConfig()).toEqual({
+      shortcut: 'Alt+Shift+F9',
+      visible: true,
+      width: 420,
+      scale: 'grande'
+    })
+    holder().get.mockImplementation((key: string, def: unknown) =>
+      key === 'hud' ? { shortcut: 'lixo', visible: 'x' } : def
+    )
+    expect(getHudConfig()).toEqual({
+      shortcut: 'Shift+Insert',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
+  })
+
+  it('setHudShortcut recusa atalho inválido sem tocar no disco e salva o válido', () => {
+    const h = holder()
+    expect(setHudShortcut('sem-modificador')).toEqual({
+      success: false,
+      error: 'Atalho inválido. Use combinações como Ctrl+Alt+K.'
+    })
+    expect(h.set).not.toHaveBeenCalled()
+    expect(setHudShortcut(42)).toEqual({
+      success: false,
+      error: 'Atalho inválido. Use combinações como Ctrl+Alt+K.'
+    })
+
+    expect(setHudShortcut('alt+ctrl+k').success).toBe(true)
+    expect(h.set).toHaveBeenCalledWith('hud', {
+      shortcut: 'Control+Alt+K',
+      visible: false,
+      width: 300,
+      scale: 'normal'
+    })
+  })
+
+  it('setHudVisible exige booleano e preserva o atalho atual', () => {
+    const h = holder()
+    expect(setHudVisible('sim')).toEqual({
+      success: false,
+      error: 'Valor inválido para a visibilidade da sobreposição.'
+    })
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hud' ? { shortcut: 'Control+Shift+F10', visible: false } : def
+    )
+    expect(setHudVisible(true).success).toBe(true)
+    expect(h.set).toHaveBeenCalledWith('hud', {
+      shortcut: 'Control+Shift+F10',
+      visible: true,
+      width: 300,
+      scale: 'normal'
+    })
+  })
+
+  it('setHudSize valida tipos, normaliza largura e preserva atalho/visibilidade', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hud' ? { shortcut: 'Control+Alt+K', visible: true, width: 300 } : def
+    )
+
+    expect(setHudSize(null)).toEqual({ success: false, error: 'Requisição inválida.' })
+    expect(setHudSize({})).toEqual({
+      success: false,
+      error: 'Informe a largura e/ou a escala do HUD.'
+    })
+    expect(setHudSize({ width: '400' })).toEqual({
+      success: false,
+      error: 'Largura inválida para a sobreposição.'
+    })
+    expect(setHudSize({ scale: 'gigante' })).toEqual({
+      success: false,
+      error: 'Escala inválida para a sobreposição.'
+    })
+    expect(h.set).not.toHaveBeenCalled()
+
+    expect(setHudSize({ width: 433 })).toEqual({
+      success: true,
+      size: { width: 430, scale: 'normal' }
+    })
+    expect(h.set).toHaveBeenLastCalledWith('hud', {
+      shortcut: 'Control+Alt+K',
+      visible: true,
+      width: 430,
+      scale: 'normal'
+    })
+
+    expect(setHudSize({ scale: 'grande' })).toEqual({
+      success: true,
+      size: { width: 300, scale: 'grande' }
+    })
+    expect(h.set).toHaveBeenLastCalledWith('hud', {
+      shortcut: 'Control+Alt+K',
+      visible: true,
+      width: 300,
+      scale: 'grande'
+    })
+  })
+})
+
 // ── store indisponível (construtor lança) ──────────────────────
 
 describe('store indisponível (construtor do electron-store lança)', () => {
@@ -928,6 +1178,12 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       expect(mod.getNotifyOnCrash()).toBe(true)
       expect(mod.getGamepadConfig()).toBeNull()
       expect(mod.getBigPicturePrefs()).toEqual({ sounds: true })
+      expect(mod.getHudConfig()).toEqual({
+        shortcut: 'Shift+Insert',
+        visible: false,
+        width: 300,
+        scale: 'normal'
+      })
 
       // set* reportam erro controlado — nunca exceção crua
       expect(mod.setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])).toEqual({
@@ -943,6 +1199,9 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       expect(mod.setNotifyOnCrash(true).success).toBe(false)
       expect(mod.setGamepadConfig(validGamepadInput).success).toBe(false)
       expect(mod.setBigPicturePrefs({ sounds: false }).success).toBe(false)
+      expect(mod.setHudShortcut('Control+Alt+K').success).toBe(false)
+      expect(mod.setHudVisible(true).success).toBe(false)
+      expect(mod.setHudSize({ width: 400 }).success).toBe(false)
       expect(mod.migrateFromLegacy({ apps: [] }).success).toBe(false)
       expect(mod.resetGamepadConfig().success).toBe(false)
 

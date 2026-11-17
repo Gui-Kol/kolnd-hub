@@ -1,5 +1,6 @@
 import Store from 'electron-store'
 import { ipcMain } from 'electron'
+import { isAbsolute } from 'path'
 import { logger } from './logger'
 // Fonte única dos tipos/consts de gamepad (05-5.4). Re-exportados para não
 // quebrar imports existentes de `./store` (gamepad.ts, store.test.ts…).
@@ -10,12 +11,25 @@ import {
   type GamepadButtonMapping,
   type GamepadConfig
 } from '../shared/gamepad'
+import {
+  HUD_DEFAULT_SCALE,
+  HUD_DEFAULT_SHORTCUT,
+  HUD_DEFAULT_WIDTH,
+  isHudScale,
+  normalizeAccelerator,
+  normalizeHudScale,
+  normalizeHudWidth,
+  type HudConfig,
+  type HudScale,
+  type HudSize
+} from '../shared/hud'
 export type {
   GamepadProfile,
   GamepadAction,
   GamepadButtonMapping,
   GamepadConfig
 } from '../shared/gamepad'
+export type { HudConfig } from '../shared/hud'
 
 /**
  * Configuração persistente do Kolnd Hub em `%APPDATA%/<app>/config.json`.
@@ -92,6 +106,8 @@ export interface HubStoreSchema {
   bigPicture: BigPicturePrefs
   /** Últimas execuções do benchmark de CPU (mais recente primeiro, cap 20). */
   benchmarkHistory: BenchmarkEntry[]
+  /** Sobreposição (HUD): atalho global e visibilidade persistida. */
+  hud: HudConfig
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -353,6 +369,27 @@ export function normalizeBigPicturePrefs(input: unknown): BigPicturePrefs {
   return { sounds: true }
 }
 
+/**
+ * Normaliza a configuração da sobreposição (HUD).
+ *
+ * Atalho inválido (string vazia, formato desconhecido, sem modificador) volta
+ * ao default — o app nunca arranca com um accelerator que o Electron
+ * rejeitaria no registro. `visible` só é `true` quando booleano verdadeiro;
+ * largura/escala inválidas caem no padrão (300 px / `normal`).
+ */
+export function normalizeHudConfig(input: unknown): HudConfig {
+  const raw =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {}
+  return {
+    shortcut: normalizeAccelerator(raw.shortcut) ?? HUD_DEFAULT_SHORTCUT,
+    visible: raw.visible === true,
+    width: normalizeHudWidth(raw.width),
+    scale: normalizeHudScale(raw.scale)
+  }
+}
+
 /** Teto do histórico local: 20 execuções bastam para comparar tendências. */
 const MAX_BENCHMARK_HISTORY = 20
 const MAX_BENCHMARK_TEXT = 200
@@ -517,6 +554,25 @@ const schema: Store.Schema<HubStoreSchema> = {
         tests: { type: 'array' }
       }
     }
+  },
+  // Sobreposição (HUD). O accelerator é revalidado por normalizeHudConfig() na
+  // leitura/migração; o schema só garante os tipos básicos. A altura não é
+  // persistida: é medida pelo overlay a cada exibição.
+  hud: {
+    type: 'object',
+    default: {
+      shortcut: HUD_DEFAULT_SHORTCUT,
+      visible: false,
+      width: HUD_DEFAULT_WIDTH,
+      scale: HUD_DEFAULT_SCALE
+    },
+    properties: {
+      shortcut: { type: 'string' },
+      visible: { type: 'boolean' },
+      width: { type: 'number' },
+      scale: { type: 'string' }
+    },
+    additionalProperties: false
   }
 }
 
@@ -524,10 +580,22 @@ const schema: Store.Schema<HubStoreSchema> = {
 // Se a construção falhar (arquivo corrompido/sem permissão), degrade para
 // `null`: todo GET retorna "vazio" e todo SET reporta erro, e o renderer
 // cai de volta no fallback localStorage — o app nunca quebra por causa disso.
+
+/** Diretório do store no E2E (`KOLDND_HUB_TEST_USERDATA` absoluto). */
+function testStoreDir(): string | undefined {
+  const dir = process.env.KOLDND_HUB_TEST_USERDATA
+  return dir && isAbsolute(dir) ? dir : undefined
+}
+
 function createStore(): Store<HubStoreSchema> | null {
   try {
     return new Store<HubStoreSchema>({
       name: 'config',
+      // E2E: `KOLDND_HUB_TEST_USERDATA` isola o config.json no diretório do
+      // teste. O store é criado na avaliação dos imports — ANTES do
+      // `app.setPath('userData')` do index — então o caminho precisa ser
+      // passado explicitamente aqui; sem a env var nada muda.
+      cwd: testStoreDir(),
       schema,
       // Migração versionada formal: o conf guarda `__internal__.migrations.version`
       // no próprio arquivo e roda, em ordem, as chaves ≤ projectVersion que ainda
@@ -535,7 +603,9 @@ function createStore(): Store<HubStoreSchema> | null {
       // (campos faltantes, useShell) no arquivo; 1.2.0 garante a chave `games`;
       // 1.3.0 garante o default da chave `launchKloudOnStart`;
       // 1.4.0 garante os defaults de `gamepad` (null) e `bigPicture` ({ sounds: true });
-      // 1.5.0 garante a chave `benchmarkHistory` (lista normalizada, cap 20).
+      // 1.5.0 garante a chave `benchmarkHistory` (lista normalizada, cap 20);
+      // 1.6.0 garante a chave `hud` (atalho padrão e visibilidade desligada).
+      // 1.7.0 acrescenta as preferências de tamanho do HUD (`width`/`scale`).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -578,6 +648,23 @@ function createStore(): Store<HubStoreSchema> | null {
           try {
             // Garante a chave `benchmarkHistory` (lista normalizada, cap 20).
             s.set('benchmarkHistory', normalizeBenchmarkHistory(s.get('benchmarkHistory', [])))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.6.0': (s): void => {
+          try {
+            // Garante a chave `hud` (atalho inválido → default; visible boolean).
+            s.set('hud', normalizeHudConfig(s.get('hud', defaultHudConfig())))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.7.0': (s): void => {
+          try {
+            // Largura (180–560, passo 10) e escala (`compacta|normal|grande`).
+            // Atalho/visibilidade existentes são preservados pela normalização.
+            s.set('hud', normalizeHudConfig(s.get('hud', defaultHudConfig())))
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -896,6 +983,109 @@ export function clearBenchmarkHistory(): boolean {
   } catch (err) {
     logger.error('store', 'Falha ao apagar benchmarkHistory:', err)
     return false
+  }
+}
+
+/** Configuração padrão do HUD quando o store não está disponível. */
+function defaultHudConfig(): HudConfig {
+  return {
+    shortcut: HUD_DEFAULT_SHORTCUT,
+    visible: false,
+    width: HUD_DEFAULT_WIDTH,
+    scale: HUD_DEFAULT_SCALE
+  }
+}
+
+/** Lê a configuração da sobreposição (sempre normalizada; defaults seguros). */
+export function getHudConfig(): HudConfig {
+  if (!store) return defaultHudConfig()
+  try {
+    return normalizeHudConfig(store.get('hud', defaultHudConfig()))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler hud:', err)
+    return defaultHudConfig()
+  }
+}
+
+/**
+ * Persiste o atalho da sobreposição.
+ *
+ * Diferente de `normalizeHudConfig`, aqui um atalho inválido é ERRO (não cai em
+ * default): quem chama pelo IPC precisa saber que nada foi salvo.
+ */
+export function setHudShortcut(input: unknown): { success: boolean; error?: string } {
+  const shortcut = normalizeAccelerator(input)
+  if (!shortcut) {
+    return { success: false, error: 'Atalho inválido. Use combinações como Ctrl+Alt+K.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getHudConfig()
+    store.set('hud', { ...current, shortcut })
+    logger.info('store', `atalho da sobreposição salvo: ${shortcut}`)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar hud.shortcut:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Persiste se a sobreposição deve aparecer (reaberta ao iniciar o Hub). */
+export function setHudVisible(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'boolean') {
+    return { success: false, error: 'Valor inválido para a visibilidade da sobreposição.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getHudConfig()
+    store.set('hud', { ...current, visible: value })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar hud.visible:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Persiste largura e/ou escala do HUD. A largura é normalizada (múltiplo de 10
+ * entre 180 e 560); tipo errado é ERRO, porque quem chamou pelo IPC precisa
+ * saber que nada foi salvo. Atalho/visibilidade atuais nunca são perdidos.
+ */
+export function setHudSize(input: unknown): {
+  success: boolean
+  size?: HudSize
+  error?: string
+} {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { success: false, error: 'Requisição inválida.' }
+  }
+  const raw = input as Record<string, unknown>
+  const hasWidth = raw.width !== undefined
+  const hasScale = raw.scale !== undefined
+  if (!hasWidth && !hasScale) {
+    return { success: false, error: 'Informe a largura e/ou a escala do HUD.' }
+  }
+  if (hasWidth && (typeof raw.width !== 'number' || !Number.isFinite(raw.width))) {
+    return { success: false, error: 'Largura inválida para a sobreposição.' }
+  }
+  if (hasScale && !isHudScale(raw.scale)) {
+    return { success: false, error: 'Escala inválida para a sobreposição.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+
+  const current = getHudConfig()
+  const width = hasWidth ? normalizeHudWidth(raw.width) : current.width
+  const scale: HudScale = hasScale ? normalizeHudScale(raw.scale) : current.scale
+  try {
+    store.set('hud', { ...current, width, scale })
+    logger.info('store', `tamanho da sobreposição salvo: ${width}px · ${scale}`)
+    return { success: true, size: { width, scale } }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar hud.width/scale:', message)
+    return { success: false, error: message }
   }
 }
 

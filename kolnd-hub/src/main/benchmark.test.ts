@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // Electron e store não existem no ambiente de teste: o benchmark só orquestra.
 // O logger é silenciado para não poluir a saída (e não tentar tocar em disco).
@@ -6,7 +9,7 @@ vi.mock('./logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }))
 vi.mock('electron', () => ({
-  app: { once: vi.fn() },
+  app: { once: vi.fn(), getPath: vi.fn(() => 'C:/tmp') },
   ipcMain: { handle: vi.fn() }
 }))
 vi.mock('./store', () => ({
@@ -17,56 +20,40 @@ vi.mock('./store', () => ({
 
 import {
   BENCHMARK_TESTS,
-  aggregateMops,
   cancelBenchmark,
-  computeRatio,
-  geometricMean,
   getBenchmarkInfo,
   isBenchmarkBusy,
-  opsToMops,
   runBenchmark,
   shouldStopForMissingAck,
   startStress,
   stopStress,
   type BenchmarkProgress
 } from './benchmark'
+import { BENCHMARK_RUNNER_SOURCE } from './benchmarkRunnerSource'
+import { computeRatio } from './benchmarkScore'
 import { addBenchmarkEntry } from './store'
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Runner real, gravado em um diretório temporário (nunca no repositório). */
+const runnerDir = mkdtempSync(join(tmpdir(), 'kolnd-benchmark-'))
+const runnerScriptPath = join(runnerDir, 'kolnd-bench-runner.js')
+
+beforeAll(() => {
+  writeFileSync(runnerScriptPath, BENCHMARK_RUNNER_SOURCE, 'utf8')
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 afterEach(() => {
-  // Nenhum teste pode deixar worker vivo para o próximo.
+  // Nenhum teste pode deixar filho/worker vivo para o próximo.
   cancelBenchmark()
   stopStress()
 })
 
 describe('cálculos do benchmark', () => {
-  it('média geométrica ignora valores inválidos e lida com lista vazia', () => {
-    expect(geometricMean([1, 4, 16])).toBeCloseTo(4, 10)
-    expect(geometricMean([2, 8])).toBeCloseTo(4, 10)
-    expect(geometricMean([])).toBe(0)
-    expect(geometricMean([0, -1, NaN, Infinity])).toBe(0)
-    expect(geometricMean([100, 0, 400])).toBeCloseTo(200, 10)
-  })
-
-  it('converte operações em MOps/s e agrega a fase multi pela soma/tempo', () => {
-    expect(opsToMops(1_000_000, 1000)).toBeCloseTo(1, 10)
-    expect(opsToMops(2_000_000, 500)).toBeCloseTo(4, 10)
-    expect(opsToMops(1_000_000, 0)).toBe(0)
-    // Dois workers em paralelo: soma das ops dividida pelo maior tempo.
-    expect(
-      aggregateMops([
-        { ops: 1_000_000, elapsedMs: 600 },
-        { ops: 1_000_000, elapsedMs: 600 }
-      ])
-    ).toBeCloseTo(3.3333, 3)
-    expect(aggregateMops([])).toBe(0)
-  })
-
   it('razão multi/single nunca divide por zero', () => {
     expect(computeRatio(800, 100)).toBe(8)
     expect(computeRatio(123.4, 0)).toBe(0)
@@ -101,28 +88,30 @@ describe('cálculos do benchmark', () => {
   })
 })
 
-describe('worker real (eval + worker_threads + node:crypto)', () => {
+describe('runner real em processo filho', () => {
   it('executa SHA-256 nas duas fases, reporta progresso e persiste o resultado', async () => {
     const progress: BenchmarkProgress[] = []
     const result = await runBenchmark({
-      durationMs: 120,
       tests: [{ id: 'sha', label: 'SHA-256' }],
-      threads: 1,
+      threads: 2,
+      repeats: 1,
+      runnerScriptPath,
       onProgress: (update) => progress.push(update)
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // `sha` só funciona se require('node:crypto') funcionar no worker eval.
+    // `sha` só funciona se o runner conseguir usar `node:crypto` no filho.
     expect(result.tests).toHaveLength(1)
     expect(result.tests[0].single).toBeGreaterThan(0)
     expect(result.tests[0].multi).toBeGreaterThan(0)
     expect(result.single).toBeGreaterThan(0)
     expect(result.multi).toBeGreaterThan(0)
     expect(result.ratio).toBeGreaterThan(0)
-    expect(result.threads).toBe(1)
-    expect(result.durationMs).toBe(120)
+    expect(result.threads).toBe(2)
+    expect(result.durationMs).toBeGreaterThan(0)
+    expect(typeof result.unstable).toBe('boolean')
 
     expect(progress.length).toBeGreaterThanOrEqual(4)
     expect(progress[0].phase).toBe('single')
@@ -130,7 +119,7 @@ describe('worker real (eval + worker_threads + node:crypto)', () => {
     expect(progress[progress.length - 1].percent).toBe(100)
     expect(vi.mocked(addBenchmarkEntry)).toHaveBeenCalledTimes(1)
     expect(isBenchmarkBusy()).toBe(false)
-  }, 8000)
+  }, 60_000)
 })
 
 describe('teste de estresse', () => {
@@ -165,9 +154,10 @@ describe('teste de estresse', () => {
     expect(secondStart.error).toContain('Já existe um teste em andamento')
 
     const busy = await runBenchmark({
-      durationMs: 100,
       tests: [{ id: 'integers', label: 'Inteiros' }],
-      threads: 1
+      threads: 1,
+      repeats: 1,
+      runnerScriptPath
     })
     expect(busy.ok).toBe(false)
     if (!busy.ok) expect(busy.error).toContain('Já existe um teste em andamento')
@@ -178,13 +168,14 @@ describe('teste de estresse', () => {
 })
 
 describe('cancelamento do benchmark', () => {
-  it('cancela um run em andamento e devolve resultado de cancelamento', async () => {
+  it('cancela um run em andamento, mata o filho e devolve resultado de cancelamento', async () => {
     const promise = runBenchmark({
-      durationMs: 3000,
-      tests: [{ id: 'integers', label: 'Inteiros' }],
-      threads: 1
+      tests: [{ id: 'sha', label: 'SHA-256' }],
+      threads: 1,
+      repeats: 5,
+      runnerScriptPath
     })
-    await wait(150)
+    await wait(400)
 
     const cancel = cancelBenchmark()
     expect(cancel.cancelled).toBe(true)
@@ -196,5 +187,9 @@ describe('cancelamento do benchmark', () => {
       expect(result.error).toContain('cancelada')
     }
     expect(isBenchmarkBusy()).toBe(false)
-  }, 8000)
+  }, 20_000)
+})
+
+afterAll(() => {
+  rmSync(runnerDir, { recursive: true, force: true })
 })
