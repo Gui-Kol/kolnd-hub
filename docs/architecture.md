@@ -63,13 +63,22 @@ Processo Node completo. Responsabilidades principais:
 - **Segurança de navegação**: `setWindowOpenHandler` nega tudo e só abre externamente
   URLs `https:`/`http:`/`mailto:` (allowlist `isAllowedExternalUrl`); `will-navigate`
   é bloqueado sempre — em dev permite apenas a origem do dev server (HMR).
-- **Tray**: ícone 32×32 embutido em base64 (`createTray`), menu "Abrir Kolnd Hub" /
-  "Sair". "Sair" chama `processManager.killAll()` + `app.quit()` e fica **inerte durante
-  uma desinstalação**. O evento `window-all-closed` não encerra o app (fica na bandeja).
-- **Fechar a janela (X)**: o evento `close` é interceptado (`event.preventDefault()`) e
-  abre o diálogo "Você quer encerrar o Hub?"; confirmar mata os processos e sai. Durante
-  desinstalação, fechar pelo title bar é inerte.
-- **Instância única + `activate`** (macOS): se não houver janelas, cria uma nova.
+- **Tray**: ícone 32×32 em `resources/tray-icon.png` (`extraResources`; sem o arquivo,
+  cai numa imagem vazia + aviso no log) e menu "Abrir Kolnd Hub" / "Sair". "Abrir"
+  mostra/focaliza a janela (recria se ela não existir); "Sair" marca a saída
+  (`markQuitting`), chama `processManager.killAll()` + `app.quit()` e fica **inerte
+  durante uma desinstalação**. O evento `window-all-closed` não encerra o app (fica na
+  bandeja).
+- **Fechar a janela (X/Alt+F4/close do SO)**: o handler `close` é anexado **dentro de
+  `createWindow`** (em `whenReady`, antes da criação, `mainWindow` ainda é `null`). Sem
+  `isQuitting()`, ele chama `event.preventDefault()` e `hide()` — vai para a bandeja, sem
+  diálogo e sem encerrar. O IPC `window:close` (X da title bar customizada) faz o mesmo.
+  Encerrar de verdade só pelo **Sair explícito**: Mais → Encerrar Hub (modal → IPC
+  `app:shutdown` → `shutdownHub`) ou Sair da bandeja. Durante desinstalação, o close fica
+  inerte (não oculta). `query-session-end`/`session-end` marcam a saída para não bloquear
+  logoff/shutdown do Windows. O antigo diálogo nativo `confirmAndQuit` foi removido.
+- **Instância única + `activate`** (macOS): reexibe a janela oculta na bandeja ou cria
+  uma nova, se não houver nenhuma.
 - **Pré-requisito de caminho**: `setBaseDir(is.dev ? process.cwd() : dirname(app.getPath('exe')))`
   — caminhos relativos da config resolvem a partir do diretório do Hub, nunca do cwd herdado.
 
@@ -220,7 +229,7 @@ na topbar (ícone) ou no mega menu do "Mais" (`Topbar.tsx`/`MegaMenu.tsx`); sem 
 configurado, o Hub abre a configuração antes de liberar a home.
 
 - **Tela cheia**: IPC `window:set-fullscreen` usa `setFullScreen` (NÃO `maximize`, NÃO
-  `kiosk`) — Alt+F4 continua funcionando. Os bounds da janela são guardados antes de
+  `kiosk`) — Alt+F4 oculta a janela para a bandeja (como o X), sem encerrar. Os bounds da janela são guardados antes de
   entrar e restaurados no `leave-full-screen` (janelas maximizadas ficam fora dessa
   restauração).
 - **Gamepad**: `hooks/useGamepad.ts` (detecção/leitura via Gamepad API), `lib/gamepad/`
@@ -239,9 +248,10 @@ configurado, o Hub abre a configuração antes de liberar a home.
 
 ## 7. Tray e desinstalação
 
-**Tray** (`createTray` em `index.ts`): ícone de raio, tooltip "Kolnd Hub", menu
-**Abrir Kolnd Hub** (show/focus) e **Sair** (`killAll` + `quit`; inerte durante
-desinstalação). Fechar a janela pelo X abre o diálogo de confirmação (ver §2) — o
+**Tray** (`createTray` em `index.ts`): ícone em `resources/tray-icon.png`, tooltip
+"Kolnd Hub", menu **Abrir Kolnd Hub** (show/focus; recria a janela se ela não existir) e
+**Sair** (`markQuitting` + `killAll` + `quit`; inerte durante desinstalação). Fechar a
+janela pelo X/Alt+F4 **oculta para a bandeja** (sem diálogo, ver §2) — o
 `window-all-closed` não encerra o processo.
 
 **Desinstalação** — dois fluxos, ambos em Configurações → "Zona de perigo", ambos exigem

@@ -31,8 +31,8 @@ import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
-import { confirmAndQuit } from './ipc/lifecycle'
 import type { IpcContext } from './ipc/lifecycle'
+import { isQuitting, markQuitting } from './quitState'
 import { logger } from './logger'
 
 /**
@@ -112,6 +112,27 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
     mainWindow!.show()
   })
 
+  // X do title bar, Alt+F4 e o close do SO ocultam para a bandeja em vez de
+  // encerrar. O fechamento real só passa quando o Sair explícito (Mais →
+  // Encerrar Hub ou Sair da bandeja) marcou `isQuitting()`. O handler vive
+  // AQUI (dentro de createWindow) porque em `whenReady` a janela ainda não
+  // existe — era o bug que deixava o Alt+F4 sem interceptação.
+  mainWindow.on('close', (event) => {
+    if (isQuitting()) return
+    event.preventDefault()
+    // Desinstalação destrutiva: X/Alt+F4 fica inerte (não oculta, não encerra).
+    if (isAnyUninstallInProgress()) return
+    logger.info('window', 'janela ocultada para a bandeja')
+    mainWindow?.hide()
+  })
+
+  // Desligamento/logoff do Windows: marca a saída antes de o close ser
+  // interceptado, para não segurar o shutdown do SO.
+  mainWindow.on('session-end', markQuitting)
+  // `query-session-end` (Windows) existe no runtime do Electron, mas ainda não
+  // está nas typings do Electron 28; registra via EventEmitter mínimo.
+  ;(mainWindow as unknown as NodeJS.EventEmitter).on('query-session-end', markQuitting)
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (isAllowedExternalUrl(details.url)) {
       shell.openExternal(details.url)
@@ -166,6 +187,22 @@ function trayIconPath(): string {
   return join(process.cwd(), 'resources', 'tray-icon.png')
 }
 
+/**
+ * Mostra/foca a janela principal para a bandeja e o `activate`. Se a janela
+ * foi destruída (não é o caminho normal — o X só oculta), recria para não
+ * deixar o app vivo sem interface.
+ */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createTray(): void {
   // Ícone da bandeja como asset em disco (não mais blob base64 inline). Se o
   // arquivo não existir, usa imagem vazia + aviso no log — o app nunca cai
@@ -184,8 +221,7 @@ function createTray(): void {
     {
       label: 'Abrir Kolnd Hub',
       click: (): void => {
-        mainWindow?.show()
-        mainWindow?.focus()
+        showMainWindow()
       }
     },
     { type: 'separator' },
@@ -195,6 +231,8 @@ function createTray(): void {
         // Durante uma desinstalação destrutiva, o tray não encerra o app
         // (nem mata processos no meio do msiexec/wipe).
         if (isAnyUninstallInProgress()) return
+        // Sair explícito: libera o close interceptado antes de encerrar.
+        markQuitting()
         processManager.killAll()
         app.quit()
       }
@@ -204,8 +242,7 @@ function createTray(): void {
   tray.setToolTip('Kolnd Hub')
   tray.setContextMenu(contextMenu)
   tray.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
+    showMainWindow()
   })
 }
 
@@ -295,17 +332,6 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Intercepta o evento de fechamento da janela (X do SO, Alt+F4, etc.) para
-  // também exibir o popup de confirmação em vez de apenas esconder a janela.
-  mainWindow?.on('close', (event) => {
-    event.preventDefault()
-    // Alt+F4 / X do title bar durante passos destrutivos: inerte (sem diálogo).
-    if (isAnyUninstallInProgress()) {
-      return
-    }
-    void confirmAndQuit(ctx)
-  })
-
   const firstRun = isFirstRun()
   // --hidden: o Windows lança o Hub com essa flag (args registrados no Run,
   // ver loginItem.ts) para subir direto para a bandeja. Ignorado na primeira
@@ -326,10 +352,13 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
+    markQuitting()
     processManager.killAll()
   })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // Janela oculta na bandeja → reexibe; sem janela → recria.
+    showMainWindow()
   })
 }

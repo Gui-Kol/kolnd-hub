@@ -170,7 +170,8 @@ Get-FileHash -Algorithm SHA256 "Kolnd Hub Setup <versao>.exe"
 
 1. Abra o app e clique em **Iniciar** no card do programa.
 2. Clique no card para ver detalhes, abrir a pasta e acompanhar os **logs**.
-3. O botão **X** fecha para a bandeja; use o ícone da bandeja para reabrir.
+3. O botão **X** (e Alt+F4) manda o app para a bandeja; use o ícone da bandeja para reabrir.
+   Para encerrar de verdade, use **Mais → Encerrar Hub** ou o **Sair** da bandeja.
 4. Em **Configurações**, ajuste comando e diretório de trabalho de cada programa.
 
 Caminhos aceitam:
