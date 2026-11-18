@@ -1,8 +1,21 @@
 import { motion } from 'framer-motion'
-import { Play, Square, ExternalLink } from 'lucide-react'
+import { Play, Square, ExternalLink, Globe2, HelpCircle, Loader2 } from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Badge, Button, IconButton } from './ui'
+
+/** Controles de modo remoto injetados apenas no card do Kloud Games. */
+export interface RemoteControls {
+  enabled: boolean
+  /** true enquanto o estado (modo/endereço) está sendo lido do main. */
+  loading: boolean
+  /** true durante o toggle (desabilita os botões). */
+  busy: boolean
+  /** IP 100.x / MagicDNS para o Moonlight; null quando não conectado. */
+  address: string | null
+  onToggle: () => void
+  onHelp: () => void
+}
 
 // API pública IDÊNTICA (AppCardProps) — Dashboard não muda.
 interface AppCardProps {
@@ -12,6 +25,7 @@ interface AppCardProps {
   onStop: () => void
   onClick: () => void
   delay: number
+  remote?: RemoteControls
 }
 
 // Categorias mapeadas para tons do Badge (13-13.8): ai→accent, demais→neutro.
@@ -29,7 +43,8 @@ export function AppCard({
   onLaunch,
   onStop,
   onClick,
-  delay
+  delay,
+  remote
 }: AppCardProps): JSX.Element {
   const isRunning = state?.status === 'running'
   const isError = state?.status === 'error'
@@ -158,6 +173,60 @@ export function AppCard({
 
         {/* Barra de ação — margin-top auto empurra para o rodapé do card */}
         <div className="mt-auto">
+          {/* Modo remoto (só Kloud Games): toggle + ajuda de pareamento. */}
+          {remote && (
+            <>
+              <div className="mb-2 flex items-center gap-2">
+                <Button
+                  variant={remote.enabled ? 'primary' : 'secondary'}
+                  size="sm"
+                  className="flex-1"
+                  aria-pressed={remote.enabled}
+                  disabled={remote.busy || remote.loading}
+                  title={
+                    remote.enabled
+                      ? 'Desativar o modo remoto do Hub (não desliga o Tailscale)'
+                      : 'Ativar o modo remoto (requer Tailscale conectado)'
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    remote.onToggle()
+                  }}
+                >
+                  {remote.busy ? (
+                    <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Globe2 size={12} aria-hidden="true" />
+                  )}
+                  {remote.enabled ? 'Remoto ativo' : 'Modo remoto'}
+                </Button>
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  title="Como conectar no Moonlight (local e remoto)"
+                  aria-label="Como conectar no Moonlight (local e remoto)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    remote.onHelp()
+                  }}
+                >
+                  <HelpCircle size={15} aria-hidden="true" />
+                </IconButton>
+              </div>
+
+              {remote.enabled && remote.address && (
+                <p className="mb-2 truncate text-[10px] text-ink-tertiary" title={remote.address}>
+                  Moonlight: <span className="font-mono text-accent">{remote.address}</span>
+                </p>
+              )}
+              {remote.enabled && !remote.address && !remote.loading && (
+                <p className="mb-2 text-[10px] leading-snug text-warn">
+                  Tailscale desconectado — abra o Tailscale para receber conexões.
+                </p>
+              )}
+            </>
+          )}
+
           <Button
             variant={isRunning ? 'danger' : 'primary'}
             size="md"

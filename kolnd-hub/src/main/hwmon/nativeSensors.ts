@@ -17,6 +17,14 @@ import { resolveNvidiaSmiPath, resolvePowershellPath } from './systemPaths'
  */
 
 import type { DriverStatus, HwCpu, HwGpu, HwRam, HwSnapshot } from '../../shared/hwmon'
+import {
+  buildGpuAdapters,
+  parseGpuRegistry,
+  parseVideoControllers,
+  selectPrimaryGpu,
+  type GpuAdapterInfo
+} from './gpuInfo'
+import { readNvmlFan } from './nvml'
 import { estimateCpuWatts, estimatePlatformWatts, estimateTotalWatts } from './powerEstimate'
 
 export type {
@@ -71,12 +79,20 @@ export interface CimFacts {
   ramModules: CimRamModule[]
   cpu: CimCpuFacts
   board: CimBoardFacts
+  gpuAdapters: GpuAdapterInfo[]
   gpuSharedBytes: number | null
+  gpuDedicatedBytes: number | null
+  gpuUsagePercent: number | null
   processorPerformancePercent: number | null
+  /** Temperatura da CPU por ACPI (aprox.), quando a placa expõe alguma zona. */
+  cpuTempAcpiC: number | null
 }
 
 /** Parte estável da consulta CIM — cacheada por sessão. */
-export type StaticFacts = Pick<CimFacts, 'ramModules' | 'cpu' | 'board'>
+export type StaticFacts = Pick<
+  CimFacts,
+  'ramModules' | 'cpu' | 'board' | 'gpuAdapters' | 'cpuTempAcpiC'
+>
 
 /** Executor injetável (testes espionam as chamadas sem tocar na máquina). */
 export type CommandRunner = (
@@ -92,6 +108,10 @@ export interface NativeSnapshotInput {
   nvidia?: NvidiaSmiSample | null
   staticFacts?: StaticFacts | null
   gpuSharedBytes?: number | null
+  gpuDedicatedBytes?: number | null
+  gpuUsagePercent?: number | null
+  /** RPM da ventoinha medido pela NVML; `null` sem driver NVIDIA/NVML. */
+  gpuFanRpm?: number | null
   processorPerformancePercent?: number | null
   totalmemBytes?: number
   freememBytes?: number
@@ -118,9 +138,14 @@ const SMBIOS_MEMORY_TYPES: Record<number, string> = {
 }
 
 /**
- * Consulta CIM estática (RAM, CPU e placa) — uma execução por sessão.
- * `[Console]::OutputEncoding` força UTF-8 no stdout mesmo em console localizado;
- * `$ErrorActionPreference` evita que uma classe ausente escreva lixo no JSON.
+ * Consulta CIM estática (RAM, CPU, placa e temperatura ACPI) — uma execução por
+ * sessão. `[Console]::OutputEncoding` força UTF-8 no stdout mesmo em console
+ * localizado; `$ErrorActionPreference` evita que uma classe ausente escreva lixo
+ * no JSON.
+ *
+ * A temperatura entra AQUI (e não no tick) porque `MSAcpi_ThermalZoneTemperature`
+ * não existe em muitos desktops — medido nesta máquina: a consulta falha. Pagar
+ * a falha uma vez por sessão evita custo e log repetido a cada segundo.
  */
 const CIM_STATIC_SCRIPT = [
   '[Console]::OutputEncoding=[Text.Encoding]::UTF8',
@@ -128,17 +153,72 @@ const CIM_STATIC_SCRIPT = [
   '$ram=@(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,ConfiguredClockSpeed,ConfiguredVoltage,SMBIOSMemoryType)',
   '$cpu=Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed',
   '$board=Get-CimInstance Win32_BaseBoard | Select-Object -First 1 Manufacturer,Product',
-  '[pscustomobject]@{ram=@($ram);cpu=$cpu;board=$board} | ConvertTo-Json -Depth 6 -Compress'
+  '$acpi=@(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | Select-Object InstanceName,CurrentTemperature)',
+  '$thermal=@(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation | Select-Object Name,HighPrecisionTemperature,Temperature)',
+  // GPU é estática (modelo/driver/VRAM não mudam no tick). A VRAM real vem do
+  // registro: `AdapterRAM` satura em ~4 GiB e mentiria numa placa de 8 GB.
+  '$video=@(Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID,DriverVersion,DriverDate,AdapterRAM)',
+  `$gpuReg=@(Get-ChildItem "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}" | ForEach-Object { $p=Get-ItemProperty $_.PSPath; [pscustomobject]@{DriverDesc=$p.DriverDesc;DriverVersion=$p.DriverVersion;MatchingDeviceId=$p.MatchingDeviceId;'HardwareInformation.qwMemorySize'=$p.'HardwareInformation.qwMemorySize'} })`,
+  '[pscustomobject]@{ram=@($ram);cpu=$cpu;board=$board;acpi=@($acpi);thermal=@($thermal);video=@($video);gpuRegistry=@($gpuReg)} | ConvertTo-Json -Depth 6 -Compress'
 ].join('; ')
 
-/** Consulta CIM dinâmica (GPU compartilhada + performance do processador) por tick. */
-const CIM_DYNAMIC_SCRIPT = [
-  '[Console]::OutputEncoding=[Text.Encoding]::UTF8',
-  "$ErrorActionPreference='SilentlyContinue'",
-  '$gpuMem=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,SharedUsage)',
-  "$perf=Get-CimInstance Win32_PerfFormattedData_Counters_ProcessorInformation | Where-Object { $_.Name -eq '_Total' } | Select-Object -First 1 PercentProcessorPerformance",
-  '[pscustomobject]@{gpuMemory=@($gpuMem);processor=$perf} | ConvertTo-Json -Depth 6 -Compress'
-].join('; ')
+/**
+ * Consulta CIM dinâmica (GPU + performance do processador) por tick.
+ *
+ * Por que a agregação acontece aqui: o contador `\GPU Engine(*)\Utilization
+ * Percentage` tem o caminho LOCALIZADO (pt-BR quebra), mas as classes CIM
+ * `Win32_PerfFormattedData_GPUPerformanceCounters_*` são independentes de
+ * idioma. A regra de uso é a mesma do Gerenciador de Tarefas: somar as
+ * instâncias do motor 3D por adaptador (LUID) e ler o adaptador primário —
+ * `Copy`, `VideoDecode`, `Security` e afins não são "uso da GPU" para o
+ * usuário. O adaptador primário é o de maior memória dedicada; um adaptador
+ * virtual (ex.: Parsec) tem 0 dedicado e não zera a leitura da GPU real.
+ *
+ * O bloco de uso é CONDICIONAL: em NVIDIA o `nvidia-smi` já entrega o uso com
+ * mais precisão, e consultar o `GPUEngine` custa ~300 ms por tick (medido:
+ * 486 instâncias). Com ele o tick ia de ~610 ms para ~960 ms; sem ele a máquina
+ * NVIDIA continua no orçamento antigo e AMD/Intel pagam só quando precisam.
+ *
+ * Tudo é agregado no PowerShell e só os totais voltam: o JSON por tick precisa
+ * continuar pequeno (1 processo por tick, sem custo extra de parsing).
+ *
+ * Medição empírica nesta máquina (RTX 5060 Ti, 18/11/2026), comparando com
+ * `nvidia-smi --query-gpu=utilization.gpu`: em repouso 2% (CIM) × 2%
+ * (nvidia-smi); com carga leve ~25% × 26–28%; saturada 97–100% × 99–100%.
+ * A memória dedicada acompanhou `memory.used` dentro de ~15 MiB. Agregar só o
+ * `3D` por LUID é o que replica o Gerenciador de Tarefas; somar todas as
+ * instâncias (Copy/VideoDecode) inflaria o número sem relação com o uso.
+ */
+export function buildCimDynamicScript(includeGpuEngine: boolean): string {
+  const lines = [
+    '[Console]::OutputEncoding=[Text.Encoding]::UTF8',
+    "$ErrorActionPreference='SilentlyContinue'",
+    '$mem=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,DedicatedUsage,SharedUsage)',
+    `$rows=@($mem | ForEach-Object { $p=$_.Name -split '_'; [pscustomobject]@{ luid="$($p[1])_$($p[2])"; dedicated=[double]$_.DedicatedUsage; shared=[double]$_.SharedUsage } })`,
+    `$primary=$rows | Sort-Object -Property @{Expression='dedicated';Descending=$true},@{Expression='shared';Descending=$true} | Select-Object -First 1`,
+    '$usage=$null'
+  ]
+
+  if (includeGpuEngine) {
+    lines.push(
+      `$eng=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine | Where-Object { $_.Name -match '_engtype_3D$' } | Select-Object Name,UtilizationPercentage)`,
+      '$sums=@{}',
+      `foreach ($e in $eng) { $p=$e.Name -split '_'; $key="$($p[3])_$($p[4])"; $v=[double]$e.UtilizationPercentage; if ($sums.ContainsKey($key)) { $sums[$key]=$sums[$key]+$v } else { $sums[$key]=$v } }`,
+      'if ($primary -and $sums.ContainsKey($primary.luid)) { $usage=$sums[$primary.luid] } elseif ($sums.Count -gt 0) { $usage=($sums.Values | Measure-Object -Maximum).Maximum }',
+      'if ($usage -ne $null) { $usage=[math]::Min(100,[math]::Max(0,$usage)) }'
+    )
+  }
+
+  lines.push(
+    '$dedicated=$null',
+    '$shared=$null',
+    'if ($primary) { $dedicated=$primary.dedicated; $shared=$primary.shared }',
+    "$perf=Get-CimInstance Win32_PerfFormattedData_Counters_ProcessorInformation | Where-Object { $_.Name -eq '_Total' } | Select-Object -First 1 PercentProcessorPerformance",
+    '[pscustomobject]@{gpuUsagePercent=$usage;gpuDedicatedBytes=$dedicated;gpuSharedBytes=$shared;processor=$perf} | ConvertTo-Json -Depth 6 -Compress'
+  )
+
+  return lines.join('; ')
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -230,6 +310,51 @@ export function parseNvidiaSmi(raw: string | null | undefined): NvidiaSmiSample 
   }
 }
 
+/**
+ * Faixa de sanidade da temperatura da CPU. Abaixo de 15 °C só existe com
+ * refrigeração extrema/erro de escala; acima de 110 °C a leitura é lixo (o
+ * limite térmico da maioria das CPUs fica abaixo disso).
+ */
+const MIN_PLAUSIBLE_TEMP_C = 15
+const MAX_PLAUSIBLE_TEMP_C = 110
+
+/** Décimos de Kelvin (ACPI) → °C. Valores não positivos não são medida. */
+export function acpiTenthsKelvinToCelsius(value: unknown): number | null {
+  const tenths = toNumber(value)
+  if (tenths === null || tenths <= 0) return null
+  return round(tenths / 10 - 273.15, 1)
+}
+
+function isPlausibleTempCelsius(value: number | null): value is number {
+  return value !== null && value >= MIN_PLAUSIBLE_TEMP_C && value <= MAX_PLAUSIBLE_TEMP_C
+}
+
+/**
+ * Escolha da temperatura de CPU entre as zonas ACPI: maior valor VÁLIDO.
+ *
+ * Por que a maior: as zonas ACPI costumam misturar CPU, placa e ambiente, e o
+ * sensor mais quente é o que se aproxima do pacote da CPU. É determinística
+ * (independe da ordem do CIM) e uma zona ausente/louca simplesmente não vota.
+ * Nenhuma zona válida → `null`, sem erro.
+ */
+export function selectCpuTempFromAcpi(zones: unknown, thermal: unknown): number | null {
+  const candidates: number[] = []
+  for (const row of toRecordList(zones)) {
+    candidates.push(acpiTenthsKelvinToCelsius(row.CurrentTemperature) ?? Number.NaN)
+  }
+  for (const row of toRecordList(thermal)) {
+    candidates.push(
+      acpiTenthsKelvinToCelsius(row.HighPrecisionTemperature) ??
+        acpiTenthsKelvinToCelsius(row.Temperature) ??
+        Number.NaN
+    )
+  }
+  const valid = candidates.filter(
+    (value) => Number.isFinite(value) && isPlausibleTempCelsius(value)
+  )
+  return valid.length > 0 ? Math.max(...valid) : null
+}
+
 /** Parser do JSON de uma consulta CIM (estática ou dinâmica). Null se inválido. */
 export function parseCimJson(raw: string | null | undefined): CimFacts | null {
   if (!raw) return null
@@ -260,12 +385,9 @@ export function parseCimJson(raw: string | null | undefined): CimFacts | null {
   const boardRecord = toRecordList(value.board)[0] ?? {}
   const processorRecord = toRecordList(value.processor)[0] ?? {}
 
-  // Várias linhas (uma por adaptador). A do adaptador básico de vídeo tem
-  // `SharedUsage` minúsculo (8 KiB nesta máquina); o maior valor é o da GPU real.
-  const sharedValues = toRecordList(value.gpuMemory)
-    .map((row) => toNonNegative(row.SharedUsage))
-    .filter((entry): entry is number => entry !== null)
-  const gpuSharedBytes = sharedValues.length > 0 ? Math.max(...sharedValues) : null
+  // Totais agregados pelo script (uso 3D do adaptador primário + memória desse
+  // mesmo adaptador). `0%` é leitura válida; ausência vira null.
+  const usage = toNonNegative(value.gpuUsagePercent)
 
   return {
     ramModules,
@@ -279,8 +401,15 @@ export function parseCimJson(raw: string | null | undefined): CimFacts | null {
       manufacturer: toText(boardRecord.Manufacturer),
       product: toText(boardRecord.Product)
     },
-    gpuSharedBytes,
-    processorPerformancePercent: toPositive(processorRecord.PercentProcessorPerformance)
+    gpuAdapters: buildGpuAdapters(
+      parseVideoControllers(value.video),
+      parseGpuRegistry(value.gpuRegistry)
+    ),
+    gpuSharedBytes: toNonNegative(value.gpuSharedBytes),
+    gpuDedicatedBytes: toNonNegative(value.gpuDedicatedBytes),
+    gpuUsagePercent: usage === null ? null : clampPercent(usage),
+    processorPerformancePercent: toPositive(processorRecord.PercentProcessorPerformance),
+    cpuTempAcpiC: selectCpuTempFromAcpi(value.acpi, value.thermal)
   }
 }
 
@@ -373,6 +502,11 @@ export function buildNativeSnapshot(input: NativeSnapshotInput): HwSnapshot {
   const board = staticFacts?.board ?? null
   const nvidia = input.nvidia ?? null
   const sharedBytes = input.gpuSharedBytes ?? null
+  const dedicatedBytes = input.gpuDedicatedBytes ?? null
+  const cimUsagePercent = input.gpuUsagePercent ?? null
+  // Adaptador primário detectado pelo CIM: existe em AMD/Intel e também serve
+  // de fallback de nome/VRAM/driver quando o `nvidia-smi` não responde.
+  const primaryGpu = selectPrimaryGpu(staticFacts?.gpuAdapters ?? [])
 
   const totalmemBytes = input.totalmemBytes ?? os.totalmem()
   const freememBytes = input.freememBytes ?? os.freemem()
@@ -406,20 +540,33 @@ export function buildNativeSnapshot(input: NativeSnapshotInput): HwSnapshot {
     model: cpuFacts?.name ?? null,
     usagePercent: cpuUsagePercent === null ? null : round(cpuUsagePercent, 1),
     clockMhz,
-    tempC: null,
-    watts: null
+    // ACPI é aproximada, mas é a única temperatura de CPU sem driver. O merge
+    // promove para `measured` quando o driver entrega a leitura real.
+    tempC: staticFacts?.cpuTempAcpiC ?? null,
+    watts: null,
+    // Só o agente elevado mede Vcore; o snapshot nativo nunca estima tensão.
+    voltageV: null
   }
 
+  const usagePercent = nvidia?.usagePercent ?? cimUsagePercent
   const gpu: HwGpu = {
-    model: nvidia?.name ?? null,
-    usagePercent: nvidia?.usagePercent ?? null,
+    model: nvidia?.name ?? primaryGpu?.name ?? null,
+    vendor: primaryGpu?.vendor ?? (nvidia ? 'nvidia' : null),
+    driverVersion: nvidia?.driverVersion ?? primaryGpu?.driverVersion ?? null,
+    driverDate: primaryGpu?.driverDate ?? null,
+    usagePercent: usagePercent === null ? null : clampPercent(usagePercent),
     coreClockMhz: nvidia?.coreClockMhz ?? null,
     memClockMhz: nvidia?.memClockMhz ?? null,
-    vramUsedMb: nvidia?.vramUsedMb ?? null,
-    vramTotalMb: nvidia?.vramTotalMb ?? null,
+    // Memória dedicada do contador CIM ≈ `memory.used` (medido: ~15 MiB de
+    // diferença); o `nvidia-smi` continua vencendo quando está disponível.
+    vramUsedMb:
+      nvidia?.vramUsedMb ?? (dedicatedBytes !== null ? Math.round(dedicatedBytes / MIB) : null),
+    vramTotalMb: nvidia?.vramTotalMb ?? primaryGpu?.vramTotalMb ?? null,
     sharedMb: sharedBytes !== null ? round(sharedBytes / MIB, 1) : null,
     tempC: nvidia?.tempC ?? null,
     fanPercent: nvidia?.fanPercent ?? null,
+    // RPM só vem da NVML; o `nvidia-smi` publica apenas percentual.
+    fanRpm: input.gpuFanRpm ?? null,
     watts: nvidia?.watts ?? null,
     powerLimitW: nvidia?.powerLimitW ?? null
   }
@@ -452,7 +599,7 @@ export function buildNativeSnapshot(input: NativeSnapshotInput): HwSnapshot {
     gpu,
     specs: {
       cpu: cpuFacts ? buildCpuSpec(cpuFacts) : null,
-      gpu: buildGpuSpec(gpu, nvidia?.driverVersion ?? null),
+      gpu: buildGpuSpec(gpu, gpu.driverVersion),
       ram: buildRamSpec(ram, modules),
       board: board ? buildBoardSpec(board) : null
     },
@@ -462,7 +609,10 @@ export function buildNativeSnapshot(input: NativeSnapshotInput): HwSnapshot {
       // `measured` quando o driver entrega watts reais.
       cpu: cpuEstimatedW !== null ? 'estimated' : 'unavailable',
       gpu: gpuW !== null ? 'measured' : 'unavailable',
-      platform: 'estimated'
+      platform: 'estimated',
+      cpuTemp: cpu.tempC !== null ? 'acpi' : 'unavailable',
+      gpuUsage: usagePercent !== null ? 'measured' : 'unavailable',
+      gpuTemp: nvidia?.tempC !== null && nvidia?.tempC !== undefined ? 'measured' : 'unavailable'
     },
     capturedAt: new Date(capturedAt).toISOString()
   }
@@ -501,6 +651,8 @@ let staticCache: StaticFacts | null = null
 let staticResolved = false
 let previousCpuTimes: CpuTimesLike[] | null = null
 let inflight: Promise<HwSnapshot> | null = null
+/** Já vimos o `nvidia-smi` responder nesta sessão: o NVML vale a pena. */
+let nvidiaSeen = false
 
 function cimArgs(script: string): string[] {
   return ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script]
@@ -518,31 +670,78 @@ async function readStaticCim(runner: CommandRunner): Promise<StaticFacts | null>
   const facts = parseCimJson(stdout)
   if (!facts) return staticCache
 
-  staticCache = { ramModules: facts.ramModules, cpu: facts.cpu, board: facts.board }
+  staticCache = {
+    ramModules: facts.ramModules,
+    cpu: facts.cpu,
+    board: facts.board,
+    gpuAdapters: facts.gpuAdapters,
+    cpuTempAcpiC: facts.cpuTempAcpiC
+  }
   staticResolved = true
+  if (facts.cpuTempAcpiC === null) {
+    // Uma vez por sessão: o desktop sem ACPI não pode inundar o log a 1 Hz.
+    logger.info('hwmon', 'temperatura da CPU por ACPI indisponível nesta máquina')
+  }
   return staticCache
 }
 
 async function readDynamicCim(
-  runner: CommandRunner
-): Promise<{ gpuSharedBytes: number | null; processorPerformancePercent: number | null }> {
-  const stdout = await runner(resolvePowershellPath(), cimArgs(CIM_DYNAMIC_SCRIPT), CIM_TIMEOUT_MS)
+  runner: CommandRunner,
+  includeGpuEngine: boolean
+): Promise<{
+  gpuSharedBytes: number | null
+  gpuDedicatedBytes: number | null
+  gpuUsagePercent: number | null
+  processorPerformancePercent: number | null
+}> {
+  const stdout = await runner(
+    resolvePowershellPath(),
+    cimArgs(buildCimDynamicScript(includeGpuEngine)),
+    CIM_TIMEOUT_MS
+  )
   const facts = parseCimJson(stdout)
   return {
     gpuSharedBytes: facts?.gpuSharedBytes ?? null,
+    gpuDedicatedBytes: facts?.gpuDedicatedBytes ?? null,
+    gpuUsagePercent: facts?.gpuUsagePercent ?? null,
     processorPerformancePercent: facts?.processorPerformancePercent ?? null
   }
+}
+
+/**
+ * A máquina é NVIDIA? Só nela o NVML (RPM da ventoinha) faz sentido — em
+ * AMD/Intel a DLL nem existe e o processo seria desperdício por tick.
+ */
+function isKnownNvidia(): boolean {
+  if (nvidiaSeen) return true
+  return (staticCache?.gpuAdapters ?? []).some((adapter) => adapter.vendor === 'nvidia')
 }
 
 async function capture(runner: CommandRunner): Promise<HwSnapshot> {
   const nvidiaPath = resolveNvidiaSmiPath()
 
-  // GPU, CIM estática (1ª vez) e dinâmica em paralelo: um sensor lento não
-  // penaliza os outros; depois do 1º tick só a dinâmica permanece.
-  const [nvidiaRaw, staticFacts, dynamic] = await Promise.all([
-    runner(nvidiaPath, NVIDIA_QUERY_ARGS, NVIDIA_TIMEOUT_MS),
+  // O `nvidia-smi` roda primeiro (é rápido, ~50 ms) para decidir se o uso da
+  // GPU precisa do contador CIM. Sem ele a decisão sai no mesmo tick e a
+  // máquina NVIDIA não paga os ~300 ms do `GPUEngine` a cada segundo.
+  //
+  // O NVML (RPM) entra JUNTO: em máquina já identificada como NVIDIA ele
+  // começa antes do `nvidia-smi`; na primeira leitura, quando o fabricante
+  // ainda é desconhecido, ele entra no `Promise.all` abaixo junto do CIM.
+  // Assim o tick nunca soma dois processos em série (~350 ms do NVML cabem
+  // nos ~600 ms do CIM).
+  const fanPromise = isKnownNvidia() ? readNvmlFan() : null
+
+  const nvidiaRaw = await runner(nvidiaPath, NVIDIA_QUERY_ARGS, NVIDIA_TIMEOUT_MS)
+  const nvidia = parseNvidiaSmi(nvidiaRaw)
+  if (nvidia) nvidiaSeen = true
+  const fan = fanPromise ?? (nvidia ? readNvmlFan() : Promise.resolve(null))
+
+  // CIM estática (1ª vez) e dinâmica em paralelo: um sensor lento não penaliza
+  // o outro; depois do 1º tick só a dinâmica permanece.
+  const [staticFacts, dynamic, nvml] = await Promise.all([
     readStaticCim(runner),
-    readDynamicCim(runner)
+    readDynamicCim(runner, nvidia === null),
+    fan
   ])
 
   const nextCpuTimes = os.cpus()
@@ -551,9 +750,12 @@ async function capture(runner: CommandRunner): Promise<HwSnapshot> {
 
   return buildNativeSnapshot({
     cpuUsagePercent,
-    nvidia: parseNvidiaSmi(nvidiaRaw),
+    nvidia,
     staticFacts,
     gpuSharedBytes: dynamic.gpuSharedBytes,
+    gpuDedicatedBytes: dynamic.gpuDedicatedBytes,
+    gpuUsagePercent: dynamic.gpuUsagePercent,
+    gpuFanRpm: nvml?.rpm ?? null,
     processorPerformancePercent: dynamic.processorPerformancePercent,
     totalmemBytes: os.totalmem(),
     freememBytes: os.freemem(),
@@ -579,5 +781,6 @@ export function resetNativeSensorsForTests(): void {
   staticResolved = false
   previousCpuTimes = null
   inflight = null
+  nvidiaSeen = false
   warnedExec = new Set<string>()
 }

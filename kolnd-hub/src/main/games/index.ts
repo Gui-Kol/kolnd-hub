@@ -33,7 +33,9 @@ export {
   setGameIcon,
   previewExeIcon,
   restoreExeIcon,
-  getGameIcon
+  getGameIcon,
+  repairGameIconsIfNeeded,
+  GAME_ICON_PIPELINE_VERSION
 } from './icons'
 export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
 export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './launch'

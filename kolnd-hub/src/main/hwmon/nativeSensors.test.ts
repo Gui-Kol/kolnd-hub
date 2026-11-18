@@ -4,13 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }))
+// O NVML roda PowerShell de verdade; aqui só interessa o que chega ao snapshot.
+vi.mock('./nvml', () => ({ readNvmlFan: vi.fn(async () => null) }))
 
 import {
+  acpiTenthsKelvinToCelsius,
+  buildCimDynamicScript,
   buildNativeSnapshot,
   computeCpuUsage,
   parseCimJson,
   parseNvidiaSmi,
   resetNativeSensorsForTests,
+  selectCpuTempFromAcpi,
   snapshotNative,
   type CimCpuFacts,
   type CimRamModule,
@@ -19,6 +24,8 @@ import {
   type NvidiaSmiSample,
   type StaticFacts
 } from './nativeSensors'
+import type { GpuAdapterInfo } from './gpuInfo'
+import { readNvmlFan } from './nvml'
 
 const NVIDIA_LINE =
   'NVIDIA GeForce RTX 5060 Ti, 621.24, 2, 2655, 14001, 1427, 8151, 41.35, 0, 28.16, 180.00'
@@ -54,10 +61,9 @@ const CIM_JSON = JSON.stringify({
     Manufacturer: 'Micro-Star International Co., Ltd.',
     Product: 'B550M PRO-VDH WIFI (MS-7C95)'
   },
-  gpuMemory: [
-    { Name: 'luid_0x00000000_0x00012CBC_phys_0', SharedUsage: 8192 },
-    { Name: 'luid_0x00000000_0x0000F964_phys_0', SharedUsage: 122621952 }
-  ],
+  gpuUsagePercent: 2,
+  gpuDedicatedBytes: 1294065664,
+  gpuSharedBytes: 122621952,
   processor: { PercentProcessorPerformance: 123 }
 })
 
@@ -84,11 +90,40 @@ const RAM_MODULES: CimRamModule[] = [
   { capacityBytes: 8589934592, configuredClockMhz: 3200, configuredVoltageMv: 1200, memoryType: 26 }
 ]
 
+const PCI_RTX = 'PCI\\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1\\71F57159262DB04800'
+
+/** Adaptadores como o CIM estático entrega (Parsec + RTX reais desta máquina). */
+const GPU_ADAPTERS: GpuAdapterInfo[] = [
+  {
+    name: 'Parsec Virtual Display Adapter',
+    vendor: 'other',
+    pnpDeviceId: 'ROOT\\DISPLAY\\0000',
+    driverVersion: '0.45.0.0',
+    driverDate: '2024-01-25',
+    vramTotalMb: null,
+    isVirtual: true
+  },
+  {
+    name: 'NVIDIA GeForce RTX 5060 Ti',
+    vendor: 'nvidia',
+    pnpDeviceId: PCI_RTX,
+    driverVersion: '32.0.16.2124',
+    driverDate: '2026-11-07',
+    vramTotalMb: 8151,
+    isVirtual: false
+  }
+]
+
 const STATIC_FACTS: StaticFacts = {
   cpu: CPU_FACTS,
   ramModules: RAM_MODULES,
-  board: { manufacturer: 'Micro-Star International Co., Ltd.', product: 'B550M PRO-VDH WIFI' }
+  board: { manufacturer: 'Micro-Star International Co., Ltd.', product: 'B550M PRO-VDH WIFI' },
+  gpuAdapters: GPU_ADAPTERS,
+  // Este desktop não expõe zona ACPI (a consulta falha na máquina real).
+  cpuTempAcpiC: null
 }
+
+const STATIC_FACTS_NO_GPU: StaticFacts = { ...STATIC_FACTS, gpuAdapters: [] }
 
 const NVIDIA_SAMPLE: NvidiaSmiSample = {
   name: 'NVIDIA GeForce RTX 5060 Ti',
@@ -109,6 +144,12 @@ function cpuTimes(entries: Array<{ idle: number; user: number }>): CpuTimesLike[
     times: { user: entry.user, nice: 0, sys: 0, idle: entry.idle, irq: 0 }
   }))
 }
+
+// Cada teste decide se a máquina tem NVML; o padrão é "sem leitura".
+beforeEach(() => {
+  vi.mocked(readNvmlFan).mockReset()
+  vi.mocked(readNvmlFan).mockResolvedValue(null)
+})
 
 describe('parseNvidiaSmi', () => {
   it('lê a linha real desta máquina (11 campos, sem unidades)', () => {
@@ -182,7 +223,10 @@ describe('parseCimJson', () => {
     expect(facts?.cpu.threads).toBe(16)
     expect(facts?.cpu.baseClockMhz).toBe(3401)
     expect(facts?.board.product).toBe('B550M PRO-VDH WIFI (MS-7C95)')
-    // O adaptador básico (8192) é ignorado — o maior SharedUsage é o da GPU real.
+    // Totais agregados no PowerShell: uso do motor 3D + memória do adaptador
+    // primário (o Parsec virtual, com 8 KiB, não entra).
+    expect(facts?.gpuUsagePercent).toBe(2)
+    expect(facts?.gpuDedicatedBytes).toBe(1294065664)
     expect(facts?.gpuSharedBytes).toBe(122621952)
     expect(facts?.processorPerformancePercent).toBe(123)
   })
@@ -192,7 +236,9 @@ describe('parseCimJson', () => {
       ram: { Capacity: '8589934592', ConfiguredClockSpeed: '3200', ConfiguredVoltage: '1200' },
       cpu: { Name: 'CPU X', NumberOfCores: '4', MaxClockSpeed: '2000' },
       board: { Product: 'Placa Y' },
-      gpuMemory: { SharedUsage: 8192 },
+      gpuUsagePercent: '98',
+      gpuDedicatedBytes: '1073741824',
+      gpuSharedBytes: 8192,
       processor: { PercentProcessorPerformance: '99' }
     })
     const facts = parseCimJson(single)
@@ -200,6 +246,8 @@ describe('parseCimJson', () => {
     expect(facts?.ramModules[0].capacityBytes).toBe(8589934592)
     expect(facts?.cpu.cores).toBe(4)
     expect(facts?.board.manufacturer).toBeNull()
+    expect(facts?.gpuUsagePercent).toBe(98)
+    expect(facts?.gpuDedicatedBytes).toBe(1073741824)
     expect(facts?.gpuSharedBytes).toBe(8192)
     expect(facts?.processorPerformancePercent).toBe(99)
   })
@@ -223,8 +271,102 @@ describe('parseCimJson', () => {
     expect(facts?.ramModules).toEqual([])
     expect(facts?.cpu).toEqual({ name: null, cores: null, threads: null, baseClockMhz: null })
     expect(facts?.board).toEqual({ manufacturer: null, product: null })
+    expect(facts?.gpuUsagePercent).toBeNull()
+    expect(facts?.gpuDedicatedBytes).toBeNull()
     expect(facts?.gpuSharedBytes).toBeNull()
     expect(facts?.processorPerformancePercent).toBeNull()
+    expect(facts?.cpuTempAcpiC).toBeNull()
+  })
+})
+
+describe('parseCimJson — agregação de GPU (CIM)', () => {
+  // Valores reais do script dinâmico (GPU em repouso nesta máquina): adaptador
+  // NVIDIA com 1.294.065.664 B dedicados e 68.964.352 B compartilhados.
+  const REAL_DYNAMIC = JSON.stringify({
+    gpuUsagePercent: 2,
+    gpuDedicatedBytes: 1294065664,
+    gpuSharedBytes: 68964352,
+    processor: { PercentProcessorPerformance: 116 }
+  })
+
+  it('lê os totais do adaptador primário sem tocar nas linhas por processo', () => {
+    const facts = parseCimJson(REAL_DYNAMIC)
+    expect(facts?.gpuUsagePercent).toBe(2)
+    expect(facts?.gpuDedicatedBytes).toBe(1294065664)
+    expect(facts?.gpuSharedBytes).toBe(68964352)
+  })
+
+  it('0% é leitura válida (GPU ociosa) e uso acima de 100 é clampado', () => {
+    expect(
+      parseCimJson('{"gpuUsagePercent":0,"gpuDedicatedBytes":0,"gpuSharedBytes":0}')
+    ).toMatchObject({ gpuUsagePercent: 0, gpuDedicatedBytes: 0, gpuSharedBytes: 0 })
+    expect(parseCimJson('{"gpuUsagePercent":180}')?.gpuUsagePercent).toBe(100)
+  })
+
+  it('valor negativo ou texto inválido vira null (nunca número inventado)', () => {
+    const facts = parseCimJson(
+      '{"gpuUsagePercent":-1,"gpuDedicatedBytes":"-5","gpuSharedBytes":"x"}'
+    )
+    expect(facts?.gpuUsagePercent).toBeNull()
+    expect(facts?.gpuDedicatedBytes).toBeNull()
+    expect(facts?.gpuSharedBytes).toBeNull()
+  })
+})
+
+describe('temperatura da CPU por ACPI', () => {
+  it('converte décimos de Kelvin em °C', () => {
+    expect(acpiTenthsKelvinToCelsius(3132)).toBe(40.1)
+    expect(acpiTenthsKelvinToCelsius(3232)).toBe(50.1)
+    expect(acpiTenthsKelvinToCelsius(0)).toBeNull()
+    expect(acpiTenthsKelvinToCelsius(-1)).toBeNull()
+    expect(acpiTenthsKelvinToCelsius('abc')).toBeNull()
+  })
+
+  it('escolhe deterministicamente a maior zona válida entre as duas classes', () => {
+    // Zonas típicas de uma placa: CPU mais quente que placa/ambiente.
+    const zones = [
+      { InstanceName: 'ACPI\\ThermalZone\\TZ00', CurrentTemperature: 3182 },
+      { InstanceName: 'ACPI\\ThermalZone\\TZ01', CurrentTemperature: 3282 }
+    ]
+    expect(selectCpuTempFromAcpi(zones, [])).toBe(55.1)
+    expect(selectCpuTempFromAcpi([], [{ Name: '_Total', HighPrecisionTemperature: 3232 }])).toBe(
+      50.1
+    )
+    // As duas fontes juntas: a maior continua vencendo, sem depender da ordem.
+    expect(
+      selectCpuTempFromAcpi([zones[0]], [{ Name: '_Total', HighPrecisionTemperature: 3232 }])
+    ).toBe(50.1)
+    expect(selectCpuTempFromAcpi([...zones].reverse(), [])).toBe(55.1)
+  })
+
+  it('usa Temperature quando HighPrecisionTemperature não vem', () => {
+    expect(selectCpuTempFromAcpi([], [{ Name: '_Total', Temperature: 3182 }])).toBe(45.1)
+  })
+
+  it('descarta leituras fora de 15–110 °C', () => {
+    expect(acpiTenthsKelvinToCelsius(1000)).toBe(-173.1)
+    expect(selectCpuTempFromAcpi([{ CurrentTemperature: 1000 }], [])).toBeNull()
+    expect(selectCpuTempFromAcpi([{ CurrentTemperature: 4000 }], [])).toBeNull()
+    expect(
+      selectCpuTempFromAcpi([], [{ Name: '_Total', HighPrecisionTemperature: 4000 }])
+    ).toBeNull()
+  })
+
+  it('ausência total → null sem erro (caso real deste desktop)', () => {
+    expect(selectCpuTempFromAcpi([], [])).toBeNull()
+    expect(selectCpuTempFromAcpi(undefined, undefined)).toBeNull()
+    expect(parseCimJson('{}')?.cpuTempAcpiC).toBeNull()
+    expect(parseCimJson('{"acpi":[],"thermal":[]}')?.cpuTempAcpiC).toBeNull()
+  })
+
+  it('parseCimJson entrega a temperatura ACPI da consulta estática', () => {
+    const facts = parseCimJson(
+      JSON.stringify({
+        acpi: [{ InstanceName: 'ACPI\\ThermalZone\\TZ00', CurrentTemperature: 3182 }],
+        thermal: [{ Name: '_Total', HighPrecisionTemperature: 3282 }]
+      })
+    )
+    expect(facts?.cpuTempAcpiC).toBe(55.1)
   })
 })
 
@@ -266,6 +408,7 @@ describe('buildNativeSnapshot', () => {
       nvidia: NVIDIA_SAMPLE,
       staticFacts: STATIC_FACTS,
       gpuSharedBytes: 122621952,
+      gpuFanRpm: 1418,
       processorPerformancePercent: 116,
       totalmemBytes: 24 * 1024 ** 3,
       freememBytes: 12 * 1024 ** 3,
@@ -289,8 +432,14 @@ describe('buildNativeSnapshot', () => {
     })
 
     expect(snapshot.gpu.model).toBe('NVIDIA GeForce RTX 5060 Ti')
+    expect(snapshot.gpu.vendor).toBe('nvidia')
+    // O `nvidia-smi` vence o CIM para uso e versão de driver.
+    expect(snapshot.gpu.driverVersion).toBe('621.24')
+    expect(snapshot.gpu.driverDate).toBe('2026-11-07')
     expect(snapshot.gpu.tempC).toBe(41.35)
     expect(snapshot.gpu.fanPercent).toBe(0)
+    // RPM vem da NVML (o nvidia-smi só publica percentual).
+    expect(snapshot.gpu.fanRpm).toBe(1418)
     expect(snapshot.gpu.watts).toBe(28.16)
     expect(snapshot.gpu.powerLimitW).toBe(180)
     // 122621952 bytes ≈ 116.9 MiB.
@@ -309,7 +458,10 @@ describe('buildNativeSnapshot', () => {
       driver: 'absent',
       cpu: 'estimated',
       gpu: 'measured',
-      platform: 'estimated'
+      platform: 'estimated',
+      cpuTemp: 'unavailable',
+      gpuUsage: 'measured',
+      gpuTemp: 'measured'
     })
     expect(snapshot.specs.cpu).toBe(
       'AMD Ryzen 7 5700X 8-Core Processor · 8 núcleos / 16 threads · base 3401 MHz'
@@ -323,7 +475,7 @@ describe('buildNativeSnapshot', () => {
     const snapshot = buildNativeSnapshot({
       cpuUsagePercent: null,
       nvidia: null,
-      staticFacts: STATIC_FACTS,
+      staticFacts: STATIC_FACTS_NO_GPU,
       gpuSharedBytes: null,
       processorPerformancePercent: null,
       totalmemBytes: 24 * 1024 ** 3,
@@ -332,6 +484,9 @@ describe('buildNativeSnapshot', () => {
 
     expect(snapshot.gpu).toEqual({
       model: null,
+      vendor: null,
+      driverVersion: null,
+      driverDate: null,
       usagePercent: null,
       coreClockMhz: null,
       memClockMhz: null,
@@ -340,6 +495,7 @@ describe('buildNativeSnapshot', () => {
       sharedMb: null,
       tempC: null,
       fanPercent: null,
+      fanRpm: null,
       watts: null,
       powerLimitW: null
     })
@@ -360,7 +516,7 @@ describe('buildNativeSnapshot', () => {
     const snapshot = buildNativeSnapshot({
       cpuUsagePercent: 0,
       nvidia: null,
-      staticFacts: STATIC_FACTS,
+      staticFacts: STATIC_FACTS_NO_GPU,
       totalmemBytes: 24 * 1024 ** 3,
       freememBytes: 24 * 1024 ** 3
     })
@@ -370,6 +526,83 @@ describe('buildNativeSnapshot', () => {
     expect(snapshot.sources.cpu).toBe('estimated')
     expect(snapshot.sources.gpu).toBe('unavailable')
     expect(snapshot.sources.platform).toBe('estimated')
+  })
+
+  it('GPU AMD/Intel sem nvidia-smi: modelo, VRAM e driver vêm do CIM', () => {
+    const amdFacts: StaticFacts = {
+      ...STATIC_FACTS_NO_GPU,
+      gpuAdapters: [
+        {
+          name: 'AMD Radeon RX 7800 XT',
+          vendor: 'amd',
+          pnpDeviceId: 'PCI\\VEN_1002&DEV_747E',
+          driverVersion: '31.0.24033.1003',
+          driverDate: '2024-03-13',
+          vramTotalMb: 16384,
+          isVirtual: false
+        }
+      ]
+    }
+    const snapshot = buildNativeSnapshot({
+      cpuUsagePercent: 10,
+      nvidia: null,
+      staticFacts: amdFacts,
+      gpuUsagePercent: 37,
+      gpuDedicatedBytes: 2 * 1024 ** 3,
+      gpuSharedBytes: 64 * 1024 ** 2,
+      processorPerformancePercent: 100,
+      totalmemBytes: 24 * 1024 ** 3,
+      freememBytes: 12 * 1024 ** 3
+    })
+
+    expect(snapshot.gpu.model).toBe('AMD Radeon RX 7800 XT')
+    expect(snapshot.gpu.vendor).toBe('amd')
+    expect(snapshot.gpu.driverVersion).toBe('31.0.24033.1003')
+    expect(snapshot.gpu.driverDate).toBe('2024-03-13')
+    expect(snapshot.gpu.usagePercent).toBe(37)
+    expect(snapshot.gpu.vramTotalMb).toBe(16384)
+    expect(snapshot.gpu.vramUsedMb).toBe(2048)
+    expect(snapshot.gpu.sharedMb).toBe(64)
+    // Sem temperatura/fan/potência: o contador não entrega isso.
+    expect(snapshot.gpu.tempC).toBeNull()
+    expect(snapshot.gpu.watts).toBeNull()
+    expect(snapshot.specs.gpu).toBe(
+      'AMD Radeon RX 7800 XT · 16384 MiB de VRAM · driver 31.0.24033.1003'
+    )
+    expect(snapshot.sources.gpuUsage).toBe('measured')
+    expect(snapshot.sources.gpuTemp).toBe('unavailable')
+    // A GPU não foi medida em watts: o total estimado continua null.
+    expect(snapshot.power.gpuW).toBeNull()
+    expect(snapshot.power.totalEstimatedW).toBeNull()
+  })
+
+  it('temperatura ACPI da CPU aparece com a origem declarada', () => {
+    const acpiFacts: StaticFacts = { ...STATIC_FACTS, cpuTempAcpiC: 45.1 }
+    const snapshot = buildNativeSnapshot({
+      cpuUsagePercent: 5,
+      nvidia: null,
+      staticFacts: acpiFacts,
+      totalmemBytes: 24 * 1024 ** 3,
+      freememBytes: 12 * 1024 ** 3
+    })
+    expect(snapshot.cpu.tempC).toBe(45.1)
+    expect(snapshot.sources.cpuTemp).toBe('acpi')
+    // ACPI é aproximada e NÃO vira energia medida.
+    expect(snapshot.cpu.watts).toBeNull()
+    expect(snapshot.sources.cpu).toBe('estimated')
+  })
+
+  it('adaptador sem uso medido não inventa barra de GPU', () => {
+    const snapshot = buildNativeSnapshot({
+      nvidia: null,
+      staticFacts: STATIC_FACTS,
+      gpuUsagePercent: null,
+      totalmemBytes: 24 * 1024 ** 3,
+      freememBytes: 12 * 1024 ** 3
+    })
+    expect(snapshot.gpu.model).toBe('NVIDIA GeForce RTX 5060 Ti')
+    expect(snapshot.gpu.usagePercent).toBeNull()
+    expect(snapshot.sources.gpuUsage).toBe('unavailable')
   })
 
   it('sem CIM nenhum, campos ficam null (nunca NaN/undefined)', () => {
@@ -383,7 +616,8 @@ describe('buildNativeSnapshot', () => {
       usagePercent: null,
       clockMhz: null,
       tempC: null,
-      watts: null
+      watts: null,
+      voltageV: null
     })
     expect(snapshot.ram.installedGb).toBeNull()
     expect(snapshot.ram.speedMhz).toBeNull()
@@ -414,6 +648,17 @@ function isStaticCim(args: string[]): boolean {
 function isDynamicCim(args: string[]): boolean {
   return scriptOf(args).includes('GPUAdapterMemory')
 }
+
+describe('buildCimDynamicScript', () => {
+  it('só inclui a consulta do motor 3D quando o nvidia-smi não responde', () => {
+    // O caminho NVIDIA não deve pagar os ~300 ms do GPUEngine por tick.
+    expect(buildCimDynamicScript(true)).toContain('GPUPerformanceCounters_GPUEngine')
+    expect(buildCimDynamicScript(false)).not.toContain('GPUEngine')
+    // Mesmo sem o uso, a memória dedicada/compartilhada continua vindo do CIM.
+    expect(buildCimDynamicScript(false)).toContain('GPUAdapterMemory')
+    expect(buildCimDynamicScript(false)).toContain('gpuSharedBytes')
+  })
+})
 
 describe('snapshotNative — CIM estática x dinâmica', () => {
   beforeEach(() => {
@@ -467,5 +712,124 @@ describe('snapshotNative — CIM estática x dinâmica', () => {
     expect(second.cpu.model).toBe('AMD Ryzen 7 5700X 8-Core Processor')
     expect(third.cpu.model).toBe('AMD Ryzen 7 5700X 8-Core Processor')
     expect(staticAttempts).toBe(2)
+  })
+
+  it('não consulta o GPUEngine quando o nvidia-smi respondeu', async () => {
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return NVIDIA_LINE
+      if (isDynamicCim(args)) return CIM_JSON
+      return null
+    })
+    await snapshotNative(runner)
+    const dynamic = runner.mock.calls.find(([, args]) => isDynamicCim(args))
+    expect(dynamic).toBeDefined()
+    expect(scriptOf(dynamic![1])).not.toContain('GPUEngine')
+  })
+
+  it('consulta o GPUEngine (uso por CIM) quando não há nvidia-smi — AMD/Intel', async () => {
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return null
+      if (isDynamicCim(args)) {
+        return JSON.stringify({
+          gpuUsagePercent: 42,
+          gpuDedicatedBytes: 1024 * 1024 * 1024,
+          gpuSharedBytes: 0,
+          processor: { PercentProcessorPerformance: 100 }
+        })
+      }
+      return null
+    })
+    const snapshot = await snapshotNative(runner)
+
+    const dynamic = runner.mock.calls.find(([, args]) => isDynamicCim(args))
+    expect(scriptOf(dynamic![1])).toContain('GPUEngine')
+    expect(snapshot.gpu.usagePercent).toBe(42)
+    expect(snapshot.gpu.vramUsedMb).toBe(1024)
+    expect(snapshot.sources.gpuUsage).toBe('measured')
+  })
+
+  it('preenche o RPM da ventoinha pela NVML em máquina NVIDIA', async () => {
+    vi.mocked(readNvmlFan).mockResolvedValue({ rpm: 1418, percent: 34 })
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return NVIDIA_LINE
+      if (isStaticCim(args) || isDynamicCim(args)) return CIM_JSON
+      return null
+    })
+
+    const snapshot = await snapshotNative(runner)
+
+    expect(readNvmlFan).toHaveBeenCalledTimes(1)
+    expect(snapshot.gpu.fanRpm).toBe(1418)
+    // O percentual continua vindo do nvidia-smi; a NVML só acrescenta o RPM.
+    expect(snapshot.gpu.fanPercent).toBe(0)
+  })
+
+  it('não paga o NVML em máquina AMD/Intel (nenhum indício de NVIDIA)', async () => {
+    const cimAmd = JSON.stringify({
+      cpu: {
+        Name: 'AMD Ryzen 7 5700X 8-Core Processor',
+        NumberOfCores: 8,
+        NumberOfLogicalProcessors: 16,
+        MaxClockSpeed: 3401
+      },
+      video: [
+        {
+          Name: 'AMD Radeon RX 7800 XT',
+          PNPDeviceID: 'PCI\\VEN_1002&DEV_747E',
+          DriverVersion: '31.0.24033.1003',
+          DriverDate: '2024-03-13'
+        }
+      ],
+      gpuUsagePercent: 0
+    })
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return null
+      if (isStaticCim(args) || isDynamicCim(args)) return cimAmd
+      return null
+    })
+
+    const first = await snapshotNative(runner)
+    const second = await snapshotNative(runner)
+
+    expect(readNvmlFan).not.toHaveBeenCalled()
+    expect(first.gpu.fanRpm).toBeNull()
+    expect(second.gpu.fanRpm).toBeNull()
+    expect(second.gpu.vendor).toBe('amd')
+  })
+
+  it('usa a NVML quando o CIM identifica NVIDIA mesmo sem o nvidia-smi', async () => {
+    vi.mocked(readNvmlFan).mockResolvedValue({ rpm: 0, percent: 0 })
+    const cimNvidia = JSON.stringify({
+      cpu: {
+        Name: 'AMD Ryzen 7 5700X 8-Core Processor',
+        NumberOfCores: 8,
+        NumberOfLogicalProcessors: 16,
+        MaxClockSpeed: 3401
+      },
+      video: [
+        {
+          Name: 'NVIDIA GeForce RTX 5060 Ti',
+          PNPDeviceID: PCI_RTX,
+          DriverVersion: '32.0.16.2124',
+          DriverDate: '2026-11-07'
+        }
+      ],
+      gpuUsagePercent: 0
+    })
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return null
+      if (isStaticCim(args) || isDynamicCim(args)) return cimNvidia
+      return null
+    })
+
+    // 1º tick: fabricante ainda desconhecido (a estática chega junto).
+    const first = await snapshotNative(runner)
+    // 2º tick: o CIM já disse NVIDIA; o NVML entra sem somar latência.
+    const second = await snapshotNative(runner)
+
+    expect(readNvmlFan).toHaveBeenCalledTimes(1)
+    expect(first.gpu.fanRpm).toBeNull()
+    // 0 RPM é leitura válida (modo zero-fan), não ausência de leitura.
+    expect(second.gpu.fanRpm).toBe(0)
   })
 })

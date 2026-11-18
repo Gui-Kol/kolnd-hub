@@ -210,6 +210,10 @@ A instalação do Hub em si (NSIS) é **por usuário** e não pede administrador
 
 Se você **negar o UAC do Kloud Games**, a etapa falha mas não bloqueia o uso do Hub — o MSI continua disponível em `<instalação>/resources/programs/kloud-games/KLOUD_GAMES.msi` para instalação manual posterior (`msiexec /i …` como administrador). Se negar o UAC do Python (quando ele faltar), o Mark LVI não funciona até o Python ser instalado.
 
+### Abrir o Kloud Games sempre pede UAC
+
+**Toda** abertura do Kloud Games pelo Hub é elevada (`Start-Process -Verb RunAs`), em qualquer conta do Windows — não é só na primeira execução. O motivo é a instalação em `C:\Program Files\KLOUD_GAMES`: o app grava todo o estado em `config\` (log, `apps.json`, `state.json`) e guarda os certificados em `config\credentials`, pasta que o `migrate-config.bat` protege de forma que usuários comuns **não conseguem nem ler os `.pem`**. Sem elevação, o `KLOUD_GAMES.exe` morre logo ao subir o HTTPS com `use_certificate_chain_file: Acesso negado` (e o log nem pode ser rotacionado). Se você negar o UAC, o Hub mostra o erro e o app não abre; o processo elevado não é rastreado pelo Hub, então o status "Ativo" vem da detecção por nome (`tasklist`) e o botão **Parar** também pede UAC (`taskkill` elevado).
+
 ### Antivírus / falso positivo
 
 Um `.exe` único que dispara outros instaladores pode ser sinalizado como suspeito por heurísticas (comportamento típico de downloader/dropper):

@@ -20,7 +20,28 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type { PublicIpResult, RemoteActionResult, RemoteStatus } from '../shared/remote'
+import type { OfficeHealth, OfficeSnapshot } from '../shared/office'
+import type {
+  PluginInstallResult,
+  PluginRemoveResult,
+  PluginSnippetResult,
+  PluginStatus
+} from '../main/office/pluginInstaller'
+import type {
+  OfficeActionEnqueueResult,
+  OfficeActionModeInput,
+  OfficeActionOutcome,
+  OfficeApprovePermissionInput,
+  OfficeDenyPermissionInput,
+  OfficeSendMessageInput
+} from '../main/office/actions'
+import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type {
+  PublicIpResult,
+  RemoteActionResult,
+  RemoteModeResult,
+  RemoteStatus
+} from '../shared/remote'
 
 const api = {
   // ── Sistema ─────────────────────────────────────
@@ -49,6 +70,11 @@ const api = {
   // ── Acesso remoto (Tailscale) ───────────────────
   remoteStatus: (): Promise<RemoteStatus> => ipcRenderer.invoke('remote:status'),
 
+  remoteGetMode: (): Promise<boolean> => ipcRenderer.invoke('remote:get-mode'),
+
+  remoteSetMode: (value: boolean): Promise<RemoteModeResult> =>
+    ipcRenderer.invoke('remote:set-mode', value),
+
   remotePublicIp: (): Promise<PublicIpResult> => ipcRenderer.invoke('remote:public-ip'),
 
   remoteInstallTailscale: (): Promise<RemoteActionResult> =>
@@ -62,6 +88,23 @@ const api = {
 
   remoteCopy: (text: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('remote:copy', text),
+
+  // ── Atualizações do app (GitHub Releases) ────────
+  // O renderer só recebe o que o main validou e devolve o ID da release.
+  checkForUpdates: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('updates:check'),
+
+  installUpdate: (releaseId: number): Promise<UpdateInstallResult> =>
+    ipcRenderer.invoke('updates:install', releaseId),
+
+  cancelUpdate: (): Promise<{ ok: boolean; cancelled: boolean }> =>
+    ipcRenderer.invoke('updates:cancel'),
+
+  onUpdateProgress: (callback: (progress: UpdateProgress) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: UpdateProgress): void =>
+      callback(progress)
+    ipcRenderer.on('update:progress', handler)
+    return () => ipcRenderer.removeListener('update:progress', handler)
+  },
 
   // ── Preferências do Hub ───────────────────────────
   getLaunchKloudOnStart: (): Promise<boolean> => ipcRenderer.invoke('prefs:get'),
@@ -310,6 +353,11 @@ const api = {
   hwmonInstallDriver: (): Promise<InstallDriverResult> =>
     ipcRenderer.invoke('hwmon:install-driver'),
 
+  hwmonGetInterval: (): Promise<{ intervalMs: number }> => ipcRenderer.invoke('hwmon:get-interval'),
+
+  hwmonSetInterval: (ms: number): Promise<{ success: boolean; intervalMs: number }> =>
+    ipcRenderer.invoke('hwmon:set-interval', ms),
+
   onHwMonitorUpdate: (callback: (snapshot: HwSnapshot) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: HwSnapshot): void =>
       callback(snapshot)
@@ -407,6 +455,57 @@ const api = {
     ipcRenderer.on('hud:update', handler)
     return () => ipcRenderer.removeListener('hud:update', handler)
   },
+
+  // ── OpenOffice (sessões do OpenCode) ─────────────
+  // O refcount do coletor vive no main: assinar liga o poller, desassinar para.
+  officeSubscribe: (): Promise<OfficeSnapshot | null> => ipcRenderer.invoke('office:subscribe'),
+
+  officeUnsubscribe: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('office:unsubscribe'),
+
+  officeSnapshot: (): Promise<OfficeSnapshot | null> => ipcRenderer.invoke('office:snapshot'),
+
+  officeStatus: (): Promise<OfficeHealth> => ipcRenderer.invoke('office:status'),
+
+  onOfficeSnapshot: (callback: (snapshot: OfficeSnapshot) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: OfficeSnapshot): void =>
+      callback(snapshot)
+    ipcRenderer.on('office:snapshot', handler)
+    return () => ipcRenderer.removeListener('office:snapshot', handler)
+  },
+
+  // Ações (Fase 3). O main valida tudo e o modo é por execução; o texto da
+  // mensagem só trafega aqui, nunca é logado.
+  officeApprovePermission: (
+    input: OfficeApprovePermissionInput
+  ): Promise<OfficeActionEnqueueResult> => ipcRenderer.invoke('office:approve-permission', input),
+
+  officeDenyPermission: (input: OfficeDenyPermissionInput): Promise<OfficeActionEnqueueResult> =>
+    ipcRenderer.invoke('office:deny-permission', input),
+
+  officeSendMessage: (input: OfficeSendMessageInput): Promise<OfficeActionEnqueueResult> =>
+    ipcRenderer.invoke('office:send-message', input),
+
+  officeSetActionMode: (input: OfficeActionModeInput): Promise<{ ok: boolean; enabled: boolean }> =>
+    ipcRenderer.invoke('office:action-mode', input),
+
+  onOfficeActionResult: (callback: (result: OfficeActionOutcome) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: OfficeActionOutcome): void =>
+      callback(result)
+    ipcRenderer.on('office:action-result', handler)
+    return () => ipcRenderer.removeListener('office:action-result', handler)
+  },
+
+  // Instalador do plugin do OpenCode (T12). Qualquer escrita no config global
+  // exige confirmação na UI; aqui só há transporte.
+  officePluginStatus: (): Promise<PluginStatus> => ipcRenderer.invoke('office:plugin-status'),
+
+  officePluginInstall: (): Promise<PluginInstallResult> =>
+    ipcRenderer.invoke('office:plugin-install'),
+
+  officePluginRemove: (): Promise<PluginRemoveResult> => ipcRenderer.invoke('office:plugin-remove'),
+
+  officePluginSnippet: (): Promise<PluginSnippetResult> =>
+    ipcRenderer.invoke('office:plugin-snippet'),
 
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<

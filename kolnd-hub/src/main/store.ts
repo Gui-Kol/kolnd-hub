@@ -24,6 +24,7 @@ import {
   type HudScale,
   type HudSize
 } from '../shared/hud'
+import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../shared/hwmon'
 export type {
   GamepadProfile,
   GamepadAction,
@@ -111,6 +112,17 @@ export interface HubStoreSchema {
   hud: HudConfig
   /** Acesso remoto: último IP público consultado (só por ação explícita). */
   remoteAccess: RemoteAccessPrefs
+  /**
+   * Versão do pipeline de extração de ícones já aplicada aos arquivos de
+   * `game-icons/` (ver `games/icons.ts`). Serve para o reparo automático rodar
+   * uma única vez por versão do pipeline.
+   */
+  gameIconsVersion: number
+  /**
+   * Intervalo do polling do monitor de hardware (aba Monitor + HUD), em ms.
+   * Sempre lido/gravado normalizado por `normalizeHwmonIntervalMs`.
+   */
+  hwmonIntervalMs: number
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -132,13 +144,15 @@ export interface BigPicturePrefs {
  * Tailscale nunca passam pelo Hub (ficam no serviço/app do Tailscale).
  */
 export interface RemoteAccessPrefs {
+  /** "Modo remoto" ligado pelo card do Kloud Games (só com Tailscale conectado). */
+  mode: boolean
   lastPublicIp: string | null
   /** ISO da última consulta bem-sucedida. */
   lastPublicIpCheckedAt: string | null
 }
 
 export function defaultRemoteAccessPrefs(): RemoteAccessPrefs {
-  return { lastPublicIp: null, lastPublicIpCheckedAt: null }
+  return { mode: false, lastPublicIp: null, lastPublicIpCheckedAt: null }
 }
 
 /** IP válido (v4/v6) e limitado; qualquer outra coisa vira `null`. */
@@ -155,6 +169,7 @@ export function normalizeRemoteAccessPrefs(input: unknown): RemoteAccessPrefs {
     return defaultRemoteAccessPrefs()
   }
   const raw = input as Record<string, unknown>
+  const mode = raw.mode === true
   const lastPublicIp = normalizePublicIp(raw.lastPublicIp)
   const rawCheckedAt = raw.lastPublicIpCheckedAt
   const lastPublicIpCheckedAt =
@@ -162,9 +177,9 @@ export function normalizeRemoteAccessPrefs(input: unknown): RemoteAccessPrefs {
       ? rawCheckedAt.trim()
       : null
 
-  // Sem IP válido o timestamp perde o sentido — os dois andam juntos.
-  if (!lastPublicIp) return defaultRemoteAccessPrefs()
-  return { lastPublicIp, lastPublicIpCheckedAt }
+  // Sem IP válido o timestamp perde o sentido — mas o modo é independente.
+  if (!lastPublicIp) return { mode, lastPublicIp: null, lastPublicIpCheckedAt: null }
+  return { mode, lastPublicIp, lastPublicIpCheckedAt }
 }
 
 /** Nota de um teste individual do benchmark (MOps/s em cada fase). */
@@ -623,12 +638,28 @@ const schema: Store.Schema<HubStoreSchema> = {
   // conteúdo é revalidado por normalizeRemoteAccessPrefs() na leitura/escrita.
   remoteAccess: {
     type: 'object',
-    default: { lastPublicIp: null, lastPublicIpCheckedAt: null },
+    default: { mode: false, lastPublicIp: null, lastPublicIpCheckedAt: null },
     properties: {
+      mode: { type: 'boolean' },
       lastPublicIp: { type: ['string', 'null'] },
       lastPublicIpCheckedAt: { type: ['string', 'null'] }
     },
     additionalProperties: false
+  },
+  // Chave nova com default: o ajv preenche nas instalações antigas (não exige
+  // migração). Ver GAME_ICON_PIPELINE_VERSION em games/icons.ts.
+  gameIconsVersion: {
+    type: 'number',
+    default: 0,
+    minimum: 0
+  },
+  // Intervalo do polling do monitor (padrão 0,5 s). Sem `minimum`/`maximum` de
+  // propósito: o ajv valida na criação do store e um valor editado à mão fora
+  // da faixa derrubaria a criação do arquivo inteiro. A faixa é aplicada por
+  // normalizeHwmonIntervalMs() na leitura e na escrita.
+  hwmonIntervalMs: {
+    type: 'number',
+    default: HWMON_INTERVAL_DEFAULT_MS
   }
 }
 
@@ -663,6 +694,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.6.0 garante a chave `hud` (atalho padrão e visibilidade desligada).
       // 1.7.0 acrescenta as preferências de tamanho do HUD (`width`/`scale`).
       // 1.8.0 garante a chave `remoteAccess` (último IP público consultado).
+      // 1.9.0 acrescenta `mode` ao `remoteAccess` (modo remoto do Kloud Games).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -729,6 +761,17 @@ function createStore(): Store<HubStoreSchema> | null {
         '1.8.0': (s): void => {
           try {
             // Chave nova do acesso remoto (null/`{...}`); não toca no resto.
+            s.set(
+              'remoteAccess',
+              normalizeRemoteAccessPrefs(s.get('remoteAccess', defaultRemoteAccessPrefs()))
+            )
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.9.0': (s): void => {
+          try {
+            // `mode` novo (default false) sem perder o último IP consultado.
             s.set(
               'remoteAccess',
               normalizeRemoteAccessPrefs(s.get('remoteAccess', defaultRemoteAccessPrefs()))
@@ -860,6 +903,37 @@ export function setStoredGames(games: unknown): { success: boolean; error?: stri
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar games:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Versão do pipeline de extração de ícones já aplicada aos arquivos em
+ * `game-icons/` (0 = nunca reparado). Ver `games/icons.ts`.
+ */
+export function getGameIconsVersion(): number {
+  if (!store) return 0
+  try {
+    const value = store.get('gameIconsVersion', 0)
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+  } catch (err) {
+    logger.error('store', 'Falha ao ler gameIconsVersion:', err)
+    return 0
+  }
+}
+
+/** Persiste a versão do pipeline de ícones já aplicada. */
+export function setGameIconsVersion(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return { success: false, error: 'Versão de ícones inválida.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('gameIconsVersion', value)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar gameIconsVersion:', message)
     return { success: false, error: message }
   }
 }
@@ -1158,6 +1232,51 @@ export function setHudSize(input: unknown): {
 }
 
 /**
+ * Intervalo do polling do monitor de hardware (chave `hwmonIntervalMs`).
+ *
+ * Sempre normalizado: o arquivo pode ter sido editado à mão ou vir de uma
+ * versão antiga sem a chave — nesses casos o monitor usa o default em vez de
+ * falhar. O valor é o MESMO para a aba Monitor e o HUD (timer único).
+ */
+export function getHwmonIntervalMs(): number {
+  if (!store) return HWMON_INTERVAL_DEFAULT_MS
+  try {
+    return normalizeHwmonIntervalMs(store.get('hwmonIntervalMs', HWMON_INTERVAL_DEFAULT_MS))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler hwmonIntervalMs:', err)
+    return HWMON_INTERVAL_DEFAULT_MS
+  }
+}
+
+/**
+ * Persiste o intervalo do polling do monitor.
+ *
+ * Tipo errado é ERRO (não cai em default silencioso): quem chama pelo IPC
+ * precisa saber que nada foi salvo. Um número fora da faixa é normalizado
+ * (clamp + passo) e é esse valor que volta para o renderer.
+ */
+export function setHwmonIntervalMs(input: unknown): {
+  success: boolean
+  intervalMs?: number
+  error?: string
+} {
+  if (typeof input !== 'number' || !Number.isFinite(input)) {
+    return { success: false, error: 'Intervalo inválido para o monitor de hardware.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  const intervalMs = normalizeHwmonIntervalMs(input)
+  try {
+    store.set('hwmonIntervalMs', intervalMs)
+    logger.info('store', `intervalo do monitor salvo: ${intervalMs} ms`)
+    return { success: true, intervalMs }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar hwmonIntervalMs:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
  * Último IP público consultado (chave `remoteAccess`). Defaults seguros:
  * nunca consulta nada ao abrir — só devolve o que foi salvo por clique.
  */
@@ -1184,11 +1303,35 @@ export function setRemotePublicIp(
       : new Date().toISOString()
   if (!store) return { success: false, error: 'Store persistente indisponível' }
   try {
-    store.set('remoteAccess', { lastPublicIp: address, lastPublicIpCheckedAt: at })
+    const current = getRemoteAccessPrefs()
+    store.set('remoteAccess', { ...current, lastPublicIp: address, lastPublicIpCheckedAt: at })
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar remoteAccess:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** "Modo remoto" persistido (default false). */
+export function getRemoteMode(): boolean {
+  return getRemoteAccessPrefs().mode
+}
+
+/** Persiste o "Modo remoto" sem mexer no último IP público consultado. */
+export function setRemoteMode(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'boolean') {
+    return { success: false, error: 'Valor inválido para o modo remoto.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getRemoteAccessPrefs()
+    store.set('remoteAccess', { ...current, mode: value })
+    logger.info('store', `modo remoto ${value ? 'ativado' : 'desativado'}`)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar modo remoto:', message)
     return { success: false, error: message }
   }
 }

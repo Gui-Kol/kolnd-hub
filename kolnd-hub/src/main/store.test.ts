@@ -73,6 +73,10 @@ let setHudSize: typeof import('./store').setHudSize
 let normalizeRemoteAccessPrefs: typeof import('./store').normalizeRemoteAccessPrefs
 let getRemoteAccessPrefs: typeof import('./store').getRemoteAccessPrefs
 let setRemotePublicIp: typeof import('./store').setRemotePublicIp
+let getRemoteMode: typeof import('./store').getRemoteMode
+let setRemoteMode: typeof import('./store').setRemoteMode
+let getHwmonIntervalMs: typeof import('./store').getHwmonIntervalMs
+let setHwmonIntervalMs: typeof import('./store').setHwmonIntervalMs
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -111,6 +115,10 @@ beforeAll(async () => {
   normalizeRemoteAccessPrefs = storeMod.normalizeRemoteAccessPrefs
   getRemoteAccessPrefs = storeMod.getRemoteAccessPrefs
   setRemotePublicIp = storeMod.setRemotePublicIp
+  getRemoteMode = storeMod.getRemoteMode
+  setRemoteMode = storeMod.setRemoteMode
+  getHwmonIntervalMs = storeMod.getHwmonIntervalMs
+  setHwmonIntervalMs = storeMod.setHwmonIntervalMs
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -661,9 +669,9 @@ describe('config.json corrompido (leitura lançando)', () => {
   })
 })
 
-// ── migrações de schema (cadeia 1.0.0 → 1.6.0) ─────────────────
+// ── migrações de schema (cadeia 1.0.0 → 1.9.0) ─────────────────
 
-describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
+describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
   type FakeStore = {
     data: Record<string, unknown>
     get: (key: string, def?: unknown) => unknown
@@ -698,7 +706,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
       '1.5.0',
       '1.6.0',
       '1.7.0',
-      '1.8.0'
+      '1.8.0',
+      '1.9.0'
     ]) {
       migrationsOf()[version](s)
     }
@@ -739,8 +748,12 @@ describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
       width: 300,
       scale: 'normal'
     })
-    // 1.8.0 garantiu remoteAccess sem IP consultado
-    expect(s.data.remoteAccess).toEqual({ lastPublicIp: null, lastPublicIpCheckedAt: null })
+    // 1.8.0/1.9.0 garantiram remoteAccess (modo desligado, sem IP consultado)
+    expect(s.data.remoteAccess).toEqual({
+      mode: false,
+      lastPublicIp: null,
+      lastPublicIpCheckedAt: null
+    })
   })
 
   it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
@@ -777,24 +790,27 @@ describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
     expect(s.data.bigPicture).toEqual({ sounds: true })
   })
 
-  it('1.8.0 normaliza remoteAccess (IP inválido volta a null, válido é preservado)', () => {
+  it('1.8.0/1.9.0 normalizam remoteAccess (IP inválido volta a null, modo é preservado)', () => {
     const invalid = makeFakeStore({
-      remoteAccess: { lastPublicIp: 'lixo', lastPublicIpCheckedAt: 'x' }
+      remoteAccess: { mode: true, lastPublicIp: 'lixo', lastPublicIpCheckedAt: 'x' }
     })
     runChain(invalid)
     expect(invalid.data.remoteAccess).toEqual({
+      mode: true,
       lastPublicIp: null,
       lastPublicIpCheckedAt: null
     })
 
     const valid = makeFakeStore({
       remoteAccess: {
+        mode: true,
         lastPublicIp: '201.10.20.30',
         lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
       }
     })
     runChain(valid)
     expect(valid.data.remoteAccess).toEqual({
+      mode: true,
       lastPublicIp: '201.10.20.30',
       lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
     })
@@ -819,7 +835,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
       '1.5.0',
       '1.6.0',
       '1.7.0',
-      '1.8.0'
+      '1.8.0',
+      '1.9.0'
     ]) {
       expect(() => migrationsOf()[version](s)).not.toThrow()
     }
@@ -1177,49 +1194,134 @@ describe('hud', () => {
   })
 })
 
+// ── intervalo do monitor de hardware ──────────────────────────
+
+describe('hwmonIntervalMs', () => {
+  it('store vazio devolve o default de 500 ms', () => {
+    expect(getHwmonIntervalMs()).toBe(500)
+    expect(holder().get).toHaveBeenCalledWith('hwmonIntervalMs', 500)
+  })
+
+  it('normaliza o valor lido do disco (lixo volta ao default, fora da faixa faz clamp)', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hwmonIntervalMs' ? 'lixo' : def
+    )
+    expect(getHwmonIntervalMs()).toBe(500)
+
+    h.get.mockImplementation((key: string, def: unknown) => (key === 'hwmonIntervalMs' ? 50 : def))
+    expect(getHwmonIntervalMs()).toBe(100)
+
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hwmonIntervalMs' ? 5000 : def
+    )
+    expect(getHwmonIntervalMs()).toBe(2000)
+  })
+
+  it('normaliza ao gravar: 50 → 100 e 5000 → 2000', () => {
+    const h = holder()
+    expect(setHwmonIntervalMs(50)).toEqual({ success: true, intervalMs: 100 })
+    expect(h.set).toHaveBeenLastCalledWith('hwmonIntervalMs', 100)
+
+    expect(setHwmonIntervalMs(5000)).toEqual({ success: true, intervalMs: 2000 })
+    expect(h.set).toHaveBeenLastCalledWith('hwmonIntervalMs', 2000)
+  })
+
+  it('round-trip: grava 800 e lê 800', () => {
+    const h = holder()
+    let saved: unknown = 500
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hwmonIntervalMs' ? saved : def
+    )
+    h.set.mockImplementation((key: string, value: unknown) => {
+      if (key === 'hwmonIntervalMs') saved = value
+    })
+
+    expect(getHwmonIntervalMs()).toBe(500)
+    expect(setHwmonIntervalMs(800)).toEqual({ success: true, intervalMs: 800 })
+    expect(getHwmonIntervalMs()).toBe(800)
+  })
+
+  it('tipo inválido vira erro sem tocar no disco e preserva o valor anterior', () => {
+    const h = holder()
+    let saved: unknown = 700
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'hwmonIntervalMs' ? saved : def
+    )
+    h.set.mockImplementation((key: string, value: unknown) => {
+      if (key === 'hwmonIntervalMs') saved = value
+    })
+
+    const invalid = { success: false, error: 'Intervalo inválido para o monitor de hardware.' }
+    expect(setHwmonIntervalMs('500')).toEqual(invalid)
+    expect(setHwmonIntervalMs({})).toEqual(invalid)
+    expect(setHwmonIntervalMs(null)).toEqual(invalid)
+    expect(setHwmonIntervalMs(Number.NaN)).toEqual(invalid)
+    expect(setHwmonIntervalMs(Number.POSITIVE_INFINITY)).toEqual(invalid)
+    expect(h.set).not.toHaveBeenCalled()
+    expect(getHwmonIntervalMs()).toBe(700)
+  })
+})
+
 // ── acesso remoto ──────────────────────────────────────────────
 
 describe('remoteAccess', () => {
-  const defaults = { lastPublicIp: null, lastPublicIpCheckedAt: null }
+  const defaults = { mode: false, lastPublicIp: null, lastPublicIpCheckedAt: null }
 
-  it('normalizeRemoteAccessPrefs mantém IP válido (v4/v6) e descarta o resto', () => {
+  it('normalizeRemoteAccessPrefs mantém IP válido (v4/v6) e o modo independente', () => {
     expect(normalizeRemoteAccessPrefs(null)).toEqual(defaults)
     expect(normalizeRemoteAccessPrefs({ lastPublicIp: '999.1.1.1' })).toEqual(defaults)
     expect(
       normalizeRemoteAccessPrefs({
+        mode: true,
         lastPublicIp: '2804:14d::1',
         lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
       })
     ).toEqual({
+      mode: true,
       lastPublicIp: '2804:14d::1',
       lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
     })
+    // IP inválido zera o IP mas NÃO derruba o modo remoto.
+    expect(normalizeRemoteAccessPrefs({ mode: true, lastPublicIp: 'lixo' })).toEqual({
+      mode: true,
+      lastPublicIp: null,
+      lastPublicIpCheckedAt: null
+    })
     expect(
       normalizeRemoteAccessPrefs({ lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: 42 })
-    ).toEqual({ lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: null })
+    ).toEqual({ mode: false, lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: null })
   })
 
-  it('getRemoteAccessPrefs devolve o default sem store e normaliza o disco', () => {
+  it('getRemoteAccessPrefs/getRemoteMode devolvem defaults e normalizam o disco', () => {
     expect(getRemoteAccessPrefs()).toEqual(defaults)
+    expect(getRemoteMode()).toBe(false)
 
     const h = holder()
     h.get.mockImplementation((key: string, def: unknown) =>
       key === 'remoteAccess'
-        ? { lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z' }
+        ? {
+            mode: true,
+            lastPublicIp: '201.10.20.30',
+            lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+          }
         : def
     )
     expect(getRemoteAccessPrefs()).toEqual({
+      mode: true,
       lastPublicIp: '201.10.20.30',
       lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
     })
+    expect(getRemoteMode()).toBe(true)
 
     h.get.mockImplementation((key: string, def: unknown) =>
       key === 'remoteAccess' ? { lastPublicIp: 'lixo' } : def
     )
     expect(getRemoteAccessPrefs()).toEqual(defaults)
+    expect(getRemoteMode()).toBe(false)
   })
 
-  it('setRemotePublicIp valida o IP e persiste o timestamp', () => {
+  it('setRemotePublicIp valida o IP e persiste o timestamp preservando o modo', () => {
     const h = holder()
     expect(setRemotePublicIp('lixo', null)).toEqual({
       success: false,
@@ -1227,10 +1329,39 @@ describe('remoteAccess', () => {
     })
     expect(h.set).not.toHaveBeenCalled()
 
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'remoteAccess' ? { mode: true, lastPublicIp: null, lastPublicIpCheckedAt: null } : def
+    )
     expect(setRemotePublicIp('201.10.20.30', '2026-11-17T10:00:00.000Z')).toEqual({
       success: true
     })
     expect(h.set).toHaveBeenCalledWith('remoteAccess', {
+      mode: true,
+      lastPublicIp: '201.10.20.30',
+      lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+    })
+  })
+
+  it('setRemoteMode valida o booleano e preserva o último IP consultado', () => {
+    const h = holder()
+    expect(setRemoteMode('sim')).toEqual({
+      success: false,
+      error: 'Valor inválido para o modo remoto.'
+    })
+    expect(h.set).not.toHaveBeenCalled()
+
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'remoteAccess'
+        ? {
+            mode: false,
+            lastPublicIp: '201.10.20.30',
+            lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+          }
+        : def
+    )
+    expect(setRemoteMode(true)).toEqual({ success: true })
+    expect(h.set).toHaveBeenCalledWith('remoteAccess', {
+      mode: true,
       lastPublicIp: '201.10.20.30',
       lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
     })
@@ -1278,9 +1409,12 @@ describe('store indisponível (construtor do electron-store lança)', () => {
         scale: 'normal'
       })
       expect(mod.getRemoteAccessPrefs()).toEqual({
+        mode: false,
         lastPublicIp: null,
         lastPublicIpCheckedAt: null
       })
+      expect(mod.getRemoteMode()).toBe(false)
+      expect(mod.getHwmonIntervalMs()).toBe(500)
 
       // set* reportam erro controlado — nunca exceção crua
       expect(mod.setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])).toEqual({
@@ -1300,6 +1434,8 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       expect(mod.setHudVisible(true).success).toBe(false)
       expect(mod.setHudSize({ width: 400 }).success).toBe(false)
       expect(mod.setRemotePublicIp('201.10.20.30', null).success).toBe(false)
+      expect(mod.setRemoteMode(true).success).toBe(false)
+      expect(mod.setHwmonIntervalMs(500).success).toBe(false)
       expect(mod.migrateFromLegacy({ apps: [] }).success).toBe(false)
       expect(mod.resetGamepadConfig().success).toBe(false)
 

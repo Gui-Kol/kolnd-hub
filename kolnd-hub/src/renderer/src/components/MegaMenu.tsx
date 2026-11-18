@@ -1,6 +1,6 @@
 import { forwardRef } from 'react'
 import { motion } from 'framer-motion'
-import { Gamepad2, LogOut, Monitor, Search, Settings, Wrench } from 'lucide-react'
+import { Building2, Gamepad2, LogOut, Monitor, Search, Settings, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useReducedMotion } from '../lib/motion'
 import { Button } from './ui'
@@ -78,6 +78,14 @@ export const MegaMenu = forwardRef<HTMLDivElement, MegaMenuProps>(function MegaM
       icon: Gamepad2,
       page: 'biblioteca',
       action: () => onNavigate('biblioteca')
+    },
+    {
+      id: 'openoffice',
+      label: 'OpenOffice',
+      description: 'Sessões do OpenCode',
+      icon: Building2,
+      page: 'openoffice',
+      action: () => onNavigate('openoffice')
     },
     {
       id: 'inicializacao',

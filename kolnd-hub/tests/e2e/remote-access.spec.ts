@@ -63,3 +63,69 @@ test('configurações: seção de acesso remoto renderiza com status do main', a
     })
   }
 })
+
+test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
+  const ctx = loadContext()
+
+  const electronApp = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
+      PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
+    }
+  })
+
+  try {
+    const window = await electronApp.firstWindow()
+    await expect(window.getByRole('heading', { name: 'Ferramentas' })).toBeVisible({
+      timeout: 45_000
+    })
+
+    const kloudCard = window.locator('[data-testid="app-card"]').filter({ hasText: 'Kloud Games' })
+    await expect(kloudCard).toBeVisible()
+
+    // Começa desligado; com o `tailscale.exe` stubado (conectado, IP fixo) o
+    // modo liga de verdade, e o card mostra o endereço para o Moonlight.
+    const offButton = kloudCard.getByRole('button', { name: 'Modo remoto' })
+    await expect(offButton).toHaveAttribute('aria-pressed', 'false')
+    await offButton.click()
+
+    const onButton = kloudCard.getByRole('button', { name: 'Remoto ativo' })
+    await expect(onButton).toBeVisible()
+    await expect(onButton).toHaveAttribute('aria-pressed', 'true')
+    await expect(kloudCard.getByText('100.101.102.103')).toBeVisible()
+
+    // Desligar não derruba o Tailscale — só o modo do Hub.
+    await onButton.click()
+    await expect(kloudCard.getByRole('button', { name: 'Modo remoto' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    await expect(kloudCard.getByText('100.101.102.103')).toHaveCount(0)
+
+    // Ajuda: instruções local + remoto, com o endereço real da tailnet.
+    await kloudCard
+      .getByRole('button', { name: 'Como conectar no Moonlight (local e remoto)' })
+      .click()
+    const dialog = window.getByRole('dialog', { name: 'Como conectar no Moonlight' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Na mesma rede (local)', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('De qualquer lugar (remoto)', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('100.101.102.103').first()).toBeVisible()
+
+    // O atalho leva para a seção completa em Configurações.
+    await dialog.getByRole('button', { name: /Abrir Acesso remoto/ }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(window.getByRole('heading', { name: 'Configurações', exact: true })).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Acesso remoto', exact: true })).toBeVisible()
+  } finally {
+    await electronApp.close().catch(() => {
+      try {
+        electronApp.process().kill()
+      } catch {
+        // processo já encerrado
+      }
+    })
+  }
+})

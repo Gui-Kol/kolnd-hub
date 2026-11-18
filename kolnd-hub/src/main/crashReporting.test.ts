@@ -103,6 +103,35 @@ describe('crashReporting', () => {
     expect(content).toMatch(/\n {4}Error: boom de teste/)
   })
 
+  it('uncaughtException: o cleanup de processos filhos roda ANTES de app.exit(1)', async () => {
+    const { app } = await load()
+    const crashReporting = await import('./crashReporting')
+    const order: string[] = []
+    crashReporting.registerChildProcessCleanup(() => order.push('cleanup'))
+    app.exit.mockImplementation(() => order.push('exit'))
+
+    capturedHandler('uncaughtException')(new Error('boom com cleanup'))
+
+    expect(order).toEqual(['cleanup', 'exit'])
+  })
+
+  it('uncaughtException: cleanup que lança não impede o app.exit(1)', async () => {
+    const { app } = await load()
+    const crashReporting = await import('./crashReporting')
+    crashReporting.registerChildProcessCleanup(() => {
+      throw new Error('falha simulada na limpeza')
+    })
+
+    expect(() =>
+      capturedHandler('uncaughtException')(new Error('boom com cleanup quebrado'))
+    ).not.toThrow()
+
+    expect(app.exit).toHaveBeenCalledWith(1)
+    const content = readFileSync(logPath, 'utf8')
+    expect(content).toContain('Falha ao matar processos filhos')
+    expect(content).toContain('falha simulada na limpeza')
+  })
+
   it('unhandledRejection: loga [unhandledRejection] com stack e NÃO encerra o processo', async () => {
     const { app } = await load()
     const handler = capturedHandler('unhandledRejection')

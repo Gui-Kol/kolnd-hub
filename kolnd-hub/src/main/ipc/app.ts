@@ -2,7 +2,7 @@ import { ipcMain, shell, app } from 'electron'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { killProcessesForCommand } from '../processKiller'
-import { invalidateKloudGamesRunningCache } from '../kloudGames'
+import { invalidateKloudGamesRunningCache, stopKloudGamesElevated } from '../kloudGames'
 import { getMarkLviDataDir } from '../programsDeployer'
 import { isAnyUninstallInProgress } from '../uninstaller'
 import { shutdownHub } from './lifecycle'
@@ -51,6 +51,20 @@ export function registerAppIpc(ctx: IpcContext): void {
     const result = await processManager.stop(appId)
     if (appId === 'kloud-games') {
       invalidateKloudGamesRunningCache()
+      if (!result.success) {
+        // O Kloud Games é aberto elevado (ver kloud-games:launch), então ele não
+        // é rastreado pelo processManager e um processo de alta integridade não
+        // pode ser encerrado pelo Hub sem elevação. taskkill via UAC primeiro;
+        // o fallback por nome só funciona quando o processo não é elevado.
+        const elevated = await stopKloudGamesElevated()
+        if (elevated.success) return elevated
+        if (command) {
+          const fallback = await killProcessesForCommand(command)
+          if (fallback.success) return fallback
+        }
+        return elevated
+      }
+      return result
     }
     if (result.success || !command) return result
     // O Hub só conhece processos que ele mesmo iniciou nesta sessão. Se o

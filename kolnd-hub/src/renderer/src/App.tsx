@@ -9,11 +9,14 @@ import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
 import { Biblioteca } from './components/Biblioteca'
+import { OfficeView } from './components/office/OfficeView'
 import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
+import { UpdateBanner } from './components/UpdateBanner'
 import { apps as defaultApps } from './config/apps'
+import type { ReleaseInfo, UpdateCheckResult } from '../../shared/updates'
 import {
   AppConfig,
   AppState,
@@ -26,6 +29,12 @@ import {
 } from './types'
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
 import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
+import { once } from './lib/once'
+
+// Uma consulta por processo (StrictMode no dev monta o init duas vezes): o main
+// paga WMI/PowerShell caro para o nome do PC e para a lista de inicialização.
+const systemPcNameOnce = once(() => window.api.systemPcName())
+const startupListOnce = once(() => window.api.startupList())
 
 interface Notice {
   id: number
@@ -40,6 +49,24 @@ function isFirstRunFromQuery(): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Uma consulta por processo, compartilhada entre montagens (StrictMode dev
+ * executa o efeito duas vezes; um GET só evita gastar rate limit do GitHub).
+ */
+let pendingUpdateCheck: Promise<UpdateCheckResult> | null = null
+
+function checkForUpdatesOnce(): Promise<UpdateCheckResult> {
+  pendingUpdateCheck ??= Promise.resolve()
+    .then(() => window.api.checkForUpdates())
+    .catch((): UpdateCheckResult => ({
+      ok: false,
+      release: null,
+      updateAvailable: false,
+      canAutoInstall: false
+    }))
+  return pendingUpdateCheck
 }
 
 function App(): JSX.Element {
@@ -62,6 +89,13 @@ function App(): JSX.Element {
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+  // Atualização do app: release nova no GitHub (uma consulta por abertura) e
+  // "adiar" só para esta sessão — a próxima abertura avisa de novo.
+  const [updateInfo, setUpdateInfo] = useState<{
+    release: ReleaseInfo
+    canAutoInstall: boolean
+  } | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
   // Busca global (atalho "/"): overlay discreto com apps + jogos.
   const [searchOpen, setSearchOpen] = useState<boolean>(false)
   // Modo Big Picture: 'hidden' = shell normal; 'setup' = gate (sem controle
@@ -120,30 +154,66 @@ function App(): JSX.Element {
   }, [applyKloudGamesConfig])
 
   // Nome do computador (exibe na titlebar, no mega menu e na página de inicialização).
+  // Carregado pelo `init()` abaixo — não há efeito dedicado duplicando a IPC.
+
+  // Atualização do app: consulta a última release do GitHub a cada abertura.
+  // Sem rede/GitHub fora, falha em silêncio (o Hub abre normal, só sem banner).
   useEffect(() => {
-    window.api
-      .systemPcName()
-      .then(setPcName)
-      .catch(() => setPcName(null))
+    let mounted = true
+    checkForUpdatesOnce()
+      .then((result) => {
+        if (!mounted) return
+        if (result.ok && result.updateAvailable && result.release) {
+          setUpdateInfo({ release: result.release, canAutoInstall: result.canAutoInstall })
+        }
+      })
+      .catch(() => {
+        // Verificação é opcional: nunca bloqueia nem vira toast.
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  // ── Itens de inicialização do PC ──────────────────────────────
+  // `refresh: true` força uma releitura do main (ex.: após remover itens) e
+  // também do mapa de importância; na montagem valem os snapshots do processo.
+  const loadStartupItems = useCallback(async (refresh = false): Promise<void> => {
+    let items: StartupItem[] = []
+    try {
+      items = await (refresh ? window.api.startupList() : startupListOnce())
+    } catch (err) {
+      setNotice({
+        id: Date.now(),
+        text: `Não foi possível listar a inicialização: ${err instanceof Error ? err.message : String(err)}`
+      })
+    }
+    setStartupItems(items)
+
+    const map = await loadImportanceMap(refresh)
+
+    const next: Record<string, ImportanceLevel> = {}
+    for (const item of items) {
+      next[item.id] = map[item.id] ?? classifyImportance(item)
+    }
+    setStartupImportance(next)
   }, [])
 
   // ── Carregamento inicial (tela de loading) ────────────────────────
-  // Mantém a tela de loading visível até que os dados essenciais para
-  // todas as funcionalidades estejam disponíveis, evitando travamentos
-  // e engasgos ao usar o hub.
+  // ÚNICA carga de montagem: mantém a tela de loading visível até que os dados
+  // essenciais estejam disponíveis, sem efeitos paralelos repetindo as mesmas
+  // leituras de IPC.
   useEffect(() => {
     let mounted = true
 
     const init = async (): Promise<void> => {
       await Promise.allSettled([
         // Perfil do sistema (nome do PC, usado na titlebar e inicialização).
-        window.api.systemPcName().then((name) => {
+        systemPcNameOnce().then((name) => {
           if (mounted) setPcName(name)
         }),
-        // Programas configurados para iniciar com o PC.
-        window.api.startupList().then((items) => {
-          if (mounted) setStartupItems(items)
-        }),
+        // Programas configurados para iniciar com o PC (lista + importância).
+        loadStartupItems(),
         // Status inicial de todos os apps gerenciados pelo Hub.
         window.api.getAllStatus().then((status) => {
           if (mounted) {
@@ -155,12 +225,12 @@ function App(): JSX.Element {
       if (mounted) setDataReady(true)
     }
 
-    init()
+    void init()
 
     return (): void => {
       mounted = false
     }
-  }, [])
+  }, [loadStartupItems])
 
   // Status dos processos lançados pelo Hub é 100% orientado a eventos:
   // o main emite `status-change` em toda transição (ver onStatusChanged abaixo),
@@ -255,33 +325,6 @@ function App(): JSX.Element {
   }, [])
 
   // ── Itens de inicialização do PC ──────────────────────────────
-  const loadStartupItems = useCallback(async (): Promise<void> => {
-    let items: StartupItem[] = []
-    try {
-      items = await window.api.startupList()
-    } catch (err) {
-      setNotice({
-        id: Date.now(),
-        text: `Não foi possível listar a inicialização: ${err instanceof Error ? err.message : String(err)}`
-      })
-    }
-    setStartupItems(items)
-
-    const map = await loadImportanceMap()
-
-    const next: Record<string, ImportanceLevel> = {}
-    for (const item of items) {
-      next[item.id] = map[item.id] ?? classifyImportance(item)
-    }
-    setStartupImportance(next)
-  }, [])
-
-  useEffect(() => {
-    // Caregamento assíncrono: o estado só muda quando a lista chega.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadStartupItems()
-  }, [loadStartupItems])
-
   const handleRemoveStartup = useCallback(
     async (item: StartupItem): Promise<void> => {
       const result = await window.api.startupRemove(item)
@@ -293,7 +336,7 @@ function App(): JSX.Element {
         return
       }
 
-      await loadStartupItems()
+      await loadStartupItems(true)
     },
     [loadStartupItems]
   )
@@ -309,7 +352,7 @@ function App(): JSX.Element {
         })
         return
       }
-      await loadStartupItems()
+      await loadStartupItems(true)
     },
     [loadStartupItems]
   )
@@ -341,7 +384,7 @@ function App(): JSX.Element {
         })
         return
       }
-      await loadStartupItems()
+      await loadStartupItems(true)
     },
     [loadStartupItems]
   )
@@ -359,7 +402,7 @@ function App(): JSX.Element {
         })
         return
       }
-      await loadStartupItems()
+      await loadStartupItems(true)
     },
     [loadStartupItems]
   )
@@ -634,6 +677,15 @@ function App(): JSX.Element {
             onExit={() => setExitModalOpen(true)}
             onEnterBigPicture={enterBigPicture}
             onOpenSearch={() => setSearchOpen(true)}
+            updateBanner={
+              updateInfo && !updateDismissed ? (
+                <UpdateBanner
+                  release={updateInfo.release}
+                  canAutoInstall={updateInfo.canAutoInstall}
+                  onDismiss={() => setUpdateDismissed(true)}
+                />
+              ) : null
+            }
           >
             {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
                 easing --ease-standard; uma camada por página. Com reduce: 0 ms.
@@ -652,7 +704,14 @@ function App(): JSX.Element {
                     appStates={effectiveStates}
                     onLaunch={handleLaunch}
                     onStop={handleStop}
+                    onToast={onToast}
+                    onOpenSettings={() => setCurrentPage('settings')}
+                    onOpenOffice={() => setCurrentPage('openoffice')}
                   />
+                ) : currentPage === 'openoffice' ? (
+                  <ErrorBoundary>
+                    <OfficeView />
+                  </ErrorBoundary>
                 ) : currentPage === 'inicializacao' ? (
                   <ErrorBoundary>
                     <Inicializacao
@@ -664,7 +723,7 @@ function App(): JSX.Element {
                       onRemoveBatch={handleRemoveBatchStartup}
                       onAdd={handleAddStartup}
                       onAddBatch={handleAddBatchStartup}
-                      onReload={loadStartupItems}
+                      onReload={() => loadStartupItems(true)}
                       appsNotInStartup={appsNotInStartup}
                     />
                   </ErrorBoundary>

@@ -6,6 +6,10 @@ import {
   AUTO_RESTART_WINDOW_MS,
   AUTO_RESTART_BACKOFF_MS,
   PERSIST_LOG_MAX_BYTES,
+  STOP_GRACE_MS,
+  STOP_FORCE_TIMEOUT_MS,
+  KILL_ALL_DEADLINE_MS,
+  TREE_KILL_TIMEOUT_MS,
   ProcessManager,
   pruneAttempts,
   shouldAutoRestart,
@@ -166,19 +170,27 @@ vi.mock('./logger', () => ({
 }))
 
 const spawnMock = vi.hoisted(() => vi.fn())
-vi.mock('child_process', () => ({ spawn: spawnMock }))
+const spawnSyncMock = vi.hoisted(() => vi.fn())
+vi.mock('child_process', () => ({ spawn: spawnMock, spawnSync: spawnSyncMock }))
+
+const treeKillMock = vi.hoisted(() => vi.fn())
+vi.mock('tree-kill', () => ({ default: treeKillMock }))
 
 interface FakeChild extends EventEmitter {
   stdout: EventEmitter
   stderr: EventEmitter
   pid: number
+  exitCode: number | null
 }
 
-function makeFakeChild(): FakeChild {
+function makeFakeChild(pid = 4321): FakeChild {
   const child = new EventEmitter() as FakeChild
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
-  child.pid = 4321
+  child.pid = pid
+  // null = ainda vivo; o close do Node é quem preenche. A defesa de segunda
+  // instância no launch() depende desse contrato.
+  child.exitCode = null
   return child
 }
 
@@ -275,5 +287,273 @@ describe('log persistente por app (05-5.7)', () => {
     expect(manager.getStatus('app-x').status).toBe('error')
     expect(fsMock.streams[0].written).toMatch(/\[exit code 1\]\n$/)
     expect(fsMock.streams[0].end).toHaveBeenCalled()
+  })
+})
+
+// ── Encerramento real de processos ───────────────────────────────────────────
+// O callback do tree-kill confirma que o taskkill retornou, NÃO que o filho
+// morreu. Estes testes prendem a espera no evento `close` do ChildProcess.
+
+function makeManager(): ProcessManager {
+  return new ProcessManager({ getAppPrefs: () => ({}), logsDir: LOGS_DIR })
+}
+
+function launchFake(manager: ProcessManager, child: FakeChild, appId = 'app-x'): void {
+  spawnMock.mockReturnValueOnce(child)
+  const result = manager.launch(appId, 'cmd /c echo oi', 'C:\\qualquer')
+  expect(result.success).toBe(true)
+}
+
+describe('encerramento real de processos', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    spawnMock.mockReset()
+    spawnSyncMock.mockReset()
+    treeKillMock.mockReset()
+    // Simula o callback do tree-kill retornando ANTES da morte do filho (o
+    // comportamento real do taskkill), sem emitir close.
+    treeKillMock.mockImplementation((_pid: number, _signal: string, callback?: () => void) =>
+      callback?.()
+    )
+    fsState.size = 0
+    fsMock.streams.length = 0
+  })
+
+  it('stop() só resolve depois do close real — o callback do tree-kill não basta', async () => {
+    const manager = makeManager()
+    const child = makeFakeChild()
+    launchFake(manager, child)
+
+    const events: string[] = []
+    manager.on('status-change', (appId, status) => events.push(`${appId}:${status}`))
+
+    const stopPromise = manager.stop('app-x')
+    let settled = false
+    void stopPromise.then(() => {
+      settled = true
+    })
+
+    // O mock do tree-kill já chamou o callback, mas o filho não emitiu close.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(manager.getStatus('app-x').status).toBe('running')
+    expect(events).toEqual([])
+
+    child.emit('close', 1)
+    await expect(stopPromise).resolves.toEqual({ success: true })
+    expect(manager.getStatus('app-x').status).toBe('stopped')
+    // Uma única transição final: o handler de close é o dono do evento.
+    expect(events).toEqual(['app-x:stopped'])
+  })
+
+  it('stop() escala SIGTERM → SIGKILL quando o filho não morre no grace', async () => {
+    vi.useFakeTimers()
+    try {
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+
+      const stopPromise = manager.stop('app-x')
+      await vi.advanceTimersByTimeAsync(STOP_GRACE_MS)
+
+      expect(treeKillMock).toHaveBeenCalledWith(4321, 'SIGTERM', expect.any(Function))
+      expect(treeKillMock).toHaveBeenCalledWith(4321, 'SIGKILL', expect.any(Function))
+
+      child.emit('close', 1)
+      await expect(stopPromise).resolves.toEqual({ success: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stop() concorrente compartilha a operação e dispara um único SIGTERM', async () => {
+    const manager = makeManager()
+    const child = makeFakeChild()
+    launchFake(manager, child)
+
+    const first = manager.stop('app-x')
+    const second = manager.stop('app-x')
+    expect(second).toBe(first)
+    expect(treeKillMock.mock.calls.filter((call) => call[1] === 'SIGTERM')).toHaveLength(1)
+
+    child.emit('close', 1)
+    await expect(first).resolves.toEqual({ success: true })
+    await expect(second).resolves.toEqual({ success: true })
+  })
+
+  it('stop() devolve erro (sem alegar parada) quando o filho nunca sai', async () => {
+    vi.useFakeTimers()
+    try {
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+
+      const stopPromise = manager.stop('app-x')
+      await vi.advanceTimersByTimeAsync(STOP_GRACE_MS + STOP_FORCE_TIMEOUT_MS + 10)
+
+      const result = await stopPromise
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('não confirmou a saída')
+      // Nunca mentir que parou: o status continua running.
+      expect(manager.getStatus('app-x').status).toBe('running')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stop() não trava quando o tree-kill nunca chama o callback', async () => {
+    vi.useFakeTimers()
+    try {
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+      // Simula taskkill/psTree pendurado: o callback do tree-kill nunca chega.
+      treeKillMock.mockImplementation(() => {})
+
+      const stopPromise = manager.stop('app-x')
+      await vi.advanceTimersByTimeAsync(
+        TREE_KILL_TIMEOUT_MS + STOP_GRACE_MS + TREE_KILL_TIMEOUT_MS + STOP_FORCE_TIMEOUT_MS + 10
+      )
+
+      // O deadline do tree-kill libera o SIGTERM, o grace escala para SIGKILL e
+      // o deadline final devolve erro — sem promise pendurada.
+      await expect(stopPromise).resolves.toMatchObject({ success: false })
+      expect(treeKillMock).toHaveBeenCalledWith(4321, 'SIGTERM', expect.any(Function))
+      expect(treeKillMock).toHaveBeenCalledWith(4321, 'SIGKILL', expect.any(Function))
+      expect(manager.getStatus('app-x').status).toBe('running')
+      // Nenhum timer do stop fica pendente segurando o event loop.
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stop() aguarda a saída real quando o filho já estava saindo', async () => {
+    const manager = makeManager()
+    const child = makeFakeChild()
+    launchFake(manager, child)
+    // exitCode preenchido = processo já saiu, mas o close ainda não foi entregue.
+    child.exitCode = 0
+
+    let settled = false
+    const stopPromise = manager.stop('app-x').then((result) => {
+      settled = true
+      return result
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    child.emit('close', 0)
+    await expect(stopPromise).resolves.toEqual({ success: true })
+  })
+
+  it('killAll() usa SIGKILL e aguarda as saídas reais antes de resolver', async () => {
+    const manager = makeManager()
+    const child = makeFakeChild()
+    launchFake(manager, child)
+
+    const killPromise = manager.killAll()
+    let settled = false
+    void killPromise.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(settled).toBe(false)
+    expect(treeKillMock).toHaveBeenCalledWith(4321, 'SIGKILL', expect.any(Function))
+
+    child.emit('close', 1)
+    await killPromise
+    expect(manager.getStatus('app-x').status).toBe('stopped')
+  })
+
+  it('killAll() força os sobreviventes do deadline e nunca rejeita', async () => {
+    vi.useFakeTimers()
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+
+      const killPromise = manager.killAll()
+      await vi.advanceTimersByTimeAsync(KILL_ALL_DEADLINE_MS + 10)
+      await expect(killPromise).resolves.toBeUndefined()
+      expect(spawnSyncMock).toHaveBeenCalledWith('taskkill', ['/pid', '4321', '/T', '/F'], {
+        windowsHide: true
+      })
+    } finally {
+      platformSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('killAllSync() mata a árvore via taskkill /T /F e marca stopped', () => {
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+      const events: string[] = []
+      manager.on('status-change', (appId, status) => events.push(`${appId}:${status}`))
+
+      manager.killAllSync()
+
+      expect(spawnSyncMock).toHaveBeenCalledWith('taskkill', ['/pid', '4321', '/T', '/F'], {
+        windowsHide: true
+      })
+      expect(manager.getStatus('app-x').status).toBe('stopped')
+      expect(events).toEqual(['app-x:stopped'])
+    } finally {
+      platformSpy.mockRestore()
+    }
+  })
+
+  it('killAllSync() não lança quando o taskkill falha (caminho de crash)', () => {
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      spawnSyncMock.mockImplementation(() => {
+        throw new Error('taskkill indisponível')
+      })
+      const manager = makeManager()
+      const child = makeFakeChild()
+      launchFake(manager, child)
+
+      expect(() => manager.killAllSync()).not.toThrow()
+      expect(manager.getStatus('app-x').status).toBe('stopped')
+    } finally {
+      platformSpy.mockRestore()
+    }
+  })
+
+  it('launch() não cria segunda instância quando o filho anterior ainda está vivo', () => {
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      const manager = makeManager()
+      const first = makeFakeChild()
+      launchFake(manager, first)
+      // 'error' marca status error sem close: o filho anterior segue vivo.
+      first.emit('error', new Error('falha de spawn'))
+      expect(manager.getStatus('app-x').status).toBe('error')
+      expect(first.exitCode).toBeNull()
+
+      const second = makeFakeChild(5555)
+      spawnMock.mockReturnValueOnce(second)
+      const result = manager.launch('app-x', 'cmd /c echo oi', 'C:\\qualquer')
+
+      expect(result.success).toBe(true)
+      expect(spawnMock).toHaveBeenCalledTimes(2)
+      expect(spawnSyncMock).toHaveBeenCalledWith('taskkill', ['/pid', '4321', '/T', '/F'], {
+        windowsHide: true
+      })
+
+      // O close atrasado do filho antigo não pode derrubar o status do novo.
+      first.emit('close', 1)
+      expect(manager.getStatus('app-x').status).toBe('running')
+    } finally {
+      platformSpy.mockRestore()
+    }
   })
 })

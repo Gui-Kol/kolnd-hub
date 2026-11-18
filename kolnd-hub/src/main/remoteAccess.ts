@@ -8,7 +8,7 @@ import { dirname, join } from 'path'
 import { clipboard, shell } from 'electron'
 import { getKloudGamesStatus } from './kloudGames'
 import { logger } from './logger'
-import { getRemoteAccessPrefs, setRemotePublicIp } from './store'
+import { getRemoteAccessPrefs, getRemoteMode, setRemoteMode, setRemotePublicIp } from './store'
 import {
   KLOUD_TCP_PORTS,
   KLOUD_WEB_URL,
@@ -23,6 +23,7 @@ import {
   type PortTargetResult,
   type PublicIpResult,
   type RemoteActionResult,
+  type RemoteModeResult,
   type RemoteStatus,
   type TailscaleInfo
 } from '../shared/remote'
@@ -233,6 +234,72 @@ export async function getRemoteStatus(): Promise<RemoteStatus> {
       kind
     }
   }
+}
+
+/**
+ * Liga/desliga o "Modo remoto" do card do Kloud Games.
+ *
+ * Só liga com o Tailscale instalado E conectado — o Hub não finge um túnel que
+ * não existe. Desligar não derruba o Tailscale (o usuário pode usá-lo para
+ * outras coisas); apenas tira o Hub do estado "remoto".
+ */
+export async function requestRemoteMode(
+  value: unknown,
+  getInfo: () => Promise<TailscaleInfo> = getTailscaleInfo
+): Promise<RemoteModeResult> {
+  if (typeof value !== 'boolean') {
+    return {
+      success: false,
+      enabled: getRemoteMode(),
+      reason: 'invalid',
+      error: 'Valor inválido para o modo remoto.'
+    }
+  }
+
+  if (!value) {
+    const saved = setRemoteMode(false)
+    if (!saved.success) {
+      return {
+        success: false,
+        enabled: false,
+        reason: 'store-unavailable',
+        error: saved.error
+      }
+    }
+    return { success: true, enabled: false }
+  }
+
+  const info = await getInfo()
+  if (!info.installed) {
+    return {
+      success: false,
+      enabled: false,
+      reason: 'tailscale-missing',
+      error: 'Instale o Tailscale para usar o modo remoto.'
+    }
+  }
+  if (!info.connected) {
+    return {
+      success: false,
+      enabled: false,
+      reason: 'tailscale-disconnected',
+      error: 'Abra o Tailscale e conecte-se à sua conta antes de ativar o modo remoto.'
+    }
+  }
+
+  const saved = setRemoteMode(true)
+  if (!saved.success) {
+    return {
+      success: false,
+      enabled: false,
+      reason: 'store-unavailable',
+      error: saved.error
+    }
+  }
+
+  const address = info.ipv4 ?? info.dnsName
+  logger.info('remote-access', `modo remoto ativado (${address ?? 'sem endereço'})`)
+  return { success: true, enabled: true, address }
 }
 
 /**

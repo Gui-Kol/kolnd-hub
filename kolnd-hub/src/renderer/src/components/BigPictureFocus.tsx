@@ -2,6 +2,10 @@
 // focáveis (id → nó) e navegação espacial por direção.
 //
 // - Cada tela registra seus focáveis via `useFocusable(id)` (callback ref).
+// - O id focado vive em um store EXTERNO (lib/focusStore) — de propósito fora
+//   do `value` do contexto: mudar o foco não re-renderiza o provider nem os
+//   consumidores que não são o dono do id (cada focável assina só o seu
+//   booleano `focused` via useSyncExternalStore).
 // - `moveFocus(dir)` aplica `nearestInDirection` sobre os rects correntes
 //   (computados apenas na pressão da direção — nunca por frame).
 // - Um `focusScope` (prefixo de id) confina a navegação a ids com aquele
@@ -15,10 +19,21 @@
 // como base; os componentes do BP somam `BP_FOCUS_RING` no focus-visible e o
 // mesmo anel de 4 px quando `focused` (gamepad/hover) está ativo.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
 import type { ReactNode, RefCallback } from 'react'
 import { nearestInDirection } from '../lib/spatialNav'
 import type { SpatialDirection } from '../lib/spatialNav'
+import { createFocusStore } from '../lib/focusStore'
+import type { FocusStore } from '../lib/focusStore'
 
 /**
  * Anel de foco estendido do Big Picture (~4 px sobre --focus-ring, gate
@@ -38,9 +53,15 @@ export type { SpatialDirection }
 export type FocusDescriber = () => string | null
 
 export interface BigPictureFocusContextValue {
-  /** Id do focável atualmente com foco (mouse ou controle). */
-  focusedId: string | null
+  /**
+   * Id do focável atualmente com foco. Leitura pontual (handlers) — NÃO assine
+   * por aqui: para renderizar use `useFocusedId()`, que só re-renderiza quem
+   * realmente depende do id.
+   */
+  getFocusedId: () => string | null
   setFocusedId: (id: string | null) => void
+  /** Assina mudanças do id focado (base de `useFocusedId`/`useFocusable`). */
+  subscribeFocusedId: (listener: () => void) => () => void
   registerFocusable: (id: string, node: HTMLElement | null) => void
   unregisterFocusable: (id: string) => void
   /** Move o foco na direção. Retorna true se o foco mudou de fato. */
@@ -68,8 +89,11 @@ export function useBigPictureFocus(): BigPictureFocusContextValue {
 }
 
 export function BigPictureFocusProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [focusedId, setFocusedIdState] = useState<string | null>(null)
-  const focusedIdRef = useRef<string | null>(null)
+  // Instância estável do store externo. Não é estado reativo: só o objeto é
+  // guardado aqui (nunca reconstruído), então mudar o foco não re-renderiza o
+  // provider. `useState` com inicializador garante a identidade única sem ler
+  // ref durante o render (a regra react-hooks/refs proíbe esse padrão).
+  const [store] = useState<FocusStore>(() => createFocusStore())
   const scopeRef = useRef<string | null>(null)
   // id → nó (callback refs). A ordem de inserção reflete a ordem do mount.
   const nodesRef = useRef(new Map<string, HTMLElement>())
@@ -77,31 +101,40 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
   // Closures sobre estado vivo do componente — re-registradas a cada render.
   const describersRef = useRef(new Map<string, FocusDescriber>())
 
-  const setFocusedId = useCallback((id: string | null): void => {
-    focusedIdRef.current = id
-    setFocusedIdState(id)
-  }, [])
+  const setFocusedId = useCallback(
+    (id: string | null): void => {
+      store.set(id)
+    },
+    [store]
+  )
 
-  const registerFocusable = useCallback((id: string, node: HTMLElement | null): void => {
-    if (node) {
-      nodesRef.current.set(id, node)
-    } else {
-      nodesRef.current.delete(id)
-      // Se o nó que sumiu detinha o foco, limpa o estado.
-      if (focusedIdRef.current === id) {
-        focusedIdRef.current = null
-        setFocusedIdState(null)
+  const getFocusedId = useCallback((): string | null => store.get(), [store])
+
+  const subscribeFocusedId = useCallback(
+    (listener: () => void): (() => void) => store.subscribe(listener),
+    [store]
+  )
+
+  const registerFocusable = useCallback(
+    (id: string, node: HTMLElement | null): void => {
+      if (node) {
+        nodesRef.current.set(id, node)
+      } else {
+        nodesRef.current.delete(id)
+        // Se o nó que sumiu detinha o foco, limpa o estado.
+        if (store.get() === id) store.set(null)
       }
-    }
-  }, [])
+    },
+    [store]
+  )
 
-  const unregisterFocusable = useCallback((id: string): void => {
-    nodesRef.current.delete(id)
-    if (focusedIdRef.current === id) {
-      focusedIdRef.current = null
-      setFocusedIdState(null)
-    }
-  }, [])
+  const unregisterFocusable = useCallback(
+    (id: string): void => {
+      nodesRef.current.delete(id)
+      if (store.get() === id) store.set(null)
+    },
+    [store]
+  )
 
   const setFocusScope = useCallback((scope: string | null): void => {
     scopeRef.current = scope
@@ -124,7 +157,7 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
       const entries = visibleEntries(scope)
       if (entries.length === 0) return false
 
-      const currentId = focusedIdRef.current
+      const currentId = store.get()
       const currentInScope = currentId !== null && (!scope || currentId.startsWith(scope))
       const fromNode = currentInScope ? nodesRef.current.get(currentId) : undefined
       const fromRect = fromNode?.getBoundingClientRect()
@@ -150,16 +183,16 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
       }
       return false
     },
-    [visibleEntries, setFocusedId]
+    [store, visibleEntries, setFocusedId]
   )
 
   const activateFocused = useCallback((): void => {
     const scope = scopeRef.current
-    const id = focusedIdRef.current
+    const id = store.get()
     if (!id) return
     if (scope && !id.startsWith(scope)) return
     nodesRef.current.get(id)?.click()
-  }, [])
+  }, [store])
 
   const focusFirstMatching = useCallback(
     (prefix: string): boolean => {
@@ -194,8 +227,9 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
 
   const value = useMemo<BigPictureFocusContextValue>(
     () => ({
-      focusedId,
+      getFocusedId,
       setFocusedId,
+      subscribeFocusedId,
       registerFocusable,
       unregisterFocusable,
       moveFocus,
@@ -205,9 +239,12 @@ export function BigPictureFocusProvider({ children }: { children: ReactNode }): 
       registerDescribe,
       describeId
     }),
+    // Todas as funções são estáveis: o `value` nunca muda depois do mount, então
+    // nenhum consumidor re-renderiza por causa do contexto ao mover o foco.
     [
-      focusedId,
+      getFocusedId,
       setFocusedId,
+      subscribeFocusedId,
       registerFocusable,
       unregisterFocusable,
       moveFocus,
@@ -238,7 +275,8 @@ export function useFocusable(
   focused: boolean
   focus: () => void
 } {
-  const { focusedId, setFocusedId, registerFocusable, registerDescribe } = useBigPictureFocus()
+  const { getFocusedId, subscribeFocusedId, setFocusedId, registerFocusable, registerDescribe } =
+    useBigPictureFocus()
 
   // A callback ref é a única fonte da verdade: React chama com o nó no mount
   // e com `null` no unmount (remova a entrada do mapa). NÃO use um efeito
@@ -266,5 +304,21 @@ export function useFocusable(
 
   const focus = useCallback((): void => setFocusedId(id), [id, setFocusedId])
 
-  return { ref, focused: focusedId === id, focus }
+  // Seletor booleano no store externo: este componente só re-renderiza quando
+  // o SEU estado de foco muda — não quando o foco vai para outro item.
+  const focused = useSyncExternalStore(subscribeFocusedId, () => getFocusedId() === id)
+
+  return { ref, focused, focus }
+}
+
+/**
+ * Id do focável atual — re-renderiza o chamador a cada mudança de foco.
+ *
+ * Use SOMENTE onde o id é necessário para renderizar/efeitar algo (ex.: o
+ * anúncio de leitor de tela). Em handlers, prefira `getFocusedId()` do
+ * contexto — ler o id não deve custar um re-render.
+ */
+export function useFocusedId(): string | null {
+  const { getFocusedId, subscribeFocusedId } = useBigPictureFocus()
+  return useSyncExternalStore(subscribeFocusedId, getFocusedId)
 }

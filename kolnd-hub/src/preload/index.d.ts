@@ -18,7 +18,14 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type { PublicIpResult, RemoteActionResult, RemoteStatus } from '../shared/remote'
+import type { OfficeHealth, OfficeSnapshot } from '../shared/office'
+import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type {
+  PublicIpResult,
+  RemoteActionResult,
+  RemoteModeResult,
+  RemoteStatus
+} from '../shared/remote'
 
 declare global {
   interface Window {
@@ -45,11 +52,19 @@ declare global {
 
       // ── Acesso remoto (Tailscale) ───────────────────
       remoteStatus: () => Promise<RemoteStatus>
+      remoteGetMode: () => Promise<boolean>
+      remoteSetMode: (value: boolean) => Promise<RemoteModeResult>
       remotePublicIp: () => Promise<PublicIpResult>
       remoteInstallTailscale: () => Promise<RemoteActionResult>
       remoteOpenTailscale: () => Promise<RemoteActionResult>
       remoteOpenKloudWeb: () => Promise<RemoteActionResult>
       remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
+
+      // ── Atualizações do app (GitHub Releases) ────────
+      checkForUpdates: () => Promise<UpdateCheckResult>
+      installUpdate: (releaseId: number) => Promise<UpdateInstallResult>
+      cancelUpdate: () => Promise<{ ok: boolean; cancelled: boolean }>
+      onUpdateProgress: (callback: (progress: UpdateProgress) => void) => () => void
 
       // ── Big Picture (modo tela cheia) ────────────────
       getGamepadConfig: () => Promise<{
@@ -222,6 +237,8 @@ declare global {
       hwmonStop: () => Promise<{ ok: boolean }>
       hwmonDriverStatus: () => Promise<DriverStatusInfo>
       hwmonInstallDriver: () => Promise<InstallDriverResult>
+      hwmonGetInterval: () => Promise<{ intervalMs: number }>
+      hwmonSetInterval: (ms: number) => Promise<{ success: boolean; intervalMs: number }>
       onHwMonitorUpdate: (callback: (snapshot: HwSnapshot) => void) => () => void
 
       // ── Tela (Meu PC) ───────────────────────────────
@@ -265,6 +282,93 @@ declare global {
       onHudStatus: (callback: (status: HudStatus) => void) => () => void
       hudToggle: () => Promise<HudStatus>
       onHudUpdate: (callback: (update: HudUpdate) => void) => () => void
+
+      // ── OpenOffice (sessões do OpenCode) ─────────────
+      officeSubscribe: () => Promise<OfficeSnapshot | null>
+      officeUnsubscribe: () => Promise<{ ok: boolean }>
+      officeSnapshot: () => Promise<OfficeSnapshot | null>
+      officeStatus: () => Promise<OfficeHealth>
+      onOfficeSnapshot: (callback: (snapshot: OfficeSnapshot) => void) => () => void
+      // Ações (Fase 3). O main valida tudo; recusa vem como
+      // `{ ok: false, reason }` e o modo somente leitura usa 'somente-leitura'.
+      officeApprovePermission: (input: {
+        sessionID: string
+        requestID: string
+        decision: 'once' | 'always'
+        message?: string
+      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
+      officeDenyPermission: (input: {
+        sessionID: string
+        requestID: string
+        message?: string
+      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
+      officeSendMessage: (input: {
+        sessionID: string
+        text: string
+      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
+      officeSetActionMode: (input: {
+        enabled: boolean
+      }) => Promise<{ ok: boolean; enabled: boolean }>
+      onOfficeActionResult: (
+        callback: (result: { id: string; ok: boolean; error?: string }) => void
+      ) => () => void
+      // Instalador do plugin do OpenCode (T12). Os tipos canônicos vivem em
+      // `src/main/office/pluginInstaller.ts`; aqui ficam estruturais porque o
+      // tsconfig.web não inclui `src/main` (projeto composite).
+      officePluginStatus: () => Promise<{
+        installed: boolean
+        pluginDirExists: boolean
+        versionInstalled: string | null
+        versionBundled: string
+        stale: boolean
+        configKind: 'json' | 'jsonc' | 'none'
+        entry?: string
+        needsManual: boolean
+        configPath: string
+        pluginDir: string
+        error?: string
+      }>
+      officePluginInstall: () => Promise<{
+        ok: boolean
+        reason?:
+          | 'comentarios'
+          | 'json-invalido'
+          | 'config-nao-objeto'
+          | 'plugins-invalido'
+          | 'io'
+          | 'verificacao'
+        message?: string
+        snippet?: string
+        configPath: string
+        pluginDir: string
+        entry: string
+        changed: boolean
+        backupPath?: string
+      }>
+      officePluginRemove: () => Promise<{
+        ok: boolean
+        removed: boolean
+        reason?:
+          | 'comentarios'
+          | 'json-invalido'
+          | 'config-nao-objeto'
+          | 'plugins-invalido'
+          | 'io'
+          | 'verificacao'
+        message?: string
+        configPath: string
+        backupPath?: string
+      }>
+      officePluginSnippet: () => Promise<{
+        ok: boolean
+        entry: string
+        snippet: string
+        configPath: string
+      }>
+      officePluginStatus: () => Promise<PluginStatus>
+      officePluginInstall: () => Promise<PluginInstallResult>
+      officePluginRemove: () => Promise<PluginRemoveResult>
+      officePluginSnippet: () => Promise<PluginSnippetResult>
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

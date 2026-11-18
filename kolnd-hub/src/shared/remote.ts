@@ -93,6 +93,19 @@ export interface PublicIpResult {
   error?: string
 }
 
+/** Por que o modo remoto não pôde ser ligado (mostrado no modal de ajuda). */
+export type RemoteModeReason =
+  'invalid' | 'tailscale-missing' | 'tailscale-disconnected' | 'store-unavailable'
+
+export interface RemoteModeResult {
+  success: boolean
+  enabled: boolean
+  reason?: RemoteModeReason
+  error?: string
+  /** Endereço que o Moonlight deve usar (IP 100.x ou MagicDNS). */
+  address?: string | null
+}
+
 export interface RemoteActionResult {
   success: boolean
   error?: string

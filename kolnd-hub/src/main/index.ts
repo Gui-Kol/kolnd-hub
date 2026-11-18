@@ -2,6 +2,7 @@
 // (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
+import { registerChildProcessCleanup } from './crashReporting'
 import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
@@ -24,7 +25,7 @@ import { registerFpsIpc } from './fps'
 import { registerFpsAutoIpc } from './fps/agent'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
-import { registerGamesIpc } from './games'
+import { registerGamesIpc, repairGameIconsIfNeeded } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
 import { registerSteamIpc } from './steamScanner'
 import { seedMarkLviData } from './programsDeployer'
@@ -34,10 +35,12 @@ import { registerWindowIpc } from './ipc/window'
 import { registerAppIpc } from './ipc/app'
 import { registerKloudGamesIpc } from './ipc/kloudGames'
 import { registerRemoteAccessIpc } from './ipc/remoteAccess'
+import { registerUpdatesIpc } from './ipc/updates'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
+import { registerOfficeIpc } from './ipc/office'
 import type { IpcContext } from './ipc/lifecycle'
 import { isQuitting, markQuitting } from './quitState'
 import { logger } from './logger'
@@ -68,6 +71,11 @@ const processManager = new ProcessManager({
     }
   }
 })
+
+// Crash do main: os filhos do Hub (servidores, Kloud Games, ...) não podem ficar
+// órfãos — o relançamento não os rastrearia e criaria uma segunda instância.
+// O killAllSync roda de forma síncrona dentro do handler de uncaughtException.
+registerChildProcessCleanup(() => processManager.killAllSync())
 
 // Contexto compartilhado dos módulos IPC (ipc/*.ts): janela principal via
 // getter (mainWindow é reassinado em createWindow) + o ProcessManager.
@@ -245,13 +253,15 @@ function createTray(): void {
     { type: 'separator' },
     {
       label: 'Sair',
-      click: (): void => {
+      click: async (): Promise<void> => {
         // Durante uma desinstalação destrutiva, o tray não encerra o app
         // (nem mata processos no meio do msiexec/wipe).
         if (isAnyUninstallInProgress()) return
         // Sair explícito: libera o close interceptado antes de encerrar.
         markQuitting()
-        processManager.killAll()
+        // Espera a saída real dos filhos (killAll tem deadline próprio, então
+        // nunca trava o quit) e só então pede o quit ao Electron.
+        await processManager.killAll()
         app.quit()
       }
     }
@@ -264,7 +274,7 @@ function createTray(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Sem o lock, o app já recebeu app.quit() e não faz bootstrap nenhum.
   if (!gotSingleInstanceLock) return
   electronApp.setAppUserModelId('com.kolnd.hub')
@@ -316,6 +326,9 @@ app.whenReady().then(() => {
   // transparente always-on-top. Restaura a preferência persistida.
   registerHudIpc(ctx)
 
+  // Registra os canais IPC do escritório (sessões do OpenCode na página OpenOffice).
+  registerOfficeIpc(ctx)
+
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()
 
@@ -352,6 +365,9 @@ app.whenReady().then(() => {
   // Registra os canais IPC do acesso remoto (status/instalar/abrir/copiar).
   registerRemoteAccessIpc(ctx)
 
+  // Registra os canais IPC de atualização do app (GitHub Releases).
+  registerUpdatesIpc(ctx)
+
   // Registra o canal IPC de desinstalação do próprio Hub (uninstall:hub).
   registerUninstallHubIpc(ctx)
 
@@ -380,6 +396,12 @@ app.whenReady().then(() => {
   if (startHidden) {
     logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
   }
+
+  // Ícones em cache gerados pelo pipeline antigo (genérico do Windows) são
+  // regravados uma única vez por versão — antes da janela abrir, para a
+  // primeira pintura já mostrar o ícone certo. Nunca bloqueia por falha.
+  await repairGameIconsIfNeeded()
+
   createWindow(firstRun, startHidden)
   createTray()
 })
@@ -394,7 +416,12 @@ if (gotSingleInstanceLock) {
   app.on('before-quit', () => {
     // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
     markQuitting()
-    processManager.killAll()
+    // Aqui a opção mais simples e determinística é o kill SÍNCRONO: o quit do
+    // Electron não espera promises e preventDefault + espera assíncrona poderia
+    // prender a saída se um filho travasse. taskkill /T /F leva poucos ms e
+    // garante que nenhum filho sobreviva ao Hub. O tray já esperou o killAll()
+    // normal antes de chamar app.quit(); esta chamada cobre os demais caminhos.
+    processManager.killAllSync()
   })
 
   app.on('activate', () => {

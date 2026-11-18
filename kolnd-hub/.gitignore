@@ -12,5 +12,7 @@ resources/programs/kloud-games/KLOUD_GAMES.exe
 resources/programs/kloud-games/assets/
 resources/programs/kloud-games/kloud-games.paths.json
 
-# Driver auxiliar WinRing0 (baixado por scripts/fetch-winring0.ps1; binário nunca entra no git)
-resources/drivers/*.sys
+# PawnIO (instalador e módulos baixados por scripts/fetch-pawnio.ps1; binários
+# nunca entram no git). pins.json e COPYING são versionados de propósito.
+resources/pawnio/*.bin
+resources/pawnio/*.exe

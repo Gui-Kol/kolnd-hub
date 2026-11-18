@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Gamepad2, AlertTriangle, Library, Square } from 'lucide-react'
 import { Game } from '../types'
-import { useBigPictureFocus, useFocusable, BP_FOCUS_RING, BP_FOCUSED_RING } from './BigPictureFocus'
+import {
+  useBigPictureFocus,
+  useFocusedId,
+  useFocusable,
+  BP_FOCUS_RING,
+  BP_FOCUSED_RING
+} from './BigPictureFocus'
+import { useWindowedGrid } from '../hooks/useWindowedGrid'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { playSfx } from '../lib/sfx'
 import { announce, formatFocusItem } from '../lib/useAnnouncer'
@@ -77,7 +84,16 @@ function CardStopButton({
   )
 }
 
-function GameCard({
+/**
+ * Card de jogo — `memo` de propósito: a grade re-renderiza a cada mudança de
+ * janela/scroll, mas os cards fora do foco não podem pagar por isso. Todas as
+ * props são estáveis (handlers vêm do pai via useCallback e recebem o jogo).
+ *
+ * O descritor do `useFocusable` continua re-registrado a cada render: com memo,
+ * props iguais ⇒ a closure registrada já lê o estado atual (posição, total,
+ * nome) — não fica obsoleta.
+ */
+const GameCard = memo(function GameCard({
   game,
   icon,
   launching,
@@ -133,7 +149,7 @@ function GameCard({
   }, [activateStop, game.id, running, setFocusedId])
 
   return (
-    <div className="relative">
+    <div className="relative" data-windowed-item="">
       {running ? (
         <CardStopButton
           id={`game:stop:${game.id}`}
@@ -163,6 +179,8 @@ function GameCard({
         role="option"
         aria-selected={focused}
         aria-label={`Jogar ${game.name}`}
+        aria-setsize={total}
+        aria-posinset={position}
         className={`group flex h-full w-full flex-col items-center gap-5 rounded-card border bg-surface-1 p-6 pt-8 text-center shadow-elevation-1 transition-all duration-2 ease-standard hover:scale-[1.03] hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2 disabled:opacity-70 min-h-[15rem] focus:outline-none ${BP_FOCUS_RING} focus-visible:scale-[1.03] ${
           focused
             ? `scale-[1.05] border-[var(--accent-border)] bg-surface-2 shadow-elevation-2 ${BP_FOCUSED_RING}`
@@ -215,7 +233,7 @@ function GameCard({
       </button>
     </div>
   )
-}
+})
 
 /** Botão "Tentar novamente" do estado de erro — focável pelo controle. */
 function RetryButton({ onClick }: { onClick: () => void }): JSX.Element {
@@ -240,8 +258,14 @@ function RetryButton({ onClick }: { onClick: () => void }): JSX.Element {
  * Seção "Jogos" do Big Picture — grade de cards grandes alimentada por
  * `games:get`. Lançar um jogo usa `games:launch` (spawn direto, fora do
  * ProcessManager), então o contador de apps ativos do Hub não é alterado.
+ *
+ * `memo`: a única prop (`notify`) é estável no pai; a seção só re-renderiza por
+ * estado próprio (lista, ícones, janela virtualizada). A navegação em si não
+ * re-renderiza a grade — cada card assina só o seu `focused`.
  */
-export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
+export const BigPictureGames = memo(function BigPictureGames({
+  notify
+}: BigPictureGamesProps): JSX.Element {
   const [games, setGames] = useState<Game[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -251,6 +275,26 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   // Quais jogos estão com processo aberto (habilita o botão "Encerrar").
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
+
+  // Âncora da virtualização: índice do jogo cujo card está focado. O foco vem
+  // do store externo (só a seção re-renderiza; os cards são `memo`), e a linha
+  // da âncora é sempre montada para o card nunca sumir no meio da navegação.
+  const focusedId = useFocusedId()
+  const gameIndexById = useMemo(() => {
+    const byId = new Map<string, number>()
+    games.forEach((game, index) => byId.set(game.id, index))
+    return byId
+  }, [games])
+  // `game:stop:<id>` resolve para `stop:<id>` (ausente do mapa) → sem âncora.
+  const anchorIndex =
+    focusedId && focusedId.startsWith('game:')
+      ? (gameIndexById.get(focusedId.slice('game:'.length)) ?? null)
+      : null
+  const { scrollRef, gridRef, onScroll, range } = useWindowedGrid({
+    itemCount: games.length,
+    anchorIndex
+  })
+  const visibleGames = games.slice(range.startIndex, range.endIndex)
 
   const loadGames = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -350,6 +394,21 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
     [notify, refreshRunning]
   )
 
+  // Handlers estáveis passados aos cards (`memo`): recebem o jogo e evitam
+  // lambdas novas a cada render da seção, que anulariam a memoização.
+  const launchGame = useCallback(
+    (game: Game): void => {
+      void handleLaunch(game)
+    },
+    [handleLaunch]
+  )
+  const stopGame = useCallback(
+    (game: Game): void => {
+      void handleStop(game)
+    },
+    [handleStop]
+  )
+
   return (
     <section aria-label="Jogos" className="flex h-full flex-col">
       {/* ── Cabeçalho com contador ─────────────────────── */}
@@ -393,27 +452,45 @@ export function BigPictureGames({ notify }: BigPictureGamesProps): JSX.Element {
             </div>
           </div>
         ) : (
+          // Scroller próprio da grade (sem `scrollIntoView`: o reveal mexe
+          // só neste container). O `pb-8` fica aqui para o respiro final não
+          // entrar na aritmética dos espaçadores.
           <div
-            role="listbox"
-            aria-label="Jogos na sua biblioteca"
-            className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-8"
+            ref={scrollRef}
+            onScroll={onScroll}
+            data-bp-games-scroller=""
+            className="h-full overflow-y-auto overflow-x-hidden pb-8"
           >
-            {games.map((game, index) => (
-              <GameCard
-                key={game.id}
-                game={game}
-                icon={icons[game.id]}
-                launching={launchingId === game.id}
-                running={runningIds.has(game.id)}
-                onLaunch={(g) => void handleLaunch(g)}
-                onStop={(g) => void handleStop(g)}
-                position={index + 1}
-                total={games.length}
-              />
-            ))}
+            <div
+              ref={gridRef}
+              role="listbox"
+              aria-label="Jogos na sua biblioteca"
+              className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6"
+              // Espaçadores das linhas fora da janela: a grade ocupa a altura
+              // total (barra de rolagem correta) renderizando só as linhas da
+              // janela + overscan. Textura/visual dos cards não muda.
+              style={{ paddingTop: range.topSpacerPx, paddingBottom: range.bottomSpacerPx }}
+            >
+              {visibleGames.map((game, offset) => {
+                const index = range.startIndex + offset
+                return (
+                  <GameCard
+                    key={game.id}
+                    game={game}
+                    icon={icons[game.id]}
+                    launching={launchingId === game.id}
+                    running={runningIds.has(game.id)}
+                    onLaunch={launchGame}
+                    onStop={stopGame}
+                    position={index + 1}
+                    total={games.length}
+                  />
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
     </section>
   )
-}
+})

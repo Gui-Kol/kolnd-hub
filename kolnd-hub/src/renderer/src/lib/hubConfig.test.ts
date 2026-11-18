@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadAppConfigs, loadImportanceMap, saveAppConfigs, saveImportanceMap } from './hubConfig'
+import {
+  loadAppConfigs,
+  loadImportanceMap,
+  saveAppConfigs,
+  saveImportanceMap,
+  __resetHubConfigForTests
+} from './hubConfig'
 import {
   LEGACY_APPS_BACKUP_KEY,
   LEGACY_APPS_KEY,
@@ -67,6 +73,8 @@ const appA: AppConfig = {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  // O snapshot de configGet vive no módulo: cada teste simula um processo novo.
+  __resetHubConfigForTests()
   restoreGlobals()
 })
 
@@ -197,6 +205,39 @@ describe('loadImportanceMap / saveImportanceMap', () => {
     expect(localStorage.getItem(LEGACY_IMPORTANCE_KEY)).toBe(
       JSON.stringify({ 'mark-lvi': 'inutil' })
     )
+  })
+})
+
+describe('snapshot de configGet (uma leitura por processo)', () => {
+  it('loadAppConfigs + loadImportanceMap juntos chamam configGet exatamente 1×', async () => {
+    const api: Api = {
+      configGet: vi.fn().mockResolvedValue({
+        apps: [appA],
+        startupImportance: { 'mark-lvi': 'critico' }
+      })
+    }
+    installWindow(api, {})
+
+    const apps = await loadAppConfigs()
+    const map = await loadImportanceMap()
+
+    expect(api.configGet).toHaveBeenCalledTimes(1)
+    expect(apps.some((a) => a.id === 'app-a')).toBe(true)
+    expect(map).toEqual({ 'mark-lvi': 'critico' })
+  })
+
+  it('loadImportanceMap(true) descarta o snapshot e enxerga o valor novo', async () => {
+    const api: Api = {
+      configGet: vi
+        .fn()
+        .mockResolvedValueOnce({ startupImportance: { 'mark-lvi': 'critico' } })
+        .mockResolvedValueOnce({ startupImportance: { 'mark-lvi': 'inutil' } })
+    }
+    installWindow(api, {})
+
+    expect(await loadImportanceMap()).toEqual({ 'mark-lvi': 'critico' })
+    expect(await loadImportanceMap(true)).toEqual({ 'mark-lvi': 'inutil' })
+    expect(api.configGet).toHaveBeenCalledTimes(2)
   })
 })
 

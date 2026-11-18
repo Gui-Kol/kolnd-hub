@@ -207,6 +207,32 @@ npm run lint       # ESLint (flat config)
 npm run format     # Prettier
 ```
 
+### Testes automatizados (atalho na Área de Trabalho)
+
+O atalho **"Testes - Kolnd Hub"** na Área de Trabalho roda `scripts/run-all-tests.ps1`, que executa em sequência:
+
+1. **Kloud Hub — unitários** (`kolnd-hub`: `npm test`, Vitest);
+2. **Kloud Hub — e2e** (`kolnd-hub`: `npm run test:e2e` — build + Playwright/Electron; a suíte mais lenta);
+3. **Kloud Games — web** (`kloud-games`: `npm test`, Vitest + cobertura);
+4. **Kloud Games — scripts** (Pester, executado só se houver Pester 5+ instalado — o Windows traz o 3.4 por padrão);
+5. **Kloud Games — C++** (`kloud-games\cmake-build-windows\tests\test_KLOUD_GAMES.exe`, usando o build existente — o script **não** recompila);
+6. **Mark LVI** — ainda sem suíte automatizada (task 04-4.5 pendente), apenas reportado.
+
+A janela mostra o andamento e um resumo (OK/FALHOU/PULADO por suíte) e permanece aberta no fim. Logs em `%TEMP%\kolnd-hub-testes`: `testes-*.log` (transcript da execução) e `testes-*.saida.log` (saída completa das suítes).
+
+Rodar sem o atalho:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-all-tests.ps1
+
+# variações
+#   -SkipE2e          não roda Playwright
+#   -SkipKloudGames   não roda nenhuma suíte do Kloud Games
+#   -SkipKloudNative  não roda o binário C++ (mantém web e Pester)
+```
+
+Requisitos: `node_modules` em `kolnd-hub/` e `kloud-games/` (o script avisa e pula/falha se faltar) e MSYS2 em `C:\msys64` para as DLLs do binário C++ (o `ucrt64\bin` é adicionado ao `PATH` automaticamente).
+
 Estrutura do código do Hub:
 
 ```

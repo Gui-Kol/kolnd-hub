@@ -5,56 +5,64 @@ import { existsSync } from 'fs'
 import * as os from 'os'
 import { join } from 'path'
 import { logger } from '../logger'
-import { runPowerShellCommand, runProcess } from './powershell'
-import { probeWinRing0 } from './winring0'
+import {
+  installSensorsAgent,
+  missingAgentRegisters,
+  readSensorsLatestFile,
+  sensorsAgentLatestPath
+} from './agent'
+import { runPowerShellCommand } from './powershell'
+import { currentPawnIoAssets, describePawnIoError, detectPawnIoInstallation } from './pawnio'
 import type { DriverStatus, DriverStatusInfo, InstallDriverResult } from '../../shared/hwmon'
 
 export type { DriverStatus, DriverStatusInfo, InstallDriverResult } from '../../shared/hwmon'
 
 /**
- * Instalação/status do driver WinRing0.
+ * Instalação/status dos sensores avançados (PawnIO).
  *
- * Regra inviolável: nada é instalado sem uma ação explícita do usuário. Toda
- * instalação passa por `Start-Process -Verb RunAs` (UAC) e, se o usuário
- * cancelar, o app só mostra uma mensagem amigável — o sistema fica intocado.
+ * O driver anterior (OpenLibSys) saiu do projeto: a Memória Integrity (HVCI) do
+ * Windows 11 recusa o driver e o Defender o lista como vulnerável. O PawnIO é
+ * assinado e instala um driver + módulos assinados; o instalador oficial vem embutido em
+ * `resources/pawnio/` e nunca é baixado em runtime.
+ *
+ * Regra inviolável: nada é instalado sem ação explícita do usuário. O hash do
+ * instalador é conferido ANTES de pedir UAC e de novo DENTRO do processo
+ * elevado (o arquivo pode ter sido trocado entre os dois passos). O instalador
+ * oficial aceita `-install -silent`, descoberto no binário 2.2.0.0; sem modo
+ * silencioso confiável a instalação seria interativa.
  */
 
-export const WINRING0_FILE_NAME = 'WinRing0x64.sys'
-export const WINRING0_SERVICE_NAME = 'WinRing0_1_2_0'
-export const WINRING0_SHA256 = '11BD2C9F9E2397C9A16E0990E4ED2CF0679498FE0FD418A3DFDAC60B5C160EE5'
+export const PAWNIO_SETUP_SHA256 =
+  '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032'
+export const PAWNIO_SETUP_SIZE = 3410960
 
 const INSTALL_TIMEOUT_MS = 180_000
-const SERVICE_QUERY_TIMEOUT_MS = 4000
 
-export interface DriverPaths {
-  source: string
-  installDir: string
-  installed: string
+/** Instalador embutido em `resources/pawnio` (empacotado ou em dev). */
+export function resolveBundledInstaller(resourcesDir: string): string {
+  return join(resourcesDir, 'pawnio', 'PawnIO_setup.exe')
 }
 
-/** Caminhos puros (recebem as bases para não depender de Electron nos testes). */
-export function resolveDriverPaths(resourcesDir: string, programDataDir: string): DriverPaths {
-  const installDir = join(programDataDir, 'Kolnd Hub', 'drivers')
-  return {
-    source: join(resourcesDir, 'drivers', WINRING0_FILE_NAME),
-    installDir,
-    installed: join(installDir, WINRING0_FILE_NAME)
-  }
+/** DLL que o PawnIO instala em `%ProgramFiles%\PawnIO`. */
+export function resolveInstalledLibrary(installDir: string): string {
+  return join(installDir, 'PawnIOLib.dll')
 }
 
 function resourcesDir(): string {
   return app.isPackaged ? process.resourcesPath : join(process.cwd(), 'resources')
 }
 
-function programDataDir(): string {
-  return (process.env.ProgramData ?? '').trim() || 'C:\\ProgramData'
+/** Instalador embutido no pacote atual (deve existir antes de pedir UAC). */
+export function bundledInstallerPath(): string {
+  return resolveBundledInstaller(resourcesDir())
 }
 
-export function currentDriverPaths(): DriverPaths {
-  return resolveDriverPaths(resourcesDir(), programDataDir())
-}
-
-/** Estado exibido na UI. `ready` = device abriu de fato. */
+/**
+ * Estado exibido na UI. `deviceAccessible` passou a significar "o sink fresco
+ * do agente elevado abriu o device": o main roda sem elevação e o
+ * `pawnio_open_win32` nega acesso, então sondar o device diretamente daqui
+ * sempre daria `false` (erro 5) mesmo com tudo instalado.
+ */
 export function classifyDriverState(input: {
   filePresent: boolean
   serviceInstalled: boolean
@@ -67,7 +75,7 @@ export function classifyDriverState(input: {
 
 export async function verifyDriverHash(
   path: string,
-  expected: string = WINRING0_SHA256
+  expected: string = PAWNIO_SETUP_SHA256
 ): Promise<boolean> {
   try {
     const buffer = await fs.readFile(path)
@@ -78,145 +86,84 @@ export async function verifyDriverHash(
   }
 }
 
-async function isServiceInstalled(): Promise<boolean> {
-  const result = await runProcess(
-    'sc.exe',
-    ['query', WINRING0_SERVICE_NAME],
-    null,
-    SERVICE_QUERY_TIMEOUT_MS
-  )
-  return !result.timedOut && result.code === 0
+/** Hash + tamanho: um byte a mais já invalida o instalador embutido. */
+export async function verifyPawnIoInstaller(
+  path: string,
+  expected: string = PAWNIO_SETUP_SHA256,
+  expectedSize: number = PAWNIO_SETUP_SIZE
+): Promise<boolean> {
+  try {
+    const stats = await fs.stat(path)
+    if (stats.size !== expectedSize) return false
+  } catch {
+    return false
+  }
+  return verifyDriverHash(path, expected)
 }
 
 /**
- * Status completo. `filePresent` refere-se ao `.sys` disponível para instalar;
- * `deviceAccessible` só é sondado quando o serviço já existe (evita abrir o
- * helper à toa). Nunca lança.
+ * Status completo. `filePresent` = `PawnIOLib.dll` presente na instalação;
+ * `serviceInstalled` = instalador registrado no Windows; `deviceAccessible` =
+ * o **sink do agente elevado** está fresco (< 3 s) e o device abriu.
+ *
+ * Não chamamos mais `probePawnIo()` aqui: num processo não elevado o PawnIO
+ * nega acesso (erro 5) e a sonda sempre falharia. O único sinal honesto de
+ * "pronto" é a leitura elevada publicando valores novos. Nunca lança.
+ *
+ * `outdated` cobre o agente cujo script estagiado é de uma versão anterior do
+ * Hub: o sink está fresco, mas não traz todos os registradores que esta versão
+ * espera (ex.: os SMN do SVI2). Sem esse sinal, a UI consideraria a leitura
+ * "ativa" e não ofereceria como atualizá-la.
  */
 export async function getDriverStatus(): Promise<DriverStatusInfo> {
-  const paths = currentDriverPaths()
+  const assets = currentPawnIoAssets()
   let filePresent = false
-  let error: string | undefined
-
-  if (existsSync(paths.source)) {
-    filePresent = await verifyDriverHash(paths.source)
-    if (!filePresent) {
-      error = 'O arquivo do driver não confere com o hash esperado. Baixe-o novamente.'
-    }
-  }
-  // Se só a cópia instalada existe (ex.: build empacotada), ela também vale.
-  if (!filePresent && existsSync(paths.installed)) {
-    filePresent = await verifyDriverHash(paths.installed)
-    if (!filePresent) {
-      error = 'O arquivo do driver não confere com o hash esperado. Baixe-o novamente.'
-    }
-  }
-
   let serviceInstalled = false
   let deviceAccessible = false
+  let outdated = false
+  let agentError: string | undefined
+  let installedPath = join(process.env.ProgramFiles?.trim() || 'C:\\Program Files', 'PawnIO')
 
   try {
-    if (process.platform === 'win32') {
-      serviceInstalled = await isServiceInstalled()
-      if (serviceInstalled) deviceAccessible = await probeWinRing0()
+    const installation = await detectPawnIoInstallation()
+    filePresent = installation.dllPresent
+    serviceInstalled = installation.registered
+    installedPath = installation.dllPath
+
+    if (process.platform === 'win32' && installation.dllPresent) {
+      const sample = await readSensorsLatestFile(sensorsAgentLatestPath(), Date.now())
+      deviceAccessible = sample.fresh && sample.deviceOpen
+      if (!deviceAccessible) {
+        const detail = describePawnIoError(sample.error)
+        agentError =
+          detail ??
+          'Sensores instalados, mas a leitura elevada não está ativa. Clique em "Instalar sensores avançados" para ativar.'
+      } else if (sample.sample) {
+        // O vendor vem do PRÓPRIO sink (não do `os.cpus()`): o script assado é
+        // que define o que ele lê, e o sink é a prova do que está ativo.
+        const missing = missingAgentRegisters(sample.sample, sample.sample.vendor)
+        outdated = missing.msr.length > 0 || missing.smn.length > 0
+      }
     }
   } catch (err) {
-    logger.warn('hwmon', `status do driver falhou: ${err instanceof Error ? err.message : err}`)
+    logger.warn('hwmon', `status do PawnIO falhou: ${err instanceof Error ? err.message : err}`)
   }
 
-  return {
+  const info: DriverStatusInfo = {
     state: classifyDriverState({ filePresent, serviceInstalled, deviceAccessible }),
     filePresent,
     serviceInstalled,
     deviceAccessible,
-    sourcePath: paths.source,
-    installedPath: paths.installed,
-    error
+    outdated,
+    sourcePath: assets.installer,
+    installedPath
   }
+  if (agentError) info.error = agentError
+  return info
 }
 
 function psQuote(value: string): string {
   return value.replace(/'/g, "''")
-}
-
-const REG_TIMEOUT_MS = 4000
-
-/** Proteções do Windows que impedem o WinRing0 de carregar. */
-export interface DriverBlockers {
-  hvciEnabled: boolean
-  /**
-   * `VulnerableDriverBlocklistEnable` — a lista só é aplicada de fato com
-   * HVCI, Smart App Control ou S mode ligados (documentação da Microsoft).
-   */
-  blocklistEnabled: boolean
-  /** Smart App Control: desligado, só em avaliação (não bloqueia) ou bloqueando. */
-  smartAppControl: 'off' | 'evaluation' | 'enforcing'
-}
-
-/** Lê um DWORD da saída do `reg query` (rótulos não são traduzidos). */
-export function parseRegDword(output: string, valueName: string): number | null {
-  const escaped = valueName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(
-    `^[ \\t]*${escaped}[ \\t]+REG_DWORD[ \\t]+0x([0-9a-fA-F]+)[ \\t]*\\r?$`,
-    'm'
-  ).exec(output)
-  if (!match) return null
-  const value = Number.parseInt(match[1], 16)
-  return Number.isInteger(value) ? value : null
-}
-
-async function readRegDword(key: string, valueName: string): Promise<number | null> {
-  const result = await runProcess('reg.exe', ['query', key, '/v', valueName], null, REG_TIMEOUT_MS)
-  if (result.timedOut || result.code !== 0) return null
-  return parseRegDword(result.stdout, valueName)
-}
-
-/**
- * Lê as proteções do registro (não exige admin). Falha de leitura vira
- * `false`/`off`: a instalação segue e o erro real do `sc.exe` explica o resto.
- */
-export async function detectDriverBlockers(): Promise<DriverBlockers> {
-  if (process.platform !== 'win32') {
-    return { hvciEnabled: false, blocklistEnabled: false, smartAppControl: 'off' }
-  }
-
-  const [hvci, blocklist, sac] = await Promise.all([
-    readRegDword(
-      'HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity',
-      'Enabled'
-    ),
-    readRegDword(
-      'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config',
-      'VulnerableDriverBlocklistEnable'
-    ),
-    readRegDword(
-      'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy',
-      'VerifiedAndReputablePolicyState'
-    )
-  ])
-
-  return {
-    hvciEnabled: hvci === 1,
-    blocklistEnabled: blocklist === 1,
-    smartAppControl: sac === 1 ? 'enforcing' : sac === 2 ? 'evaluation' : 'off'
-  }
-}
-
-/**
- * Explicação acionável quando o PC não deixa o WinRing0 carregar — devolvida
- * ANTES do UAC, para não pedir admin só para falhar. `null` = pode tentar.
- */
-export function describeDriverBlockers(blockers: DriverBlockers): string | null {
-  // HVCI sem a lista de drivers vulneráveis pode deixar o WinRing0 carregar;
-  // nesse caso o erro real do `sc.exe` decide. Com a lista ligada (padrão do
-  // Windows 11) o bloqueio é certo.
-  if (blockers.hvciEnabled && blockers.blocklistEnabled) {
-    return 'A Memória Integrity (HVCI) está ativada com a lista de drivers vulneráveis da Microsoft, que inclui o WinRing0 — o Windows recusa o driver nesse estado. Para usar os sensores avançados: Segurança do Windows → Segurança do dispositivo → Isolamento do núcleo, desligue a Memória Integrity, reinicie o PC e tente de novo. O resto do monitor continua funcionando sem esses campos.'
-  }
-  if (blockers.smartAppControl === 'enforcing') {
-    return 'O Controle de Aplicativos Inteligente (Smart App Control) está ativo e aplica a lista de drivers vulneráveis da Microsoft, que inclui o WinRing0. Não é possível instalar o driver sem desativá-lo. O resto do monitor continua funcionando sem esses campos.'
-  }
-  return null
 }
 
 /** Falha relatada pelo script elevado, gravada em JSON dentro de `%TEMP%`. */
@@ -226,77 +173,67 @@ export interface InstallFailure {
   detail?: string
 }
 
-const DRIVER_BLOCKED_HINT =
-  'O Windows bloqueou o carregamento do WinRing0 (lista de drivers vulneráveis da Microsoft e/ou assinatura não aceita). Para usar os sensores avançados, desligue a Memória Integrity em Segurança do Windows → Isolamento do núcleo e reinicie o PC.'
-
 /**
  * Converte a falha do script elevado em mensagem para a UI. Pura, exportada
- * para testes: `sc.exe` devolve código 577 (assinatura) ou 1275 (bloqueado)
- * quando a lista de drivers vulneráveis recusa o WinRing0.
+ * para testes. Nada aqui fala de HVCI/blocklist — o PawnIO é assinado; os
+ * erros reais são hash, recusa do instalador e registro ausente.
  */
 export function explainInstallFailure(failure?: InstallFailure | null): string {
   const stage = failure?.stage ?? ''
   const code = failure?.code ?? null
   const detail = (failure?.detail ?? '').replace(/\s+/g, ' ').trim()
   const clipped = detail.length > 200 ? `${detail.slice(0, 200)}…` : detail
-  const suffix = clipped ? ` Detalhe do Windows: ${clipped}` : ''
+  const suffix = clipped ? ` Detalhe do instalador: ${clipped}` : ''
   const codeText = code === null ? '' : ` (código ${code})`
 
   if (stage === 'hash') {
-    return 'O arquivo copiado não confere com o hash esperado. Baixe o driver novamente e tente de novo.'
+    return 'O instalador do PawnIO não confere com o hash esperado. Rode o build de novo (scripts/fetch-pawnio.ps1) e reinstale o Hub.'
   }
 
-  if (stage === 'start') {
-    if (code === 577 || code === 1275 || /signature|assinatura|blocked|bloqueado/i.test(detail)) {
-      return `${DRIVER_BLOCKED_HINT}${suffix}`
+  if (stage === 'run') {
+    if (code === 1223) {
+      return 'A instalação foi cancelada. Nenhuma alteração foi feita no sistema.'
     }
-    if (code === 5) {
-      return `O Windows negou permissão para iniciar o serviço do driver${codeText}. Aceite a solicitação de administrador e tente de novo.${suffix}`
+    if (code === 5 || /access is denied|acesso negado/i.test(detail)) {
+      return `O Windows negou permissão para instalar o PawnIO${codeText}. Aceite a solicitação de administrador e tente de novo.${suffix}`
     }
-    return `O serviço do driver foi criado, mas o Windows não deixou iniciá-lo${codeText}.${suffix}`
+    if (/newer installation/i.test(detail)) {
+      return `Já existe uma instalação mais nova do PawnIO neste PC. Desinstale-a (Configurações → Aplicativos) e tente de novo.${suffix}`
+    }
+    return `O instalador do PawnIO terminou com erro${codeText}.${suffix}`
   }
 
-  if (stage === 'create' || stage === 'delete') {
-    if (code === 1073) {
-      return 'Já existe um serviço com o nome do driver. Reinicie o PC e tente de novo.'
-    }
-    if (code === 1072) {
-      return 'O serviço do driver está marcado para remoção pelo Windows. Reinicie o PC e tente de novo.'
-    }
-    if (code === 5) {
-      return `O Windows negou permissão para preparar o serviço do driver${codeText}. Aceite a solicitação de administrador e tente de novo.${suffix}`
-    }
-    return `O Windows não deixou preparar o serviço do driver${codeText}.${suffix}`
+  if (stage === 'verify') {
+    return 'O instalador terminou, mas o PawnIO não aparece como instalado. Reinicie o PC e tente de novo.'
   }
 
   if (stage === 'unexpected') {
-    return `A instalação falhou antes de chegar ao serviço do driver.${suffix}`
+    return `A instalação falhou antes de executar o instalador do PawnIO.${suffix}`
   }
 
-  return `Não foi possível instalar o driver. Verifique a Memória Integrity (HVCI) e a lista de drivers vulneráveis do Windows e tente de novo.${suffix}`
+  return `Não foi possível instalar o PawnIO. Tente de novo.${suffix}`
 }
 
-/** Script que roda ELEVADO. ASCII puro para o PowerShell 5.1 ler sem ambiguidade. */
+/**
+ * Script que roda ELEVADO. ASCII puro para o PowerShell 5.1 ler sem ambiguidade.
+ *
+ * O instalador oficial (2.2.0.0) aceita `-install -silent`; sem ele abriria uma
+ * janela própria, o que quebraria o fluxo por clique do Hub. O hash é conferido
+ * de novo aqui porque o arquivo pode ter sido trocado depois do UAC.
+ */
 export function buildInstallScript(input: {
-  sourcePath: string
-  targetPath: string
-  installDir: string
+  setupPath: string
   /** Onde o script grava a etapa e o código de erro reais (JSON). */
   resultPath: string
-  serviceName?: string
   expectedSha256?: string
 }): string {
-  const serviceName = input.serviceName ?? WINRING0_SERVICE_NAME
-  const expected = (input.expectedSha256 ?? WINRING0_SHA256).toUpperCase()
+  const expected = (input.expectedSha256 ?? PAWNIO_SETUP_SHA256).toUpperCase()
   return [
     "$ErrorActionPreference = 'Stop'",
-    `$source = '${psQuote(input.sourcePath)}'`,
-    `$targetDir = '${psQuote(input.installDir)}'`,
-    `$target = '${psQuote(input.targetPath)}'`,
+    `$setup = '${psQuote(input.setupPath)}'`,
     `$resultPath = '${psQuote(input.resultPath)}'`,
-    `$service = '${psQuote(serviceName)}'`,
     // O processo elevado não herda o console do Hub: sem esse arquivo, a UI só
-    // veria "código 1" e chutaria a causa (era o que acontecia com HVCI).
+    // veria "código 1" e chutaria a causa.
     'function Save-Result([string]$stage, [int]$code, [string]$detail) {',
     '  try {',
     '    $payload = [pscustomobject]@{ stage = $stage; code = $code; detail = $detail }',
@@ -304,21 +241,14 @@ export function buildInstallScript(input: {
     '  } catch { }',
     '}',
     'try {',
-    '  New-Item -ItemType Directory -Force -Path $targetDir | Out-Null',
-    '  Copy-Item -LiteralPath $source -Destination $target -Force',
-    '  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash',
+    '  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash',
     `  if ($hash -ne '${expected}') { Save-Result 'hash' 1 ''; exit 1 }`,
-    '  $existing = Get-Service -Name $service -ErrorAction SilentlyContinue',
-    '  if ($existing) {',
-    '    & sc.exe stop $service | Out-Null',
-    '    Start-Sleep -Milliseconds 300',
-    '    $detail = (& sc.exe delete $service 2>&1 | Out-String).Trim()',
-    "    if ($LASTEXITCODE -ne 0) { Save-Result 'delete' $LASTEXITCODE $detail; exit 1 }",
-    '  }',
-    '  $detail = (& sc.exe create $service type= kernel binPath= $target start= demand 2>&1 | Out-String).Trim()',
-    "  if ($LASTEXITCODE -ne 0) { Save-Result 'create' $LASTEXITCODE $detail; exit 1 }",
-    '  $detail = (& sc.exe start $service 2>&1 | Out-String).Trim()',
-    "  if ($LASTEXITCODE -ne 0) { Save-Result 'start' $LASTEXITCODE $detail; exit 1 }",
+    '  $output = (& $setup -install -silent 2>&1 | Out-String).Trim()',
+    '  $code = $LASTEXITCODE',
+    "  if ($code -ne 0) { Save-Result 'run' $code $output; exit 1 }",
+    "  $key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PawnIO'",
+    '  $entry = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue',
+    "  if ($null -eq $entry) { Save-Result 'verify' 1 $output; exit 1 }",
     "  Save-Result 'ok' 0 ''",
     '  exit 0',
     '} catch {',
@@ -330,20 +260,27 @@ export function buildInstallScript(input: {
   ].join('\r\n')
 }
 
-export function buildUninstallScript(input: { targetPath: string; serviceName?: string }): string {
-  const serviceName = input.serviceName ?? WINRING0_SERVICE_NAME
+export function buildUninstallScript(input: { setupPath: string; resultPath: string }): string {
   return [
     "$ErrorActionPreference = 'Stop'",
-    `$target = '${psQuote(input.targetPath)}'`,
-    `$service = '${psQuote(serviceName)}'`,
-    '$existing = Get-Service -Name $service -ErrorAction SilentlyContinue',
-    'if ($existing) {',
-    '  & sc.exe stop $service | Out-Null',
-    '  Start-Sleep -Milliseconds 300',
-    '  & sc.exe delete $service | Out-Null',
+    `$setup = '${psQuote(input.setupPath)}'`,
+    `$resultPath = '${psQuote(input.resultPath)}'`,
+    'function Save-Result([string]$stage, [int]$code, [string]$detail) {',
+    '  try {',
+    '    $payload = [pscustomobject]@{ stage = $stage; code = $code; detail = $detail }',
+    '    $payload | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encoding UTF8 -Force',
+    '  } catch { }',
     '}',
-    'Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue',
-    'exit 0'
+    'try {',
+    '  $output = (& $setup -uninstall -silent 2>&1 | Out-String).Trim()',
+    '  $code = $LASTEXITCODE',
+    "  if ($code -ne 0) { Save-Result 'run' $code $output; exit 1 }",
+    "  Save-Result 'ok' 0 ''",
+    '  exit 0',
+    '} catch {',
+    "  Save-Result 'unexpected' 1 $_.Exception.Message",
+    '  exit 1',
+    '}'
   ].join('\r\n')
 }
 
@@ -385,7 +322,7 @@ async function runElevated(
 ): Promise<ElevatedResult> {
   const tempDir = join(os.tmpdir(), 'kolnd-hub')
   await fs.mkdir(tempDir, { recursive: true })
-  const scriptPath = join(tempDir, `winring0-${randomUUID()}.ps1`)
+  const scriptPath = join(tempDir, `pawnio-${randomUUID()}.ps1`)
 
   try {
     // BOM garante que o PowerShell 5.1 leia caminhos não-ASCII corretamente.
@@ -419,7 +356,7 @@ async function runElevated(
       const failure = resultPath ? await readInstallFailure(resultPath) : null
       logger.warn(
         'hwmon',
-        `instalação do driver falhou: etapa=${failure?.stage ?? '?'} código=${
+        `instalação do PawnIO falhou: etapa=${failure?.stage ?? '?'} código=${
           failure?.code ?? result.code
         } detalhe=${failure?.detail ?? '(sem detalhe)'}`
       )
@@ -439,7 +376,7 @@ async function runElevated(
         error: 'A instalação foi cancelada. Nenhuma alteração foi feita no sistema.'
       }
     }
-    logger.warn('hwmon', `falha ao elevar para instalar o driver: ${message}`)
+    logger.warn('hwmon', `falha ao elevar para instalar o PawnIO: ${message}`)
     return {
       ok: false,
       cancelled: false,
@@ -452,87 +389,110 @@ async function runElevated(
 }
 
 /**
- * Instala o driver — SEMPRE por clique e SEMPRE com UAC. Recusa instalar se o
- * `.sys` não existir ou não conferir com o hash pinado.
+ * Instala os sensores avançados — SEMPRE por clique e SEMPRE com UAC.
+ *
+ * Garante as duas metades na mesma ação, de forma idempotente:
+ * 1. PawnIO instalado (só roda o instalador se a DLL/registro faltarem);
+ * 2. agente elevado ativo (só re-instala se o sink não estiver fresco).
+ *
+ * Numa máquina nova o PawnIO pede UAC uma vez e o agente pede outra (o PawnIO
+ * não assina a tarefa do agente); numa máquina que já tem o PawnIO — o caso
+ * desta máquina — é um único UAC. Recusa instalar se o instalador embutido não
+ * existir ou não conferir com hash + tamanho pinados.
  */
 export async function installDriver(): Promise<InstallDriverResult> {
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'A instalação do driver só é suportada no Windows.' }
+    return { ok: false, error: 'A instalação do PawnIO só é suportada no Windows.' }
   }
 
-  const paths = currentDriverPaths()
-  if (!existsSync(paths.source)) {
-    return {
-      ok: false,
-      error:
-        'O arquivo do driver não foi encontrado. Em desenvolvimento, rode scripts/fetch-winring0.ps1; em uma instalação, reinstale o Hub.'
+  let status = await getDriverStatus()
+
+  if (!status.serviceInstalled || !status.filePresent) {
+    const installer = bundledInstallerPath()
+    if (!existsSync(installer)) {
+      return {
+        ok: false,
+        error:
+          'O instalador do PawnIO não foi encontrado. Em desenvolvimento, rode scripts/fetch-pawnio.ps1; em uma instalação, reinstale o Hub.'
+      }
     }
-  }
-  if (!(await verifyDriverHash(paths.source))) {
-    return {
-      ok: false,
-      error: 'O arquivo do driver não confere com o hash esperado. Baixe-o novamente.'
+    if (!(await verifyPawnIoInstaller(installer))) {
+      return {
+        ok: false,
+        error:
+          'O instalador do PawnIO não confere com o hash esperado. Rode o build de novo e reinstale o Hub.'
+      }
     }
-  }
 
-  const before = await getDriverStatus()
-  if (before.state === 'ready') {
-    return { ok: true, state: 'ready' }
-  }
+    const resultPath = join(os.tmpdir(), 'kolnd-hub', `pawnio-install-${randomUUID()}.json`)
+    const script = buildInstallScript({ setupPath: installer, resultPath })
+    const elevated = await runElevated(script, INSTALL_TIMEOUT_MS, resultPath)
+    if (!elevated.ok) {
+      return { ok: false, cancelled: elevated.cancelled, error: elevated.error }
+    }
 
-  // Bloqueio conhecido (HVCI/Smart App Control): não faz sentido pedir UAC para
-  // um driver que o Windows vai recusar de qualquer forma.
-  const blocked = describeDriverBlockers(await detectDriverBlockers())
-  if (blocked) {
-    logger.info('hwmon', 'instalação do driver recusada: proteções do Windows ativas')
-    return { ok: false, error: blocked }
-  }
-
-  const resultPath = join(os.tmpdir(), 'kolnd-hub', `winring0-install-${randomUUID()}.json`)
-  const script = buildInstallScript({
-    sourcePath: paths.source,
-    targetPath: paths.installed,
-    installDir: paths.installDir,
-    resultPath
-  })
-  const elevated = await runElevated(script, INSTALL_TIMEOUT_MS, resultPath)
-  if (!elevated.ok) {
-    return { ok: false, cancelled: elevated.cancelled, error: elevated.error }
-  }
-
-  const after = await getDriverStatus()
-  if (!after.serviceInstalled) {
-    return {
-      ok: false,
-      state: after.state,
-      error:
-        'O Windows informou que o driver foi instalado, mas o serviço não aparece. Reinicie o PC e tente de novo.'
+    status = await getDriverStatus()
+    if (!status.serviceInstalled) {
+      return {
+        ok: false,
+        state: status.state,
+        error:
+          'O instalador do PawnIO terminou, mas o PawnIO não aparece como instalado. Reinicie o PC e tente de novo.'
+      }
     }
   }
 
+  // Sink fresco e com todos os registradores = agente já ativo e atualizado;
+  // não pede UAC de novo. Desatualizado segue para o re-estágio (1 UAC).
+  if (status.deviceAccessible && !status.outdated) {
+    return { ok: true, state: status.state }
+  }
+
+  const agent = await installSensorsAgent()
+  if (!agent.ok) {
+    return {
+      ok: false,
+      cancelled: agent.cancelled,
+      state: status.state,
+      error: agent.error
+    }
+  }
+
+  status = await getDriverStatus()
   return {
     ok: true,
-    state: after.state,
+    state: status.state,
     error:
-      after.state === 'ready'
+      status.state === 'ready'
         ? undefined
-        : 'O serviço do driver foi instalado, mas o device ainda não abriu. Reinicie o PC e tente novamente.'
+        : (status.error ??
+          'Sensores instalados, mas a leitura elevada ainda não iniciou. Aguarde alguns segundos e abra a aba de novo.')
   }
 }
 
-/** Remoção opcional: para o serviço, apaga o registro e o arquivo instalado. */
+/** Remoção opcional: usa o desinstalador oficial do PawnIO, também elevado. */
 export async function uninstallDriver(): Promise<InstallDriverResult> {
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'A remoção do driver só é suportada no Windows.' }
+    return { ok: false, error: 'A remoção do PawnIO só é suportada no Windows.' }
   }
 
-  const paths = currentDriverPaths()
-  if (!existsSync(paths.installed)) {
+  const status = await getDriverStatus()
+  if (!status.serviceInstalled && !status.filePresent) {
     return { ok: true, state: 'absent' }
   }
 
-  const script = buildUninstallScript({ targetPath: paths.installed })
-  const elevated = await runElevated(script, INSTALL_TIMEOUT_MS)
+  const installer = bundledInstallerPath()
+  if (!existsSync(installer) || !(await verifyPawnIoInstaller(installer))) {
+    return {
+      ok: false,
+      error:
+        'O instalador do PawnIO não confere com o hash esperado. Reinstale o Hub e tente de novo.'
+    }
+  }
+
+  const resultPath = join(os.tmpdir(), 'kolnd-hub', `pawnio-uninstall-${randomUUID()}.json`)
+  const script = buildUninstallScript({ setupPath: installer, resultPath })
+  const elevated = await runElevated(script, INSTALL_TIMEOUT_MS, resultPath)
   if (!elevated.ok) {
     return { ok: false, cancelled: elevated.cancelled, error: elevated.error }
   }

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { parseLibraryFolders, parseAppManifest, findGameExecutable } from './steamScanner'
+import { steamGameRootFromExe } from './games/exeFinder'
 
 // Fixture baseada na libraryfolders.vdf real desta máquina (formato novo).
 const LIBRARYFOLDERS_MODERN = `"libraryfolders"
@@ -117,6 +118,25 @@ describe('findGameExecutable', () => {
     expect(findGameExecutable(gameDir)).toBe(join(gameDir, 'bin', 'x64', 'Game-Win64-Shipping.exe'))
   })
 
+  it('prefere o exe da raiz mesmo menor que ferramentas em subpastas', () => {
+    const dir = setup()
+    const gameDir = join(dir, 'The Binding of Isaac Rebirth')
+    mkdirSync(join(gameDir, 'tools', 'ModUploader'), { recursive: true })
+    writeFileSync(join(gameDir, 'isaac-ng.exe'), 'x')
+    writeFileSync(join(gameDir, 'tools', 'ModUploader', 'ModUploader.exe'), 'x'.repeat(5000))
+    expect(findGameExecutable(gameDir)).toBe(join(gameDir, 'isaac-ng.exe'))
+  })
+
+  it('ignora pastas de ferramentas/redistribuíveis', () => {
+    const dir = setup()
+    const gameDir = join(dir, 'Some Game')
+    mkdirSync(join(gameDir, 'Redistributables'), { recursive: true })
+    mkdirSync(join(gameDir, '_CommonRedist', 'DirectX'), { recursive: true })
+    writeFileSync(join(gameDir, 'Redistributables', 'Launcher.exe'), 'x'.repeat(5000))
+    writeFileSync(join(gameDir, '_CommonRedist', 'DirectX', 'dxsetup.exe'), 'x'.repeat(5000))
+    expect(findGameExecutable(gameDir)).toBeNull()
+  })
+
   it('devolve null quando não há exe utilizável', () => {
     const dir = setup()
     const gameDir = join(dir, 'Game')
@@ -124,5 +144,44 @@ describe('findGameExecutable', () => {
     writeFileSync(join(gameDir, 'unins000.exe'), 'x')
     writeFileSync(join(gameDir, 'readme.txt'), 'x')
     expect(findGameExecutable(gameDir)).toBeNull()
+  })
+})
+
+describe('steamGameRootFromExe', () => {
+  it('deriva a raiz da instalação a partir de um exe em subpasta', () => {
+    expect(
+      steamGameRootFromExe(
+        join(
+          'C:',
+          'Program Files (x86)',
+          'Steam',
+          'steamapps',
+          'common',
+          'The Binding of Isaac Rebirth',
+          'tools',
+          'ModUploader',
+          'ModUploader.exe'
+        )
+      )
+    ).toBe(
+      join(
+        'C:',
+        'Program Files (x86)',
+        'Steam',
+        'steamapps',
+        'common',
+        'The Binding of Isaac Rebirth'
+      )
+    )
+  })
+
+  it('aceita barras normais e diferenças de caixa', () => {
+    expect(steamGameRootFromExe('D:/SteamLibrary/STEAMAPPS/COMMON/Bodycam/Bodycam.exe')).toBe(
+      join('D:', 'SteamLibrary', 'STEAMAPPS', 'COMMON', 'Bodycam')
+    )
+  })
+
+  it('retorna null para caminho fora de steamapps/common', () => {
+    expect(steamGameRootFromExe('C:\\Jogos\\Jogo Custom\\jogo.exe')).toBeNull()
   })
 })

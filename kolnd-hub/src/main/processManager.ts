@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import {
   createWriteStream,
@@ -28,6 +28,22 @@ interface ProcessInfo {
   autoRestart: boolean
   /** Timer de relançamento agendado (null quando nenhum pendente). Cancelado em stop()/killAll()/launch(). */
   restartTimer: ReturnType<typeof setTimeout> | null
+  /**
+   * Resolve quando o filho REALMENTE saiu (evento `close`, com fallback em `error`).
+   * O callback do tree-kill não serve para isso: ele confirma que o taskkill
+   * retornou, não que o processo filho morreu.
+   */
+  exited: Promise<void>
+  /** Chamado uma única vez no `close`/`error` — promises só resolvem (idempotente). */
+  resolveExited: () => void
+  /** Stop em andamento: chamadas concorrentes no mesmo appId compartilham a operação. */
+  stopPromise: Promise<StopResult> | null
+}
+
+/** Resultado de stop(): `success` só quando o filho confirmou a saída. */
+export interface StopResult {
+  success: boolean
+  error?: string
 }
 
 /** Contexto de launch guardado em `ProcessInfo` para relançamento interno. */
@@ -57,6 +73,26 @@ export const AUTO_RESTART_MAX_ATTEMPTS = 3
 export const AUTO_RESTART_WINDOW_MS = 10 * 60 * 1000
 /** Backoff por ordem da tentativa (2s, 5s, 10s) — decisões confirmadas pelo usuário em 15/11/2026. */
 export const AUTO_RESTART_BACKOFF_MS = [2000, 5000, 10000] as const
+
+/**
+ * Espera pela saída real após o SIGTERM. O callback do tree-kill dispara quando
+ * o taskkill termina, não quando o filho morre — daí a espera pelo evento `close`.
+ */
+export const STOP_GRACE_MS = 3000
+/**
+ * Deadline do próprio tree-kill. Se o helper travar (taskkill preso, psTree
+ * pendurado) o callback nunca chega; sem esse limite o stop() ficaria pendurado
+ * para sempre e o IPC app:stop nunca responderia. Quem decide se parou é
+ * `info.exited`, não o retorno do helper.
+ */
+export const TREE_KILL_TIMEOUT_MS = 2000
+/** Espera extra após o SIGKILL antes de admitir que o filho não saiu. */
+export const STOP_FORCE_TIMEOUT_MS = 2000
+/**
+ * Deadline total do killAll() no quit: acima disso os sobreviventes levam um
+ * force-kill síncrono. O quit nunca pode ficar preso a um filho travado.
+ */
+export const KILL_ALL_DEADLINE_MS = 5000
 
 /** Remove timestamps fora da janela de `windowMs` (e timestamps no futuro). Puro. */
 export function pruneAttempts(
@@ -187,6 +223,11 @@ export class ProcessManager extends EventEmitter {
       mkdirSync(dir, { recursive: true })
       // Arquivo já acima de 1 MB de sessões anteriores → rotaciona antes de anexar.
       this.rotateLogIfNeeded(logPath)
+      // Launch novo no mesmo appId sem close anterior (defesa de segunda
+      // instância): fecha o stream antigo para não vazar handle nem misturar
+      // sessões no mesmo arquivo.
+      this.logStreams.get(appId)?.end()
+      this.logStreams.delete(appId)
       const stream = createWriteStream(logPath, { flags: 'a' })
       // Disco cheio/permissão mudando no meio da sessão: nunca derruba o app.
       stream.on('error', () => {})
@@ -282,6 +323,119 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
+  /**
+   * Dispara o tree-kill e resolve quando o helper retorna — NÃO quando o filho
+   * morre. Por isso todo encerramento espera `info.exited`. Erro do tree-kill
+   * (PID inválido, helper ausente) nunca rejeita: quem chama decide pelo `exited`.
+   * O deadline cobre o caso de o helper nunca chamar o callback (taskkill/psTree
+   * travado), que prenderia o stop() e o IPC app:stop indefinidamente. Callback
+   * e timeout podem resolver a mesma promise — resolve é idempotente.
+   */
+  private sendTreeKill(pid: number, signal: string): Promise<void> {
+    return new Promise((resolveKill) => {
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const done = (): void => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        resolveKill()
+      }
+      timer = setTimeout(done, TREE_KILL_TIMEOUT_MS)
+      try {
+        treeKill(pid, signal, () => done())
+      } catch {
+        done()
+      }
+    })
+  }
+
+  /**
+   * Espera `promise` até `timeoutMs`; devolve true se terminou a tempo.
+   * O timer é sempre limpo para não segurar o event loop depois da corrida.
+   */
+  private waitWithTimeout(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const timeout = new Promise<boolean>((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(false), timeoutMs)
+    })
+    return Promise.race([promise.then(() => true), timeout]).finally(() => {
+      if (timer) clearTimeout(timer)
+    })
+  }
+
+  /** Aguarda a saída real do filho (evento close) dentro da janela informada. */
+  private waitForExit(info: ProcessInfo, timeoutMs: number): Promise<boolean> {
+    return this.waitWithTimeout(info.exited, timeoutMs)
+  }
+
+  /**
+   * Force-kill SÍNCRONO da árvore. Usado no caminho de crash (event loop pode
+   * morrer em seguida) e como rede de segurança do quit. Nunca lança.
+   */
+  private forceKillTreeSync(pid: number): void {
+    try {
+      if (process.platform === 'win32') {
+        // taskkill /T /F derruba o filho e toda a árvore sem depender do event loop.
+        spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true })
+        return
+      }
+      // Fora do Windows não há taskkill: tenta o grupo (filho líder) e o PID.
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {
+        // Sem grupo próprio (spawn não-detached) — o kill direto abaixo resolve.
+      }
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      // Caminho de crash/limpeza: best-effort e jamais pode lançar.
+    }
+  }
+
+  /**
+   * Defesa contra segunda instância: um registro fora de `running` ainda pode
+   * ter filho vivo (stop() que estourou o deadline, `error` com close pendente).
+   * Sem isso, o próximo launch criaria um segundo processo do mesmo app.
+   */
+  private killPreviousTreeIfAlive(info: ProcessInfo): void {
+    const pid = info.process.pid
+    if (!pid || info.process.exitCode !== null) return
+    logger.warn(
+      'processManager',
+      `appId=${info.appId} filho anterior ainda vivo (pid=${pid}) — force-kill antes do relaunch`
+    )
+    this.forceKillTreeSync(pid)
+  }
+
+  /**
+   * Encerramento pedido por stop(): SIGTERM, espera a saída REAL, escala para
+   * SIGKILL e espera de novo. Só resolve `success: true` depois do `close`.
+   */
+  private async performStop(info: ProcessInfo, pid: number): Promise<StopResult> {
+    if (info.process.exitCode === null) {
+      await this.sendTreeKill(pid, 'SIGTERM')
+      if (await this.waitForExit(info, STOP_GRACE_MS)) return { success: true }
+
+      // Taskkill retornou mas o filho segue vivo: escala. Sem essa confirmação
+      // o Hub mentiria "parado" para um processo ainda em execução.
+      logger.warn(
+        'processManager',
+        `appId=${info.appId} pid=${pid} não saiu em ${STOP_GRACE_MS}ms após SIGTERM — escalando para SIGKILL`
+      )
+      await this.sendTreeKill(pid, 'SIGKILL')
+      if (await this.waitForExit(info, STOP_FORCE_TIMEOUT_MS)) return { success: true }
+    } else if (await this.waitForExit(info, STOP_GRACE_MS)) {
+      // Já estava saindo quando stop() chegou: aguarda o close em vez de falhar.
+      return { success: true }
+    }
+
+    // Nunca alegar parada sem o evento close — quem chamou pode tentar de novo.
+    return {
+      success: false,
+      error: `Processo não confirmou a saída (pid=${pid})`
+    }
+  }
+
   launch(
     appId: string,
     command: string,
@@ -312,6 +466,10 @@ export class ProcessManager extends EventEmitter {
     if (!existsSync(workingDir)) {
       return { success: false, error: `Diretório não encontrado: ${workingDir}` }
     }
+
+    // Um registro não-running ainda pode ter filho vivo: mata a árvore antes
+    // de spawnar para nunca existirem duas instâncias do mesmo app.
+    if (existing) this.killPreviousTreeIfAlive(existing)
 
     try {
       let child: ChildProcess
@@ -355,6 +513,10 @@ export class ProcessManager extends EventEmitter {
 
       const prefs = this.getAppPrefs(appId)
       const persistLogs = prefs?.persistLogs === true
+      let resolveExited: () => void = () => {}
+      const exited = new Promise<void>((resolvePromise) => {
+        resolveExited = () => resolvePromise()
+      })
       const info: ProcessInfo = {
         process: child,
         appId,
@@ -364,7 +526,10 @@ export class ProcessManager extends EventEmitter {
         stopping: false,
         launch: { command: trimmedCommand, cwd, shell: useShell, env: options.env },
         autoRestart: prefs?.autoRestart === true,
-        restartTimer: null
+        restartTimer: null,
+        exited,
+        resolveExited,
+        stopPromise: null
       }
       // Opt-in (05-5.7): abre o stream append ANTES de qualquer chunk chegar.
       if (persistLogs) this.openLogStream(appId)
@@ -387,24 +552,33 @@ export class ProcessManager extends EventEmitter {
       })
 
       child.on('close', (code) => {
-        // A process we stopped on purpose must not be reported as an error,
-        // even though taskkill makes it exit with a non-zero code.
+        // O handler de close é o DONO da transição final: stop() espera
+        // `info.exited` e não emite status-change por conta própria.
         info.status = info.stopping ? 'stopped' : code === 0 ? 'stopped' : 'error'
-        this.finishAppLog(appId, `[exit code ${code}]`)
+        // Depois do relaunch o map pode apontar para outro ProcessInfo: efeitos
+        // compartilhados (log/evento/auto-restart) pertencem ao launch atual.
+        const isCurrent = this.processes.get(appId) === info
+        if (isCurrent) this.finishAppLog(appId, `[exit code ${code}]`)
         // Auto-restart OPT-IN: só quando o encerramento foi por queda (não pedido
         // pelo Hub) e há orçamento na janela. O timer é guardado em `info` e
         // cancelado por stop()/killAll().
-        if (info.status === 'error' && info.autoRestart) {
+        if (isCurrent && info.status === 'error' && info.autoRestart) {
           this.maybeScheduleAutoRestart(info)
         }
-        this.emit('status-change', appId, info.status)
+        if (isCurrent) this.emit('status-change', appId, info.status)
+        // Resolve por último: quem aguarda stop() já vê status/log/evento finais.
+        info.resolveExited()
       })
 
       child.on('error', (err) => {
         info.status = 'error'
         info.logs.push(`[ERROR] ${err.message}`)
-        this.finishAppLog(appId, `[ERROR] ${err.message}`)
-        this.emit('status-change', appId, 'error')
+        if (this.processes.get(appId) === info) {
+          this.finishAppLog(appId, `[ERROR] ${err.message}`)
+          this.emit('status-change', appId, 'error')
+        }
+        // Fallback: um spawn que nunca chega a 'close' não pode deixar stop() preso.
+        info.resolveExited()
       })
 
       this.processes.set(appId, info)
@@ -417,40 +591,34 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
-  stop(appId: string): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolveStop) => {
-      const info = this.processes.get(appId)
-      // Cancela qualquer relaunch pendente ANTES de decidir — `stop()` manual
-      // nunca pode ser seguido de ressurreição do app.
-      if (info) this.cancelRestartTimer(info)
-      if (!info || info.status !== 'running') {
-        resolveStop({ success: false, error: 'Processo não está em execução' })
-        return
-      }
+  stop(appId: string): Promise<StopResult> {
+    const info = this.processes.get(appId)
+    // Cancela qualquer relaunch pendente ANTES de decidir — `stop()` manual
+    // nunca pode ser seguido de ressurreição do app.
+    if (info) this.cancelRestartTimer(info)
+    if (!info || info.status !== 'running') {
+      return Promise.resolve({ success: false, error: 'Processo não está em execução' })
+    }
 
-      const pid = info.process.pid
-      if (!pid) {
-        resolveStop({ success: false, error: 'PID não encontrado' })
-        return
-      }
+    // Stop concorrente no mesmo appId compartilha a MESMA operação: um único
+    // tree-kill e uma única confirmação de saída para todos os chamadores.
+    if (info.stopPromise) return info.stopPromise
 
-      info.stopping = true
+    const pid = info.process.pid
+    if (!pid) {
+      return Promise.resolve({ success: false, error: 'PID não encontrado' })
+    }
 
-      const finish = (): void => {
-        info.status = 'stopped'
-        this.emit('status-change', appId, 'stopped')
-        resolveStop({ success: true })
-      }
+    // `stopping` desliga o auto-restart e faz o handler de close reportar
+    // 'stopped' (taskkill sai com código ≠ 0 de propósito).
+    info.stopping = true
 
-      treeKill(pid, 'SIGTERM', (err) => {
-        if (err) {
-          // Force kill if the graceful attempt fails.
-          treeKill(pid, 'SIGKILL', () => finish())
-        } else {
-          finish()
-        }
-      })
+    const operation = this.performStop(info, pid)
+    info.stopPromise = operation
+    void operation.then(() => {
+      if (info.stopPromise === operation) info.stopPromise = null
     })
+    return operation
   }
 
   getStatus(appId: string): { status: string; startedAt?: string; logCount: number } {
@@ -480,14 +648,64 @@ export class ProcessManager extends EventEmitter {
     return this.processes.get(appId)?.logs.join('') ?? ''
   }
 
-  killAll(): void {
-    for (const [, info] of this.processes) {
-      this.cancelRestartTimer(info)
-      if (info.status === 'running' && info.process.pid) {
+  /**
+   * Encerra todos os processos para o quit: cancela timers de restart, dispara
+   * SIGKILL em paralelo (sem espera graciosa — o app está saindo) e AGUARDA a
+   * saída real de cada filho, com deadline total. Nunca rejeita.
+   */
+  async killAll(): Promise<void> {
+    try {
+      const pending: Array<Promise<void>> = []
+      for (const info of this.processes.values()) {
+        this.cancelRestartTimer(info)
+        const pid = info.process.pid
+        // Encerra qualquer filho que ainda possa estar vivo — inclusive um
+        // registro fora de `running` com close atrasado (nunca deixar órfão).
+        if (!pid || info.process.exitCode !== null) continue
         info.stopping = true
-        treeKill(info.process.pid, 'SIGKILL')
-        info.status = 'stopped'
-        this.emit('status-change', info.appId, 'stopped')
+        // SIGKILL direto: no quit não há tempo para o pedido gracioso.
+        void this.sendTreeKill(pid, 'SIGKILL')
+        pending.push(info.exited)
+      }
+
+      if (pending.length > 0) {
+        // Deadline total: um filho travado não pode segurar o quit para sempre.
+        await this.waitWithTimeout(Promise.all(pending), KILL_ALL_DEADLINE_MS)
+
+        // Sobreviventes do deadline: force-kill síncrono para não deixar órfãos.
+        for (const info of this.processes.values()) {
+          const pid = info.process.pid
+          if (pid && info.process.exitCode === null) {
+            this.forceKillTreeSync(pid)
+          }
+        }
+      }
+    } catch {
+      // Best-effort: o encerramento do Hub nunca falha por causa de um filho.
+    }
+  }
+
+  /**
+   * Limpeza do caminho de crash: mata a árvore de todos os filhos de forma
+   * SÍNCRONA (o event loop pode morrer logo depois) e marca `stopped` para
+   * manter a semântica de `stopping`. Jamais lança.
+   */
+  killAllSync(): void {
+    for (const info of this.processes.values()) {
+      try {
+        this.cancelRestartTimer(info)
+        info.stopping = true
+        const pid = info.process.pid
+        // Só tenta matar quem ainda pode estar vivo (exitCode null).
+        if (pid && info.process.exitCode === null) {
+          this.forceKillTreeSync(pid)
+        }
+        if (info.status !== 'stopped') {
+          info.status = 'stopped'
+          this.emit('status-change', info.appId, 'stopped')
+        }
+      } catch {
+        // Caminho de crash: a limpeza é best-effort e nunca pode lançar.
       }
     }
   }
