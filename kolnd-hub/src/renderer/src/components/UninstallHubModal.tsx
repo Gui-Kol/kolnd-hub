@@ -55,8 +55,8 @@ interface UninstallHubModalProps {
 const STEP_LABELS: Record<string, string> = {
   kloud: 'Desinstalando o Kloud Games…',
   backup: 'Verificando o backup dos seus dados…',
-  wipe: 'Apagando seus dados em %APPDATA%\\kolnd-hub…',
   spawn: 'Iniciando o desinstalador do Kolnd Hub…',
+  wipe: 'Apagando seus dados em %APPDATA%\\kolnd-hub…',
   done: 'Concluído'
 }
 
@@ -88,8 +88,7 @@ export function UninstallHubModal({
   const [logs, setLogs] = useState<string[]>([])
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
   // Itens do %APPDATA% que NÃO puderam ser apagados no wipe (travados) — o
-  // restante seguiu; o log lista tudo. Exibido na volta para a fase confirm
-  // (ex.: desinstalador NSIS falhou após o wipe).
+  // restante seguiu; o log lista tudo. Exibido na volta para a fase confirm.
   const [wipeErrors, setWipeErrors] = useState<string[]>([])
   const [kloudError, setKloudError] = useState<string | null>(null)
   const [backupState, setBackupState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
@@ -318,6 +317,18 @@ export function UninstallHubModal({
                 2
               </span>
               <span>
+                <Monitor size={12} className="mr-1 inline text-ink-tertiary" aria-hidden="true" />
+                <strong className="text-ink-primary">O que o Windows apaga</strong>: a pasta de
+                instalação (<span className="font-mono">%LOCALAPPDATA%\Programs\Kolnd Hub</span>),
+                os atalhos e a entrada em Aplicativos — pelo desinstalador do Kolnd Hub (NSIS,
+                per-user — não exige administrador).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-pill border border-danger-border font-mono text-[9px] text-danger">
+                3
+              </span>
+              <span>
                 <Trash2 size={12} className="mr-1 inline text-ink-tertiary" aria-hidden="true" />
                 <strong className="text-ink-primary">O que o Hub apaga</strong> (só se você escolher
                 apagar): <span className="font-mono">config.json</span>,{' '}
@@ -326,18 +337,6 @@ export function UninstallHubModal({
                 <span className="font-mono">mark-lvi\</span> e{' '}
                 <span className="font-mono">game-icons\</span> — em{' '}
                 <span className="font-mono">%APPDATA%\kolnd-hub</span>.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-pill border border-danger-border font-mono text-[9px] text-danger">
-                3
-              </span>
-              <span>
-                <Monitor size={12} className="mr-1 inline text-ink-tertiary" aria-hidden="true" />
-                <strong className="text-ink-primary">O que o Windows apaga</strong>: a pasta de
-                instalação (<span className="font-mono">%LOCALAPPDATA%\Programs\Kolnd Hub</span>),
-                os atalhos e a entrada em Aplicativos — pelo desinstalador do Kolnd Hub (NSIS,
-                per-user — não exige administrador).
               </span>
             </li>
           </ol>
@@ -360,8 +359,10 @@ export function UninstallHubModal({
             >
               ⚠ {errorBanner}
               <br />
-              Nada do que já foi apagado será restaurado — o wipe é irreversível por sua escolha. Se
-              quiser sair de qualquer forma, feche esta janela e desinstale o Kolnd Hub pelo
+              {wipeErrors.length > 0
+                ? 'Nada do que já foi apagado será restaurado — o wipe é irreversível por sua escolha.'
+                : 'Seus dados e configurações não foram apagados.'}{' '}
+              Se quiser sair de qualquer forma, feche esta janela e desinstale o Kolnd Hub pelo
               aplicativo Configurações do Windows → Aplicativos → Kolnd Hub.
             </div>
           )}

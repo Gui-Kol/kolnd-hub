@@ -268,11 +268,12 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
    1. resolve o desinstalador NSIS (se não achar, nada é apagado e o erro aparece na hora);
    2. roda o fluxo do Kloud Games (UAC) — se falhar/UAC negado, pausa:
       "Desinstalar só o Hub?" ou "Cancelar";
-   3. **wipe opcional** (irreversível, só se escolhido): apaga `%APPDATA%\kolnd-hub`
-      item a item, tolerando falhas individuais (listadas no final);
-   4. dispara o desinstalador NSIS **desanexado** e o Hub se encerra
-      (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada se perde e o erro
-      aparece com a instrução de desinstalar pelo Windows.
+   3. dispara o desinstalador NSIS **desanexado** e o Hub se encerra
+      (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada é apagado e o erro
+      aparece com a instrução de desinstalar pelo Windows;
+   4. **wipe opcional** (irreversível, só se escolhido), depois do spawn confirmado:
+      apaga `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (listadas
+      no final).
 
 O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`

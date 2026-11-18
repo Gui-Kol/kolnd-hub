@@ -7,6 +7,7 @@ import {
   runHubUninstallSteps,
   removeKloudGamesService,
   POWERSHELL_BLOCKED_MESSAGE,
+  uninstaller,
   type UninstallProgress
 } from './uninstaller'
 
@@ -29,7 +30,7 @@ const {
   detectKloudGamesMock: vi.fn(),
   verifyKloudGamesRemovalMock: vi.fn(),
   findHubUninstallerMock: vi.fn(),
-  electronMock: { isPackaged: false }
+  electronMock: { isPackaged: false, appDataPath: 'C:\\fake' }
 }))
 
 vi.mock('electron', () => ({
@@ -37,7 +38,7 @@ vi.mock('electron', () => ({
     get isPackaged() {
       return electronMock.isPackaged
     },
-    getPath: () => 'C:\\fake'
+    getPath: () => electronMock.appDataPath
   },
   shell: { openPath: vi.fn() },
   BrowserWindow: class {},
@@ -114,6 +115,7 @@ beforeEach(() => {
   findHubUninstallerMock.mockReset()
 
   electronMock.isPackaged = false
+  electronMock.appDataPath = 'C:\\fake'
   getKloudGamesUninstallLogPathMock.mockReturnValue('C:\\fake\\logs\\kloud-games-uninstall.log')
   verifyKloudGamesRemovalMock.mockReturnValue({
     exeGone: true,
@@ -267,5 +269,74 @@ describe('runHubUninstallSteps — dependências e ordem (T5/T6)', () => {
     )
     const kloudEvent = events.find((evt) => evt.stepId === 'kloud')
     expect(kloudEvent?.status).toBe('done')
+  })
+
+  it('falha no spawn do NSIS → wipe nem começa e nada é apagado', async () => {
+    electronMock.isPackaged = true
+    // O spawn do NSIS falha: nenhum dado pode ser apagado antes disso.
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        process.nextTick(() => child.emit('error', new Error('spawn EACCES')))
+      }
+      return child
+    }) as never)
+
+    const events: UninstallProgress[] = []
+    const logs: string[] = []
+    const onLog = (line: string): void => {
+      logs.push(line)
+    }
+    uninstaller.on('log', onLog)
+    try {
+      const result = await runHubUninstallSteps(
+        { wipeUserData: true, skipKloud: true, backupPath: null },
+        (evt) => events.push(evt)
+      )
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toContain('Não foi possível iniciar o desinstalador')
+      // O wipe não chegou a rodar: sem lista de itens com falha e sem eventos.
+      expect(result.wipeErrors).toBeUndefined()
+      expect(events.some((evt) => evt.stepId === 'wipe')).toBe(false)
+      expect(logs.some((line) => line.startsWith('[wipe]'))).toBe(false)
+    } finally {
+      uninstaller.off('log', onLog)
+    }
+  })
+
+  it('ordem: spawn resolvido antes do primeiro evento do wipe', async () => {
+    electronMock.isPackaged = true
+    // Caminho de dados que não existe: o wipe roda, mas não apaga nada real.
+    electronMock.appDataPath = 'C:\\__kolnd_hub_flow_test__'
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        const child = new EventEmitter() as EventEmitter & { unref: () => void }
+        child.unref = vi.fn()
+        process.nextTick(() => child.emit('spawn'))
+        return child
+      }
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter
+        stderr: EventEmitter
+      }
+      child.stdout = new EventEmitter()
+      child.stderr = new EventEmitter()
+      process.nextTick(() => child.emit('close', 0))
+      return child
+    }) as never)
+
+    const events: UninstallProgress[] = []
+    const result = await runHubUninstallSteps(
+      { wipeUserData: true, skipKloud: true, backupPath: null },
+      (evt) => events.push(evt)
+    )
+
+    expect(result.ok).toBe(true)
+    const spawnDone = events.findIndex((evt) => evt.stepId === 'spawn' && evt.status === 'done')
+    const firstWipe = events.findIndex((evt) => evt.stepId === 'wipe')
+    expect(spawnDone).toBeGreaterThanOrEqual(0)
+    expect(firstWipe).toBeGreaterThan(spawnDone)
   })
 })
