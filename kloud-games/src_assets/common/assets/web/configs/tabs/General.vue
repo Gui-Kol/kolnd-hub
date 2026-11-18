@@ -35,9 +35,9 @@ function removeCmd(index) {
 <template>
   <div id="general" class="config-page">
     <!-- Locale -->
-    <div class="mb-3">
-      <label for="locale" class="form-label">{{ $t('config.locale') }}</label>
-      <select id="locale" class="form-select" v-model="config.locale">
+    <div class="kg-field">
+      <label for="locale" class="kg-label">{{ $t('config.locale') }}</label>
+      <select id="locale" class="kg-select" v-model="config.locale">
         <option value="bg">Български (Bulgarian)</option>
         <option value="cs">Čeština (Czech)</option>
         <option value="de">Deutsch (German)</option>
@@ -61,21 +61,21 @@ function removeCmd(index) {
         <option value="zh">简体中文 (Chinese Simplified)</option>
         <option value="zh_TW">繁體中文 (Chinese Traditional)</option>
       </select>
-      <div class="form-text">{{ $t('config.locale_desc') }}</div>
+      <div class="kg-help">{{ $t('config.locale_desc') }}</div>
     </div>
 
     <!-- KLOUD_GAMES Name -->
-    <div class="mb-3">
-      <label for="KLOUD_GAMES_name" class="form-label">{{ $t('config.KLOUD_GAMES_name') }}</label>
-      <input type="text" class="form-control" id="KLOUD_GAMES_name" placeholder="KLOUD_GAMES"
+    <div class="kg-field">
+      <label for="KLOUD_GAMES_name" class="kg-label">{{ $t('config.KLOUD_GAMES_name') }}</label>
+      <input type="text" class="kg-input" id="KLOUD_GAMES_name" placeholder="KLOUD_GAMES"
              v-model="config.KLOUD_GAMES_name" />
-      <div class="form-text">{{ $t('config.KLOUD_GAMES_name_desc') }}</div>
+      <div class="kg-help">{{ $t('config.KLOUD_GAMES_name_desc') }}</div>
     </div>
 
     <!-- Log Level -->
-    <div class="mb-3">
-      <label for="min_log_level" class="form-label">{{ $t('config.min_log_level') }}</label>
-      <select id="min_log_level" class="form-select" v-model="config.min_log_level">
+    <div class="kg-field">
+      <label for="min_log_level" class="kg-label">{{ $t('config.min_log_level') }}</label>
+      <select id="min_log_level" class="kg-select" v-model="config.min_log_level">
         <option value="0">{{ $t('config.min_log_level_0') }}</option>
         <option value="1">{{ $t('config.min_log_level_1') }}</option>
         <option value="2">{{ $t('config.min_log_level_2') }}</option>
@@ -84,14 +84,14 @@ function removeCmd(index) {
         <option value="5">{{ $t('config.min_log_level_5') }}</option>
         <option value="6">{{ $t('config.min_log_level_6') }}</option>
       </select>
-      <div class="form-text">{{ $t('config.min_log_level_desc') }}</div>
+      <div class="kg-help">{{ $t('config.min_log_level_desc') }}</div>
     </div>
 
     <!-- Global Prep Commands -->
-    <div id="global_prep_cmd" class="mb-3 d-flex flex-column">
-      <div class="form-label">{{ $t('config.global_prep_cmd') }}</div>
-      <div class="form-text">{{ $t('config.global_prep_cmd_desc') }}</div>
-      <table class="table" v-if="config.global_prep_cmd.length > 0">
+    <div id="global_prep_cmd" class="kg-field kg-row kg-stack-2">
+      <div class="kg-label">{{ $t('config.global_prep_cmd') }}</div>
+      <div class="kg-help">{{ $t('config.global_prep_cmd_desc') }}</div>
+      <table class="kg-table" v-if="config.global_prep_cmd.length > 0">
         <thead>
         <tr>
           <th scope="col"><Play :size="16" /> {{ $t('_common.do_cmd') }}</th>
@@ -105,14 +105,14 @@ function removeCmd(index) {
         <tbody>
         <tr v-for="(c, i) in config.global_prep_cmd" :key="i">
           <td>
-            <label :for="`prep-cmd-do-${i}`" class="visually-hidden">{{ $t('_common.do_cmd') }}</label>
-            <input :id="`prep-cmd-do-${i}`" type="text" class="form-control monospace" v-model="c.do" />
+            <label :for="`prep-cmd-do-${i}`" class="kg-visually-hidden">{{ $t('_common.do_cmd') }}</label>
+            <input :id="`prep-cmd-do-${i}`" type="text" class="kg-input kg-mono" v-model="c.do" />
           </td>
           <td>
-            <label :for="`prep-cmd-undo-${i}`" class="visually-hidden">{{ $t('_common.undo_cmd') }}</label>
-            <input :id="`prep-cmd-undo-${i}`" type="text" class="form-control monospace" v-model="c.undo" />
+            <label :for="`prep-cmd-undo-${i}`" class="kg-visually-hidden">{{ $t('_common.undo_cmd') }}</label>
+            <input :id="`prep-cmd-undo-${i}`" type="text" class="kg-input kg-mono" v-model="c.undo" />
           </td>
-          <td v-if="platform === 'windows'" class="align-middle">
+          <td v-if="platform === 'windows'" >
             <Checkbox :id="'prep-cmd-admin-' + i"
                       label="_common.elevated"
                       desc=""
@@ -120,23 +120,23 @@ function removeCmd(index) {
             ></Checkbox>
           </td>
           <td>
-            <button class="btn btn-danger" @click="removeCmd(i)">
+            <button class="kg-btn kg-btn-danger" @click="removeCmd(i)">
               <Trash2 :size="16" />
             </button>
-            <button class="btn btn-success" @click="addCmd">
+            <button class="kg-btn kg-btn-success" @click="addCmd">
               <Plus :size="16" />
             </button>
           </td>
         </tr>
         </tbody>
       </table>
-      <button class="ms-0 mt-2 btn btn-success" style="margin: 0 auto" @click="addCmd">
+      <button class="kg-mt-2 kg-btn kg-btn-success" style="margin: 0 auto" @click="addCmd">
         &plus; {{ $t('config.add') }}
       </button>
     </div>
 
     <!-- Notify Pre-Releases -->
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="notify_pre_releases"
               locale-prefix="config"
               v-model="config.notify_pre_releases"
@@ -144,7 +144,7 @@ function removeCmd(index) {
     ></Checkbox>
 
     <!-- Enable system tray -->
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="system_tray"
               locale-prefix="config"
               v-model="config.system_tray"

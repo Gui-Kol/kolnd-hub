@@ -63,13 +63,10 @@ except Exception:      # pragma: no cover — HUD must never die over cosmetics
     HoloAvatar = None
 
 
-def _base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent
+from core.paths import data_dir
 
-BASE_DIR   = _base_dir()
-CONFIG_DIR = BASE_DIR / "config"
+DATA_DIR   = data_dir()
+CONFIG_DIR = DATA_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
 
 
@@ -5574,7 +5571,7 @@ class MainWindow(QMainWindow):
         desktop = self._get_desktop_dir()
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = _base_dir() / "config" / "jarvis.ico"
+        ico_path = DATA_DIR / "config" / "jarvis.ico"
         if not ico_path.exists():
             self._build_jarvis_icon(ico_path)
 

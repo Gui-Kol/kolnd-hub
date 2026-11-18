@@ -1,10 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
+import { useReducedMotion } from './lib/motion'
+import { Button, Modal, Toast } from './components/ui'
 import { Layout } from './components/Layout'
+import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
 import { Settings } from './components/Settings'
 import { Inicializacao } from './components/Inicializacao'
+import { Biblioteca } from './components/Biblioteca'
+import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
 import { FirstRunInstall } from './components/FirstRunInstall'
@@ -16,13 +21,16 @@ import {
   SystemProcess,
   ImportanceLevel,
   StartupItem,
+  Game,
   IMPORTANCE_LABELS
 } from './types'
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
+import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
 
 interface Notice {
   id: number
   text: string
+  kind?: 'success' | 'error' | 'info'
 }
 
 function isFirstRunFromQuery(): boolean {
@@ -35,6 +43,8 @@ function isFirstRunFromQuery(): boolean {
 }
 
 function App(): JSX.Element {
+  // Toast de aviso decorativo vira fade curto com reduce.
+  const reduced = useReducedMotion()
   const [currentPage, setCurrentPage] = useState<Page>('dashboard')
   const [appStates, setAppStates] = useState<Record<string, AppState>>({})
   const [apps, setApps] = useState<AppConfig[]>(defaultApps)
@@ -52,6 +62,21 @@ function App(): JSX.Element {
   const [startupImportance, setStartupImportance] = useState<Record<string, ImportanceLevel>>({})
   const [isFirstRun, setIsFirstRun] = useState<boolean>(isFirstRunFromQuery())
   const [exitModalOpen, setExitModalOpen] = useState<boolean>(false)
+  // Busca global (atalho "/"): overlay discreto com apps + jogos.
+  const [searchOpen, setSearchOpen] = useState<boolean>(false)
+  // Modo Big Picture: 'hidden' = shell normal; 'setup' = gate (sem controle
+  // configurado, exibe a tela de configuração antes da home); 'transitioning'
+  // = transição cinematográfica (T7) antes da home liberar; 'active' = home.
+  const [bigPicture, setBigPicture] = useState<'hidden' | 'setup' | 'transitioning' | 'active'>(
+    'hidden'
+  )
+  // Garante que o autostart do Kloud Games seja avaliado uma única vez por
+  // sessão (StrictMode invoca os efeitos duas vezes em dev).
+  const kloudAutoLaunchTriedRef = useRef(false)
+  const closeExitModal = useCallback((): void => setExitModalOpen(false), [])
+  // Fechar o toast é estável (o primitivo <Toast/> gerencia o timer de 7 s;
+  // identidade estável evita resetar o auto-dismiss a cada render do App).
+  const closeNotice = useCallback((): void => setNotice(null), [])
 
   // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
   // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
@@ -60,59 +85,24 @@ function App(): JSX.Element {
     const command = `"${exePath}"`
     setApps((prev) => {
       const next = prev.map((a) => (a.id === 'kloud-games' ? { ...a, command, cwd: dir } : a))
-      localStorage.setItem('kolnd-hub-apps', JSON.stringify(next))
+      void saveAppConfigs(next)
       return next
     })
   }, [])
 
-  // Auto-dismiss launch/stop error toasts.
+  // Load saved app configs (electron-store via IPC, com migração única do
+  // legado localStorage e fallback para ele se o store estiver indisponível).
   useEffect(() => {
-    if (!notice) return
-    const timer = setTimeout(() => setNotice(null), 7000)
-    return (): void => clearTimeout(timer)
-  }, [notice])
-
-  // Load saved app configs from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('kolnd-hub-apps')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as AppConfig[]
-
-        // Old defaults → new bundled paths. Only entries that still hold the
-        // old default values are migrated; anything the user customized is
-        // left untouched.
-        const legacyDefaults: Record<string, Array<{ command: string; cwd: string }>> = {
-          'mark-lvi': [{ command: 'py main.py', cwd: '../Mark-LVI' }],
-          'kloud-games': [
-            { command: 'kloud-games.exe', cwd: '../kloud-games' },
-            // MSI-era default: jogo instalado pelo Hub na 1ª execução
-            { command: 'KLOUD_GAMES.exe', cwd: 'resources/programs/kloud-games' }
-          ]
-        }
-
-        const migrate = (a: AppConfig): AppConfig => {
-          const legacy = (legacyDefaults[a.id] ?? []).find(
-            (l) => l.command === a.command && l.cwd === a.cwd
-          )
-          if (legacy) {
-            const def = defaultApps.find((d) => d.id === a.id)
-            return def ? { ...def, ...a, command: def.command, cwd: def.cwd } : a
-          }
-          return a
-        }
-
-        // Merge saved values onto the current defaults so apps added in newer
-        // versions appear too, instead of localStorage hiding them forever.
-        const merged = defaultApps.map((def) => {
-          const savedApp = parsed.find((a) => a.id === def.id)
-          return savedApp ? migrate({ ...def, ...savedApp }) : def
-        })
-        const mergedIds = new Set(merged.map((a) => a.id))
-        setApps([...merged, ...parsed.map(migrate).filter((a) => !mergedIds.has(a.id))])
-      } catch {
-        // Ignore corrupted data
-      }
+    let mounted = true
+    loadAppConfigs()
+      .then((saved) => {
+        if (mounted) setApps(saved)
+      })
+      .catch(() => {
+        // Ignora — mantém os defaults
+      })
+    return (): void => {
+      mounted = false
     }
   }, [])
 
@@ -129,9 +119,12 @@ function App(): JSX.Element {
       })
   }, [applyKloudGamesConfig])
 
-  // Nome do computador (exibe na aba lateral e na página de inicialização).
+  // Nome do computador (exibe na titlebar, no mega menu e na página de inicialização).
   useEffect(() => {
-    window.api.systemPcName().then(setPcName).catch(() => setPcName(null))
+    window.api
+      .systemPcName()
+      .then(setPcName)
+      .catch(() => setPcName(null))
   }, [])
 
   // ── Carregamento inicial (tela de loading) ────────────────────────
@@ -143,7 +136,7 @@ function App(): JSX.Element {
 
     const init = async (): Promise<void> => {
       await Promise.allSettled([
-        // Perfil do sistema (nome do PC, usado na sidebar e inicialização).
+        // Perfil do sistema (nome do PC, usado na titlebar e inicialização).
         window.api.systemPcName().then((name) => {
           if (mounted) setPcName(name)
         }),
@@ -169,42 +162,85 @@ function App(): JSX.Element {
     }
   }, [])
 
-  // Poll do status dos processos lançados pelo Hub (a cada 2s).
+  // Status dos processos lançados pelo Hub é 100% orientado a eventos:
+  // o main emite `status-change` em toda transição (ver onStatusChanged abaixo),
+  // então o polling periódico de getAllStatus era redundante. O estado inicial
+  // vem da carga em `init()`; o restante chega por eventos.
+
+  // Autostart do Kloud Games (preferência em Configurações). Só é avaliado
+  // depois da tela de carregamento, uma única vez e nunca durante a 1ª
+  // execução (?first-run=1). Se o jogo já estiver em execução, não abre uma
+  // segunda instância. Falhas são registradas e avisadas discretamente —
+  // nunca bloqueiam o Hub.
   useEffect(() => {
-    const poll = async (): Promise<void> => {
+    if (isLoading) return
+    if (kloudAutoLaunchTriedRef.current) return
+    if (isFirstRunFromQuery()) return
+    kloudAutoLaunchTriedRef.current = true
+
+    void (async () => {
       try {
-        const status = await window.api.getAllStatus()
-        setAppStates((prev) => {
-          const next = { ...prev }
-          for (const [id, state] of Object.entries(status)) {
-            next[id] = state as AppState
-          }
-          return next
+        const enabled = await window.api.getLaunchKloudOnStart()
+        if (!enabled) return
+
+        const status = await window.api.kloudGamesStatus()
+        if (status.running) return
+
+        const result = await window.api.kloudGamesLaunch()
+        if (!result.success) {
+          console.error('[kloud-games] Falha ao iniciar automaticamente:', result.error)
+          setNotice({
+            id: Date.now(),
+            text: `Não foi possível iniciar o Kloud Games automaticamente: ${result.error ?? 'erro desconhecido'}`
+          })
+        } else if (result.installedNow) {
+          setNotice({ id: Date.now(), text: 'Kloud Games foi instalado e iniciado.' })
+        }
+      } catch (err) {
+        console.error('[kloud-games] Erro ao iniciar automaticamente:', err)
+        setNotice({
+          id: Date.now(),
+          text: 'Não foi possível iniciar o Kloud Games automaticamente. Você pode abri-lo pela aba Ferramentas.'
         })
-      } catch {
-        // Ignore polling errors
       }
-    }
+    })()
+  }, [isLoading])
 
-    poll()
-    const interval = setInterval(poll, 2000)
-    return (): void => clearInterval(interval)
-  }, [])
-
-  // Poll de processos do sistema em segundo plano (a cada 5s).
+  // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
+  // 5s com a janela visível, 30s quando oculta (bandeja), trocando
+  // imediatamente no visibilitychange.
   useEffect(() => {
-    const poll = async (): Promise<void> => {
+    let cancelled = false
+    let timer: number | undefined
+
+    const tick = async (): Promise<void> => {
       try {
         const procs = await window.api.systemRunningProcesses()
-        setBgProcesses(procs as SystemProcess[])
+        if (!cancelled) setBgProcesses(procs as SystemProcess[])
       } catch {
         // Ignore polling errors
+      } finally {
+        if (!cancelled) {
+          const delay = document.visibilityState === 'visible' ? 5000 : 30000
+          timer = window.setTimeout(() => void tick(), delay)
+        }
       }
     }
 
-    poll()
-    const interval = setInterval(poll, 5000)
-    return (): void => clearInterval(interval)
+    const onVisibility = (): void => {
+      // Reinicia já com o intervalo novo; se a janela voltou a ficar visível,
+      // atualiza na hora em vez de esperar o ciclo de 30s.
+      window.clearTimeout(timer)
+      void tick()
+    }
+
+    void tick()
+    document.addEventListener('visibilitychange', onVisibility)
+    return (): void => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   // Listen for real-time status changes from main process
@@ -231,13 +267,7 @@ function App(): JSX.Element {
     }
     setStartupItems(items)
 
-    let map: Record<string, ImportanceLevel> = {}
-    try {
-      const saved = localStorage.getItem('kolnd-hub-startup-importance')
-      map = saved ? JSON.parse(saved) : {}
-    } catch {
-      // Ignore corrupted data
-    }
+    const map = await loadImportanceMap()
 
     const next: Record<string, ImportanceLevel> = {}
     for (const item of items) {
@@ -247,7 +277,9 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    loadStartupItems()
+    // Caregamento assíncrono: o estado só muda quando a lista chega.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStartupItems()
   }, [loadStartupItems])
 
   const handleRemoveStartup = useCallback(
@@ -263,7 +295,7 @@ function App(): JSX.Element {
 
       await loadStartupItems()
     },
-    [pcName, loadStartupItems]
+    [loadStartupItems]
   )
 
   // Remove vários itens da inicialização em lote.
@@ -283,23 +315,18 @@ function App(): JSX.Element {
   )
 
   // Verifica se um app configurado no Hub já está na inicialização do Windows.
-  const isAppInStartup = useCallback(
-    (app: AppConfig, items: StartupItem[]): boolean => {
-      const exe = executableName(app.command)
-      if (!exe) return false
-      return items.some(
-        (item) =>
-          executableName(item.path) === exe ||
-          executableName(item.name) === exe
-      )
-    },
-    []
-  )
+  const isAppInStartup = useCallback((app: AppConfig, items: StartupItem[]): boolean => {
+    const exe = executableName(app.command)
+    if (!exe) return false
+    return items.some(
+      (item) => executableName(item.path) === exe || executableName(item.name) === exe
+    )
+  }, [])
 
   // Apps configurados no Hub que ainda não iniciam com o PC.
   const appsNotInStartup = useMemo(() => {
-    return defaultApps.filter((app) => !isAppInStartup(app, startupItems))
-  }, [startupItems, isAppInStartup])
+    return apps.filter((app) => !isAppInStartup(app, startupItems))
+  }, [apps, startupItems, isAppInStartup])
 
   const handleAddStartup = useCallback(
     async (app: AppConfig): Promise<void> => {
@@ -384,7 +411,7 @@ function App(): JSX.Element {
         return
       }
 
-      const result = await window.api.launchApp(app.id, app.command, app.cwd)
+      const result = await window.api.launchApp(app.id, app.command, app.cwd, app.useShell)
       if (!result.success) {
         setNotice({
           id: Date.now(),
@@ -415,9 +442,77 @@ function App(): JSX.Element {
     [apps]
   )
 
+  // Busca global: lançar um jogo pelo Enter/clique usa o mesmo caminho do
+  // card da Biblioteca (`window.api.launchGame`), com aviso discreto no lugar
+  // do toast local da grade (que não existe aqui).
+  const handleLaunchGame = useCallback(async (game: Game): Promise<void> => {
+    const result = await window.api.launchGame(game.id)
+    if (!result.ok) {
+      setNotice({
+        id: Date.now(),
+        text: `Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`,
+        kind: 'error'
+      })
+      return
+    }
+    setNotice({
+      id: Date.now(),
+      text: result.focused
+        ? `${game.name} já está aberto — trazendo a janela para frente.`
+        : result.alreadyRunning
+          ? `${game.name} já está em execução — aguarde a janela.`
+          : `Iniciando ${game.name}…`,
+      kind: 'info'
+    })
+  }, [])
+
+  // Atalhos da busca global: fecham o overlay e delegam ao fluxo de launch.
+  const handleSearchLaunchApp = useCallback(
+    (app: AppConfig): void => {
+      setSearchOpen(false)
+      void handleLaunch(app)
+    },
+    [handleLaunch]
+  )
+
+  const handleSearchLaunchGame = useCallback(
+    (game: Game): void => {
+      setSearchOpen(false)
+      void handleLaunchGame(game)
+    },
+    [handleLaunchGame]
+  )
+
+  // "/" abre a busca global — apenas fora de campos editáveis, sem modificadores,
+  // com o overlay fechado e fora do Big Picture (que tem navegação própria).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== '/') return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (searchOpen) return
+      if (bigPicture !== 'hidden' || isFirstRun || isLoading || exitModalOpen) return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+          return
+        }
+      }
+      event.preventDefault()
+      setSearchOpen(true)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return (): void => window.removeEventListener('keydown', onKeyDown, true)
+  }, [searchOpen, bigPicture, isFirstRun, isLoading, exitModalOpen])
+
   const handleSaveApps = useCallback((updatedApps: AppConfig[]): void => {
     setApps(updatedApps)
-    localStorage.setItem('kolnd-hub-apps', JSON.stringify(updatedApps))
+    void saveAppConfigs(updatedApps)
+  }, [])
+
+  // Repassa o toast do App para a Zona de perigo (onToast opcional).
+  const onToast = useCallback((msg: string, kind: 'success' | 'error' | 'info'): void => {
+    setNotice({ id: Date.now(), text: msg, kind })
   }, [])
 
   // Solicita ao processo principal que encerre tudo (processos, servidores,
@@ -428,7 +523,7 @@ function App(): JSX.Element {
       if (!result.success) {
         setNotice({
           id: Date.now(),
-          text: 'Não foi possível encerrar o Hub completamente.'
+          text: result.error ?? 'Não foi possível encerrar o Hub completamente.'
         })
       }
     } catch (err) {
@@ -439,12 +534,68 @@ function App(): JSX.Element {
     }
   }, [])
 
+  // ── Big Picture: entrada sempre passa pelo gate ─────────────
+  // Único ponto de decisão (todos os caminhos de entrada — botão da topbar,
+  // mega menu, deep-links futuros — passam por aqui):
+  //   controle configurado (ou store ilegível tratada como ausente) inexistente
+  //   → gate de configuração ('setup'); config válida → home ('active').
+  const enterBigPicture = useCallback((): void => {
+    // ?first-run=1 nunca abre o Big Picture (P12) — recusa silenciosa.
+    if (isFirstRunFromQuery()) {
+      console.warn('[big-picture] entrada recusada durante a primeira execução')
+      return
+    }
+    void (async () => {
+      let hasConfig: boolean
+      try {
+        const result = await window.api.getGamepadConfig()
+        // Config ausente/inválida/erro (store corrompido) → gate ("não configurado").
+        hasConfig = result.ok && result.config !== null
+      } catch {
+        hasConfig = false
+      }
+      void window.api.setFullScreen(true)
+      // Config válida → transição cinematográfica (T7); sem config → gate (T6).
+      setBigPicture(hasConfig ? 'transitioning' : 'setup')
+    })()
+  }, [])
+
+  const exitBigPicture = useCallback((): void => {
+    void window.api.setFullScreen(false)
+    setBigPicture('hidden')
+  }, [])
+
+  // Setup do gate concluído (config persistida): transição cinematográfica
+  // direto para a home — nunca volta para o Hub no meio do caminho.
+  const handleBigPictureSetupComplete = useCallback((): void => {
+    setBigPicture('transitioning')
+  }, [])
+
+  // T7: transição cinematográfica concluída (ou pulada) → home liberada.
+  const handleBigPictureTransitionComplete = useCallback((): void => {
+    setBigPicture('active')
+  }, [])
+
   const saveDefaultAppConfigs = useCallback((): void => {
     setApps(defaultApps)
-    localStorage.setItem('kolnd-hub-apps', JSON.stringify(defaultApps))
+    void saveAppConfigs(defaultApps)
   }, [])
 
   const runningCount = Object.values(effectiveStates).filter((s) => s.status === 'running').length
+
+  // Toast de aviso/erro/sucesso — compartilhado entre o shell normal,
+  // o Big Picture e a Zona de perigo (via onToast). Mesmo canto inferior
+  // direito e 7 s do aviso anterior, agora via primitivo <Toast/> (cores/ícones
+  // tokenizados). `kind` ausente vira 'error' — mesmo tom vermelho de antes;
+  // `key` por id reinicia o timer de 7 s e reanuncia a cada aviso novo.
+  const noticeToast = notice && (
+    <Toast
+      key={notice.id}
+      kind={notice.kind ?? 'error'}
+      message={notice.text}
+      onClose={closeNotice}
+    />
+  )
 
   return (
     <>
@@ -461,104 +612,116 @@ function App(): JSX.Element {
         />
       ) : isLoading ? (
         <LoadingScreen onReady={handleLoadingReady} />
+      ) : bigPicture !== 'hidden' ? (
+        <>
+          {/* ── Big Picture: takeover em tela cheia (no lugar do Layout) ── */}
+          <BigPicture
+            mode={bigPicture}
+            onExit={exitBigPicture}
+            onSetupComplete={handleBigPictureSetupComplete}
+            onTransitionComplete={handleBigPictureTransitionComplete}
+          />
+          {noticeToast}
+        </>
       ) : (
         <>
           <Layout
             currentPage={currentPage}
             onNavigate={setCurrentPage}
             runningCount={runningCount}
+            toolCount={apps.length}
             pcName={pcName}
             onExit={() => setExitModalOpen(true)}
+            onEnterBigPicture={enterBigPicture}
+            onOpenSearch={() => setSearchOpen(true)}
           >
-            {currentPage === 'dashboard' ? (
-              <Dashboard
-                apps={apps}
-                appStates={effectiveStates}
-                onLaunch={handleLaunch}
-                onStop={handleStop}
-              />
-            ) : currentPage === 'inicializacao' ? (
-              <ErrorBoundary>
-                <Inicializacao
-                  pcName={pcName ?? ''}
-                  items={startupItems}
-                  importance={startupImportance}
-                  labels={IMPORTANCE_LABELS}
-                  onRemove={handleRemoveStartup}
-                  onRemoveBatch={handleRemoveBatchStartup}
-                  onAdd={handleAddStartup}
-                  onAddBatch={handleAddBatchStartup}
-                  onReload={loadStartupItems}
-                  appsNotInStartup={appsNotInStartup}
-                />
-              </ErrorBoundary>
-            ) : (
-              <Settings apps={apps} onSave={handleSaveApps} />
-            )}
+            {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
+                easing --ease-standard; uma camada por página. Com reduce: 0 ms.
+                O <main> rolável vem do Layout; o wrapper anima só a troca. ── */}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={currentPage}
+                initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: reduced ? 0 : -8 }}
+                transition={reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {currentPage === 'dashboard' ? (
+                  <Dashboard
+                    apps={apps}
+                    appStates={effectiveStates}
+                    onLaunch={handleLaunch}
+                    onStop={handleStop}
+                  />
+                ) : currentPage === 'inicializacao' ? (
+                  <ErrorBoundary>
+                    <Inicializacao
+                      pcName={pcName ?? ''}
+                      items={startupItems}
+                      importance={startupImportance}
+                      labels={IMPORTANCE_LABELS}
+                      onRemove={handleRemoveStartup}
+                      onRemoveBatch={handleRemoveBatchStartup}
+                      onAdd={handleAddStartup}
+                      onAddBatch={handleAddBatchStartup}
+                      onReload={loadStartupItems}
+                      appsNotInStartup={appsNotInStartup}
+                    />
+                  </ErrorBoundary>
+                ) : currentPage === 'biblioteca' ? (
+                  <ErrorBoundary>
+                    <Biblioteca />
+                  </ErrorBoundary>
+                ) : (
+                  <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </Layout>
 
           {/* ── Error toast ──────────────────────────────── */}
-          <AnimatePresence>
-            {notice && (
-              <motion.div
-                key={notice.id}
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="fixed bottom-6 right-6 z-[60] flex max-w-md items-start gap-3 rounded-xl border border-red-500/25 bg-[#1a1014]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
-              >
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-                <p className="text-xs leading-relaxed text-red-100">{notice.text}</p>
-                <button
-                  onClick={() => setNotice(null)}
-                  className="ml-2 shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:text-white"
-                  aria-label="Fechar aviso"
-                >
-                  <X size={13} />
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {noticeToast}
 
-          {/* ── Modal: confirmação de saída ──────────────── */}
+          {/* ── Busca global (atalho "/") ───────────────── */}
+          {searchOpen && (
+            <GlobalSearch
+              apps={apps}
+              onClose={() => setSearchOpen(false)}
+              onLaunchApp={handleSearchLaunchApp}
+              onLaunchGame={handleSearchLaunchGame}
+            />
+          )}
+
+          {/* Modal: confirmação de saída — Esc/backdrop/botões fecham (comportamento
+              restaurado em 16/11/2026 após decisão do usuário). Textos intactos. */}
           {exitModalOpen && (
-            <div
-              className="fixed inset-0 z-[100] flex items-center justify-center"
-              onClick={(e) => {
-                if (e.target === e.currentTarget) setExitModalOpen(false)
-              }}
-            >
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-              <div
-                className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0f1117]/95 p-6 shadow-2xl backdrop-blur-xl"
-              >
-                <div className="flex items-start gap-3">
-                  <AlertTriangle size={24} className="mt-0.5 shrink-0 text-red-400" />
-                  <div>
-                    <h2 className="text-lg font-bold text-white">Encerrar Kolnd Hub?</h2>
-                    <p className="mt-1 text-sm text-slate-400 leading-relaxed">
-                      Todos os programas e servidores iniciados pelo Hub serão fechados,
-                      incluindo o que estiver rodando em segundo plano. Nada do Kolnd Hub
-                      permanecerá aberto.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-6 flex justify-end gap-3">
-                  <button
-                    onClick={() => setExitModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors"
-                  >
+            <Modal
+              title="Encerrar Kolnd Hub?"
+              onClose={closeExitModal}
+              closeLabel="Fechar confirmação de saída"
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setExitModalOpen(false)}>
                     Não
-                  </button>
-                  <button
-                    onClick={handleExit}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-600 hover:bg-red-500 shadow-glow-red transition-colors"
-                  >
+                  </Button>
+                  <Button variant="danger" onClick={handleExit}>
                     Sim, encerrar
-                  </button>
-                </div>
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  size={24}
+                  className="mt-0.5 shrink-0 text-danger"
+                  aria-hidden="true"
+                />
+                <p className="text-sm leading-relaxed text-ink-secondary">
+                  Todos os programas e servidores iniciados pelo Hub serão fechados, incluindo o que
+                  estiver rodando em segundo plano. Nada do Kolnd Hub permanecerá aberto.
+                </p>
               </div>
-            </div>
+            </Modal>
           )}
         </>
       )}

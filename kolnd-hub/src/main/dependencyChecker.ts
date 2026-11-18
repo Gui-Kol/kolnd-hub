@@ -66,7 +66,9 @@ export async function checkDependencies(): Promise<DependencyCheckResult> {
 export function formatDependencyReport(result: DependencyCheckResult): string {
   const lines: string[] = []
   lines.push('=== Relatório de Dependências ===')
-  lines.push(`Python: ${result.pythonInstalled ? `instalado (${result.pythonVersion ?? 'versão desconhecida'})` : 'NÃO instalado'}`)
+  lines.push(
+    `Python: ${result.pythonInstalled ? `instalado (${result.pythonVersion ?? 'versão desconhecida'})` : 'NÃO instalado'}`
+  )
   lines.push(`pip: ${result.pipInstalled ? 'disponível' : 'NÃO disponível'}`)
   return lines.join('\n')
 }

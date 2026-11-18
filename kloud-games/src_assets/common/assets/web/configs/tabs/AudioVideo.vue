@@ -19,12 +19,12 @@ const config = ref(props.config)
 <template>
   <div id="audio-video" class="config-page">
     <!-- Audio Sink -->
-    <div class="mb-3">
-      <label for="audio_sink" class="form-label">{{ $t('config.audio_sink') }}</label>
-      <input type="text" class="form-control" id="audio_sink"
+    <div class="kg-field">
+      <label for="audio_sink" class="kg-label">{{ $t('config.audio_sink') }}</label>
+      <input type="text" class="kg-input" id="audio_sink"
              :placeholder="$tp('config.audio_sink_placeholder', 'alsa_output.pci-0000_09_00.3.analog-stereo')"
              v-model="config.audio_sink" />
-      <div class="form-text">
+      <div class="kg-help">
         {{ $tp('config.audio_sink_desc') }}<br>
         <PlatformLayout :platform="platform">
           <template #windows>
@@ -50,15 +50,15 @@ const config = ref(props.config)
     <PlatformLayout :platform="platform">
       <template #windows>
         <!-- Virtual Sink -->
-        <div class="mb-3">
-          <label for="virtual_sink" class="form-label">{{ $t('config.virtual_sink') }}</label>
-          <input type="text" class="form-control" id="virtual_sink" :placeholder="$t('config.virtual_sink_placeholder')"
+        <div class="kg-field">
+          <label for="virtual_sink" class="kg-label">{{ $t('config.virtual_sink') }}</label>
+          <input type="text" class="kg-input" id="virtual_sink" :placeholder="$t('config.virtual_sink_placeholder')"
                  v-model="config.virtual_sink" />
-          <div class="form-text">{{ $t('config.virtual_sink_desc') }}</div>
+          <div class="kg-help">{{ $t('config.virtual_sink_desc') }}</div>
         </div>
 
         <!-- Install Steam Audio Drivers -->
-        <Checkbox class="mb-3"
+        <Checkbox class="kg-field"
                   id="install_steam_audio_drivers"
                   locale-prefix="config"
                   v-model="config.install_steam_audio_drivers"
@@ -68,7 +68,7 @@ const config = ref(props.config)
     </PlatformLayout>
 
     <!-- Disable Audio -->
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="stream_audio"
               locale-prefix="config"
               v-model="config.stream_audio"
@@ -78,7 +78,7 @@ const config = ref(props.config)
     <PlatformLayout :platform="platform">
       <template #windows>
         <!-- Externally Managed Audio -->
-        <Checkbox class="mb-3"
+        <Checkbox class="kg-field"
                   id="external_audio"
                   locale-prefix="config"
                   v-model="config.external_audio"

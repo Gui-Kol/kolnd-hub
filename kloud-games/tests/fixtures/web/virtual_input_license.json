@@ -1,0 +1,14 @@
+{
+  "operation_ok": true,
+  "service_available": true,
+  "state": "licensed",
+  "licensed": true,
+  "active_devices": 1,
+  "activation_limit": 5,
+  "activation_usage": 1,
+  "plan_name": "Personal",
+  "customer_email": "operator@example.com",
+  "message": "License validated.",
+  "purchase_url": "https://app.lizardbyte.dev/#/purchase",
+  "manage_account_url": "https://app.lizardbyte.dev/#/account"
+}

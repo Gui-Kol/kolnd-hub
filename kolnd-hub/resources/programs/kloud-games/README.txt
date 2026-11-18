@@ -26,7 +26,7 @@ O .bat executa, em ordem:
      - dependências MSYS2/ucrt64 (pacman --needed)
      - cmake + ninja (gcc/g++) e cpack -G WIX -> KLOUD_GAMES.msi
      - copia o MSI para cá
-  2. npm run package (electron-builder) -> dist\Kolnd Hub Setup 1.0.0.exe
+  2. npm run package (electron-builder) -> dist\Kolnd Hub Setup <versao>.exe  (versao = version em kolnd-hub\package.json)
 
 Pré-requisitos na máquina de build: git, Node.js LTS, ~2 GB de espaço em
 cmake-build-windows/ na primeira vez, e acesso à internet (submódulos,
@@ -40,5 +40,7 @@ Notas:
   - Ao abrir o Kloud Games pelo Hub, ele procura o KLOUD_GAMES.exe nesta
     pasta (e em Program Files). Se não encontrar, abre o MSI acima para
     instalação (UAC). Os caminhos detectados (exe/msi) são salvos em
-    kloud-games.paths.json nesta pasta — arquivo gerado em runtime,
-    ignorado pelo git, não edite manualmente.
+    kloud-games.paths.json na pasta de dados do Hub (%APPDATA%\kolnd-hub) —
+    arquivo gerado em runtime. Uma cópia antiga aqui é migrada
+    automaticamente na primeira leitura (a antiga vira
+    kloud-games.paths.json.migrated).

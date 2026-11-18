@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelo 04 · Pareamento — Kloud Games</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      /* Layout: pareamento (esquerda) + clientes pareados (direita) */
+      .pair-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 1000px) {
+        .pair-layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 16px 0 18px;
+      }
+      .step {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .step .n {
+        display: flex;
+        width: 22px;
+        height: 22px;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--accent-border);
+        border-radius: var(--radius-pill);
+        background: var(--accent-muted);
+        color: var(--accent);
+        font-size: 10.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .step .t {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .step .d {
+        margin-top: 1px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+      }
+
+      .pin-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .pin-box {
+        width: 54px;
+        height: 58px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-control);
+        background: var(--bg-sunken);
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 24px;
+        font-weight: 600;
+        text-align: center;
+        transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
+      }
+      .pin-box:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-muted);
+        outline: none;
+      }
+      .pin-box.filled {
+        border-color: var(--accent-border);
+        background: var(--accent-muted);
+      }
+
+      .pending-device {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+        padding: 10px 12px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--radius-control);
+        background: var(--bg-sunken);
+      }
+      .pending-device .name {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .pending-device .addr {
+        color: var(--text-tertiary);
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+      }
+
+      .client-name {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .client-name .nm {
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .client-name .sub {
+        color: var(--text-tertiary);
+        font-size: 10.5px;
+      }
+      .row-actions {
+        display: flex;
+        gap: 4px;
+        justify-content: flex-end;
+      }
+
+      .session-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+        padding: 18px;
+      }
+      @media (max-width: 760px) {
+        .session-card {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .session-art {
+        display: flex;
+        width: 56px;
+        height: 56px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-control);
+        background: linear-gradient(150deg, #3a2a12, #1b2430);
+        color: var(--text-primary);
+      }
+      .session-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        margin-top: 8px;
+      }
+      .session-stats .s .k {
+        color: var(--text-tertiary);
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .session-stats .s .v {
+        margin-top: 1px;
+        font-size: 12.5px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandstrip">
+        <div class="brandstrip-left">
+          <div class="brandmark" aria-hidden="true">
+            <svg class="i sm fill" viewBox="0 0 24 24"><polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" /></svg>
+          </div>
+          <span class="brandname">Kolnd <span>· Kloud Games</span></span>
+          <span class="pill-meta">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span class="truncate">KOLND-STREAM · 172.16.0.10</span>
+          </span>
+        </div>
+        <div class="brandstrip-right"><span>Servidor local</span><span>·</span><span>v0.0.0</span></div>
+      </div>
+
+      <header class="topbar">
+        <nav class="nav" aria-label="Navegação principal">
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>
+            <span class="lbl">Início</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span class="lbl">Aplicativos</span>
+            <span class="count">8</span>
+          </a>
+          <a class="navlink" href="#" aria-current="page">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="9" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            <span class="lbl">Pareamento</span>
+            <span class="count">1</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
+            <span class="lbl">Configurações</span>
+          </a>
+          <a class="navlink" href="#">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+            <span class="lbl">Diagnóstico</span>
+          </a>
+        </nav>
+        <div class="topbar-right">
+          <span class="badge warning"><span class="dot warning" aria-hidden="true"></span> 1 pendente</span>
+          <button class="searchbtn" type="button">
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4.5 4.5" /></svg>
+            <span class="lbl">Buscar…</span>
+            <kbd class="kbd">/</kbd>
+          </button>
+          <button class="morebtn" type="button" aria-expanded="false">
+            Mais
+            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <h1>Pareamento</h1>
+            <p class="sub">
+              O cliente Moonlight mostra um PIN de 4 dígitos; digite-o aqui para autorizar o dispositivo. Clientes
+              pareados aparecem à direita e podem ser removidos a qualquer momento.
+            </p>
+          </div>
+          <div class="page-actions">
+            <span class="badge success lg"><span class="dot success" aria-hidden="true"></span> Serviço escutando</span>
+            <span class="badge neutral lg">4 clientes</span>
+          </div>
+        </div>
+
+        <div class="pair-layout">
+          <!-- Novo pareamento -->
+          <section class="card card-pad" aria-labelledby="pair-title">
+            <div class="between">
+              <div>
+                <h2 id="pair-title" style="font-size: 14px; font-weight: 600">Autorizar novo cliente</h2>
+                <p class="subtle" style="font-size: 11.5px; margin-top: 3px">Solicitação recebida há 18 segundos</p>
+              </div>
+              <span class="badge warning">Aguardando PIN</span>
+            </div>
+
+            <ol class="steps">
+              <li class="step">
+                <span class="n" aria-hidden="true">1</span>
+                <div>
+                  <p class="t">Abra o Moonlight no dispositivo</p>
+                  <p class="d">O host aparece como KOLND-STREAM na rede local.</p>
+                </div>
+              </li>
+              <li class="step">
+                <span class="n" aria-hidden="true">2</span>
+                <div>
+                  <p class="t">Toque em “Pair” e leia o PIN</p>
+                  <p class="d">O código de 4 dígitos expira em 5 minutos.</p>
+                </div>
+              </li>
+              <li class="step">
+                <span class="n" aria-hidden="true">3</span>
+                <div>
+                  <p class="t">Digite o PIN aqui e confirme</p>
+                  <p class="d">O dispositivo passa a acessar este host.</p>
+                </div>
+              </li>
+            </ol>
+
+            <div class="pending-device">
+              <span class="avatar" aria-hidden="true">
+                <svg class="i sm" viewBox="0 0 24 24">
+                  <rect x="4" y="2" width="16" height="20" rx="2" />
+                  <path d="M11 18h2" />
+                </svg>
+              </span>
+              <div class="grow">
+                <p class="name">Galaxy Tab S9</p>
+                <p class="addr">192.168.0.42 · Moonlight 12.1</p>
+              </div>
+              <button class="btn btn-subtle-danger sm" type="button" aria-label="Cancelar solicitação">
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div class="field mt-3">
+              <label class="label" for="pin-1">PIN do cliente</label>
+              <div class="pin-row" role="group" aria-label="PIN de 4 dígitos">
+                <input class="pin-box filled" id="pin-1" type="text" inputmode="numeric" maxlength="1" value="4" aria-label="Dígito 1" />
+                <input class="pin-box filled" type="text" inputmode="numeric" maxlength="1" value="8" aria-label="Dígito 2" />
+                <input class="pin-box filled" type="text" inputmode="numeric" maxlength="1" value="1" aria-label="Dígito 3" />
+                <input class="pin-box" type="text" inputmode="numeric" maxlength="1" value="" aria-label="Dígito 4" />
+              </div>
+            </div>
+
+            <div class="field mt-3">
+              <label class="label" for="dev-name">Nome do dispositivo</label>
+              <input class="input" id="dev-name" type="text" value="Galaxy Tab S9" />
+              <p class="help">Só aparece neste host; o cliente pode continuar usando o nome dele.</p>
+            </div>
+
+            <div class="stack-2 mt-4">
+              <button class="btn btn-primary block" type="button" disabled>
+                <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" /></svg>
+                Confirmar pareamento
+              </button>
+              <button class="btn btn-ghost block" type="button">Cancelar solicitação</button>
+            </div>
+
+            <div class="callout mt-4">
+              <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8h.01M11 12h1v4h1" />
+              </svg>
+              <span>
+                Nunca digite um PIN que você não viu na tela do cliente. Quem tem o PIN consegue parear com este host.
+              </span>
+            </div>
+          </section>
+
+          <!-- Clientes pareados -->
+          <div class="stack-3">
+            <section class="card">
+              <div class="card-head">
+                <h2>Clientes pareados</h2>
+                <div class="row">
+                  <span class="count-chip">4 dispositivos</span>
+                  <button class="btn btn-subtle-danger sm" type="button">Desparear todos</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Dispositivo</th>
+                      <th scope="col">Endereço</th>
+                      <th scope="col">Último acesso</th>
+                      <th scope="col">Plataforma</th>
+                      <th scope="col" style="text-align: right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div class="client-name">
+                          <span class="avatar" aria-hidden="true">SL</span>
+                          <div>
+                            <p class="nm">Sala de estar</p>
+                            <p class="sub">Em sessão agora</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="mono">192.168.0.21</td>
+                      <td class="tnum subtle">agora</td>
+                      <td><span class="badge neutral">Android TV</span></td>
+                      <td>
+                        <div class="row-actions">
+                          <button class="iconbtn" type="button" aria-label="Renomear Sala de estar">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                          </button>
+                          <button class="iconbtn" type="button" aria-label="Desparear Sala de estar">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="client-name">
+                          <span class="avatar" aria-hidden="true">TS</span>
+                          <div>
+                            <p class="nm">Galaxy Tab S9</p>
+                            <p class="sub">Pareado há 1 h</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="mono">192.168.0.42</td>
+                      <td class="tnum subtle">há 1 h</td>
+                      <td><span class="badge neutral">Android</span></td>
+                      <td>
+                        <div class="row-actions">
+                          <button class="iconbtn" type="button" aria-label="Renomear Galaxy Tab S9">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                          </button>
+                          <button class="iconbtn" type="button" aria-label="Desparear Galaxy Tab S9">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="client-name">
+                          <span class="avatar" aria-hidden="true">NB</span>
+                          <div>
+                            <p class="nm">Notebook · escritório</p>
+                            <p class="sub">Pareado há 12 dias</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="mono">192.168.0.33</td>
+                      <td class="tnum subtle">ontem, 22:10</td>
+                      <td><span class="badge neutral">Windows</span></td>
+                      <td>
+                        <div class="row-actions">
+                          <button class="iconbtn" type="button" aria-label="Renomear Notebook">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                          </button>
+                          <button class="iconbtn" type="button" aria-label="Desparear Notebook">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="client-name">
+                          <span class="avatar" aria-hidden="true">TV</span>
+                          <div>
+                            <p class="nm">TV · quarto</p>
+                            <p class="sub">Pareado há 2 meses</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="mono">192.168.0.58</td>
+                      <td class="tnum subtle">há 6 dias</td>
+                      <td><span class="badge neutral">webOS</span></td>
+                      <td>
+                        <div class="row-actions">
+                          <button class="iconbtn" type="button" aria-label="Renomear TV do quarto">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+                          </button>
+                          <button class="iconbtn" type="button" aria-label="Desparear TV do quarto">
+                            <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="card-foot">
+                <span>Lista local · nenhum dado de cliente sai do host</span>
+                <a href="#">Exportar lista</a>
+              </div>
+            </section>
+
+            <!-- Sessão ativa -->
+            <section class="card session-card" aria-labelledby="sess-title">
+              <div class="session-art" aria-hidden="true">
+                <svg class="i lg" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+              </div>
+              <div style="min-width: 0">
+                <div class="row wrap">
+                  <h2 id="sess-title" style="font-size: 13.5px; font-weight: 600">Desktop · Sala de estar</h2>
+                  <span class="badge success"><span class="dot success live" aria-hidden="true"></span> Em andamento</span>
+                </div>
+                <div class="session-stats">
+                  <div class="s"><p class="k">Resolução</p><p class="v">1440p60</p></div>
+                  <div class="s"><p class="k">Bitrate</p><p class="v">8,4 Mbps</p></div>
+                  <div class="s"><p class="k">Latência</p><p class="v">9 ms</p></div>
+                  <div class="s"><p class="k">Duração</p><p class="v">00:42:18</p></div>
+                  <div class="s"><p class="k">Codec</p><p class="v">HEVC</p></div>
+                </div>
+              </div>
+              <div class="row">
+                <button class="btn btn-secondary" type="button">
+                  <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  </svg>
+                  Abrir em tela cheia
+                </button>
+                <button class="btn btn-danger" type="button">
+                  <svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                  Encerrar
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <p class="mockup-note">
+          <a href="index.html">← Modelos</a>
+          <strong style="color: var(--text-secondary)">Modelo 04 · Pareamento</strong>
+          — fluxo de PIN com estado explícito e lista de clientes com ações por linha (hoje só existe no Diagnóstico).
+        </p>
+      </main>
+    </div>
+  </body>
+</html>

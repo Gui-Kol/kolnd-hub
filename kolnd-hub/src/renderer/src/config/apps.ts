@@ -29,7 +29,7 @@ export const apps: AppConfig[] = [
   }
 
   // Apps pessoais (IDEs, ferramentas de dev, etc.) NÃO são commitados aqui:
-  // ficam apenas no localStorage de cada máquina (tela de Configurações),
+  // ficam apenas no electron-store de cada máquina (tela de Configurações),
   // para o repositório não vazar caminhos pessoais nem estrutura de disco.
   // O merge em App.tsx preserva entradas salvas que não estejam nos defaults.
 ]

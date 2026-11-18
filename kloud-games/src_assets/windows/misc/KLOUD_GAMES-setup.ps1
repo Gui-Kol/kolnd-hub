@@ -1,4 +1,4 @@
-﻿﻿# KLOUD_GAMES Setup Script
+﻿# KLOUD_GAMES Setup Script
 # This script orchestrates the installation and uninstallation of KLOUD_GAMES
 # Usage: KLOUD_GAMES-setup.ps1 -Action [install|uninstall] [-Silent]
 

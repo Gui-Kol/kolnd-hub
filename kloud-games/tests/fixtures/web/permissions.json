@@ -1,0 +1,10 @@
+{
+  "permissions": [
+    { "id": "screen_recording", "status": "denied", "required": true, "verifiable": true, "requestable": true },
+    { "id": "input", "status": "granted", "required": true, "verifiable": true, "requestable": true },
+    { "id": "notifications", "status": "granted", "required": false, "verifiable": true, "requestable": true },
+    { "id": "microphone", "status": "not_determined", "required": false, "verifiable": true, "requestable": true },
+    { "id": "system_audio", "status": "on_use", "required": true, "verifiable": false, "requestable": true },
+    { "id": "local_network", "status": "on_use", "required": true, "verifiable": false, "requestable": true }
+  ]
+}

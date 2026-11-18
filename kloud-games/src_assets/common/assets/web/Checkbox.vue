@@ -37,9 +37,9 @@ const props = defineProps({
 
 // Add the mandatory class values
 const extendedClassStr = (() => {
-  let values = props.class.split(" ");
-  if (!values.includes("form-check")) {
-    values.push("form-check");
+  let values = props.class.split(" ").filter(Boolean);
+  if (!values.includes("kg-check")) {
+    values.unshift("kg-check");
   }
   return values.join(" ");
 })();
@@ -109,21 +109,20 @@ const defValue = parsedDefaultPropValue ? "_common.enabled_def_cbox" : "_common.
 
 <template>
   <div :class="extendedClassStr">
-    <label :for="props.id" :class="`form-check-label${showDesc ? ' mb-2' : ''}`">
-      {{ $t(labelField) }}
-      <div class="mt-0 form-text" v-if="showDefValue">
-        {{ $t(defValue) }}
-      </div>
-    </label>
     <input type="checkbox"
-           class="form-check-input"
            :id="props.id"
            v-model="model"
            :true-value="checkboxValues.truthy"
            :false-value="checkboxValues.falsy" />
-    <div class="form-text" v-if="showDesc">
-      {{ $t(descField) }}
-      <slot></slot>
+    <div class="kg-check-body">
+      <label :for="props.id" class="kg-check-label">
+        {{ $t(labelField) }}
+        <span v-if="showDefValue" class="kg-check-help kg-mono">{{ $t(defValue) }}</span>
+      </label>
+      <div class="kg-check-help" v-if="showDesc">
+        {{ $t(descField) }}
+        <slot></slot>
+      </div>
     </div>
   </div>
 </template>

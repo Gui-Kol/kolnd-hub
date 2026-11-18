@@ -1,0 +1,6 @@
+[2026-11-17 15:59:01.001]: Info: KLOUD_GAMES is starting
+[2026-11-17 15:59:01.120]: Debug: Configuration loaded from C:\ProgramData\KLOUD_GAMES\config.json
+[2026-11-17 15:59:02.004]: Info: Connected to the display device
+[2026-11-17 15:59:03.210]: Warning: Virtual HID Broker license could not be validated
+[2026-11-17 15:59:04.500]: Error: Failed to open the selected application
+[2026-11-17 15:59:05.000]: Fatal: Unable to bind the HTTP port 47989

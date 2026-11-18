@@ -62,6 +62,18 @@ class FirstRunInstaller extends EventEmitter {
     this.isCancelled = true
   }
 
+  /**
+   * Reexecuta apenas a etapa do Kloud Games (botão "Tentar novamente" da tela de
+   * primeira execução). Não bloqueia nem interfere nas demais etapas.
+   */
+  async retryKloudGames(): Promise<void> {
+    if (this.isInstalling) {
+      this.emit('log', '[kloud-games] Aguarde a instalação em andamento…\n')
+      return
+    }
+    await this.runKloudGamesInstall()
+  }
+
   /** Executa a verificação real de dependências e emite eventos/logs. */
   private async runDependencyCheck(): Promise<void> {
     this.emit('progress', {
@@ -111,7 +123,8 @@ class FirstRunInstaller extends EventEmitter {
 
   /** Instala Python/pip silenciosamente se necessário. */
   private async runPythonInstall(): Promise<void> {
-    const alreadyInstalled = this.dependencyResult?.pythonInstalled && this.dependencyResult?.pipInstalled
+    const alreadyInstalled =
+      this.dependencyResult?.pythonInstalled && this.dependencyResult?.pipInstalled
 
     this.emit('progress', {
       stepId: 'python',
@@ -169,6 +182,16 @@ class FirstRunInstaller extends EventEmitter {
       const result = await installKloudGames()
 
       if (result.success) {
+        if (result.alreadyInstalled) {
+          this.emit('log', '[kloud-games] já instalado — pulando\n')
+          this.emit('progress', {
+            stepId: 'kloud-games',
+            status: 'done',
+            progress: 100,
+            message: 'Kloud Games já instalado'
+          })
+          return
+        }
         this.emit('log', '[kloud-games] Kloud Games instalado/disponível.\n')
         this.emit('progress', {
           stepId: 'kloud-games',
@@ -229,8 +252,14 @@ class FirstRunInstaller extends EventEmitter {
       }
 
       if (installed < results.length) {
-        const missing = results.filter((r) => !r.installed).map((r) => r.name).join(', ')
-        this.emit('log', `[programs] Aviso: ${missing} não puderam ser configurados. Veja os detalhes acima.\n`)
+        const missing = results
+          .filter((r) => !r.installed)
+          .map((r) => r.name)
+          .join(', ')
+        this.emit(
+          'log',
+          `[programs] Aviso: ${missing} não puderam ser configurados. Veja os detalhes acima.\n`
+        )
       }
 
       this.emit('progress', {
@@ -252,11 +281,7 @@ class FirstRunInstaller extends EventEmitter {
     }
   }
 
-  private async runStep(
-    stepId: string,
-    label: string,
-    durationMs: number
-  ): Promise<void> {
+  private async runStep(stepId: string, label: string, durationMs: number): Promise<void> {
     this.emit('progress', { stepId, status: 'running', progress: 0, message: label })
     this.emit('log', `[${stepId}] Iniciando: ${label}\n`)
 
@@ -274,7 +299,12 @@ class FirstRunInstaller extends EventEmitter {
     }
 
     if (this.isCancelled) {
-      this.emit('progress', { stepId, status: 'error', progress: 0, message: 'Cancelado pelo usuário' })
+      this.emit('progress', {
+        stepId,
+        status: 'error',
+        progress: 0,
+        message: 'Cancelado pelo usuário'
+      })
       this.emit('log', `[${stepId}] Cancelado pelo usuário.\n`)
       return
     }
@@ -305,6 +335,11 @@ export function registerFirstRunIpc(getWindow: () => BrowserWindow | null): void
 
   ipcMain.handle('firstRun:cancel', () => {
     firstRunInstaller.cancel()
+    return { success: true }
+  })
+
+  ipcMain.handle('firstRun:retry-kloud-games', () => {
+    void firstRunInstaller.retryKloudGames()
     return { success: true }
   })
 

@@ -4,6 +4,8 @@ import { ensureKloudGamesInstalled, findKloudGamesExe } from './kloudGames'
 export interface InstallResult {
   success: boolean
   error?: string
+  /** true quando o Kloud Games já estava instalado e a instalação foi pulada. */
+  alreadyInstalled?: boolean
 }
 
 /** Verifica se o winget está disponível no sistema. */
@@ -50,12 +52,12 @@ export function isKloudGamesInstalled(): boolean {
 /**
  * Instala o Kloud Games a partir do MSI embutido no instalador do Hub.
  * Procura o .exe primeiro; se não encontrar, abre o MSI (UAC) e salva os
- * caminhos em resources/programs/kloud-games/kloud-games.paths.json.
+ * caminhos em %APPDATA%\\kolnd-hub\\kloud-games.paths.json (userData).
  */
 export async function installKloudGames(): Promise<InstallResult> {
   const result = await ensureKloudGamesInstalled()
   if (result.success) {
-    return { success: true }
+    return { success: true, alreadyInstalled: result.installedNow === false }
   }
   return { success: false, error: result.error }
 }
@@ -75,6 +77,7 @@ export async function installPython(): Promise<InstallResult> {
 
   return {
     success: false,
-    error: 'winget não encontrado. Instale o Python manualmente ou execute este app como administrador.'
+    error:
+      'winget não encontrado. Instale o Python manualmente ou execute este app como administrador.'
   }
 }

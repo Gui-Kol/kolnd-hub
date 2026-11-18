@@ -1,0 +1,35 @@
+{
+  "apps": [
+    {
+      "name": "Steam Big Picture",
+      "output": "",
+      "cmd": "C:\\Program Files (x86)\\Steam\\steam.exe -bigpicture",
+      "working-dir": "C:\\Program Files (x86)\\Steam",
+      "image-path": "C:\\covers\\steam.png",
+      "exclude-global-prep-cmd": false,
+      "elevated": false,
+      "auto-detach": true,
+      "wait-all": true,
+      "exit-timeout": 5,
+      "prep-cmd": [
+        {
+          "do": "C:\\tools\\prepare.exe",
+          "undo": "C:\\tools\\restore.exe",
+          "elevated": false
+        }
+      ],
+      "detached": []
+    },
+    {
+      "name": "RetroArch",
+      "cmd": "C:\\RetroArch\\retroarch.exe",
+      "working-dir": "C:\\RetroArch",
+      "auto-detach": false,
+      "wait-all": false,
+      "exit-timeout": 0,
+      "detached": [
+        "C:\\RetroArch\\tools\\overlay.exe"
+      ]
+    }
+  ]
+}

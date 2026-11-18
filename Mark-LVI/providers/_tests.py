@@ -985,7 +985,8 @@ def test_panel_settings_survive():
 
     # The test writes the real config and puts it back. A fresh install has
     # none yet: then the file it made is removed again afterwards.
-    cfg_file = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
+    from core.paths import data_dir
+    cfg_file = data_dir() / "config" / "api_keys.json"
     had_config = cfg_file.exists()
     restore = json.loads(cfg_file.read_text(encoding="utf-8")).get("providers") \
         if had_config else None

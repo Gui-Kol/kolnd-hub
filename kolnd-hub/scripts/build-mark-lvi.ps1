@@ -31,10 +31,21 @@ Write-Host "==> Bundle target: $BundleDir"
 $py = Get-Command py -ErrorAction SilentlyContinue
 if (-not $py) { throw "Python launcher 'py' nao encontrado no PATH." }
 
+# Lock (pinned + hashes) tem preferencia; requirements.txt (bounds) e o fallback.
+$lockFile = Join-Path $MarkRoot 'requirements.lock'
+$depsFile = Join-Path $MarkRoot 'requirements.txt'
+$depsLabel = 'requirements.txt (bounds)'
+if (Test-Path $lockFile) {
+    $depsFile = $lockFile
+    $depsLabel = 'requirements.lock (pinned + hashes)'
+} else {
+    Write-Warning "requirements.lock nao encontrado - usando requirements.txt (bounds, nao reproduzivel)."
+}
+
 if (-not $SkipDeps) {
-    Write-Host "==> Instalando dependencias (requirements.txt)..."
-    & py -m pip install -r (Join-Path $MarkRoot 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) { throw "pip install -r requirements.txt falhou" }
+    Write-Host "==> Instalando dependencias ($depsLabel)..."
+    & py -m pip install -r $depsFile
+    if ($LASTEXITCODE -ne 0) { throw "pip install -r $depsLabel falhou" }
     Write-Host "==> Instalando PyInstaller..."
     & py -m pip install pyinstaller
     if ($LASTEXITCODE -ne 0) { throw "pip install pyinstaller falhou" }

@@ -20,13 +20,9 @@ except Exception:
     pass
 
 
-def _get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-BASE_DIR     = _get_base_dir()
+BASE_DIR      = data_dir()
 CLIENT_SECRET = BASE_DIR / "config" / "client_secret.json"
 TOKEN_PATH    = BASE_DIR / "config" / "token_calendar.json"
 

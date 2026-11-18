@@ -1,0 +1,8 @@
+{
+  "path": "C:\\Program Files",
+  "parent": "C:\\",
+  "entries": [
+    { "name": "Steam", "path": "C:\\Program Files (x86)\\Steam", "type": "directory" },
+    { "name": "Common Files", "path": "C:\\Program Files\\Common Files", "type": "directory" }
+  ]
+}

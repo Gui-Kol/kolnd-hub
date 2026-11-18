@@ -116,7 +116,7 @@ watch(
 <template>
   <div id="input" class="config-page">
     <!-- Enable Gamepad Input -->
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="controller"
               locale-prefix="config"
               v-model="config.controller"
@@ -124,22 +124,22 @@ watch(
     ></Checkbox>
 
     <!-- Virtual gamepad backend policy -->
-    <div class="mb-3" v-if="platform === 'windows' || platform === 'macos'">
-      <label for="gamepad_driver" class="form-label">{{ $t('config.gamepad_driver') }}</label>
-      <select id="gamepad_driver" class="form-select" v-model="gamepadDriverSelection" required>
+    <div class="kg-field" v-if="platform === 'windows' || platform === 'macos'">
+      <label for="gamepad_driver" class="kg-label">{{ $t('config.gamepad_driver') }}</label>
+      <select id="gamepad_driver" class="kg-select" v-model="gamepadDriverSelection" required>
         <option v-if="platform === 'windows'" value="" disabled>{{ $t('config.gamepad_driver_select') }}</option>
         <option v-if="platform === 'windows'" value="all">{{ $t('config.gamepad_driver_all') }}</option>
         <option value="virtualhid">{{ $t('config.gamepad_driver_virtualhid') }}</option>
         <option v-if="platform === 'windows'" value="vigembus">{{ $t('config.gamepad_driver_vigembus') }}</option>
         <option value="none">{{ $t('config.gamepad_driver_none') }}</option>
       </select>
-      <div class="form-text">{{ $t(platform === 'macos' ? 'config.gamepad_driver_macos_desc' : 'config.gamepad_driver_desc') }}</div>
+      <div class="kg-help">{{ $t(platform === 'macos' ? 'config.gamepad_driver_macos_desc' : 'config.gamepad_driver_desc') }}</div>
     </div>
 
     <!-- Emulated Gamepad Type -->
-    <div class="mb-3" v-if="config.controller === 'enabled' && config.gamepad_driver !== 'none'">
-      <label for="gamepad" class="form-label">{{ $t('config.gamepad') }}</label>
-      <select id="gamepad" class="form-select" v-model="config.gamepad">
+    <div class="kg-field" v-if="config.controller === 'enabled' && config.gamepad_driver !== 'none'">
+      <label for="gamepad" class="kg-label">{{ $t('config.gamepad') }}</label>
+      <select id="gamepad" class="kg-select" v-model="config.gamepad">
         <option value="auto">{{ $t('_common.auto') }}</option>
 
         <option v-if="!vigembusOnly" value="generic">{{ $t("config.gamepad_generic") }}</option>
@@ -150,34 +150,26 @@ watch(
         <option v-if="!vigembusOnly" value="ds5">{{ $t("config.gamepad_ds5") }}</option>
         <option v-if="!vigembusOnly" value="switch">{{ $t("config.gamepad_switch") }}</option>
       </select>
-      <div class="form-text">{{ $t('config.gamepad_desc') }}</div>
+      <div class="kg-help">{{ $t('config.gamepad_desc') }}</div>
     </div>
 
     <!-- Additional options based on gamepad type -->
     <template v-if="config.controller === 'enabled' && config.gamepad_driver !== 'none'">
       <template v-if="config.gamepad === 'ds4' || config.gamepad === 'ds5' || config.gamepad === 'auto'">
-        <div class="mb-3 accordion">
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button" type="button" data-bs-toggle="collapse"
-                      data-bs-target="#panelsStayOpen-collapseOne">
-                {{ $t(config.gamepad === 'auto' ? 'config.gamepad_auto' : 'config.gamepad_ds4_manual') }}
-              </button>
-            </h2>
-            <div id="panelsStayOpen-collapseOne" class="accordion-collapse collapse show"
-                 aria-labelledby="panelsStayOpen-headingOne">
-              <div class="accordion-body">
-                <!-- Automatic PlayStation-style detection options -->
+        <details class="kg-card kg-card-pad kg-mt-3" open>
+      <summary class="kg-label" style="cursor: pointer">{{ $t(config.gamepad === 'auto' ? 'config.gamepad_auto' : 'config.gamepad_ds4_manual') }}</summary>
+      <div class="kg-stack-3 kg-mt-3">
+<!-- Automatic PlayStation-style detection options -->
                 <template v-if="config.gamepad === 'auto'">
                   <!-- Gamepad with motion capability as a PlayStation-style controller -->
-                  <Checkbox class="mb-3"
+                  <Checkbox class="kg-field"
                             id="motion_as_ds4"
                             locale-prefix="config"
                             v-model="config.motion_as_ds4"
                             default="true"
                   ></Checkbox>
                   <!-- Gamepad with touch capability as a PlayStation-style controller -->
-                  <Checkbox class="mb-3"
+                  <Checkbox class="kg-field"
                             id="touchpad_as_ds4"
                             locale-prefix="config"
                             v-model="config.touchpad_as_ds4"
@@ -186,7 +178,7 @@ watch(
                 </template>
                 <!-- PlayStation-style option: Back/Select as touchpad click -->
                 <template v-if="config.gamepad === 'ds4' || config.gamepad === 'ds5' || config.gamepad === 'auto'">
-                  <Checkbox class="mb-3"
+                  <Checkbox class="kg-field"
                             id="ds4_back_as_touchpad_click"
                             locale-prefix="config"
                             v-model="config.ds4_back_as_touchpad_click"
@@ -195,31 +187,29 @@ watch(
                 </template>
                 <!-- Virtual HID option: Controller MAC randomization -->
                 <template v-if="config.gamepad_driver !== 'vigembus' && (config.gamepad === 'ds4' || config.gamepad === 'ds5' || config.gamepad === 'auto')">
-                  <Checkbox class="mb-3"
+                  <Checkbox class="kg-field"
                             id="virtualhid_randomize_mac"
                             locale-prefix="config"
                             v-model="config.virtualhid_randomize_mac"
                             default="true"
                   ></Checkbox>
                 </template>
-              </div>
-            </div>
-          </div>
-        </div>
+      </div>
+    </details>
       </template>
     </template>
 
     <!-- Home/Guide Button Emulation Timeout -->
-    <div class="mb-3" v-if="config.controller === 'enabled' && config.gamepad_driver !== 'none'">
-      <label for="back_button_timeout" class="form-label">{{ $t('config.back_button_timeout') }}</label>
-      <input type="text" class="form-control" id="back_button_timeout" placeholder="-1"
+    <div class="kg-field" v-if="config.controller === 'enabled' && config.gamepad_driver !== 'none'">
+      <label for="back_button_timeout" class="kg-label">{{ $t('config.back_button_timeout') }}</label>
+      <input type="text" class="kg-input" id="back_button_timeout" placeholder="-1"
              v-model="config.back_button_timeout" />
-      <div class="form-text">{{ $t('config.back_button_timeout_desc') }}</div>
+      <div class="kg-help">{{ $t('config.back_button_timeout_desc') }}</div>
     </div>
 
     <!-- Enable Keyboard Input -->
     <hr>
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="keyboard"
               locale-prefix="config"
               v-model="config.keyboard"
@@ -227,24 +217,24 @@ watch(
     ></Checkbox>
 
     <!-- Key Repeat Delay-->
-    <div class="mb-3" v-if="config.keyboard === 'enabled' && platform === 'windows'">
-      <label for="key_repeat_delay" class="form-label">{{ $t('config.key_repeat_delay') }}</label>
-      <input type="text" class="form-control" id="key_repeat_delay" placeholder="500"
+    <div class="kg-field" v-if="config.keyboard === 'enabled' && platform === 'windows'">
+      <label for="key_repeat_delay" class="kg-label">{{ $t('config.key_repeat_delay') }}</label>
+      <input type="text" class="kg-input" id="key_repeat_delay" placeholder="500"
              v-model="config.key_repeat_delay" />
-      <div class="form-text">{{ $t('config.key_repeat_delay_desc') }}</div>
+      <div class="kg-help">{{ $t('config.key_repeat_delay_desc') }}</div>
     </div>
 
     <!-- Key Repeat Frequency-->
-    <div class="mb-3" v-if="config.keyboard === 'enabled' && platform === 'windows'">
-      <label for="key_repeat_frequency" class="form-label">{{ $t('config.key_repeat_frequency') }}</label>
-      <input type="text" class="form-control" id="key_repeat_frequency" placeholder="24.9"
+    <div class="kg-field" v-if="config.keyboard === 'enabled' && platform === 'windows'">
+      <label for="key_repeat_frequency" class="kg-label">{{ $t('config.key_repeat_frequency') }}</label>
+      <input type="text" class="kg-input" id="key_repeat_frequency" placeholder="24.9"
              v-model="config.key_repeat_frequency" />
-      <div class="form-text">{{ $t('config.key_repeat_frequency_desc') }}</div>
+      <div class="kg-help">{{ $t('config.key_repeat_frequency_desc') }}</div>
     </div>
 
     <!-- Always send scancodes -->
     <Checkbox v-if="config.keyboard === 'enabled' && platform === 'windows'"
-              class="mb-3"
+              class="kg-field"
               id="always_send_scancodes"
               locale-prefix="config"
               v-model="config.always_send_scancodes"
@@ -253,7 +243,7 @@ watch(
 
     <!-- Mapping Key AltRight to Key Windows -->
     <Checkbox v-if="config.keyboard === 'enabled'"
-              class="mb-3"
+              class="kg-field"
               id="key_rightalt_to_key_win"
               locale-prefix="config"
               v-model="config.key_rightalt_to_key_win"
@@ -261,34 +251,34 @@ watch(
     ></Checkbox>
 
     <!-- Custom key mappings -->
-    <div id="keybindings" class="mb-3" v-if="config.keyboard === 'enabled'">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div class="form-label mb-0">{{ $t('config.keybindings') }}</div>
+    <div id="keybindings" class="kg-field" v-if="config.keyboard === 'enabled'">
+      <div class="kg-row kg-row-wrap kg-between">
+        <div class="kg-label">{{ $t('config.keybindings') }}</div>
         <a href="https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes"
-           target="_blank" rel="noopener noreferrer" class="small">
+           target="_blank" rel="noopener noreferrer" >
           {{ $t('config.keybindings_reference') }}
           <ExternalLink :size="14" />
         </a>
       </div>
-      <div class="form-text mb-3">{{ $t('config.keybindings_desc') }}</div>
+      <div class="kg-help kg-field">{{ $t('config.keybindings_desc') }}</div>
 
-      <div v-if="keybindingPairs.length === 0" class="alert alert-secondary py-2">
+      <div v-if="keybindingPairs.length === 0" class="kg-callout">
         {{ $t('config.keybindings_empty') }}
       </div>
 
       <div v-if="keybindingPairs.length > 0" class="keybinding-grid">
-        <div class="form-label small mb-0 keybinding-source-heading">
+        <div class="kg-label keybinding-source-heading">
           {{ $t('config.keybindings_source') }}
         </div>
         <div class="keybinding-heading-spacer keybinding-arrow-heading" aria-hidden="true"></div>
-        <div class="form-label small mb-0 keybinding-destination-heading">
+        <div class="kg-label keybinding-destination-heading">
           {{ $t('config.keybindings_destination') }}
         </div>
         <div class="keybinding-heading-spacer keybinding-remove-heading" aria-hidden="true"></div>
 
         <template v-for="(binding, index) in keybindingPairs" :key="binding.id">
           <div class="keybinding-field keybinding-source">
-            <label :for="`keybinding-source-${binding.id}`" class="form-label small keybinding-field-label">
+            <label :for="`keybinding-source-${binding.id}`" class="kg-label keybinding-field-label">
               {{ $t('config.keybindings_source') }}
             </label>
             <VirtualKeyCodeSelect :id="`keybinding-source-${binding.id}`" v-model="binding.source" />
@@ -299,7 +289,7 @@ watch(
           </div>
 
           <div class="keybinding-field keybinding-destination">
-            <label :for="`keybinding-destination-${binding.id}`" class="form-label small keybinding-field-label">
+            <label :for="`keybinding-destination-${binding.id}`" class="kg-label keybinding-field-label">
               {{ $t('config.keybindings_destination') }}
             </label>
             <VirtualKeyCodeSelect :id="`keybinding-destination-${binding.id}`"
@@ -307,7 +297,7 @@ watch(
           </div>
 
           <div class="keybinding-remove">
-            <button type="button" class="btn btn-danger"
+            <button type="button" class="kg-btn kg-btn-danger"
                     :aria-label="$t('config.keybindings_remove')" :title="$t('config.keybindings_remove')"
                     @click="removeKeybinding(index)">
               <Trash2 :size="16" class="icon" />
@@ -316,7 +306,7 @@ watch(
         </template>
       </div>
 
-      <button type="button" class="btn btn-success mt-2" @click="addKeybinding">
+      <button type="button" class="kg-btn kg-btn-success kg-mt-2" @click="addKeybinding">
         <Plus :size="16" />
         {{ $t('config.keybindings_add') }}
       </button>
@@ -324,7 +314,7 @@ watch(
 
     <!-- Enable Mouse Input -->
     <hr>
-    <Checkbox class="mb-3"
+    <Checkbox class="kg-field"
               id="mouse"
               locale-prefix="config"
               v-model="config.mouse"
@@ -333,7 +323,7 @@ watch(
 
     <!-- High resolution scrolling support -->
     <Checkbox v-if="config.mouse === 'enabled'"
-              class="mb-3"
+              class="kg-field"
               id="high_resolution_scrolling"
               locale-prefix="config"
               v-model="config.high_resolution_scrolling"
@@ -342,7 +332,7 @@ watch(
 
     <!-- Native pen/touch support -->
     <Checkbox v-if="config.mouse === 'enabled'"
-              class="mb-3"
+              class="kg-field"
               id="native_pen_touch"
               locale-prefix="config"
               v-model="config.native_pen_touch"

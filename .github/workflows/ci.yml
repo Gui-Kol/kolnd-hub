@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, Dev]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: kolnd-hub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kolnd-hub/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Informativo: não reprova o build. Vulnerabilidades high/critical devem
+      # ser tratadas como itens próprios; promover para bloqueante só depois
+      # de zerar os highs atuais (ver README > CI).
+      - name: Audit (informativo)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      # 02-2.5: o rodape do app usa __APP_VERSION__ (define do electron.vite.config.ts,
+      # fonte unica = package.json). Falha se a string stale "v1.0.0" reaparecer em src/.
+      - name: Version consistency (no stale v1.0.0 in src)
+        shell: pwsh
+        run: |
+          $hits = Get-ChildItem -Recurse src -Include *.ts,*.tsx,*.js,*.jsx,*.css,*.html | Select-String -Pattern 'v1\.0\.0'
+          if ($hits) {
+            $hits | ForEach-Object { Write-Host $_ }
+            Write-Error 'Versao hardcoded "v1.0.0" encontrada em src/ - use __APP_VERSION__ (fonte unica: kolnd-hub/package.json).'
+            exit 1
+          }
+
+      - name: Unit tests
+        run: npm test
+
+      # Informativo: exibe o resumo de cobertura e sobe o relatório como
+      # artifact, mas não reprova o build (ver README > Testes).
+      - name: Coverage (informativo)
+        run: npm run test:coverage
+        continue-on-error: true
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: kolnd-hub/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Build (electron-vite)
+        run: npm run build
+
+      # resources/programs/MarkLVI is ~600 MB and is not committed to git
+      # (it is produced by scripts/build-mark-lvi.ps1). electron-builder's
+      # extraResources fails if the source does not exist, so CI drops a
+      # placeholder to validate the packaging pipeline end to end.
+      - name: Create placeholder resources for packaging
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force resources/programs/MarkLVI | Out-Null
+          Set-Content -Path resources/programs/MarkLVI/README.txt `
+            -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
+
+      - name: Package (NSIS installer)
+        run: npm run package
+
+      # 02-2.7: gera kolnd-hub/dist/SHA256SUMS.txt (MSI + Setup.exe, quando
+      # presentes). Informativo: não reprova o build; o MSI não existe no CI
+      # (não é commitado) e o script avisa/pula artefatos ausentes.
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        continue-on-error: true
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-sha256sums.ps1
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kolnd-hub-setup
+          path: |
+            kolnd-hub/dist/Kolnd Hub Setup *.exe
+            kolnd-hub/dist/SHA256SUMS.txt
+          retention-days: 7
+
+  # 03-3.2: porta de qualidade mínima para Mark-LVI/ (Python 3.11–3.13, ver
+  # Mark-LVI/setup.py). Apenas verificação de sintaxe + instalação das deps;
+  # o self-test providers/_tests.py NÃO roda aqui (importa PyQt6/UI e escreve
+  # no config real) e ruff não é adotado no projeto.
+  mark-lvi:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: Mark-LVI/requirements.txt
+
+      - name: Compile check (syntax)
+        run: python -m compileall Mark-LVI
+
+      - name: Install dependencies
+        run: pip install -r Mark-LVI/requirements.txt

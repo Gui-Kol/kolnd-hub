@@ -30,14 +30,9 @@ import requests
 # Avoids splitting on decimals (3.5) because those have no space after the dot.
 _SENT_END = re.compile(r'(?<=[.!?])\s+|(?<=\n)\s*\n')
 
-def get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-BASE_DIR    = get_base_dir()
-CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+CONFIG_PATH = data_dir() / "config" / "api_keys.json"
 
 _DEFAULTS = {
     "llm_url":      "http://localhost:11434",

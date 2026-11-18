@@ -29,16 +29,57 @@ extraResources:
       - '!MarkLVI/config/certs/**'
       - '!MarkLVI/config/whatsapp_web/**'
       - '!MarkLVI/memory/**'
+  # O ícone da bandeja (lido via nativeImage.createFromPath em src/main/index.ts)
+  # fica na raiz de resources/ em produção.
+  - from: resources/tray-icon.png
+    to: tray-icon.png
+  # Driver opcional do monitor de hardware (WinRing0). O binário NÃO é versionado:
+  # `scripts/fetch-winring0.ps1` baixa e valida o SHA-256 antes do empacotamento.
+  # Sem o arquivo, o instalador sai sem ele e a aba Monitor mostra "—" nos
+  # sensores privilegiados (CPU temp/energia, energia total).
+  - from: resources/drivers
+    to: drivers
+    filter:
+      - '**/*.sys'
 win:
   icon: resources/icon.ico
+  # Nome explicito e estavel do artefato (NSIS respeita ${version}; o default
+  # do electron-builder 24.x ja e "${productName} Setup ${version}.exe", aqui
+  # fixamos para nao depender de default). Fonte unica da versao: package.json.
+  artifactName: Kolnd Hub Setup ${version}.exe
   target:
     - nsis
 nsis:
   oneClick: false
-  allowToChangeInstallationDirectory: true
   # Per-user install (%LOCALAPPDATA%\Programs\Kolnd Hub): the install folder
-  # stays writable, which Mark LVI needs to create config/ and memory/
-  # next to its executable on first run.
+  # stays writable, which the currently bundled MarkLVI.exe still needs to
+  # create config/ and memory/ next to its executable on first run (the next
+  # Mark LVI rebuild honors MARK_LVI_HOME and writes to %APPDATA%\kolnd-hub\mark-lvi).
+  # Changing the install directory is disallowed on purpose: picking a
+  # Program Files location would make the bundled Mark LVI unable to write
+  # its data files there.
   perMachine: false
+  allowToChangeInstallationDirectory: false
+  # PRESERVADO na desinstalacao (deleteAppDataOnUninstall: false — o default):
+  # %APPDATA%\kolnd-hub inteiro — first-run flag, config.json (electron-store),
+  # logs\ (kolnd-hub.log, kloud-games-uninstall.log), kloud-games.paths.json,
+  # mark-lvi\ (dados do assistente assim que o rebuild 01-1.9, que honra
+  # MARK_LVI_HOME, estiver no ar). REMOVIDO sempre pelo desinstalador:
+  # o diretorio de instalacao inteiro ($INSTDIR, per-user em
+  # %LOCALAPPDATA%\Programs\Kolnd Hub), INCLUINDO resources/programs/MarkLVI
+  # com os dados que a build atual do MarkLVI.exe grava ao lado do exe
+  # (config/api_keys.json, memory/). O Hub mantem a cada boot um espelho
+  # parcial desses dados em %APPDATA%\kolnd-hub\mark-lvi (ver programsDeployer),
+  # que sobrevive — mas o conteudo ao lado do exe e perdido. Ver READMEs.
+  # Sobre texto de aviso na tela de desinstalacao: o electron-builder nao
+  # expoe um texto de desinstalacao configuravel para o usuario final —
+  # nsis.uninstallDisplayName muda so o rotulo no "Aplicativos instalados" e
+  # nsis.include (macro customUnInstall) escreve na secao de uninstall, cujo
+  # output e escondido (ShowUninstDetails nevershow) e tambem rodaria no modo
+  # silencioso. Por isso NAO criamos installer.nsh de proposito: a divulgacao
+  # honesta do que e removido vs. preservado fica nos READMEs (ver
+  # "Desinstalacao" em README.md e kolnd-hub/README.md). Nao mudar este flag
+  # sem revisar a documentacao.
+  deleteAppDataOnUninstall: false
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico

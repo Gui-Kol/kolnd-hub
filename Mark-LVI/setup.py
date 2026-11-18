@@ -2,8 +2,10 @@
 MARK LIV — one-time setup.
 
 Installs the Python dependencies for THIS operating system only: the OS-specific
-packages in requirements.txt carry `sys_platform` markers, so a macOS or Linux
-user never pulls Windows-only libraries (and vice-versa). Then it fetches the
+packages carry `sys_platform` markers, so a macOS or Linux
+user never pulls Windows-only libraries (and vice-versa). If requirements.lock
+is next to this file it is installed instead (fully pinned, with hashes); otherwise
+requirements.txt (bounds) is used and a notice is printed. Then it fetches the
 Playwright browsers needed for web automation (current-OS builds only).
 
 Three things it deliberately does NOT install:
@@ -69,9 +71,22 @@ def main() -> None:
           f"Python {sys.version_info[0]}.{sys.version_info[1]}")
     _check_python()
 
-    # requirements.txt filters OS-specific extras by itself via pip markers.
+    # The lock pins every dependency (transitives included) with hashes and is
+    # preferred when present; requirements.txt (bounds) stays the fallback for
+    # anyone on a fresh clone where the lock was not regenerated. Both carry the
+    # OS-specific sys_platform markers, so they filter per-OS by themselves.
+    lock = HERE / "requirements.lock"
+    if lock.exists():
+        print(f"Using pinned lock file: {lock.name}")
+        deps_file = lock
+    else:
+        print("⚠️  requirements.lock not found — falling back to requirements.txt "
+              "(bounds, not reproducible).")
+        print("    Regenerate it with: py -3 -m piptools compile requirements.in "
+              "--generate-hashes -o requirements.lock")
+        deps_file = HERE / "requirements.txt"
     _run("Installing Python dependencies (OS-specific extras auto-filtered)…",
-         [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+         [sys.executable, "-m", "pip", "install", "-r", str(deps_file)])
 
     # Chromium covers Chrome/Edge/Opera/Brave/Vivaldi; Firefox for Firefox.
     # (Safari automation additionally needs: python -m playwright install webkit)

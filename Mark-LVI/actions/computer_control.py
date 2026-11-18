@@ -34,15 +34,11 @@ def _configure_pyautogui(module) -> None:
 pyautogui = LazyModule("pyautogui", _configure_pyautogui)
 pyperclip = LazyModule("pyperclip")
 
-def _base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-_BASE         = _base_dir()
-_CONFIG_PATH  = _BASE / "config" / "api_keys.json"
-_MEMORY_PATH  = _BASE / "memory" / "long_term.json"
+_DATA         = data_dir()
+_CONFIG_PATH  = _DATA / "config" / "api_keys.json"
+_MEMORY_PATH  = _DATA / "memory" / "long_term.json"
 
 def _load_config() -> dict:
     try:

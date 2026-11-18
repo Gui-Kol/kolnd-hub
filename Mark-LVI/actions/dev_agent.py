@@ -9,14 +9,10 @@ import time
 from pathlib import Path
 
 
-def get_base_dir():
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-BASE_DIR         = get_base_dir()
-API_CONFIG_PATH  = BASE_DIR / "config" / "api_keys.json"
+DATA_DIR         = data_dir()
+API_CONFIG_PATH  = DATA_DIR / "config" / "api_keys.json"
 PROJECTS_DIR     = Path.home() / "Desktop" / "JarvisProjects"
 MAX_FIX_ATTEMPTS = 5
 # Model choice, timeout and fallback ladder all live in core/gemini.py.
@@ -1121,7 +1117,7 @@ def _syntax_error(rel: str, text: str) -> str:
     return ""
 
 
-_BRIEF_DIR = BASE_DIR / "config" / "project_briefs"
+_BRIEF_DIR = DATA_DIR / "config" / "project_briefs"
 
 
 def _project_brief(folder: Path, context: str, stack: dict, player=None) -> str:

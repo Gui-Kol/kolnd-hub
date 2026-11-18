@@ -51,8 +51,14 @@ desktop.ini
 .cache/
 *.tmp
 
+# Artefatos de migração gerados em runtime (guardam caminhos absolutos da máquina)
+*.migrated
+
 # Nunca commitar dados de usuário do Mark LVI / bundles gerados
 Mark-LVI/config/api_keys.json
 kolnd-hub/Mark-LVI/
 kolnd-hub-userdata-backups/
 resources/programs/MarkLVI/
+
+# Gerente agent working files (task tracking, not for commit)
+gerente/tasks/

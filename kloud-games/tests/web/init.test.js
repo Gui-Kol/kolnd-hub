@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../src_assets/common/assets/web/locale', () => ({ default: vi.fn() }))
-vi.mock('bootstrap/dist/js/bootstrap', () => ({}))
 
 import createI18n from '../../src_assets/common/assets/web/locale'
 import { initApp } from '../../src_assets/common/assets/web/init'

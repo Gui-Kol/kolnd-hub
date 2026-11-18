@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
-import { Sidebar } from './Sidebar'
-import { Minus, Square, X, Zap } from 'lucide-react'
+import { Minus, Monitor, Square, X, Zap } from 'lucide-react'
+import { Topbar } from './Topbar'
+import { IconButton } from './ui'
 import { Page } from '../types'
 
 interface LayoutProps {
@@ -8,77 +9,108 @@ interface LayoutProps {
   currentPage: Page
   onNavigate: (page: Page) => void
   runningCount: number
+  /** Total de ferramentas configuradas — mostrado no card "Sessão" do mega menu. */
+  toolCount: number
   pcName?: string | null
   onExit?: () => void
+  onEnterBigPicture?: () => void
+  /** Abre a busca global existente (o App é dono do estado `searchOpen`). */
+  onOpenSearch: () => void
 }
 
+/**
+ * Shell do Hub — moldura horizontal "Estação": titlebar 40 px, topbar 56 px
+ * com mega menu e conteúdo em largura total. A topbar fica FORA do container
+ * rolável; só o `<main>` rola.
+ */
 export function Layout({
   children,
   currentPage,
   onNavigate,
   runningCount,
+  toolCount,
   pcName,
-  onExit
+  onExit,
+  onEnterBigPicture,
+  onOpenSearch
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
-      {/* ── Scanlines (efeito arcade/console) ────────── */}
-      <div className="scanlines" />
-
-      {/* ── Title bar ────────────────────────────────── */}
-      <div className="title-bar h-12 flex items-center justify-between px-5 bg-white/[0.02] backdrop-blur-md border-b border-white/[0.05] z-40">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-kloud-500 to-nintendo-500 flex items-center justify-center shadow-glow-orange">
-            <Zap size={14} className="text-white" />
+      {/* ── Skip-link (WCAG 2.4.1): primeiro elemento tabular; só visível com
+          foco de teclado. Fora da tela por transform (sem sr-only, para a
+          transição/foco serem determinísticos). Alvo: <main id="conteudo">. ── */}
+      <a
+        href="#conteudo"
+        className="absolute left-4 top-2 z-[110] -translate-y-[200%] rounded-control border border-[var(--border-strong)] bg-surface-3 px-4 py-2 text-sm font-semibold text-ink-primary shadow-elevation-2 transition-transform duration-2 ease-standard focus:translate-y-0 motion-reduce:transition-none"
+      >
+        Pular para o conteúdo
+      </a>
+      {/* ── Title bar (40 px): marca · nome do PC · controles da janela ── */}
+      <div className="title-bar flex h-10 shrink-0 items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-surface-sunken pl-4 pr-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm bg-accent">
+            <Zap size={13} className="text-accent-contrast" aria-hidden="true" />
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-bold text-white tracking-tight gradient-text gradient-kloud">
-              Kolnd Hub
+          <span className="shrink-0 text-[13px] font-semibold tracking-tight text-ink-primary">
+            Kolnd Hub
+          </span>
+          {pcName && (
+            <span
+              className="flex min-w-0 items-center gap-1.5 rounded-pill border border-[var(--border-subtle)] bg-surface-1 px-2 py-0.5 text-[10.5px] text-ink-tertiary"
+              title={pcName}
+            >
+              <Monitor size={11} aria-hidden="true" className="shrink-0" />
+              <span className="max-w-[180px] truncate">{pcName}</span>
             </span>
-            {runningCount > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 animate-pulse-slow">
-                {runningCount} ativo{runningCount > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Window controls */}
-        <div className="title-bar-no-drag flex items-center gap-1">
-          <button
+        <div className="title-bar-no-drag flex shrink-0 items-center gap-1">
+          <IconButton
+            variant="ghost"
+            size="sm"
             onClick={() => window.api.minimizeWindow()}
-            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
             aria-label="Minimizar"
           >
             <Minus size={12} />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            variant="ghost"
+            size="sm"
             onClick={() => window.api.maximizeWindow()}
-            className="p-2 rounded-lg hover:bg-white/[0.08] text-slate-500 hover:text-slate-200 transition-colors"
             aria-label="Maximizar"
           >
-            <Square size={10} />
-          </button>
-          <button
+            <Square size={12} />
+          </IconButton>
+          <IconButton
+            variant="subtle-danger"
+            size="sm"
             onClick={() => window.api.closeWindow()}
-            className="p-2 rounded-lg hover:bg-red-600/90 text-white transition-colors shadow-glow-red"
             aria-label="Fechar"
           >
             <X size={12} />
-          </button>
+          </IconButton>
         </div>
       </div>
 
-      {/* ── Main content area ────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          currentPage={currentPage}
-          onNavigate={onNavigate}
-          pcName={pcName}
-          onExit={onExit}
-        />
-        <main className="flex-1 overflow-y-auto p-8 pb-12">{children}</main>
-      </div>
+      {/* ── Topbar (56 px): navegação horizontal, status, busca, BP e mega ── */}
+      <Topbar
+        currentPage={currentPage}
+        onNavigate={onNavigate}
+        runningCount={runningCount}
+        toolCount={toolCount}
+        pcName={pcName}
+        onOpenSearch={onOpenSearch}
+        onExit={onExit}
+        onEnterBigPicture={onEnterBigPicture}
+      />
+
+      {/* ── Main content area — largura total, único container rolável ── */}
+      {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}
+      <main id="conteudo" tabIndex={-1} className="flex-1 overflow-y-auto p-8 pb-12">
+        {children}
+      </main>
     </div>
   )
 }

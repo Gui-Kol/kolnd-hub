@@ -23,15 +23,12 @@ def _configure_pyautogui(module) -> None:
 pyautogui = LazyModule("pyautogui", _configure_pyautogui)
 pyperclip = LazyModule("pyperclip")
 
-def _base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
 def _get_os() -> str:
     try:
         cfg = json.loads(
-            (_base_dir() / "config" / "api_keys.json").read_text(encoding="utf-8")
+            (data_dir() / "config" / "api_keys.json").read_text(encoding="utf-8")
         )
         return cfg.get("os_system", "windows").lower()
     except Exception:

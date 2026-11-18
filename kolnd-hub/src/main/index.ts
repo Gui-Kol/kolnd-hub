@@ -1,27 +1,99 @@
-import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron'
+// PRIMEIRO import: efeito colateral intencional — inicia o crashReporter local
+// (uploadToServer: false) e registra os handlers de crash ANTES de qualquer
+// outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
+import './crashReporting'
+import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { ProcessManager, resolvePath, setBaseDir } from './processManager'
-import { killProcessesForCommand } from './processKiller'
-import { ensureKloudGamesInstalled, getKloudGamesStatus } from './kloudGames'
-import {
-  listStartupItems,
-  removeStartupItem,
-  addStartupItem,
-  removeStartupItemsBatch,
-  addStartupItemsBatch,
-  getPcName,
-  listRunningProcesses
-} from './startupManager'
-import { isFirstRun, markFirstRunComplete } from './firstRun'
-import { registerFirstRunIpc } from './firstRunInstaller'
+import { ProcessManager, setBaseDir } from './processManager'
+import { isFirstRun } from './firstRun'
+import { registerSystemIpc } from './ipc/system'
+import { registerStartupIpc } from './ipc/startup'
+import { registerLoginItemIpc } from './loginItem'
+import { registerFirstRunIpc as registerFirstRunStatusIpc } from './ipc/firstRun'
+import { registerFirstRunIpc as registerFirstRunInstallerIpc } from './firstRunInstaller'
+import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
+import { registerGamepadIpc } from './gamepad'
+import { registerWingetIpc } from './wingetUpdater'
+import { registerTempCleanerIpc } from './tempCleaner'
+import { registerBenchmarkIpc } from './benchmark'
+import { registerHwMonitorIpc } from './hwmon'
+import { registerDisplayIpc } from './displaySettings'
+import { registerFpsIpc } from './fps'
+import { registerFpsAutoIpc } from './fps/agent'
+import { registerHudIpc } from './hud'
+import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
+import { registerGamesIpc } from './games'
+import { registerCommandValidateIpc } from './commandValidate'
+import { registerSteamIpc } from './steamScanner'
+import { seedMarkLviData } from './programsDeployer'
+import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
+import { registerDialogIpc } from './ipc/dialog'
+import { registerWindowIpc } from './ipc/window'
+import { registerAppIpc } from './ipc/app'
+import { registerKloudGamesIpc } from './ipc/kloudGames'
+import { registerUninstallHubIpc } from './ipc/uninstall'
+import { registerProcessEvents } from './ipc/processEvents'
+import { registerDiagnosticIpc } from './ipc/diagnostic'
+import { registerConfigTransferIpc } from './ipc/configTransfer'
+import type { IpcContext } from './ipc/lifecycle'
+import { isQuitting, markQuitting } from './quitState'
+import { logger } from './logger'
+
+/**
+ * Hook de teste (E2E, task 04-4.1): isola o diretório userData (%APPDATA%\\kolnd-hub)
+ * quando a env var `KOLDND_HUB_TEST_USERDATA` está definida (ex.: smoke do Playwright).
+ * Deve rodar ANTES de qualquer `app.getPath('userData')` e de `app.whenReady()`.
+ * Sem a env var não tem efeito algum — em produção o caminho padrão é usado.
+ */
+const testUserData = process.env.KOLDND_HUB_TEST_USERDATA
+if (testUserData) {
+  app.setPath('userData', testUserData)
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-const processManager = new ProcessManager()
+// Auto-restart (06-6.4) e log persistente (05-5.7): o ProcessManager NÃO importa
+// o store — a preferência por app é resolvida aqui, via `getAppPrefs(appId)`, e
+// injetada no launch. Default false nos dois (opt-in por app em
+// Configurações → Gerenciador de títulos).
+const processManager = new ProcessManager({
+  getAppPrefs: (appId) => {
+    const app = getConfigSnapshot().apps?.find((a) => a.id === appId)
+    return {
+      autoRestart: app?.autoRestart === true,
+      persistLogs: app?.persistLogs === true
+    }
+  }
+})
 
-function createWindow(isFirstRunMode = false): void {
+// Contexto compartilhado dos módulos IPC (ipc/*.ts): janela principal via
+// getter (mainWindow é reassinado em createWindow) + o ProcessManager.
+const ctx: IpcContext = {
+  getMainWindow: () => mainWindow,
+  processManager
+}
+
+// Instância única: o lock é pedido antes de qualquer bootstrap. Se outra
+// instância já o segura, encerra imediatamente — sem criar janela/tray, sem
+// registrar handlers de limpeza/desinstalação e sem tocar no disco.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+    }
+  })
+} else {
+  app.quit()
+}
+
+function createWindow(isFirstRunMode = false, startHidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -33,17 +105,76 @@ function createWindow(isFirstRunMode = false): void {
     backgroundColor: '#0a0a0f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
   mainWindow.on('ready-to-show', () => {
+    // --hidden (autostart do Hub no Windows): a janela fica viva e oculta —
+    // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
+    if (startHidden) return
     mainWindow!.show()
   })
 
+  // X do title bar, Alt+F4 e o close do SO ocultam para a bandeja em vez de
+  // encerrar. O fechamento real só passa quando o Sair explícito (Mais →
+  // Encerrar Hub ou Sair da bandeja) marcou `isQuitting()`. O handler vive
+  // AQUI (dentro de createWindow) porque em `whenReady` a janela ainda não
+  // existe — era o bug que deixava o Alt+F4 sem interceptação.
+  mainWindow.on('close', (event) => {
+    if (isQuitting()) return
+    event.preventDefault()
+    // Desinstalação destrutiva: X/Alt+F4 fica inerte (não oculta, não encerra).
+    if (isAnyUninstallInProgress()) return
+    logger.info('window', 'janela ocultada para a bandeja')
+    mainWindow?.hide()
+  })
+
+  // Desligamento/logoff do Windows: marca a saída antes de o close ser
+  // interceptado, para não segurar o shutdown do SO.
+  mainWindow.on('session-end', markQuitting)
+  // `query-session-end` (Windows) existe no runtime do Electron, mas ainda não
+  // está nas typings do Electron 28; registra via EventEmitter mínimo.
+  ;(mainWindow as unknown as NodeJS.EventEmitter).on('query-session-end', markQuitting)
+
+  // Diagnóstico de UI travada: o Chromium emite `unresponsive` quando o
+  // renderer fica segundos sem processar o event loop (ex.: carga pesada de
+  // CPU). Antes disso o sintoma só aparecia como "o Hub parou de funcionar"
+  // sem nenhuma pista no log.
+  mainWindow.on('unresponsive', () => {
+    logger.warn('window', 'janela não respondeu (renderer ocupado)')
+  })
+  mainWindow.on('responsive', () => {
+    logger.info('window', 'janela voltou a responder')
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedExternalUrl(details.url)) {
+      shell.openExternal(details.url)
+    } else {
+      logger.warn('window', `setWindowOpenHandler: bloqueado esquema não permitido: ${details.url}`)
+    }
     return { action: 'deny' }
+  })
+
+  // Bloqueia navegação in-window (clique em link, redirect, meta refresh,
+  // injeção de script): a janela seguiria com o preload exposto no contexto
+  // remoto. Em dev, permite apenas a origem do dev server (HMR do
+  // electron-vite); em produção (loadFile), bloqueia tudo.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      try {
+        if (new URL(url).origin === new URL(process.env['ELECTRON_RENDERER_URL']).origin) {
+          return
+        }
+      } catch {
+        // URL inválida: cai no bloqueio padrão abaixo.
+      }
+    }
+    event.preventDefault()
+    logger.warn('window', `will-navigate bloqueado: ${url}`)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -60,14 +191,46 @@ function createWindow(isFirstRunMode = false): void {
   }
 }
 
+/**
+ * Caminho do ícone da bandeja (resources/tray-icon.png, 32×32).
+ * Mesmo padrão de `getKloudGamesDir()`: resourcesPath em produção (o arquivo
+ * chega à raiz de resources/ via extraResources no electron-builder.yml),
+ * cwd/resources em dev.
+ */
+function trayIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'tray-icon.png')
+  }
+  return join(process.cwd(), 'resources', 'tray-icon.png')
+}
+
+/**
+ * Mostra/foca a janela principal para a bandeja e o `activate`. Se a janela
+ * foi destruída (não é o caminho normal — o X só oculta), recria para não
+ * deixar o app vivo sem interface.
+ */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createTray(): void {
-  // 32x32 lightning icon (generated from resources/icon.png)
-  const icon = nativeImage.createFromBuffer(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAM+SURBVFhHvddLTxNRFAfwLln6EVy6ZOnSJV8AUCidaTutWEBAIIA8WrBY6gNFAgUEeWiigqELTWpiVAQfiQESWeACEkQT42PRdu6dmb6PnukD24S2dxo8ydnO7z+3Z85Mdbo8ZRP85Y1CkG8yBx3YzaluVZs42ozJ7jASR2equ1Pdg80RRy8X5O0cLc+99pFltYqnbELQ2yCI0CiI0CSIcFEQodksQotZhFazCJfMBNpMBNpNBDpMBDpNBLqMBLqNBC4bCfQYCfTyBPp4Av08ATtPwcFRGDAQn50Lns41M3Ve8PM2S1A5FpyjMMhRcHIUrhokl52DsizcKgTqbRYRjhsfMmAACi4D9RzieOwl3vmkU2bBYbiOgquWnFED2Czi61Jwu5XAzmaUCXfXUbimp/s6joOyUnA89o+vImoARhyu6yno6oXg6VLw2WEZsNaehZnxG3oJdA1CsEUr7rRRIIGEGmDZE2LGb9ZKoMMFowXHgdtaj6g41sygzIyPpANowZc8SgbHcl+QmPFbGABXKyvubqagSMmjx8KfQQt+Ox2ABcdHbXc7lnX3e9sxTfhojQQ6fLGw4E8XQlk41o+DOKx5I7Ce6rcryX63EoEHDvlI/E4yAHEUi4+0SxA9nLuCFfidgDGrfCQ+hgHwdVoMjkvm214818hbj4dCefHxGjkZoBj8xXI49/p56/1KpCA+cU4GnfoxUQD39MtMR/99Nw6jfGHcgwHwKyYfjuv1yUQIVr0ReOONqMOWHriDz9lPAxYGnetQisIn0wHy4fnW69bLaK4Pz6fCReNTGAC/37Tg+Jz/PMgeyt2NGBM+fTYVQAuOS+bfuaCBBIxbZCb8LgbAr1ct+HxP8jWcriVniBmfUQNwxMGK43r1TR1uxE1fVBM+iwH6OLGLFcfdvuFLDuCvL3EY47Xh96rVEwhUsOK427/uxNQZWOhQNONzGMDO+U+w4rjhQlICVu+HS8LnMQDWgIHus+AzLTLsf4qVjC9WyYoa4ApHK4rF8Tl/ZFdg2iaXhlcrsFApd2X+nAwZpLlicK3TnosvViofMjgWzoLLQHz/C39YrZzMCpAul57y7lrqPxa8Slayjv1v/QHnqTkMuvP76QAAAABJRU5ErkJggg==',
-      'base64'
-    )
-  )
+  // Ícone da bandeja como asset em disco (não mais blob base64 inline). Se o
+  // arquivo não existir, usa imagem vazia + aviso no log — o app nunca cai
+  // por causa do ícone.
+  const iconPath = trayIconPath()
+  let icon = nativeImage.createEmpty()
+  if (existsSync(iconPath)) {
+    icon = nativeImage.createFromPath(iconPath)
+  } else {
+    logger.warn('tray', `ícone da bandeja não encontrado em ${iconPath}; usando imagem vazia`)
+  }
 
   tray = new Tray(icon)
 
@@ -75,14 +238,18 @@ function createTray(): void {
     {
       label: 'Abrir Kolnd Hub',
       click: (): void => {
-        mainWindow?.show()
-        mainWindow?.focus()
+        showMainWindow()
       }
     },
     { type: 'separator' },
     {
       label: 'Sair',
       click: (): void => {
+        // Durante uma desinstalação destrutiva, o tray não encerra o app
+        // (nem mata processos no meio do msiexec/wipe).
+        if (isAnyUninstallInProgress()) return
+        // Sair explícito: libera o close interceptado antes de encerrar.
+        markQuitting()
         processManager.killAll()
         app.quit()
       }
@@ -92,12 +259,13 @@ function createTray(): void {
   tray.setToolTip('Kolnd Hub')
   tray.setContextMenu(contextMenu)
   tray.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
+    showMainWindow()
   })
 }
 
 app.whenReady().then(() => {
+  // Sem o lock, o app já recebeu app.quit() e não faz bootstrap nenhum.
+  if (!gotSingleInstanceLock) return
   electronApp.setAppUserModelId('com.kolnd.hub')
 
   // Relative paths in Settings resolve from the project root in dev and from
@@ -105,277 +273,128 @@ app.whenReady().then(() => {
   setBaseDir(is.dev ? process.cwd() : dirname(app.getPath('exe')))
 
   // Registra os canais IPC da tela de primeira execução.
-  registerFirstRunIpc(() => mainWindow)
+  registerFirstRunInstallerIpc(() => mainWindow)
+
+  // Registra os canais IPC da config persistente (electron-store).
+  registerConfigIpc()
+
+  // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
+  registerPrefsIpc()
+
+  // Registra os canais IPC de exportação/importação da configuração (07-7.6).
+  registerConfigTransferIpc(ctx)
+
+  // Registra os canais IPC do autostart do próprio Hub no Windows (--hidden).
+  registerLoginItemIpc()
+
+  // Registra os canais IPC do modo Big Picture (controle + preferências de sons).
+  registerGamepadIpc()
+
+  // Registra os canais IPC do winget (listagem de atualizações).
+  registerWingetIpc()
+
+  // Registra os canais IPC da limpeza de arquivos temporários.
+  registerTempCleanerIpc()
+
+  // Registra os canais IPC do benchmark de CPU e do teste de estresse.
+  registerBenchmarkIpc()
+
+  // Registra os canais IPC do monitor de hardware (aba Monitor em Meu PC).
+  registerHwMonitorIpc(ctx)
+
+  // Registra os canais IPC de escala/resolução de tela (aba Tela em Meu PC).
+  registerDisplayIpc(ctx)
+
+  // Registra os canais IPC da medição de FPS/frametime por ETW (opt-in com UAC).
+  registerFpsIpc(ctx)
+
+  // FPS automático: tarefa no logon + leitura passiva de latest.json (sem UAC por uso).
+  registerFpsAutoIpc(ctx)
+
+  // Registra os canais IPC da sobreposição (HUD): atalho global + janela
+  // transparente always-on-top. Restaura a preferência persistida.
+  registerHudIpc(ctx)
+
+  // Registra os canais IPC da biblioteca de jogos.
+  registerGamesIpc()
+
+  // Registra os canais IPC da importação de jogos da Steam.
+  registerSteamIpc()
+
+  // Registra os canais IPC de validação de linha de comando (Configurações).
+  registerCommandValidateIpc()
+
+  // Registra os canais IPC de shell (abrir navegação externa/caminhos).
+  registerShellIpc(ctx)
+
+  // Registra os canais IPC de sistema (nome do PC, processos em execução).
+  registerSystemIpc(ctx)
+
+  // Registra os canais IPC de inicialização do PC (startup).
+  registerStartupIpc(ctx)
+
+  // Registra os canais IPC de check/markComplete da primeira execução.
+  registerFirstRunStatusIpc(ctx)
+
+  // Registra os canais IPC de diálogos nativos (pick-path).
+  registerDialogIpc(ctx)
+
+  // Registra os canais IPC de controles de janela (minimize/maximize/fullscreen/close).
+  registerWindowIpc(ctx)
+
+  // Registra os canais IPC de gestão de programas (launch/stop/status/logs/shutdown).
+  registerAppIpc(ctx)
+
+  // Registra os canais IPC do Kloud Games (launch/status).
+  registerKloudGamesIpc(ctx)
+
+  // Registra o canal IPC de desinstalação do próprio Hub (uninstall:hub).
+  registerUninstallHubIpc(ctx)
+
+  // Reencaminha os eventos do ProcessManager para o renderer (status/output).
+  registerProcessEvents(ctx)
+
+  // Registra o canal IPC de exportação de diagnóstico (diagnostic:export).
+  registerDiagnosticIpc(ctx)
+
+  // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
+  registerUninstallIpc(() => mainWindow)
+
+  // Seed dos dados do Mark LVI para %APPDATA%/kolnd-hub/mark-lvi
+  // (migração transparente para quem já tinha config/memory ao lado do exe).
+  seedMarkLviData()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // ── IPC: Kloud Games ─────────────────────────────
-  // Abrir: procura o .exe (estado salvo → pasta do Hub → Program Files).
-  // Se não encontrar, abre o MSI embutido para instalação (UAC), detecta o
-  // caminho do .exe e salva tudo em resources/programs/kloud-games/kloud-games.paths.json.
-  ipcMain.handle('kloud-games:launch', async () => {
-    const ensured = await ensureKloudGamesInstalled()
-    if (!ensured.success || !ensured.exePath) {
-      return { success: false, error: ensured.error ?? 'Kloud Games não está disponível.' }
-    }
-
-    const exePath = ensured.exePath
-    const cwd = dirname(exePath)
-    const launch = processManager.launch('kloud-games', `"${exePath}"`, cwd)
-    return {
-      success: launch.success,
-      error: launch.error,
-      exePath,
-      cwd,
-      installedNow: ensured.installedNow ?? false
-    }
-  })
-
-  // Status: revalida e retorna os caminhos salvos (usado pelo renderer ao abrir).
-  ipcMain.handle('kloud-games:status', () => {
-    return getKloudGamesStatus()
-  })
-
-  // ── IPC: App management ─────────────────────────
-  ipcMain.handle('app:launch', async (_event, appId: string, command: string, cwd: string) => {
-    return processManager.launch(appId, command, cwd)
-  })
-
-  ipcMain.handle('app:stop', async (_event, appId: string, command?: string) => {
-    const result = await processManager.stop(appId)
-    if (result.success || !command) return result
-    // O Hub só conhece processos que ele mesmo iniciou nesta sessão. Se o
-    // programa está rodando em segundo plano (ex.: Hub reiniciado e o
-    // processo ficou órfão), encerra pelo executável do comando.
-    return killProcessesForCommand(command)
-  })
-
-  ipcMain.handle('app:status', async (_event, appId: string) => {
-    return processManager.getStatus(appId)
-  })
-
-  ipcMain.handle('app:all-status', async () => {
-    return processManager.getAllStatus()
-  })
-
-  // ── Sistema ─────────────────────────────────────
-  ipcMain.handle('system:pc-name', () => {
-    return getPcName()
-  })
-
-  ipcMain.handle('system:running-processes', () => {
-    return listRunningProcesses()
-  })
-
-  // ── Inicialização do PC (startup) ───────────────
-  ipcMain.handle('startup:list', () => {
-    return listStartupItems()
-  })
-
-  ipcMain.handle(
-    'startup:remove',
-    (_event, item: { location: string; scope: string; name: string }) => {
-      return removeStartupItem(item as Parameters<typeof removeStartupItem>[0])
-    }
-  )
-
-  ipcMain.handle(
-    'startup:add',
-    (_event, item: { name: string; path: string }) => {
-      return addStartupItem(item as Parameters<typeof addStartupItem>[0])
-    }
-  )
-
-  ipcMain.handle(
-    'startup:removeBatch',
-    (_event, items: Array<{ location: string; scope: string; name: string }>) => {
-      return removeStartupItemsBatch(
-        items as Parameters<typeof removeStartupItemsBatch>[0]
-      )
-    }
-  )
-
-  ipcMain.handle(
-    'startup:addBatch',
-    (_event, items: Array<{ name: string; path: string }>) => {
-      return addStartupItemsBatch(items as Parameters<typeof addStartupItemsBatch>[0])
-    }
-  )
-
-  ipcMain.handle('app:logs', async (_event, appId: string) => {
-    return processManager.getLogs(appId)
-  })
-
-  // ── IPC: Primeira execução ──────────────────────
-  ipcMain.handle('firstRun:check', () => {
-    return isFirstRun()
-  })
-
-  ipcMain.handle('firstRun:markComplete', () => {
-    markFirstRunComplete()
-    return { success: true }
-  })
-
-  // ── IPC: Window controls ────────────────────────
-  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-  ipcMain.handle('window:maximize', () => {
-    if (mainWindow?.isMaximized()) {
-      mainWindow.unmaximize()
-    } else {
-      mainWindow?.maximize()
-    }
-  })
-
-  /**
-   * Encerra completamente o Kolnd Hub: mata todos os processos lançados pelo
-   * Hub (incluindo servidores e processos em segundo plano) e fecha a janela
-   * e o próprio Electron (app.quit). Garante que nada do Hub fique aberto.
-   */
-  async function shutdownHub(): Promise<void> {
-    try {
-      processManager.killAll()
-    } catch {
-      // Ignora erros ao matar processos; ainda assim queremos sair.
-    }
-    if (mainWindow) {
-      mainWindow.destroy()
-    }
-    app.quit()
-  }
-
-  ipcMain.handle('app:shutdown', async () => {
-    await shutdownHub()
-    return { success: true }
-  })
-
-  /**
-   * Exibe o popup de confirmação "Você quer encerrar o Hub?". Se o usuário
-   * confirmar, encerra todos os processos e sai do aplicativo. Se cancelar,
-   * nada acontece e a janela permanece aberta.
-   */
-  async function confirmAndQuit(): Promise<void> {
-    if (!mainWindow) return
-    const { response } = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      title: 'Encerrar Kolnd Hub',
-      message: 'Você quer encerrar o Hub?',
-      detail:
-        'Todos os programas e servidores iniciados pelo Kolnd Hub serão fechados, ' +
-        'incluindo o que estiver rodando em segundo plano.',
-      buttons: ['Sim', 'Não'],
-      defaultId: 1,
-      cancelId: 1
-    })
-    if (response === 0) {
-      await shutdownHub()
-    }
-  }
-
-  ipcMain.handle('window:close', async () => {
-    await confirmAndQuit()
-  })
-
-  // Intercepta o evento de fechamento da janela (X do SO, Alt+F4, etc.) para
-  // também exibir o popup de confirmação em vez de apenas esconder a janela.
-  mainWindow?.on('close', (event) => {
-    event.preventDefault()
-    void confirmAndQuit()
-  })
-
-  // ── IPC: Diálogos (Configurações) ───────────────
-  // Abre o explorador de arquivos nativo para escolher o executável (file)
-  // ou a pasta de instalação (directory) de um app. Cancelar retorna
-  // { success: false, canceled: true } e nada é alterado no renderer.
-  ipcMain.handle(
-    'dialog:pick-path',
-    async (
-      _event,
-      mode: 'file' | 'directory',
-      currentValue?: string
-    ): Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }> => {
-      if (!mainWindow) {
-        return { success: false, error: 'Janela principal não está disponível.' }
-      }
-
-      // Tenta abrir o diálogo já na pasta do caminho atual (se conseguir
-      // resolver): expande %VAR%, remove aspas e sobe para o diretório-pai
-      // quando aponta para um arquivo.
-      let defaultPath: string | undefined
-      if (currentValue?.trim()) {
-        const cleaned = resolvePath(currentValue.trim().replace(/^"|"$/g, ''))
-        if (existsSync(cleaned)) {
-          defaultPath = mode === 'directory' && !cleaned.toLowerCase().endsWith('.exe')
-            ? cleaned
-            : dirname(cleaned)
-        } else if (existsSync(dirname(cleaned))) {
-          defaultPath = dirname(cleaned)
-        }
-      }
-
-      const options: Electron.OpenDialogOptions =
-        mode === 'file'
-          ? {
-              title: 'Selecionar o executável do programa',
-              properties: ['openFile'],
-              filters: [
-                { name: 'Executáveis', extensions: ['exe', 'bat', 'cmd', 'ps1', 'com'] },
-                { name: 'Todos os arquivos', extensions: ['*'] }
-              ],
-              defaultPath
-            }
-          : {
-              title: 'Selecionar a pasta de instalação do programa',
-              properties: ['openDirectory', 'createDirectory'],
-              defaultPath
-            }
-
-      try {
-        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, options)
-        if (canceled || filePaths.length === 0) {
-          return { success: false, canceled: true }
-        }
-        return { success: true, path: filePaths[0] }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return { success: false, error: message }
-      }
-    }
-  )
-
-  // ── IPC: Shell ──────────────────────────────────
-  ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    shell.openExternal(url)
-  })
-
-  ipcMain.handle('shell:openPath', (_event, path: string) => {
-    // Settings may store relative paths (../Kloud Games) or %VAR% paths.
-    shell.openPath(resolvePath(path))
-  })
-
-  // ── Forward process events to renderer ──────────
-  processManager.on('status-change', (appId: string, status: string) => {
-    mainWindow?.webContents.send('app:status-changed', appId, status)
-  })
-
-  processManager.on('output', (appId: string, data: string) => {
-    mainWindow?.webContents.send('app:output', appId, data)
-  })
-
   const firstRun = isFirstRun()
-  createWindow(firstRun)
+  // --hidden: o Windows lança o Hub com essa flag (args registrados no Run,
+  // ver loginItem.ts) para subir direto para a bandeja. Ignorado na primeira
+  // execução — o wizard de onboarding sempre aparece.
+  const startHidden = process.argv.includes('--hidden') && !firstRun
+  if (startHidden) {
+    logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
+  }
+  createWindow(firstRun, startHidden)
   createTray()
 })
 
-app.on('window-all-closed', () => {
-  // Don't quit — hide to system tray
-})
+// Handlers de ciclo de vida: só quando esta é a instância primária. No
+// caminho de lock negado, app.quit() roda sem disparar before-quit/limpeza.
+if (gotSingleInstanceLock) {
+  app.on('window-all-closed', () => {
+    // Don't quit — hide to system tray
+  })
 
-app.on('before-quit', () => {
-  processManager.killAll()
-})
+  app.on('before-quit', () => {
+    // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
+    markQuitting()
+    processManager.killAll()
+  })
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+  app.on('activate', () => {
+    // Janela oculta na bandeja → reexibe; sem janela → recria.
+    showMainWindow()
+  })
+}

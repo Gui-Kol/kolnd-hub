@@ -2,6 +2,157 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────
+   TOKENS DE DESIGN — 13.2 aprovado (16/11/2026) implementado em 13.4.
+   Acento: âmbar #e2a33f (decisão D1 do Modelo 03 — shell "Estação", 16/11/2026;
+   substitui o azul-aço #66c0f4). Dark-only.
+   Mapa token → uso (um por linha):
+   --bg-base           Fundo do app (body)                    · #0e141b
+   --bg-sunken         Wells/tracks/inputs, scrollbar track   · #090e13
+   --surface-1         Cards (elevado 1)                      · #151d26
+   --surface-2         Painéis, hover elevado                 · #1b2430
+   --surface-3         Modais/toast/popover, thumb scrollbar  · #222d3a
+   --border-subtle     Borda padrão 1px (white/6%)            · rgba(255,255,255,.06)
+   --border-strong     Borda hover/ênfase 1px (white/10%)     · rgba(255,255,255,.10)
+   --text-primary      Títulos/corpo                          · #e8eaed
+   --text-secondary    Metadados/descrições                   · #a8b3bd
+   --text-tertiary     Labels/legendas                        · #7d8894
+   --accent            Acento único (botões, links, ativo)    · #e2a33f
+   --accent-hover      Hover do acento                        · #f0bb63
+   --accent-active     Pressionado/active do acento           · #c98d2f
+   --accent-contrast   Texto sobre acento                     · #241705
+   --accent-muted      Fundo translúcido do acento (12%)      · rgba(226,163,63,.12)
+   --accent-border     Borda translúcida do acento (32%)      · rgba(226,163,63,.32)
+   --focus-ring        Anel de foco global (= acento, 2px+2px offset)
+   --success           Semântica sucesso (fixa)                · #47c476 (+muted .12 / border .30)
+   --warning           Semântica aviso (fixa, retunada em D1)  · #f5d76e (+muted .12 / border .30)
+   --danger            Semântica erro/perigo (fixa)           · #f06048 (+muted .12 / border .30)
+   --shadow-sm/md/lg   Elevação fria curta (surface, não glow)
+   --highlight         Inset highlight opcional (só surface-3)
+   --radius-sm/control/card/pill  8 / 10 / 12 / 9999 px
+   --motion-fast/base/slow/screen 120/180/240/360 ms (+--ease-out)
+   --z-rail…modal      30 / 40 (chrome) / 50 / 60 / 80 / 100
+   Aliases do plano 13.4 (--shadow-1..3, --dur-1..4, --ease-standard)
+   apontam para os tokens da §8 — mesmos valores, sem duplicação.
+
+   Contraste AA medido (L = 0.2126·R + 0.7152·G + 0.0722·B, canais linearizados):
+   text-primary   sobre surface-1/2/3 = 14.10 / 12.99 / 11.58  ✓ AA (≥4.5)
+   text-secondary sobre surface-1/2/3 =  7.97 /  7.34 /  6.55  ✓ AA
+   text-tertiary  sobre surface-1     =  4.71                  ✓ AA (meta)
+   text-tertiary  sobre surface-2/3   =  4.34 /  3.87          ✗ AA texto pequeno —
+                  usar ≥3:1 apenas para texto grande/ícones; labels sobre
+                  surface-2/3 devem migrar para text-secondary na 13.6+
+   accent         sobre bg-base       =  8.41                  ✓ AA
+   accent         sobre surface-1     =  7.72 · surface-3 = 6.34  ✓ AA
+   accent-contrast sobre accent       =  7.95                  ✓ AA (D1)
+   success/danger sobre surface-1     =  7.63 / 5.24            ✓ AA
+   warning (#f5d76e) sobre surface-1  = 12.00 · surface-2 = 11.05  ✓ AA
+   (warning retunado em D1 para não colidir com o acento âmbar)
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* Superfícies */
+  --bg-base: #0e141b;
+  --bg-sunken: #090e13;
+  --surface-1: #151d26;
+  --surface-2: #1b2430;
+  --surface-3: #222d3a;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.1);
+
+  /* Texto */
+  --text-primary: #e8eaed;
+  --text-secondary: #a8b3bd;
+  --text-tertiary: #7d8894;
+
+  /* Acento (D1 — âmbar do Modelo 03) */
+  --accent: #e2a33f;
+  --accent-hover: #f0bb63;
+  --accent-active: #c98d2f;
+  --accent-contrast: #241705;
+  --accent-muted: rgba(226, 163, 63, 0.12);
+  --accent-border: rgba(226, 163, 63, 0.32);
+  --focus-ring: #e2a33f;
+
+  /* Semânticas (fixas, funcionais) */
+  --success: #47c476;
+  --success-muted: rgba(71, 196, 118, 0.12);
+  --success-border: rgba(71, 196, 118, 0.3);
+  --warning: #f5d76e;
+  --warning-muted: rgba(245, 215, 110, 0.12);
+  --warning-border: rgba(245, 215, 110, 0.3);
+  --danger: #f06048;
+  --danger-muted: rgba(240, 96, 72, 0.12);
+  --danger-border: rgba(240, 96, 72, 0.3);
+
+  /* Elevação (fria, curta) */
+  --shadow-sm: 0 1px 2px rgba(2, 8, 16, 0.4);
+  --shadow-md: 0 8px 24px rgba(2, 8, 16, 0.45);
+  --shadow-lg: 0 16px 48px rgba(2, 8, 16, 0.55);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* Raio */
+  --radius-sm: 8px;
+  --radius-control: 10px;
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 240ms;
+  --motion-screen: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Z-index */
+  --z-rail: 30;
+  --z-chrome: 40;
+  --z-dropdown: 50;
+  --z-toast: 60;
+  --z-overlay: 80;
+  --z-modal: 100;
+
+  /* Aliases do plano 13.4 — mesmos valores dos tokens da §8 (não duplicar) */
+  --shadow-1: var(--shadow-sm);
+  --shadow-2: var(--shadow-md);
+  --shadow-3: var(--shadow-lg);
+  --dur-1: var(--motion-fast);
+  --dur-2: var(--motion-base);
+  --dur-3: var(--motion-slow);
+  --dur-4: var(--motion-screen);
+  --ease-standard: var(--ease-out);
+}
+
+/* Escala tipográfica (13.5) — única família: Inter (empacotada offline, OFL 1.1,
+   ver resources/fonts/OFL.txt). Tokens de referência para 13.4/13.6 — NÃO criar
+   classes de componente a partir daqui; mapear para `text-*` do Tailwind.
+
+   caption   11–12 px  · uppercase, tracking-wider · labels/eyebrows  → text-[11px]/text-xs
+   body-sm   13–14 px  · ênfase secundária, denso                    → text-[13px]/text-sm
+   body      14–15 px  · corpo de texto padrão                       → text-sm/text-[15px]
+   title-sm  16–18 px  · cards/painéis                               → text-base/text-lg
+   title     20–24 px  · títulos de seção                            → text-xl/text-2xl
+   display   28–40 px  · headers/Big Picture, clamp em 3xl (1920px)   → text-3xl · 40px/3xl:
+
+   Pesos: 400 corpo · 500 ênfase · 600 títulos · 700–800 display.
+   `tracking-tight` no display; números/contadores/relógio com `tabular-nums`
+   (utilitário `.tnum` abaixo). Fallback system-ui/-apple-system mantido no
+   fontFamily (não remover Segoe/system-ui). */
+
+/* Foco visível global (WCAG 2.4.7): anel de 2px --focus-ring com offset em qualquer
+   elemento focável via teclado. Não fica em @layer de propósito: CSS solto tem
+   prioridade sobre as camadas do Tailwind, então nem `focus:outline-none` utilitário
+   remove este anel. Anéis `focus-visible:ring-*` dos componentes continuam valendo
+   (box-shadow) — esta regra é a base consistente. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
 @layer base {
   * {
     margin: 0;
@@ -10,156 +161,239 @@
   }
 
   body {
-    @apply bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-kloud-500 selection:text-white;
+    @apply text-slate-200 font-sans overflow-hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: radial-gradient(circle at top right, #1a1014 0%, transparent 40%),
-      radial-gradient(circle at bottom left, #0b1d29 0%, transparent 40%),
-      linear-gradient(180deg, #0a0a0f 0%, #050508 100%);
+    /* Quase plano: bg-base → bg-sunken + vinheta fria ≤ 8% (rgba(2,8,16) = cor de --shadow-*) */
+    background:
+      radial-gradient(ellipse at center, transparent 55%, rgba(2, 8, 16, 0.08) 100%),
+      linear-gradient(180deg, var(--bg-base) 0%, var(--bg-sunken) 100%);
     min-height: 100vh;
   }
 
-  /* Scanline overlay para efeito de tela de console/arcade */
+  /* Rota #hud (janela de sobreposição transparente): o fundo do app cobriria
+     a janela inteira. A classe é aplicada somente pelo main.tsx quando
+     `location.hash === '#hud'`. */
+  body.hud-body {
+    background: transparent;
+  }
+
+  /* @deprecated(13.7+) — gate 13.2/13.3: scanlines removidas "de vez". Mantida só
+     porque Layout/BigPicture/FirstRunInstall/LoadingScreen ainda montam o <div>.
+     Remoção final + deleção dos <div> na migração das telas (13.7/13.16/13.15/13.5-side). */
   .scanlines {
     position: fixed;
     inset: 0;
-    background: linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0) 50%,
-      rgba(0, 0, 0, 0.15) 50%
-    );
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.15) 50%);
     background-size: 100% 4px;
     pointer-events: none;
-    z-index: 60;
+    z-index: var(--z-toast); /* ≡ 60 (valor igual ao legado) */
     animation: scanline 10s linear infinite;
   }
 
-  /* Custom scrollbar gamer */
+  /* Acessibilidade: quem pediu menos movimento recebe menos movimento (T8) */
+  @media (prefers-reduced-motion: reduce) {
+    .scanlines,
+    .animate-pulse,
+    .animate-pulse-slow,
+    .animate-skew,
+    .skeleton {
+      animation: none !important;
+    }
+  }
+
+  /* Custom scrollbar — cores via tokens (thumb surface-3 → hover accent-muted + borda) */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-slate-950/60;
+    background: var(--bg-sunken);
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-700/60 rounded-full hover:bg-kloud-500/60 transition-colors;
+    background: var(--surface-3);
+    border-radius: var(--radius-pill);
+    transition: background var(--motion-fast) var(--ease-out);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply border border-white/10;
+    background: var(--accent-muted);
+    border: 1px solid var(--border-strong);
   }
 }
 
 @layer components {
-  /* Glassmorphism aprimorado */
+  /* Glass — RESTRITO a modal/toast/overlay do Big Picture (13.2 §5, §8).
+     Proibido em cards, painéis, nav, botões, inputs, badges, titlebar. */
   .glass {
-    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] shadow-inner-glass;
+    background: color-mix(in srgb, var(--surface-3) 90%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
   }
 
+  /* @deprecated(13.7+) — telas ainda usam; remoção junto com a migração das telas */
   .glass-hover {
     @apply hover:bg-white/[0.05] hover:border-white/[0.12] transition-all duration-300;
   }
 
+  /* @deprecated(13.7+) — vira `.card` (surface-1 + borda + raio 12) na 13.6/13.10 */
   .glass-card {
-    @apply glass rounded-2xl overflow-hidden;
+    @apply glass rounded-card overflow-hidden;
   }
 
+  /* @deprecated(13.7+) — idem .glass-card */
   .glass-panel {
-    @apply glass rounded-3xl p-6;
+    @apply glass rounded-card p-6;
   }
 
-  /* Botões estilo console */
+  /* Botões — acento sólido (13.2 §5): sem gradiente, sem glow */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
-      text-white bg-gradient-to-r from-kloud-500 to-nintendo-500
-      hover:from-kloud-600 hover:to-nintendo-600
-      shadow-glow-red transition-all duration-200
-      active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-control text-xs font-bold uppercase tracking-wider
+      transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
+
+  .btn-primary:active {
+    background: var(--accent-active);
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
-      text-slate-300 bg-white/[0.05] border border-white/[0.1]
-      hover:bg-white/[0.1] hover:text-white hover:border-white/20
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-control text-xs font-bold uppercase tracking-wider
       transition-all duration-200 active:scale-95;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-strong);
+  }
+
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-400
-      hover:bg-white/[0.05] hover:text-white transition-colors active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-control text-sm font-medium
+      transition-colors duration-200 active:scale-95;
+    color: var(--text-secondary);
+  }
+
+  .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
   }
 
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-wider
-      text-white bg-red-600/10 border border-red-500/30 text-red-400
-      hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-300
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-control text-xs font-bold uppercase tracking-wider
       transition-all duration-200 active:scale-95;
+    color: var(--danger);
+    background: var(--danger-muted);
+    border: 1px solid var(--danger-border);
   }
 
-  /* Badges estilo Steam/console */
+  .btn-danger:hover {
+    background: var(--danger-muted);
+    border-color: var(--danger);
+    color: var(--text-primary);
+  }
+
+  /* Skeleton discreto para estados de carregamento */
+  .skeleton {
+    @apply rounded animate-pulse;
+    background: var(--surface-2);
+  }
+
+  /* Badges — base mantida; discretas (texto + borda 1px + fundo translúcido do mesmo tom) */
   .badge {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-pill text-[10px] font-bold uppercase tracking-wider;
   }
 
+  /* @deprecated(13.6) — renomear para .badge-success junto com os primitivos */
   .badge-running {
-    @apply badge bg-emerald-500/10 border border-emerald-500/20 text-emerald-400;
+    @apply badge;
+    background: var(--success-muted);
+    border: 1px solid var(--success-border);
+    color: var(--success);
   }
 
+  /* @deprecated(13.6) — renomear para .badge-neutral junto com os primitivos */
   .badge-stopped {
-    @apply badge bg-slate-700/20 border border-slate-600/40 text-slate-400;
+    @apply badge;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-tertiary);
   }
 
+  /* @deprecated(13.6) — renomear para .badge-danger junto com os primitivos */
   .badge-error {
-    @apply badge bg-red-500/10 border border-red-500/20 text-red-400;
+    @apply badge;
+    background: var(--danger-muted);
+    border: 1px solid var(--danger-border);
+    color: var(--danger);
   }
 
+  /* @deprecated(13.7+) — badges por marca saem junto com as telas; sem uso vivo confirmado no sweep 13.4 */
   .badge-nintendo {
-    @apply badge bg-nintendo-500/10 border border-nintendo-500/30 text-nintendo-500;
+    @apply badge bg-nintendo-500/10 border border-nintendo-500/30 text-nintendo-400;
   }
 
+  /* @deprecated(13.7+) — idem; usado ao vivo por AppCard (categoria STREAM) */
   .badge-playstation {
-    @apply badge bg-playstation-500/10 border border-playstation-500/30 text-playstation-500;
+    @apply badge bg-playstation-500/10 border border-playstation-500/30 text-playstation-300;
   }
 
+  /* @deprecated(13.7/13.10) — usado ao vivo por AppCard/GameCard/BigPictureGames (origem steam) */
   .badge-steam {
-    @apply badge bg-steam-blue/10 border border-steam-blue/30 text-steam-blue;
+    @apply badge bg-steam-blue/10 border border-steam-blue/30 text-steam-blue-light;
   }
 
+  /* @deprecated(13.7/13.10) — usado ao vivo por AppCard (categorias IA) */
   .badge-neon-cyan {
     @apply badge bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan;
   }
 
+  /* @deprecated(13.7/13.10) — usado ao vivo por AppCard (categoria JOGO) */
   .badge-neon-purple {
-    @apply badge bg-neon-purple/10 border border-neon-purple/30 text-neon-purple;
+    @apply badge bg-neon-purple/10 border border-neon-purple/30 text-neon-purple-light;
   }
 
+  /* @deprecated(13.7/13.10/13.16) — usado ao vivo por AppCard/GameCard/BigPictureGames (origem kloud) */
   .badge-kloud {
     @apply badge bg-kloud-500/10 border border-kloud-500/30 text-kloud-500;
   }
 
-  /* Gradiente texto */
+  /* Gradiente texto — usado ao vivo; sai junto com as telas (13.7+) */
   .gradient-text {
     @apply bg-clip-text text-transparent;
   }
 
-  .gradient-kloud {
-    background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-    -webkit-background-clip: text;
+  /* Inputs — tokens (renomear para .input na 13.6; nome legado mantido) */
+  .input-gamer {
+    @apply w-full rounded-control px-4 py-3 text-sm font-mono transition-all duration-200 focus:outline-none;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
   }
 
-  /* Inputs estilo terminal gamer */
-  .input-gamer {
-    @apply w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-slate-200 font-mono
-      placeholder-slate-600 focus:outline-none focus:border-kloud-500/50 focus:ring-1 focus:ring-kloud-500/20
-      transition-all duration-200;
+  .input-gamer::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .input-gamer:focus {
+    border-color: var(--accent-border);
+    box-shadow: 0 0 0 1px var(--accent-muted);
   }
 
   /* Label estilo painel */
   .label-panel {
-    @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2;
+    @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider mb-2;
+    color: var(--text-tertiary);
   }
 
   /* Draggable title bar */
@@ -171,9 +405,11 @@
     -webkit-app-region: no-drag;
   }
 
-  /* Toggle estilo interruptor de console */
+  /* Toggle — checked = acento sólido (13.2 §8) */
   .toggle-console {
-    @apply relative inline-flex w-12 h-6 items-center rounded-full bg-slate-800/60 transition-colors duration-200 cursor-pointer;
+    @apply relative inline-flex w-12 h-6 items-center rounded-pill transition-colors duration-200 cursor-pointer;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-subtle);
   }
 
   .toggle-console-knob {
@@ -181,7 +417,8 @@
   }
 
   .toggle-console-checked {
-    @apply bg-kloud-500/90;
+    background: var(--accent);
+    border-color: transparent;
   }
 
   .toggle-console-checked .toggle-console-knob {
@@ -190,28 +427,68 @@
 }
 
 @layer utilities {
+  /* Números tabulares (13.5): relógio/contadores/latência do Big Picture não "pulam" ao mudar o dígito */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* @deprecated(13.7+) — usado ao vivo por Layout/GamepadSetup/GamepadMappingRow;
+     trocar por `animate-pulse` discreto na migração das telas */
   .animate-pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
-  .animate-glow {
-    animation: glow 2s ease-in-out infinite alternate;
-  }
-
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
-  }
-
+  /* @deprecated(13.7+) — usado ao vivo por LoadingScreen (shimmer da barra de progresso) */
   .animate-skew {
     animation: skew 2s linear infinite;
   }
 
+  /* Só Big Picture/hero (13.2 §7) */
   .text-shadow {
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
 }
 
 @keyframes skew {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Nota: @keyframes scanline NÃO é definido aqui de propósito — no build atual o
+   Tailwind nunca emitia esse keyframe (nada usava `animate-scanline`), ou seja,
+   o overlay .scanlines era estático. Reintroduzir o keyframe mudaria o visual;
+   a remoção final do overlay acontece nas telas (13.7+). */
+
+/* ─── 13.6 — Skeleton shimmer (components/ui/Skeleton.tsx) ───
+   Shimmer SUTIL para o primitivo <Skeleton/>: gradiente frio superfície 2 → 3,
+   1.6s. NÃO usar animate-pulse chapado. Desligado com prefers-reduced-motion
+   (o placeholder fica estático, ainda legível como "carregando"). */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+  }
 }

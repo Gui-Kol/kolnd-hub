@@ -8,14 +8,9 @@ from pathlib import Path
 
 from config import is_windows, is_mac, is_linux
 
-def _get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+from core.paths import data_dir
 
-
-BASE_DIR        = _get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+API_CONFIG_PATH = data_dir() / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
