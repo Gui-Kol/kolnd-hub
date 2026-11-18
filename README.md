@@ -20,6 +20,18 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
 | **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                          |
 
+## Acesso remoto (jogar de qualquer lugar)
+
+O Hub traz em **Configurações → Acesso remoto** o diagnóstico e o atalho para expor o Kloud Games fora de casa **sem abrir portas no roteador**. O caminho recomendado é o [Tailscale](https://tailscale.com) (rede privada WireGuard):
+
+- detecta se o Tailscale está instalado/conectado e mostra o IP `100.x.y.z` (com botão copiar) para digitar no Moonlight;
+- instala via `winget` (UAC) e abre o app para login — sempre por ação explícita, nunca em segundo plano;
+- checa as portas TCP do Moonlight (`47984`, `47989`, `48010`) em localhost e no IP da tailnet;
+- consulta o IP público **apenas quando você clica**, para dizer se a rede é IPv4 direta, NAT ou CGNAT;
+- explica o pareamento: o PIN que o Moonlight mostra é digitado no painel do Kloud Games (`http://localhost:47990`).
+
+Por que não Cloudflare Tunnel/ngrok: eles carregam HTTP/TCP, não UDP — e vídeo, áudio e controle do Moonlight vão por UDP (`47998`–`48002`). Proxy HTTP serve para o painel, não para jogar. O Hub não guarda credenciais do Tailscale; o `config.json` recebe apenas o último IP público consultado.
+
 ## Instalação para o usuário final
 
 Baixe e execute `Kolnd Hub Setup <versao>.exe` (gerado em `kolnd-hub/dist/`; a versao atual esta em `kolnd-hub/package.json`). A instalação é **por usuário** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), sem exigir administrador — mas a primeira execução pode disparar elevação via UAC:

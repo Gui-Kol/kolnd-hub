@@ -1,5 +1,6 @@
 import Store from 'electron-store'
 import { ipcMain } from 'electron'
+import { isIP } from 'net'
 import { isAbsolute } from 'path'
 import { logger } from './logger'
 // Fonte única dos tipos/consts de gamepad (05-5.4). Re-exportados para não
@@ -108,6 +109,8 @@ export interface HubStoreSchema {
   benchmarkHistory: BenchmarkEntry[]
   /** Sobreposição (HUD): atalho global e visibilidade persistida. */
   hud: HudConfig
+  /** Acesso remoto: último IP público consultado (só por ação explícita). */
+  remoteAccess: RemoteAccessPrefs
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -120,6 +123,48 @@ export interface HubStoreSchema {
 /** Preferências do modo Big Picture (chave `bigPicture`). */
 export interface BigPicturePrefs {
   sounds: boolean
+}
+
+/**
+ * Preferências do acesso remoto (chave `remoteAccess`).
+ *
+ * Guarda apenas o RESULTADO da última consulta de IP público — credenciais do
+ * Tailscale nunca passam pelo Hub (ficam no serviço/app do Tailscale).
+ */
+export interface RemoteAccessPrefs {
+  lastPublicIp: string | null
+  /** ISO da última consulta bem-sucedida. */
+  lastPublicIpCheckedAt: string | null
+}
+
+export function defaultRemoteAccessPrefs(): RemoteAccessPrefs {
+  return { lastPublicIp: null, lastPublicIpCheckedAt: null }
+}
+
+/** IP válido (v4/v6) e limitado; qualquer outra coisa vira `null`. */
+function normalizePublicIp(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const ip = value.trim()
+  if (!ip || ip.length > 64 || isIP(ip) === 0) return null
+  return ip
+}
+
+/** Normaliza o objeto persistido; campos inválidos são descartados isoladamente. */
+export function normalizeRemoteAccessPrefs(input: unknown): RemoteAccessPrefs {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return defaultRemoteAccessPrefs()
+  }
+  const raw = input as Record<string, unknown>
+  const lastPublicIp = normalizePublicIp(raw.lastPublicIp)
+  const rawCheckedAt = raw.lastPublicIpCheckedAt
+  const lastPublicIpCheckedAt =
+    typeof rawCheckedAt === 'string' && rawCheckedAt.trim() && rawCheckedAt.length <= 40
+      ? rawCheckedAt.trim()
+      : null
+
+  // Sem IP válido o timestamp perde o sentido — os dois andam juntos.
+  if (!lastPublicIp) return defaultRemoteAccessPrefs()
+  return { lastPublicIp, lastPublicIpCheckedAt }
 }
 
 /** Nota de um teste individual do benchmark (MOps/s em cada fase). */
@@ -573,6 +618,17 @@ const schema: Store.Schema<HubStoreSchema> = {
       scale: { type: 'string' }
     },
     additionalProperties: false
+  },
+  // Acesso remoto: só o último IP público consultado (ação explícita). O
+  // conteúdo é revalidado por normalizeRemoteAccessPrefs() na leitura/escrita.
+  remoteAccess: {
+    type: 'object',
+    default: { lastPublicIp: null, lastPublicIpCheckedAt: null },
+    properties: {
+      lastPublicIp: { type: ['string', 'null'] },
+      lastPublicIpCheckedAt: { type: ['string', 'null'] }
+    },
+    additionalProperties: false
   }
 }
 
@@ -606,6 +662,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.5.0 garante a chave `benchmarkHistory` (lista normalizada, cap 20);
       // 1.6.0 garante a chave `hud` (atalho padrão e visibilidade desligada).
       // 1.7.0 acrescenta as preferências de tamanho do HUD (`width`/`scale`).
+      // 1.8.0 garante a chave `remoteAccess` (último IP público consultado).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -665,6 +722,17 @@ function createStore(): Store<HubStoreSchema> | null {
             // Largura (180–560, passo 10) e escala (`compacta|normal|grande`).
             // Atalho/visibilidade existentes são preservados pela normalização.
             s.set('hud', normalizeHudConfig(s.get('hud', defaultHudConfig())))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.8.0': (s): void => {
+          try {
+            // Chave nova do acesso remoto (null/`{...}`); não toca no resto.
+            s.set(
+              'remoteAccess',
+              normalizeRemoteAccessPrefs(s.get('remoteAccess', defaultRemoteAccessPrefs()))
+            )
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -1085,6 +1153,42 @@ export function setHudSize(input: unknown): {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar hud.width/scale:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Último IP público consultado (chave `remoteAccess`). Defaults seguros:
+ * nunca consulta nada ao abrir — só devolve o que foi salvo por clique.
+ */
+export function getRemoteAccessPrefs(): RemoteAccessPrefs {
+  if (!store) return defaultRemoteAccessPrefs()
+  try {
+    return normalizeRemoteAccessPrefs(store.get('remoteAccess', defaultRemoteAccessPrefs()))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler remoteAccess:', err)
+    return defaultRemoteAccessPrefs()
+  }
+}
+
+/** Persiste o resultado da consulta explícita de IP público. */
+export function setRemotePublicIp(
+  ip: unknown,
+  checkedAt: unknown
+): { success: boolean; error?: string } {
+  const address = normalizePublicIp(ip)
+  if (!address) return { success: false, error: 'IP público inválido.' }
+  const at =
+    typeof checkedAt === 'string' && checkedAt.trim() && checkedAt.length <= 40
+      ? checkedAt.trim()
+      : new Date().toISOString()
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('remoteAccess', { lastPublicIp: address, lastPublicIpCheckedAt: at })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar remoteAccess:', message)
     return { success: false, error: message }
   }
 }

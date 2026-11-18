@@ -5,6 +5,9 @@
 // 15 famílias de primitivos + tipos públicos de cada uma.
 // Sem lógica de negócio, sem dependências novas; estilo 100% via tokens.
 //
+// SectionTitle (extraído da tela de Configurações para o Acesso remoto): não é
+// um primitivo interativo, apenas o rótulo de seção com hairline.
+//
 // ScrollArea (item 11 do plano 13-13.6) NÃO é um componente JS — é a estilização
 // de scrollbar já existente em index.css: `::-webkit-scrollbar` (8 px, track
 // --bg-sunken) com thumb --surface-3 que clareia para --accent-muted + borda no
@@ -27,6 +30,8 @@ export type { SelectProps } from './Select'
 
 export { Card } from './Card'
 export type { CardProps, CardVariant } from './Card'
+
+export { SectionTitle } from './SectionTitle'
 
 export { Badge } from './Badge'
 export type { BadgeProps, BadgeTone } from './Badge'

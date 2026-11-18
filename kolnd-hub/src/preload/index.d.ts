@@ -18,6 +18,7 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { PublicIpResult, RemoteActionResult, RemoteStatus } from '../shared/remote'
 
 declare global {
   interface Window {
@@ -41,6 +42,14 @@ declare global {
         dir: string
         running: boolean
       }>
+
+      // ── Acesso remoto (Tailscale) ───────────────────
+      remoteStatus: () => Promise<RemoteStatus>
+      remotePublicIp: () => Promise<PublicIpResult>
+      remoteInstallTailscale: () => Promise<RemoteActionResult>
+      remoteOpenTailscale: () => Promise<RemoteActionResult>
+      remoteOpenKloudWeb: () => Promise<RemoteActionResult>
+      remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
 
       // ── Big Picture (modo tela cheia) ────────────────
       getGamepadConfig: () => Promise<{

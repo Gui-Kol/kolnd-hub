@@ -33,6 +33,7 @@ import { registerDialogIpc } from './ipc/dialog'
 import { registerWindowIpc } from './ipc/window'
 import { registerAppIpc } from './ipc/app'
 import { registerKloudGamesIpc } from './ipc/kloudGames'
+import { registerRemoteAccessIpc } from './ipc/remoteAccess'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
@@ -347,6 +348,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC do Kloud Games (launch/status).
   registerKloudGamesIpc(ctx)
+
+  // Registra os canais IPC do acesso remoto (status/instalar/abrir/copiar).
+  registerRemoteAccessIpc(ctx)
 
   // Registra o canal IPC de desinstalação do próprio Hub (uninstall:hub).
   registerUninstallHubIpc(ctx)

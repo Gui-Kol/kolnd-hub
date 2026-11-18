@@ -22,11 +22,11 @@ import {
   Upload,
   Info
 } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
+import { RemoteAccessSettings } from './RemoteAccessSettings'
 import { UninstallDangerZone } from './UninstallDangerZone'
-import { Badge, Button, Card, IconButton, Input, Switch } from './ui'
+import { Badge, Button, Card, IconButton, Input, SectionTitle, Switch } from './ui'
 
 interface SettingsProps {
   apps: AppConfig[]
@@ -36,18 +36,6 @@ interface SettingsProps {
 
 /** Issue de validação devolvida pelo IPC `command:validate` (espelho do main). */
 type CommandIssue = { level: 'error' | 'warning'; message: string }
-
-/** Rótulo de seção da tela (uppercase + hairline), coerente com os grupos da Dashboard. */
-function SectionTitle({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <div className="mx-2 flex items-center gap-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
-        {children}
-      </h3>
-      <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
-    </div>
-  )
-}
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
   // Entradas decorativas das seções (incl. cascata dos cards de apps) viram fade curto com reduce.
@@ -620,6 +608,9 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
           </div>
         </Card>
       </motion.div>
+
+      {/* ── Acesso remoto (Tailscale) ────────────────── */}
+      <RemoteAccessSettings onToast={onToast} />
 
       {/* ── Big Picture ─────────────────────────────── */}
       <BigPictureSettings />

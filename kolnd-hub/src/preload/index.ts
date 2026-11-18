@@ -20,6 +20,7 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { PublicIpResult, RemoteActionResult, RemoteStatus } from '../shared/remote'
 
 const api = {
   // ── Sistema ─────────────────────────────────────
@@ -44,6 +45,23 @@ const api = {
     dir: string
     running: boolean
   }> => ipcRenderer.invoke('kloud-games:status'),
+
+  // ── Acesso remoto (Tailscale) ───────────────────
+  remoteStatus: (): Promise<RemoteStatus> => ipcRenderer.invoke('remote:status'),
+
+  remotePublicIp: (): Promise<PublicIpResult> => ipcRenderer.invoke('remote:public-ip'),
+
+  remoteInstallTailscale: (): Promise<RemoteActionResult> =>
+    ipcRenderer.invoke('remote:install-tailscale'),
+
+  remoteOpenTailscale: (): Promise<RemoteActionResult> =>
+    ipcRenderer.invoke('remote:open-tailscale'),
+
+  remoteOpenKloudWeb: (): Promise<RemoteActionResult> =>
+    ipcRenderer.invoke('remote:open-kloud-web'),
+
+  remoteCopy: (text: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('remote:copy', text),
 
   // ── Preferências do Hub ───────────────────────────
   getLaunchKloudOnStart: (): Promise<boolean> => ipcRenderer.invoke('prefs:get'),

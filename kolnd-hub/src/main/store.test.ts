@@ -70,6 +70,9 @@ let getHudConfig: typeof import('./store').getHudConfig
 let setHudShortcut: typeof import('./store').setHudShortcut
 let setHudVisible: typeof import('./store').setHudVisible
 let setHudSize: typeof import('./store').setHudSize
+let normalizeRemoteAccessPrefs: typeof import('./store').normalizeRemoteAccessPrefs
+let getRemoteAccessPrefs: typeof import('./store').getRemoteAccessPrefs
+let setRemotePublicIp: typeof import('./store').setRemotePublicIp
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -105,6 +108,9 @@ beforeAll(async () => {
   setHudShortcut = storeMod.setHudShortcut
   setHudVisible = storeMod.setHudVisible
   setHudSize = storeMod.setHudSize
+  normalizeRemoteAccessPrefs = storeMod.normalizeRemoteAccessPrefs
+  getRemoteAccessPrefs = storeMod.getRemoteAccessPrefs
+  setRemotePublicIp = storeMod.setRemotePublicIp
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -657,7 +663,7 @@ describe('config.json corrompido (leitura lançando)', () => {
 
 // ── migrações de schema (cadeia 1.0.0 → 1.6.0) ─────────────────
 
-describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
+describe('migrações de schema (cadeia 1.0.0 → 1.8.0)', () => {
   type FakeStore = {
     data: Record<string, unknown>
     get: (key: string, def?: unknown) => unknown
@@ -691,7 +697,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
       '1.4.0',
       '1.5.0',
       '1.6.0',
-      '1.7.0'
+      '1.7.0',
+      '1.8.0'
     ]) {
       migrationsOf()[version](s)
     }
@@ -732,6 +739,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
       width: 300,
       scale: 'normal'
     })
+    // 1.8.0 garantiu remoteAccess sem IP consultado
+    expect(s.data.remoteAccess).toEqual({ lastPublicIp: null, lastPublicIpCheckedAt: null })
   })
 
   it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
@@ -768,6 +777,29 @@ describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
     expect(s.data.bigPicture).toEqual({ sounds: true })
   })
 
+  it('1.8.0 normaliza remoteAccess (IP inválido volta a null, válido é preservado)', () => {
+    const invalid = makeFakeStore({
+      remoteAccess: { lastPublicIp: 'lixo', lastPublicIpCheckedAt: 'x' }
+    })
+    runChain(invalid)
+    expect(invalid.data.remoteAccess).toEqual({
+      lastPublicIp: null,
+      lastPublicIpCheckedAt: null
+    })
+
+    const valid = makeFakeStore({
+      remoteAccess: {
+        lastPublicIp: '201.10.20.30',
+        lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+      }
+    })
+    runChain(valid)
+    expect(valid.data.remoteAccess).toEqual({
+      lastPublicIp: '201.10.20.30',
+      lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+    })
+  })
+
   it('migrações não lançam mesmo com chaves ilegíveis (arquivo inconsistente)', () => {
     const s: FakeStore = {
       data: {},
@@ -786,7 +818,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.7.0)', () => {
       '1.4.0',
       '1.5.0',
       '1.6.0',
-      '1.7.0'
+      '1.7.0',
+      '1.8.0'
     ]) {
       expect(() => migrationsOf()[version](s)).not.toThrow()
     }
@@ -1144,6 +1177,66 @@ describe('hud', () => {
   })
 })
 
+// ── acesso remoto ──────────────────────────────────────────────
+
+describe('remoteAccess', () => {
+  const defaults = { lastPublicIp: null, lastPublicIpCheckedAt: null }
+
+  it('normalizeRemoteAccessPrefs mantém IP válido (v4/v6) e descarta o resto', () => {
+    expect(normalizeRemoteAccessPrefs(null)).toEqual(defaults)
+    expect(normalizeRemoteAccessPrefs({ lastPublicIp: '999.1.1.1' })).toEqual(defaults)
+    expect(
+      normalizeRemoteAccessPrefs({
+        lastPublicIp: '2804:14d::1',
+        lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+      })
+    ).toEqual({
+      lastPublicIp: '2804:14d::1',
+      lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+    })
+    expect(
+      normalizeRemoteAccessPrefs({ lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: 42 })
+    ).toEqual({ lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: null })
+  })
+
+  it('getRemoteAccessPrefs devolve o default sem store e normaliza o disco', () => {
+    expect(getRemoteAccessPrefs()).toEqual(defaults)
+
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'remoteAccess'
+        ? { lastPublicIp: '201.10.20.30', lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z' }
+        : def
+    )
+    expect(getRemoteAccessPrefs()).toEqual({
+      lastPublicIp: '201.10.20.30',
+      lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+    })
+
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'remoteAccess' ? { lastPublicIp: 'lixo' } : def
+    )
+    expect(getRemoteAccessPrefs()).toEqual(defaults)
+  })
+
+  it('setRemotePublicIp valida o IP e persiste o timestamp', () => {
+    const h = holder()
+    expect(setRemotePublicIp('lixo', null)).toEqual({
+      success: false,
+      error: 'IP público inválido.'
+    })
+    expect(h.set).not.toHaveBeenCalled()
+
+    expect(setRemotePublicIp('201.10.20.30', '2026-11-17T10:00:00.000Z')).toEqual({
+      success: true
+    })
+    expect(h.set).toHaveBeenCalledWith('remoteAccess', {
+      lastPublicIp: '201.10.20.30',
+      lastPublicIpCheckedAt: '2026-11-17T10:00:00.000Z'
+    })
+  })
+})
+
 // ── store indisponível (construtor lança) ──────────────────────
 
 describe('store indisponível (construtor do electron-store lança)', () => {
@@ -1184,6 +1277,10 @@ describe('store indisponível (construtor do electron-store lança)', () => {
         width: 300,
         scale: 'normal'
       })
+      expect(mod.getRemoteAccessPrefs()).toEqual({
+        lastPublicIp: null,
+        lastPublicIpCheckedAt: null
+      })
 
       // set* reportam erro controlado — nunca exceção crua
       expect(mod.setApps([{ id: 'a', command: 'a.exe', cwd: 'c' } as never])).toEqual({
@@ -1202,6 +1299,7 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       expect(mod.setHudShortcut('Control+Alt+K').success).toBe(false)
       expect(mod.setHudVisible(true).success).toBe(false)
       expect(mod.setHudSize({ width: 400 }).success).toBe(false)
+      expect(mod.setRemotePublicIp('201.10.20.30', null).success).toBe(false)
       expect(mod.migrateFromLegacy({ apps: [] }).success).toBe(false)
       expect(mod.resetGamepadConfig().success).toBe(false)
 

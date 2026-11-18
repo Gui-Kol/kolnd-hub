@@ -12,6 +12,7 @@ Mudanças em `Dev` desde a 1.4.0 (2026-11-12), ainda sem bump de versão. Interv
 
 ### Adicionado
 
+- **Acesso remoto (Tailscale)** em Configurações: status do Tailscale e das interfaces, IP público consultado só por clique (com classificação NAT/CGNAT), teste das portas TCP do Moonlight, instalação via `winget` e abertura do painel para parear o PIN — tudo validado no renderer; nova chave `remoteAccess` no electron-store (migração 1.8.0)
 - **Desinstalação pelo app**: botões "Desinstalar Kloud Games" (via `msiexec /x {ProductCode}`, elevado por UAC) e "Desinstalar Kolnd Hub" (desinstalador NSIS per-user) em Configurações → "Zona de perigo", com confirmação digitada, saídas honestas para instalação quebrada, matriz de erros e casos de borda dos fluxos (`15f6d9ab`, `b665ad5a`, `7e4f9898`)
 - **Log persistente do Hub** com rotação (5 MB × 2) e redação mínima de comandos/segredos, em `%APPDATA%\kolnd-hub\logs\kolnd-hub.log` (`b1b697b3`)
 - **Crash reporting local** — minidumps em `%APPDATA%\kolnd-hub\Crashpad` e handlers de exceção não capturada / rejeição não tratada; nada é enviado para fora da máquina (`a95ff463`)
