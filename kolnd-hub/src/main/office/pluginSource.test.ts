@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -30,12 +31,30 @@ interface PluginModule {
   createActionLoop: (options: ActionLoopOptions) => () => Promise<boolean>
 }
 
+/**
+ * Importa o ESM gerado fora do transform do Vite/Vitest.
+ *
+ * O `import()` analisado pelo Vite percent-encoda `~` do caminho (perfil 8.3 do
+ * runner do CI, ex.: `C:/Users/RUNNER~1/...` vira `RUNNER%7E1`) e depois tenta
+ * abrir esse caminho literal, que não existe. Carregar um loader `.cjs` via
+ * `createRequire` roda no Node puro, onde o `import()` da URL não é reescrito.
+ */
+async function importPluginEsm(file: string): Promise<unknown> {
+  const loader = join(dirname(file), 'esm-loader.cjs')
+  writeFileSync(loader, 'module.exports = (url) => import(url)\n', 'utf8')
+  const requireFromLoader = createRequire(pathToFileURL(loader))
+  const loadEsm = requireFromLoader(loader) as (url: string) => Promise<unknown>
+  return loadEsm(pathToFileURL(file).href)
+}
+
 /** Escreve a string gerada e importa como ESM (mesmo caminho do plugin real). */
 async function loadPluginSource(): Promise<{ dir: string; file: string; mod: PluginModule }> {
-  const dir = mkdtempSync(join(tmpdir(), 'kolnd-office-plugin-actions-'))
+  // O `~` no prefixo reproduz o perfil 8.3 do runner do CI (RUNNER~1), que já
+  // derrubou estes testes por causa do `%7E` na URL.
+  const dir = mkdtempSync(join(tmpdir(), 'kolnd-office-plugin-~actions-'))
   const file = join(dir, 'plugin.mjs')
   writeFileSync(file, OFFICE_PLUGIN_SOURCE, 'utf8')
-  const mod = (await import(pathToFileURL(file).href)) as PluginModule
+  const mod = (await importPluginEsm(file)) as PluginModule
   return { dir, file, mod }
 }
 
@@ -253,11 +272,11 @@ describe('OFFICE_PLUGIN_SOURCE', () => {
   })
 
   it('normalizador embutido concorda com a versão tipada', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kolnd-office-plugin-'))
+    const dir = mkdtempSync(join(tmpdir(), 'kolnd-office-plugin-~normalize-'))
     try {
       const file = join(dir, 'plugin.mjs')
       writeFileSync(file, OFFICE_PLUGIN_SOURCE, 'utf8')
-      const mod = (await import(pathToFileURL(file).href)) as {
+      const mod = (await importPluginEsm(file)) as {
         normalizeEvent: (event: unknown) => unknown
         nextRetryDelayMs: (attempt: number) => number
       }
