@@ -131,3 +131,129 @@ describe('loadOfficeFixture', () => {
     expect(() => loadOfficeFixture(delay)).toThrow(/maior ou igual a zero/i)
   })
 })
+
+describe('loadOfficeFixture — gestão de funcionários', () => {
+  it('sem agents/models no JSON usa os defaults embutidos', async () => {
+    const client = loadOfficeFixture(writeFixture('defaults.json', { sessions: [] }))
+
+    const agents = await client.listAgents('C:\\projetos\\kolnd-hub')
+    const models = await client.listModels('C:\\projetos\\kolnd-hub')
+    expect(agents.map((agent) => agent.id)).toContain('build')
+    expect(models.some((model) => model.enabled)).toBe(true)
+    expect(models.some((model) => !model.enabled)).toBe(true)
+  })
+
+  it('createSession acrescenta uma sessão ativa com função, modelo e sala', async () => {
+    const client = loadOfficeFixture(writeFixture('hire.json', { sessions: SESSIONS }))
+
+    const sessionID = await client.createSession({
+      title: 'Contratar dev',
+      agentID: 'build',
+      model: null,
+      directory: 'C:\\projetos\\kolnd-hub'
+    })
+    expect(sessionID).toBe('ses_fixture_hire_1')
+
+    const sessions = await client.listSessions()
+    expect(sessions).toHaveLength(SESSIONS.length + 1)
+    expect(sessions[sessions.length - 1]).toMatchObject({
+      id: sessionID,
+      title: 'Contratar dev',
+      agent: 'build',
+      model: { id: 'deepseek-v4.1-flash', providerID: 'opencode-go' },
+      location: { directory: 'C:\\projetos\\kolnd-hub' }
+    })
+  })
+
+  it('createSession respeita o modelo escolhido e ids não colidem', async () => {
+    const client = loadOfficeFixture(writeFixture('hire2.json', { sessions: SESSIONS }))
+
+    const first = await client.createSession({
+      title: 'Um',
+      agentID: 'plan',
+      model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4', enabled: true },
+      directory: 'C:\\projetos\\kolnd-hub'
+    })
+    const second = await client.createSession({
+      title: 'Dois',
+      agentID: 'plan',
+      model: null,
+      directory: 'C:\\projetos\\kolnd-hub'
+    })
+    expect(first).not.toBe(second)
+
+    const sessions = await client.listSessions()
+    const hired = sessions.find((session) => session.id === first)
+    expect(hired?.model).toEqual({ providerID: 'opencode-go', id: 'qwen4-max' })
+  })
+
+  it('setSessionAgent/setSessionModel atualizam a sessão contratada', async () => {
+    const client = loadOfficeFixture(writeFixture('role.json', { sessions: SESSIONS }))
+    const sessionID = await client.createSession({
+      title: 'Contratar dev',
+      agentID: 'build',
+      model: null,
+      directory: 'C:\\projetos\\kolnd-hub'
+    })
+
+    await client.setSessionAgent(sessionID, 'plan')
+    await client.setSessionModel(sessionID, { providerID: 'opencode-go', id: 'qwen4-max' })
+
+    const hired = (await client.listSessions()).find((session) => session.id === sessionID)
+    expect(hired?.agent).toBe('plan')
+    expect(hired?.model).toEqual({ providerID: 'opencode-go', id: 'qwen4-max' })
+  })
+
+  it('arquivar tira da lista ativa, lista em arquivados e restaurar devolve', async () => {
+    const client = loadOfficeFixture(writeFixture('archive.json', { sessions: SESSIONS }))
+
+    await client.archiveSession('ses_fixture_idle')
+    expect((await client.listSessions()).map((session) => session.id)).toEqual(['ses_fixture_main'])
+
+    const archived = await client.listArchivedSessions()
+    expect(archived).toHaveLength(1)
+    expect(archived[0]).toMatchObject({
+      sessionID: 'ses_fixture_idle',
+      title: 'Revisar contrato',
+      agent: 'plan',
+      directory: 'C:\\projetos\\api-core'
+    })
+
+    // Filtro por sala: outra sala não aparece.
+    expect(await client.listArchivedSessions('C:\\projetos\\kolnd-hub')).toEqual([])
+
+    await client.restoreSession('ses_fixture_idle')
+    expect(await client.listSessions()).toHaveLength(SESSIONS.length)
+    expect(await client.listArchivedSessions()).toEqual([])
+  })
+
+  it('usa agents/models declarados no arquivo e recusa sessão inexistente', async () => {
+    const client = loadOfficeFixture(
+      writeFixture('custom.json', {
+        sessions: SESSIONS,
+        agents: [{ id: 'gerente', name: 'Gerente', mode: 'primary', hidden: false }],
+        models: [{ providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4', enabled: true }]
+      })
+    )
+    expect((await client.listAgents('C:\\projetos\\kolnd-hub')).map((agent) => agent.id)).toEqual([
+      'gerente'
+    ])
+    expect((await client.listModels('C:\\projetos\\kolnd-hub')).map((model) => model.id)).toEqual([
+      'qwen4-max'
+    ])
+
+    await expect(client.archiveSession('ses_inexistente')).rejects.toThrow(/não existe na fixture/i)
+    await expect(client.setSessionAgent('ses_inexistente', 'plan')).rejects.toThrow(
+      /não existe na fixture/i
+    )
+  })
+
+  it('"agents"/"models" fora de lista: erro legível', () => {
+    expect(() =>
+      loadOfficeFixture(writeFixture('agents.json', { sessions: [], agents: 'x' }))
+    ).toThrow(/"agents" da fixture precisa ser uma lista/i)
+    expect(() =>
+      loadOfficeFixture(writeFixture('models.json', { sessions: [], models: {} }))
+    ).toThrow(/"models" da fixture precisa ser uma lista/i)
+  })
+})

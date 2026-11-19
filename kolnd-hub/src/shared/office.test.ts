@@ -174,6 +174,8 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
     expect(snapshot.rooms).toHaveLength(2)
     const kolnd = snapshot.rooms.find((room) => room.id === 'c:/users/tiffodi/desenv/kolnd hub')
     expect(kolnd?.name).toBe('Kolnd Hub')
+    // O caminho original (primeira sessão da sala) é o que contrata de verdade.
+    expect(kolnd?.path).toBe('C:\\Users\\TiffoDi\\desenv\\Kolnd Hub')
     expect(kolnd?.agentIDs).toEqual(['ses_1', 'ses_2'])
   })
 
@@ -183,7 +185,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
       sessions: [session({ id: 'ses_sem', location: null })]
     })
     expect(snapshot.rooms).toEqual([
-      { id: 'sem-projeto', name: 'Sem projeto', agentIDs: ['ses_sem'] }
+      { id: 'sem-projeto', name: 'Sem projeto', path: '', agentIDs: ['ses_sem'] }
     ])
   })
 

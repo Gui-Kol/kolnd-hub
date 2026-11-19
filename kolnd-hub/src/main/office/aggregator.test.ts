@@ -200,7 +200,12 @@ describe('createOfficeAggregator', () => {
     expect(snapshot?.source).toBe('plugin')
     expect(snapshot?.health.pluginConnected).toBe(true)
     expect(snapshot?.rooms).toEqual([
-      { id: 'c:/repo/beta', name: 'beta', agentIDs: ['ses_so_plugin'] }
+      {
+        id: 'c:/repo/beta',
+        name: 'beta',
+        path: 'C:\\repo\\beta',
+        agentIDs: ['ses_so_plugin']
+      }
     ])
     expect(snapshot?.agents[0]).toMatchObject({ sessionID: 'ses_so_plugin', status: 'working' })
   })

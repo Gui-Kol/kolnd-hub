@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { deriveOfficeSnapshot, type OfficeSnapshot } from '../../shared/office'
+import { logger } from '../logger'
 import type { IpcContext } from './lifecycle'
 
 const mocks = vi.hoisted(() => ({
@@ -65,6 +66,19 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
   let bridgeResult: ((result: unknown, meta: unknown) => void) | null
   let enqueueAction: ReturnType<typeof vi.fn>
   let actionCounter: number
+  let clientFns: {
+    resolveCli: ReturnType<typeof vi.fn>
+    listSessions: ReturnType<typeof vi.fn>
+    sessionMessages: ReturnType<typeof vi.fn>
+    listAgents: ReturnType<typeof vi.fn>
+    listModels: ReturnType<typeof vi.fn>
+    createSession: ReturnType<typeof vi.fn>
+    setSessionAgent: ReturnType<typeof vi.fn>
+    setSessionModel: ReturnType<typeof vi.fn>
+    archiveSession: ReturnType<typeof vi.fn>
+    restoreSession: ReturnType<typeof vi.fn>
+    listArchivedSessions: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     vi.resetModules()
@@ -91,11 +105,22 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
     })
 
     mocks.createClient.mockReset()
+    clientFns = {
+      resolveCli: vi.fn(async () => 'C:\\tools\\opencode-cli.exe'),
+      listSessions: vi.fn(async () => []),
+      sessionMessages: vi.fn(async () => []),
+      listAgents: vi.fn(async () => []),
+      listModels: vi.fn(async () => []),
+      createSession: vi.fn(async () => 'ses_novo'),
+      setSessionAgent: vi.fn(async () => {}),
+      setSessionModel: vi.fn(async () => {}),
+      archiveSession: vi.fn(async () => {}),
+      restoreSession: vi.fn(async () => {}),
+      listArchivedSessions: vi.fn(async () => [])
+    }
     mocks.createClient.mockReturnValue({
-      resolveCli: async () => 'C:\\tools\\opencode-cli.exe',
-      cliPath: () => 'C:\\tools\\opencode-cli.exe',
-      listSessions: async () => [],
-      sessionMessages: async () => []
+      ...clientFns,
+      cliPath: () => 'C:\\tools\\opencode-cli.exe'
     })
 
     mocks.createBridge.mockReset()
@@ -130,7 +155,8 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
           subscribers = 0
         },
         getSnapshot: () => null,
-        subscribers: () => subscribers
+        subscribers: () => subscribers,
+        refresh: vi.fn()
       }
     })
   })
@@ -338,6 +364,182 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
       id: 'act_7',
       ok: false,
       error: 'a permissão não existe mais'
+    })
+  })
+
+  describe('gestão de funcionários', () => {
+    function hireInput() {
+      return {
+        title: 'Contratar dev',
+        agentID: 'build',
+        model: null,
+        directory: process.cwd()
+      }
+    }
+
+    it('office:roster-options devolve funções/modelos da sala e valida o diretório', async () => {
+      await register()
+      clientFns.listAgents.mockResolvedValue([{ id: 'build', name: 'Build', mode: 'primary' }])
+      clientFns.listModels.mockResolvedValue([
+        { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4', enabled: true }
+      ])
+
+      expect(await callHandler('office:roster-options', { directory: process.cwd() })).toEqual({
+        ok: true,
+        agents: [{ id: 'build', name: 'Build', mode: 'primary' }],
+        models: [{ providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4', enabled: true }]
+      })
+      await expect(
+        callHandler('office:roster-options', { directory: 'pasta/relativa' })
+      ).rejects.toThrow('Requisição inválida.')
+
+      clientFns.listAgents.mockRejectedValue(new Error('sem projeto'))
+      const failed = await callHandler('office:roster-options', { directory: process.cwd() })
+      expect(failed).toEqual({ ok: false, agents: [], models: [], error: 'sem projeto' })
+    })
+
+    it('office:hire recusa payload inválido, pasta inexistente e CLI ausente', async () => {
+      await register()
+      await expect(callHandler('office:hire')).rejects.toThrow('Requisição inválida.')
+      await expect(callHandler('office:hire', { ...hireInput(), extra: 1 })).rejects.toThrow(
+        'Requisição inválida.'
+      )
+
+      expect(
+        await callHandler('office:hire', {
+          ...hireInput(),
+          directory: 'C:\\__kolnd_pasta_inexistente__'
+        })
+      ).toEqual({ ok: false, error: 'A pasta desta sala não existe mais no disco.' })
+
+      clientFns.resolveCli.mockResolvedValue(null)
+      expect(await callHandler('office:hire', hireInput())).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('CLI do OpenCode')
+      })
+      expect(clientFns.createSession).not.toHaveBeenCalled()
+    })
+
+    it('office:hire cria a sessão e audita sem o título', async () => {
+      await register()
+      clientFns.createSession.mockResolvedValue('ses_novo1')
+
+      expect(await callHandler('office:hire', hireInput())).toEqual({ ok: true })
+      expect(clientFns.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Contratar dev', agentID: 'build', model: null })
+      )
+      const logs = JSON.stringify(vi.mocked(logger.info).mock.calls)
+      expect(logs).toContain('ses_novo1')
+      expect(logs).not.toContain('Contratar dev')
+    })
+
+    it('só uma operação de gestão por vez', async () => {
+      await register()
+      const pending: { resolve: ((id: string) => void) | null } = { resolve: null }
+      clientFns.createSession.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            pending.resolve = resolve
+          })
+      )
+
+      const first = callHandler('office:hire', hireInput()) as Promise<unknown>
+      const second = await callHandler('office:hire', hireInput())
+      expect(second).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('em andamento')
+      })
+      pending.resolve?.('ses_depois')
+      await expect(first).resolves.toEqual({ ok: true })
+    })
+
+    it('office:set-role recusa working e troca agente/modelo quando livre', async () => {
+      await register()
+      clientFns.listSessions.mockResolvedValue([
+        { id: 'ses_1', agent: 'general', time: { busy: Date.now() } }
+      ])
+
+      expect(
+        await callHandler('office:set-role', {
+          sessionID: 'ses_1',
+          agentID: 'plan',
+          model: null
+        })
+      ).toMatchObject({ ok: false, error: expect.stringContaining('trabalhando') })
+      expect(clientFns.setSessionAgent).not.toHaveBeenCalled()
+
+      clientFns.listSessions.mockResolvedValue([
+        { id: 'ses_1', agent: 'general', time: { busy: Date.now() - 2000, idle: Date.now() } }
+      ])
+      expect(
+        await callHandler('office:set-role', {
+          sessionID: 'ses_1',
+          agentID: 'plan',
+          model: null
+        })
+      ).toEqual({ ok: true })
+      expect(clientFns.setSessionAgent).toHaveBeenCalledWith('ses_1', 'plan')
+      expect(clientFns.setSessionModel).not.toHaveBeenCalled()
+
+      expect(
+        await callHandler('office:set-role', {
+          sessionID: 'ses_1',
+          agentID: 'plan',
+          model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen', enabled: true }
+        })
+      ).toEqual({ ok: true })
+      expect(clientFns.setSessionModel).toHaveBeenCalledWith('ses_1', {
+        id: 'qwen4-max',
+        providerID: 'opencode-go'
+      })
+    })
+
+    it('office:archive-all arquiva o snapshot e pula quem está trabalhando', async () => {
+      await register(mainWindow())
+      callHandler('office:subscribe')
+      serviceEmit?.(
+        deriveOfficeSnapshot({
+          now: Date.now(),
+          sessions: [
+            { id: 'ses_work', agent: 'general', time: { busy: Date.now() } },
+            { id: 'ses_idle', agent: 'plan', time: { busy: Date.now() - 5000, idle: Date.now() } }
+          ]
+        })
+      )
+
+      expect(await callHandler('office:archive-all', {})).toEqual({
+        ok: true,
+        archived: 1,
+        skipped: 1
+      })
+      expect(clientFns.archiveSession).toHaveBeenCalledWith('ses_idle')
+      expect(clientFns.archiveSession).not.toHaveBeenCalledWith('ses_work')
+
+      await expect(callHandler('office:archive-all', { forcar: true })).rejects.toThrow(
+        'Requisição inválida.'
+      )
+      await expect(callHandler('office:archive-all')).rejects.toThrow('Requisição inválida.')
+    })
+
+    it('office:archived-list e office:restore usam o cliente e validam o payload', async () => {
+      await register()
+      const items = [
+        {
+          sessionID: 'ses_arq',
+          title: 'Antiga',
+          agent: 'plan',
+          model: { providerID: 'opencode-go', id: 'qwen4-max' },
+          directory: 'C:\\repo'
+        }
+      ]
+      clientFns.listArchivedSessions.mockResolvedValue(items)
+      expect(await callHandler('office:archived-list', {})).toEqual({ ok: true, items })
+
+      expect(await callHandler('office:restore', { sessionID: 'ses_arq' })).toEqual({ ok: true })
+      expect(clientFns.restoreSession).toHaveBeenCalledWith('ses_arq')
+      await expect(callHandler('office:restore', { sessionID: 'sessao' })).rejects.toThrow(
+        'Requisição inválida.'
+      )
     })
   })
 })

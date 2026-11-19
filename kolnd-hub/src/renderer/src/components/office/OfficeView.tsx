@@ -10,6 +10,7 @@ import { Badge, Button, Switch } from '../ui'
 import { OfficeCanvas } from './OfficeCanvas'
 import { OfficeDetails } from './OfficeDetails'
 import { OfficeEmpty } from './OfficeEmpty'
+import { OfficeRoster } from './OfficeRoster'
 import { OfficeSidebar } from './OfficeSidebar'
 import { ACTIVITY_META, STATUS_META, formatClock } from './format'
 
@@ -160,6 +161,18 @@ export function OfficeView(): JSX.Element {
     setAttempt((current) => current + 1)
   }, [])
 
+  /** Leitura pontual após contratar/arquivar/restaurar; o push do main vem logo atrás. */
+  const refreshSnapshot = useCallback(() => {
+    void window.api
+      .officeSnapshot()
+      .then((next) => {
+        if (next) setSnapshot(next)
+      })
+      .catch(() => {
+        // O push do poller continua sendo a fonte; falha de pull não trava a tela.
+      })
+  }, [])
+
   /** Liga/desliga o modo de ações no main; o retorno é a fonte da verdade. */
   const toggleActions = useCallback((next: boolean) => {
     setModeBusy(true)
@@ -276,6 +289,10 @@ export function OfficeView(): JSX.Element {
         <Counter label="Subagentes" value={totals?.subagents ?? 0} />
       </section>
 
+      {snapshot && snapshot.health.cliFound && (
+        <OfficeRoster snapshot={snapshot} onChanged={refreshSnapshot} />
+      )}
+
       {!snapshot && loading && (
         <div
           role="status"
@@ -348,6 +365,7 @@ export function OfficeView(): JSX.Element {
               requests={selectedRequests}
               actionsEnabled={actionsEnabled && live}
               pluginConnected={live}
+              onRoleSaved={refreshSnapshot}
             />
             <OfficeSidebar
               snapshot={snapshot}

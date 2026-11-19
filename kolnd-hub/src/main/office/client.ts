@@ -6,9 +6,22 @@ import {
   maskSecrets,
   truncateLabel,
   type OfficeActivity,
+  type OfficeAgentOption,
+  type OfficeArchivedEmployee,
+  type OfficeHireInput,
+  type OfficeModelOption,
   type OfficeSessionInput
 } from '../../shared/office'
 import { logger } from '../logger'
+import {
+  buildCreateSessionBody,
+  isValidAgentID,
+  isValidSessionID,
+  normalizeModelRef,
+  parseAgentList,
+  parseArchivedList,
+  parseModelList
+} from './roster'
 
 /**
  * Cliente do CLI do OpenCode (Fase 1 do Escritório).
@@ -21,6 +34,8 @@ import { logger } from '../logger'
  */
 
 const DEFAULT_TIMEOUT_MS = 4000
+/** Escritas (criar/arquivar/trocar função) ganham folga: a API abre sessão. */
+const WRITE_TIMEOUT_MS = 10_000
 const MAX_BUFFER = 8 * 1024 * 1024
 const LOCATE_TIMEOUT_MS = 2000
 const LOCATE_MAX_BUFFER = 64 * 1024
@@ -75,6 +90,13 @@ export interface RunApiOptions {
   cliPath?: string | null
   timeoutMs?: number
   execFileFn?: ExecFileFn
+  /** Cabeçalhos repassados como `-H "nome: valor"` (ex.: diretório do projeto). */
+  headers?: readonly string[]
+  /**
+   * Respostas de escrita do OpenCode costumam ser 204 (stdout vazio). Com
+   * `allowEmpty`, ausência de corpo resolve `undefined` em vez de `jsonInvalido`.
+   */
+  allowEmpty?: boolean
 }
 
 export interface LocateDeps {
@@ -234,6 +256,12 @@ export function runApi(args: readonly string[], options: RunApiOptions = {}): Pr
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const execFileFn = options.execFileFn ?? defaultExecFileFn
+  // Cabeçalho com CR/LF permitiria injetar linhas na chamada do CLI: descarta.
+  const headers = (options.headers ?? [])
+    .map((header) => header.trim())
+    .filter((header) => header.length > 0 && !/[\r\n]/.test(header))
+  const cliArgs = ['api', ...args]
+  for (const header of headers) cliArgs.push('-H', header)
 
   return new Promise((resolve, reject) => {
     let settled = false
@@ -246,7 +274,7 @@ export function runApi(args: readonly string[], options: RunApiOptions = {}): Pr
     try {
       execFileFn(
         cliPath,
-        ['api', ...args],
+        cliArgs,
         { windowsHide: true, timeout: timeoutMs, maxBuffer: MAX_BUFFER, encoding: 'utf8' },
         (error, stdout, stderr) => {
           if (error) {
@@ -293,6 +321,12 @@ export function runApi(args: readonly string[], options: RunApiOptions = {}): Pr
               'office',
               `CLI escreveu no stderr: ${truncateLabel(maskSecrets(noisy), MAX_ERROR_DETAIL)}`
             )
+          }
+
+          // 204 do OpenCode: sucesso sem corpo (PATCH/POST de função).
+          if (options.allowEmpty && !(stdout ?? '').trim()) {
+            finish(() => resolve(undefined))
+            return
           }
 
           let parsed: unknown
@@ -343,6 +377,8 @@ export interface OfficeMessageInput {
 export interface ListSessionsOptions {
   limit?: number
   search?: string
+  /** Por padrão só as ativas: arquivada não é funcionário no escritório. */
+  includeArchived?: boolean
 }
 
 export interface SessionMessagesOptions {
@@ -359,6 +395,18 @@ export interface OfficeClient {
     sessionID: string,
     options?: SessionMessagesOptions
   ): Promise<OfficeMessageInput[]>
+  /** Funções (agentes) do OpenCode para um diretório de projeto. */
+  listAgents(directory: string): Promise<OfficeAgentOption[]>
+  /** Modelos habilitados do OpenCode para o mesmo diretório. */
+  listModels(directory: string): Promise<OfficeModelOption[]>
+  /** Cria uma sessão sem prompt; devolve o id novo. */
+  createSession(input: OfficeHireInput): Promise<string>
+  setSessionAgent(sessionID: string, agentID: string): Promise<void>
+  setSessionModel(sessionID: string, model: { id: string; providerID: string }): Promise<void>
+  /** Arquivar/restaurar é reversível — nunca exclui a sessão. */
+  archiveSession(sessionID: string): Promise<void>
+  restoreSession(sessionID: string): Promise<void>
+  listArchivedSessions(directory?: string): Promise<OfficeArchivedEmployee[]>
 }
 
 export interface OfficeClientOptions {
@@ -400,6 +448,37 @@ function toMessageList(data: unknown): OfficeMessageInput[] {
   }))
 }
 
+/** Cabeçalho de projeto usado por `/api/agent` e `/api/model`. */
+function directoryHeader(directory: string): string {
+  const path = directory.trim()
+  if (!path || /[\r\n]/.test(path)) {
+    throw new OfficeCliError('falhou', 'Escolha uma sala válida para consultar o OpenCode.')
+  }
+  return `x-opencode-directory: ${path}`
+}
+
+function requireSessionID(value: string): string {
+  const sessionID = value?.trim?.() ?? ''
+  if (!isValidSessionID(sessionID)) {
+    throw new OfficeCliError('falhou', 'Sessão inválida para a operação.')
+  }
+  return sessionID
+}
+
+function requireAgentID(value: string): string {
+  const agentID = value?.trim?.() ?? ''
+  if (!isValidAgentID(agentID)) {
+    throw new OfficeCliError('falhou', 'Função inválida para a operação.')
+  }
+  return agentID
+}
+
+interface ApiExtras {
+  headers?: readonly string[]
+  allowEmpty?: boolean
+  timeoutMs?: number
+}
+
 /** Cria o cliente com dependências injetáveis (testes) e cache do caminho. */
 export function createOfficeClient(options: OfficeClientOptions = {}): OfficeClient {
   const execFileFn = options.execFileFn ?? defaultExecFileFn
@@ -418,9 +497,29 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
     return located
   }
 
-  async function api(args: readonly string[]): Promise<unknown> {
+  async function api(args: readonly string[], extras: ApiExtras = {}): Promise<unknown> {
     const cliPath = await resolveCli()
-    return runApi(args, { cliPath, timeoutMs, execFileFn })
+    return runApi(args, {
+      cliPath,
+      timeoutMs: extras.timeoutMs ?? timeoutMs,
+      execFileFn,
+      ...(extras.headers ? { headers: extras.headers } : {}),
+      ...(extras.allowEmpty ? { allowEmpty: true } : {})
+    })
+  }
+
+  /** Escrita numa sessão: valida o id e aceita 204 (sem corpo). */
+  async function writeSession(
+    method: 'post' | 'patch',
+    sessionID: string,
+    suffix: string,
+    body: unknown
+  ): Promise<void> {
+    const id = requireSessionID(sessionID)
+    await api(
+      [method, `/api/session/${encodeURIComponent(id)}${suffix}`, '--data', JSON.stringify(body)],
+      { allowEmpty: true, timeoutMs: WRITE_TIMEOUT_MS }
+    )
   }
 
   return {
@@ -429,7 +528,10 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
     async listSessions(listOptions = {}) {
       const limit = Math.max(1, Math.min(200, Math.floor(listOptions.limit ?? 50)))
       const search = listOptions.search?.trim()
-      const query = `/api/session?limit=${limit}${
+      // `archived=false` é explícito: sem o filtro a API devolve arquivadas e o
+      // escritório mostraria funcionário que o usuário já tirou da lista.
+      const archived = listOptions.includeArchived ? 'true' : 'false'
+      const query = `/api/session?limit=${limit}&archived=${archived}${
         search ? `&search=${encodeURIComponent(search)}` : ''
       }`
       return toSessionList(await api(['get', query]))
@@ -441,6 +543,50 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
       const limit = Math.max(1, Math.min(50, Math.floor(messageOptions.limit ?? 8)))
       const query = `/api/session/${encodeURIComponent(sessionID)}/message?limit=${limit}`
       return toMessageList(await api(['get', query]))
+    },
+    async listAgents(directory) {
+      const data = await api(['get', '/api/agent'], { headers: [directoryHeader(directory)] })
+      return parseAgentList(data)
+    },
+    async listModels(directory) {
+      const data = await api(['get', '/api/model'], { headers: [directoryHeader(directory)] })
+      return parseModelList(data)
+    },
+    async createSession(input) {
+      const body = buildCreateSessionBody(input)
+      const data = await api(['post', '/api/session', '--data', JSON.stringify(body)], {
+        headers: [directoryHeader(input.directory)],
+        timeoutMs: WRITE_TIMEOUT_MS
+      })
+      const sessionID = isRecord(data) && typeof data.id === 'string' ? data.id.trim() : ''
+      if (!isValidSessionID(sessionID)) {
+        throw new OfficeCliError(
+          'jsonInvalido',
+          'O OpenCode criou a sessão, mas não devolveu um identificador válido.'
+        )
+      }
+      return sessionID
+    },
+    async setSessionAgent(sessionID, agentID) {
+      await writeSession('post', sessionID, '/agent', { agent: requireAgentID(agentID) })
+    },
+    async setSessionModel(sessionID, model) {
+      const ref = normalizeModelRef(model)
+      if (!ref) throw new OfficeCliError('falhou', 'Modelo inválido para a operação.')
+      await writeSession('post', sessionID, '/model', { model: ref })
+    },
+    async archiveSession(sessionID) {
+      await writeSession('patch', sessionID, '', { archived: true })
+    },
+    async restoreSession(sessionID) {
+      await writeSession('patch', sessionID, '', { archived: false })
+    },
+    async listArchivedSessions(directory) {
+      const clean = directory?.trim() ?? ''
+      const data = await api(['get', '/api/session?archived=true&limit=100'], {
+        ...(clean ? { headers: [directoryHeader(clean)] } : {})
+      })
+      return parseArchivedList(data)
     }
   }
 }

@@ -41,6 +41,11 @@ export interface OfficeService {
   getSnapshot(): OfficeSnapshot | null
   /** Consumidores ativos do loop — exposto para o teste de refcount. */
   subscribers(): number
+  /**
+   * Leitura imediata após uma mutação de gestão: a página reflete a mudança em
+   * menos de 3 s sem esperar o próximo tick (ou o backoff de uma falha).
+   */
+  refresh(): void
 }
 
 type Timer = ReturnType<typeof setTimeout>
@@ -55,6 +60,8 @@ export function createOfficeService(deps: OfficeServiceDeps): OfficeService {
   let messageTimer: Timer | null = null
   let running = false
   let listInFlight = false
+  /** Uma mutação pediu leitura fresca enquanto o poll anterior estava em voo. */
+  let refreshQueued = false
 
   let sessions: OfficeSessionInput[] = []
   const activityBySession = new Map<string, OfficeActivity>()
@@ -153,6 +160,13 @@ export function createOfficeService(deps: OfficeServiceDeps): OfficeService {
 
     if (!active()) return
     publish()
+    // Mutação chegou durante o poll: a resposta acima pode ser anterior a ela.
+    if (refreshQueued) {
+      refreshQueued = false
+      clearListTimer()
+      void pollList()
+      return
+    }
     const delay =
       failures === 0 ? LIST_INTERVAL_MS : BACKOFF_MS[Math.min(failures - 1, BACKOFF_MS.length - 1)]
     scheduleList(delay)
@@ -231,6 +245,7 @@ export function createOfficeService(deps: OfficeServiceDeps): OfficeService {
 
   function stopLoop(): void {
     running = false
+    refreshQueued = false
     clearListTimer()
     clearMessageTimer()
   }
@@ -256,6 +271,17 @@ export function createOfficeService(deps: OfficeServiceDeps): OfficeService {
       lastSignature = ''
     },
     getSnapshot: () => lastSnapshot,
-    subscribers: () => refCount
+    subscribers: () => refCount,
+    refresh() {
+      if (!active()) return
+      if (listInFlight) {
+        refreshQueued = true
+        return
+      }
+      // Uma nova leitura logo após a mutação não deve herdar o backoff antigo.
+      failures = 0
+      clearListTimer()
+      void pollList()
+    }
   }
 }

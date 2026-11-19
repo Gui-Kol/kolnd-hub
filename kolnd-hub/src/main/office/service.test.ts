@@ -18,7 +18,15 @@ function createFakeClient(): FakeClient {
     resolveCli: async () => cliPath,
     cliPath: () => cliPath,
     listSessions,
-    sessionMessages
+    sessionMessages,
+    listAgents: async () => [],
+    listModels: async () => [],
+    createSession: async () => 'ses_novo',
+    setSessionAgent: async () => {},
+    setSessionModel: async () => {},
+    archiveSession: async () => {},
+    restoreSession: async () => {},
+    listArchivedSessions: async () => []
   }
   return {
     client,
@@ -286,6 +294,39 @@ describe('createOfficeService', () => {
     expect(fake.listSessions).toHaveBeenCalledTimes(3)
 
     service.stop()
+  })
+
+  it('refresh busca na hora e repete quando o poll anterior estava em voo', async () => {
+    const pending: Array<(sessions: OfficeSessionInput[]) => void> = []
+    fake.listSessions.mockImplementation(
+      () =>
+        new Promise<OfficeSessionInput[]>((resolve) => {
+          pending.push(resolve)
+        })
+    )
+    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    service.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.listSessions).toHaveBeenCalledTimes(1)
+
+    // Mutação durante o poll em voo: a resposta em curso pode estar antiga.
+    service.refresh()
+    expect(fake.listSessions).toHaveBeenCalledTimes(1)
+    pending[0]?.([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.listSessions).toHaveBeenCalledTimes(2)
+
+    pending[1]?.([])
+    await vi.advanceTimersByTimeAsync(0)
+    service.stop()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('refresh sem assinatura não inicia a coleta', async () => {
+    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    service.refresh()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.listSessions).not.toHaveBeenCalled()
   })
 
   it('dispose para tudo, limpa o snapshot e ignora start posterior', async () => {

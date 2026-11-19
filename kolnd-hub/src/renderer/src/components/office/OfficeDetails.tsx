@@ -16,12 +16,20 @@ import {
   Send,
   ShieldCheck,
   Timer,
+  UserCog,
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { OfficeAgent, OfficePermissionRequest, OfficeRoom } from '../../../../shared/office'
+import type {
+  OfficeAgent,
+  OfficeAgentOption,
+  OfficeModelOption,
+  OfficePermissionRequest,
+  OfficeRoom,
+  OfficeRosterOptions
+} from '../../../../shared/office'
 import { truncateLabel } from '../../../../shared/office'
-import { Badge, Button } from '../ui'
+import { Badge, Button, Select } from '../ui'
 import {
   ACTIVITY_META,
   STATUS_META,
@@ -80,6 +88,8 @@ export interface OfficeDetailsProps {
   actionsEnabled?: boolean
   /** O plugin de tempo real está falando com a ponte. */
   pluginConnected?: boolean
+  /** Avisa o pai para reler o snapshot após mudar a função. */
+  onRoleSaved?: () => void
 }
 
 function Field({
@@ -149,6 +159,224 @@ function refusalLabel(reason: string): string {
 
 function resourceText(resource: string): string {
   return truncateLabel(resource, RESOURCE_DISPLAY_MAX)
+}
+
+/** Chave estável de um modelo para os selects. */
+function modelKey(model: Pick<OfficeModelOption, 'providerID' | 'id'>): string {
+  return `${model.providerID}/${model.id}`
+}
+
+interface RoleCardProps {
+  agent: OfficeAgent
+  room: OfficeRoom | null
+  onSaved: () => void
+}
+
+/**
+ * Card "Função": troca o agente e/ou o modelo da sessão.
+ *
+ * `working` bloqueia a troca — o OpenCode mudaria o agente no meio da tarefa.
+ * O main revalida o estado da sessão, então o bloqueio aqui é só a explicação
+ * visual; a regra de verdade está no IPC.
+ */
+function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
+  const directory = room?.path.trim() ?? ''
+  const currentModelKey = modelKey(agent.model)
+  const working = agent.status === 'working'
+
+  const [options, setOptions] = useState<OfficeRosterOptions | null>(null)
+  const [loading, setLoading] = useState(directory.length > 0)
+  const [agentID, setAgentID] = useState(agent.agent)
+  const [modelKeyValue, setModelKeyValue] = useState(currentModelKey)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!directory) return
+
+    let alive = true
+    window.api
+      .officeRosterOptions({ directory })
+      .then((result) => {
+        if (!alive) return
+        if (!result.ok) {
+          setOptions(null)
+          setError(result.error ?? 'Não consegui consultar as funções desta sala.')
+          return
+        }
+        setError(null)
+        setOptions({ agents: result.agents, models: result.models })
+      })
+      .catch(() => {
+        if (!alive) return
+        setOptions(null)
+        setError('Não consegui falar com o processo principal.')
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [directory])
+
+  const agentOptions: OfficeAgentOption[] = options?.agents ?? []
+  const modelOptions = (options?.models ?? []).filter((model) => model.enabled)
+  const hasCurrentAgent = agentOptions.some((option) => option.id === agent.agent)
+  const hasCurrentModel = modelOptions.some((model) => modelKey(model) === currentModelKey)
+  const blocked = working || !directory
+  const canSave = !blocked && !loading && !saving && options !== null
+
+  function save(): void {
+    if (!canSave) return
+    const chosenModel = modelOptions.find((model) => modelKey(model) === modelKeyValue) ?? null
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+
+    void window.api
+      .officeSetRole({ sessionID: agent.sessionID, agentID, model: chosenModel })
+      .then((result) => {
+        if (!result.ok) {
+          setError(result.error ?? 'Não consegui mudar a função desta sessão.')
+          return
+        }
+        setSaved(true)
+        onSaved()
+      })
+      .catch(() => setError('Não consegui falar com o processo principal.'))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <section
+      aria-label="Função"
+      data-testid="office-role"
+      className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
+          <UserCog size={11} aria-hidden="true" />
+          Função
+        </span>
+        {working && <Badge tone="warning">trabalhando</Badge>}
+        {saved && <Badge tone="success">atualizada</Badge>}
+      </div>
+
+      {working && (
+        <p
+          data-testid="office-role-working"
+          className="mt-1.5 text-[10.5px] leading-snug text-warn"
+        >
+          Sessão trabalhando — espere a tarefa terminar para trocar a função.
+        </p>
+      )}
+      {!working && !directory && (
+        <p className="mt-1.5 text-[10.5px] leading-snug text-ink-tertiary">
+          Esta sala não tem uma pasta válida para consultar as funções.
+        </p>
+      )}
+
+      <div className="mt-2 space-y-2">
+        <div>
+          <label
+            htmlFor="office-role-agent"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Agente
+          </label>
+          <Select
+            id="office-role-agent"
+            data-testid="office-role-agent"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={agentID}
+            disabled={blocked || loading}
+            onChange={(event) => {
+              setSaved(false)
+              setAgentID(event.target.value)
+            }}
+          >
+            {!hasCurrentAgent && <option value={agent.agent}>{agent.agent} (atual)</option>}
+            {agentOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="office-role-model"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Modelo
+          </label>
+          <Select
+            id="office-role-model"
+            data-testid="office-role-model"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={modelKeyValue}
+            disabled={blocked || loading}
+            onChange={(event) => {
+              setSaved(false)
+              setModelKeyValue(event.target.value)
+            }}
+          >
+            <option value="">Manter modelo atual</option>
+            {!hasCurrentModel && <option value={currentModelKey}>{agent.model.id} (atual)</option>}
+            {modelOptions.map((model) => (
+              <option key={modelKey(model)} value={modelKey(model)}>
+                {model.name} ({model.providerID})
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div aria-live="polite" className="min-w-0 flex-1">
+          {loading && (
+            <span className="flex items-center gap-1.5 text-[10px] text-ink-tertiary">
+              <Loader2 size={11} className="animate-spin" aria-hidden="true" />
+              carregando…
+            </span>
+          )}
+          {!loading && error && (
+            <span
+              data-testid="office-role-error"
+              className="flex items-start gap-1.5 text-[10px] leading-snug text-danger"
+            >
+              <CircleAlert size={11} className="mt-px shrink-0" aria-hidden="true" />
+              {error}
+            </span>
+          )}
+          {!loading && !error && saved && (
+            <span className="flex items-center gap-1.5 text-[10px] text-success">
+              <Check size={11} aria-hidden="true" />
+              Função atualizada.
+            </span>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={save}
+          disabled={!canSave}
+          data-testid="office-role-save"
+        >
+          {saving ? (
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Check size={12} aria-hidden="true" />
+          )}
+          Salvar
+        </Button>
+      </div>
+    </section>
+  )
 }
 
 interface PermissionCardProps {
@@ -432,7 +660,8 @@ export function OfficeDetails({
   now,
   requests = [],
   actionsEnabled = false,
-  pluginConnected = false
+  pluginConnected = false,
+  onRoleSaved
 }: OfficeDetailsProps): JSX.Element {
   const [requestStates, setRequestStates] = useState<Record<string, RequestUiState>>({})
   const [sendState, setSendState] = useState<SendUiState>({ status: 'idle' })
@@ -755,6 +984,8 @@ export function OfficeDetails({
             </span>
           </Field>
         </div>
+
+        <RoleCard agent={agent} room={room} onSaved={onRoleSaved ?? (() => {})} />
 
         {canMessage && (
           <section

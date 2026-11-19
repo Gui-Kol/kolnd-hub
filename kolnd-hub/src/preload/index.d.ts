@@ -18,7 +18,16 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type { OfficeHealth, OfficeSnapshot } from '../shared/office'
+import type {
+  OfficeArchiveAllResult,
+  OfficeArchivedListResult,
+  OfficeHealth,
+  OfficeHireInput,
+  OfficeManageResult,
+  OfficeRosterResult,
+  OfficeSetRoleInput,
+  OfficeSnapshot
+} from '../shared/office'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type {
   PublicIpResult,
@@ -369,6 +378,14 @@ declare global {
       officePluginInstall: () => Promise<PluginInstallResult>
       officePluginRemove: () => Promise<PluginRemoveResult>
       officePluginSnippet: () => Promise<PluginSnippetResult>
+      // Funcionários (Fase 4): sessões reais do OpenCode. "Apagar todos" ARQUIVA
+      // (reversível); exclusão definitiva não faz parte do contrato.
+      officeRosterOptions: (input: { directory: string }) => Promise<OfficeRosterResult>
+      officeHire: (input: OfficeHireInput) => Promise<OfficeManageResult>
+      officeSetRole: (input: OfficeSetRoleInput) => Promise<OfficeManageResult>
+      officeArchiveAll: (input: Record<string, never>) => Promise<OfficeArchiveAllResult>
+      officeArchivedList: (input: Record<string, never>) => Promise<OfficeArchivedListResult>
+      officeRestore: (input: { sessionID: string }) => Promise<OfficeManageResult>
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

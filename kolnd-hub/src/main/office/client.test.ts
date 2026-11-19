@@ -222,14 +222,24 @@ describe('createOfficeClient', () => {
     const sessions = await client.listSessions({ limit: 12, search: 'abc def' })
     expect(sessions).toHaveLength(1)
     expect(sessions[0].id).toBe('ses_1')
-    expect(fake.calls[0].args).toEqual(['api', 'get', '/api/session?limit=12&search=abc%20def'])
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'get',
+      '/api/session?limit=12&archived=false&search=abc%20def'
+    ])
     expect(client.cliPath()).toBe(CLI)
   })
 
   it('normaliza limite fora da faixa', async () => {
     const { client, fake } = createClient(() => ({ stdout: '{"data":[]}' }))
     await client.listSessions({ limit: 999 })
-    expect(fake.calls[0].args[2]).toBe('/api/session?limit=200')
+    expect(fake.calls[0].args[2]).toBe('/api/session?limit=200&archived=false')
+  })
+
+  it('includeArchived pede explicitamente as arquivadas', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '{"data":[]}' }))
+    await client.listSessions({ includeArchived: true })
+    expect(fake.calls[0].args[2]).toBe('/api/session?limit=50&archived=true')
   })
 
   it('`data` em formato inesperado vira `jsonInvalido`', async () => {
@@ -276,6 +286,192 @@ describe('createOfficeClient', () => {
       platform: 'win32'
     })
     await expect(client.listSessions()).rejects.toMatchObject({ code: 'cliAusente' })
+  })
+})
+
+describe('Gestão de funcionários (client)', () => {
+  const DIRECTORY = 'C:\\repo\\alpha'
+
+  it('runApi aceita --header e corpo vazio com allowEmpty', async () => {
+    const fake = fakeExec(() => ({ stdout: '' }))
+    await runApi(['get', '/api/agent'], {
+      cliPath: CLI,
+      headers: ['x-opencode-directory: C:\\repo'],
+      allowEmpty: true,
+      execFileFn: fake.fn
+    })
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'get',
+      '/api/agent',
+      '-H',
+      'x-opencode-directory: C:\\repo'
+    ])
+
+    const data = await runApi(['patch', '/api/session/ses_1'], {
+      cliPath: CLI,
+      execFileFn: fakeExec(() => ({ stdout: '{"data":{"ok":true}}' })).fn
+    })
+    expect(data).toEqual({ ok: true })
+  })
+
+  it('listAgents/listModels usam o cabeçalho do projeto', async () => {
+    const agentsCall = createClient(() => ({
+      stdout: JSON.stringify({
+        data: [
+          { id: 'build', name: 'Build', mode: 'primary', hidden: false },
+          { id: 'oculto', name: 'Oculto', mode: 'primary', hidden: true }
+        ]
+      })
+    }))
+    const agents = await agentsCall.client.listAgents(DIRECTORY)
+    expect(agents.map((agent) => agent.id)).toEqual(['build'])
+    expect(agentsCall.fake.calls[0].args).toEqual([
+      'api',
+      'get',
+      '/api/agent',
+      '-H',
+      `x-opencode-directory: ${DIRECTORY}`
+    ])
+
+    const modelsCall = createClient(() => ({
+      stdout: JSON.stringify({
+        data: [{ providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4 Max', enabled: true }]
+      })
+    }))
+    const models = await modelsCall.client.listModels(DIRECTORY)
+    expect(models[0]).toMatchObject({ providerID: 'opencode-go', id: 'qwen4-max' })
+    expect(modelsCall.fake.calls[0].args[2]).toBe('/api/model')
+  })
+
+  it('createSession monta o corpo exato e devolve o id novo', async () => {
+    const { client, fake } = createClient(() => ({
+      stdout: JSON.stringify({ data: { id: 'ses_novo123', title: 'Contratar dev' } })
+    }))
+    const id = await client.createSession({
+      title: 'Contratar dev',
+      agentID: 'build',
+      model: null,
+      directory: DIRECTORY
+    })
+
+    expect(id).toBe('ses_novo123')
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'post',
+      '/api/session',
+      '--data',
+      JSON.stringify({
+        title: 'Contratar dev',
+        agent: 'build',
+        location: { directory: DIRECTORY }
+      }),
+      '-H',
+      `x-opencode-directory: ${DIRECTORY}`
+    ])
+    expect(fake.calls[0].options.timeout).toBe(10_000)
+  })
+
+  it('createSession inclui o modelo escolhido e recusa resposta sem id válido', async () => {
+    const withModel = createClient(() => ({
+      stdout: JSON.stringify({ data: { id: 'ses_com_modelo' } })
+    }))
+    await withModel.client.createSession({
+      title: 'Contratar dev',
+      agentID: 'build',
+      model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen', enabled: true },
+      directory: DIRECTORY
+    })
+    const body = JSON.parse(withModel.fake.calls[0].args[4]) as Record<string, unknown>
+    expect(body.model).toEqual({ id: 'qwen4-max', providerID: 'opencode-go' })
+
+    const broken = createClient(() => ({ stdout: JSON.stringify({ data: { nada: true } }) }))
+    await expect(
+      broken.client.createSession({
+        title: 'Contratar dev',
+        agentID: 'build',
+        model: null,
+        directory: DIRECTORY
+      })
+    ).rejects.toMatchObject({ code: 'jsonInvalido' })
+  })
+
+  it('setSessionAgent/setSessionModel aceitam 204 e montam o corpo', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await client.setSessionAgent('ses_1', 'plan')
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'post',
+      '/api/session/ses_1/agent',
+      '--data',
+      '{"agent":"plan"}'
+    ])
+
+    await client.setSessionModel('ses_1', { providerID: 'opencode-go', id: 'qwen4-max' })
+    expect(fake.calls[1].args).toEqual([
+      'api',
+      'post',
+      '/api/session/ses_1/model',
+      '--data',
+      '{"model":{"providerID":"opencode-go","id":"qwen4-max"}}'
+    ])
+  })
+
+  it('archive/restore usam PATCH { archived } e não exigem corpo', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await client.archiveSession('ses_1')
+    await client.restoreSession('ses_1')
+
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'patch',
+      '/api/session/ses_1',
+      '--data',
+      '{"archived":true}'
+    ])
+    expect(fake.calls[1].args).toEqual([
+      'api',
+      'patch',
+      '/api/session/ses_1',
+      '--data',
+      '{"archived":false}'
+    ])
+  })
+
+  it('listArchivedSessions filtra pela query e normaliza as linhas', async () => {
+    const { client, fake } = createClient(() => ({
+      stdout: JSON.stringify({
+        data: [
+          {
+            id: 'ses_arq',
+            title: 'Antiga',
+            agent: 'plan',
+            model: { providerID: 'opencode-go', id: 'qwen4-max' },
+            location: { directory: DIRECTORY }
+          }
+        ]
+      })
+    }))
+    const list = await client.listArchivedSessions(DIRECTORY)
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'get',
+      '/api/session?archived=true&limit=100',
+      '-H',
+      `x-opencode-directory: ${DIRECTORY}`
+    ])
+    expect(list[0]).toMatchObject({ sessionID: 'ses_arq', title: 'Antiga', agent: 'plan' })
+  })
+
+  it('recusa id/agente/modelo inválidos antes de executar o CLI', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await expect(client.archiveSession('sessao')).rejects.toMatchObject({ code: 'falhou' })
+    await expect(client.setSessionAgent('ses_1', 'a/b')).rejects.toMatchObject({ code: 'falhou' })
+    await expect(
+      client.setSessionModel('ses_1', { providerID: '', id: 'x' })
+    ).rejects.toMatchObject({ code: 'falhou' })
+    await expect(client.listAgents('C:\\repo\nx')).rejects.toMatchObject({ code: 'falhou' })
+    expect(fake.calls).toHaveLength(0)
   })
 })
 

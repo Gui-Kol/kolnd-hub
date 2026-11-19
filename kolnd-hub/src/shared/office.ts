@@ -65,6 +65,12 @@ export interface OfficeRoom {
   id: string
   /** Basename legível da pasta do projeto. */
   name: string
+  /**
+   * Diretório ORIGINAL da primeira sessão da sala (caixa e separadores
+   * preservados). O `id` é canônico e não serve para criar sessão no OpenCode;
+   * contratar um funcionário usa este caminho.
+   */
+  path: string
   agentIDs: string[]
 }
 
@@ -122,6 +128,91 @@ export interface OfficeSnapshot {
   requests: OfficePermissionRequest[]
   totals: OfficeTotals
   health: OfficeHealth
+}
+
+// ── Gestão de funcionários (contratar / dar função / arquivar) ─────────────
+//
+// "Funcionário" é uma sessão real do OpenCode. Estes tipos descrevem só o que
+// atravessa a fronteira main → renderer; a validação de entrada vive em
+// `main/office/roster.ts` (pura) e é repetida no IPC.
+
+/** Função que o OpenCode oferece para um diretório (`GET /api/agent`). */
+export interface OfficeAgentOption {
+  id: string
+  name: string
+  description?: string
+  /** `primary` | `subagent` | `all` (string para tolerar modos novos). */
+  mode: string
+}
+
+/** Modelo habilitado no OpenCode (`GET /api/model`). */
+export interface OfficeModelOption {
+  providerID: string
+  id: string
+  name: string
+  enabled: boolean
+}
+
+/** Opções da função: agentes e modelos válidos para a sala escolhida. */
+export interface OfficeRosterOptions {
+  agents: OfficeAgentOption[]
+  models: OfficeModelOption[]
+}
+
+/** Resposta do IPC de opções (erro legível quando o CLI não responde). */
+export interface OfficeRosterResult extends OfficeRosterOptions {
+  ok: boolean
+  error?: string
+}
+
+/** Contratar: cria uma sessão sem prompt na sala informada. */
+export interface OfficeHireInput {
+  /** Título da sessão (1–80 caracteres). */
+  title: string
+  agentID: string
+  /** `null` = usar o modelo padrão da função. */
+  model: OfficeModelOption | null
+  /** Diretório original da sala (absoluto e existente, validado no main). */
+  directory: string
+}
+
+/** Dar função: troca o agente e (quando informado) o modelo da sessão. */
+export interface OfficeSetRoleInput {
+  sessionID: string
+  agentID: string
+  /** `null` = manter o modelo atual. */
+  model: OfficeModelOption | null
+}
+
+/** Linha da lista de arquivados (`GET /api/session?archived=true`). */
+export interface OfficeArchivedEmployee {
+  sessionID: string
+  title: string
+  agent: string
+  model: OfficeModel
+  directory: string
+}
+
+/** Desfecho de uma operação de gestão (contratar, dar função, restaurar). */
+export interface OfficeManageResult {
+  ok: boolean
+  error?: string
+}
+
+/** Desfecho de "apagar todos" — que na verdade ARQUIVA as sessões ociosas. */
+export interface OfficeArchiveAllResult {
+  ok: boolean
+  archived: number
+  /** Sessões `working` puladas de propósito (nunca são arquivadas aqui). */
+  skipped: number
+  error?: string
+}
+
+/** Resposta do IPC da lista de arquivados. */
+export interface OfficeArchivedListResult {
+  ok: boolean
+  items: OfficeArchivedEmployee[]
+  error?: string
 }
 
 /** Recorte tolerante de `Session.Info` — campos ausentes viram `null`/default. */
@@ -599,7 +690,14 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     if (existing) {
       existing.agentIDs.push(session.id)
     } else {
-      rooms.set(roomID, { id: roomID, name: roomNameFor(directory), agentIDs: [session.id] })
+      rooms.set(roomID, {
+        id: roomID,
+        name: roomNameFor(directory),
+        // Primeira sessão define o caminho original: contratar usa este valor
+        // (o `id` canônico não é aceito pelo OpenCode como diretório).
+        path: (directory ?? '').trim(),
+        agentIDs: [session.id]
+      })
     }
   }
 

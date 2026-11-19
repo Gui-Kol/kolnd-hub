@@ -1,5 +1,6 @@
 import { app, ipcMain } from 'electron'
 import type { WebContents } from 'electron'
+import { statSync } from 'fs'
 import type { IpcContext } from './lifecycle'
 import { createOfficeClient, type OfficeClient } from '../office/client'
 import { createOfficeService, type OfficeService } from '../office/service'
@@ -23,8 +24,24 @@ import {
   resolveInstallerPaths
 } from '../office/pluginInstaller'
 import { loadOfficeFixture } from '../office/fixture'
+import {
+  normalizeArchiveAllInput,
+  normalizeHireInput,
+  normalizeRestoreInput,
+  normalizeRosterOptionsInput,
+  normalizeSetRoleInput,
+  pickArchiveTargets
+} from '../office/roster'
 import { logger } from '../logger'
-import type { OfficeHealth, OfficeSnapshot } from '../../shared/office'
+import { deriveOfficeSnapshot } from '../../shared/office'
+import type {
+  OfficeArchiveAllResult,
+  OfficeArchivedListResult,
+  OfficeHealth,
+  OfficeManageResult,
+  OfficeRosterResult,
+  OfficeSnapshot
+} from '../../shared/office'
 
 /**
  * IPC do Escritório (OpenOffice) — Fase 1 (poller) + Fase 2 (ponte/plugin).
@@ -64,6 +81,18 @@ let fixtureError: string | null = null
  */
 let actionMode = false
 const actionLimiter = createActionLimiter()
+/**
+ * Gestão de funcionários: uma mutação por vez. Sem isso, dois cliques em
+ * "Apagar todos" disparariam duas rajadas de PATCH no OpenCode.
+ */
+let manageBusy = false
+
+const NO_CLI_MESSAGE =
+  'Não encontrei o CLI do OpenCode. Verifique a instalação ou defina KOLDND_HUB_OPENCODE_CLI.'
+const BUSY_MESSAGE = 'Já existe uma operação de funcionários em andamento. Espere terminar.'
+const WORKING_MESSAGE =
+  'Esta sessão está trabalhando. Espere a tarefa terminar para trocar a função.'
+const MISSING_ROOM_MESSAGE = 'A pasta desta sala não existe mais no disco.'
 
 function assertNoArguments(args: readonly unknown[]): void {
   if (args.length > 0) throw new Error('Requisição inválida.')
@@ -251,11 +280,64 @@ function releaseAll(): void {
   while (active.subscribers() > 0) active.stop()
 }
 
+// ── Gestão de funcionários (Fase 4) ────────────────────────────────────────
+
+/** Erro legível sem vazar payload: a mensagem do CLI já vem curta/mascarada. */
+function managementError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message
+  return 'Não consegui concluir a operação no OpenCode.'
+}
+
+/** O cliente da gestão exige o CLI resolvido; a fixture responde `fixture`. */
+async function resolveManagementClient(): Promise<OfficeClient | string> {
+  const active = ensureClient()
+  if (!active) return fixtureError ?? 'O OpenCode não está disponível nesta execução.'
+  const cli = await active.resolveCli()
+  return cli ? active : NO_CLI_MESSAGE
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** Uma mutação por vez: evita duas rajadas de escrita simultâneas no OpenCode. */
+async function withManage<T>(busyValue: T, run: () => Promise<T>): Promise<T> {
+  if (manageBusy) return busyValue
+  manageBusy = true
+  try {
+    return await run()
+  } finally {
+    manageBusy = false
+  }
+}
+
+/** Após criar/arquivar/restaurar, o poller relê já — a UI reflete em < 3 s. */
+function refreshOffice(): void {
+  service?.refresh()
+}
+
+/**
+ * `working` não troca de função: o OpenCode mudaria o agente no meio de uma
+ * tarefa. Consulta a lista fresca (o snapshot pode estar 2 s atrasado).
+ */
+async function sessionIsWorking(client: OfficeClient, sessionID: string): Promise<boolean> {
+  const sessions = await client.listSessions({ limit: 200 })
+  const snapshot = deriveOfficeSnapshot({ sessions, now: Date.now() })
+  return snapshot.agents.some(
+    (agent) => agent.sessionID === sessionID && agent.status === 'working'
+  )
+}
+
 /** Encerramento do app: só aqui a ponte morre e o `bridge.json` é apagado. */
 function disposeOffice(): void {
   releaseAll()
   stopBridge()
   actionMode = false
+  manageBusy = false
   actionLimiter.reset()
 }
 
@@ -415,6 +497,190 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
     assertNoArguments(args)
     // Só monta o trecho para o usuário colar — não escreve arquivo.
     return pluginSnippet(resolveInstallerPaths())
+  })
+
+  // ── Funcionários (contratar / dar função / arquivar) ──────────────
+  // Todos exigem exatamente UM objeto validado; nada de texto livre no log.
+  ipcMain.handle('office:roster-options', async (_event, ...args: unknown[]) => {
+    const input = normalizeRosterOptionsInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    const active = await resolveManagementClient()
+    if (typeof active === 'string') {
+      return { ok: false, agents: [], models: [], error: active } satisfies OfficeRosterResult
+    }
+    if (!isExistingDirectory(input.directory)) {
+      return {
+        ok: false,
+        agents: [],
+        models: [],
+        error: MISSING_ROOM_MESSAGE
+      } satisfies OfficeRosterResult
+    }
+
+    try {
+      const [agents, models] = await Promise.all([
+        active.listAgents(input.directory),
+        active.listModels(input.directory)
+      ])
+      return { ok: true, agents, models } satisfies OfficeRosterResult
+    } catch (err) {
+      return {
+        ok: false,
+        agents: [],
+        models: [],
+        error: managementError(err)
+      } satisfies OfficeRosterResult
+    }
+  })
+
+  ipcMain.handle('office:hire', async (_event, ...args: unknown[]) => {
+    const input = normalizeHireInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const active = await resolveManagementClient()
+      if (typeof active === 'string') return { ok: false, error: active }
+      if (!isExistingDirectory(input.directory)) {
+        return { ok: false, error: MISSING_ROOM_MESSAGE }
+      }
+
+      try {
+        const sessionID = await active.createSession(input)
+        // Auditoria sem título: só sessão/cargo/modelo (a mensagem nunca entra).
+        const model = input.model ? `${input.model.providerID}/${input.model.id}` : 'padrão'
+        logger.info(
+          'office',
+          `Funcionário contratado: sessão ${sessionID}, agente ${input.agentID}, modelo ${model}.`
+        )
+        refreshOffice()
+        return { ok: true }
+      } catch (err) {
+        logger.warn('office', `Falha ao contratar funcionário (agente ${input.agentID}).`)
+        return { ok: false, error: managementError(err) }
+      }
+    })
+  })
+
+  ipcMain.handle('office:set-role', async (_event, ...args: unknown[]) => {
+    const input = normalizeSetRoleInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const active = await resolveManagementClient()
+      if (typeof active === 'string') return { ok: false, error: active }
+
+      try {
+        if (await sessionIsWorking(active, input.sessionID)) {
+          return { ok: false, error: WORKING_MESSAGE }
+        }
+        await active.setSessionAgent(input.sessionID, input.agentID)
+        if (input.model) {
+          await active.setSessionModel(input.sessionID, {
+            id: input.model.id,
+            providerID: input.model.providerID
+          })
+        }
+        const model = input.model ? `${input.model.providerID}/${input.model.id}` : 'mantido'
+        logger.info(
+          'office',
+          `Função da sessão ${input.sessionID} atualizada: agente ${input.agentID}, modelo ${model}.`
+        )
+        refreshOffice()
+        return { ok: true }
+      } catch (err) {
+        logger.warn('office', `Falha ao trocar a função da sessão ${input.sessionID}.`)
+        return { ok: false, error: managementError(err) }
+      }
+    })
+  })
+
+  ipcMain.handle('office:archive-all', async (_event, ...args: unknown[]) => {
+    if (!normalizeArchiveAllInput(singleArgument(args))) {
+      throw new Error('Requisição inválida.')
+    }
+
+    return withManage<OfficeArchiveAllResult>(
+      { ok: false, archived: 0, skipped: 0, error: BUSY_MESSAGE },
+      async () => {
+        const active = await resolveManagementClient()
+        if (typeof active === 'string') {
+          return { ok: false, archived: 0, skipped: 0, error: active }
+        }
+
+        const snapshot = aggregator?.getSnapshot() ?? service?.getSnapshot() ?? null
+        if (!snapshot) return { ok: true, archived: 0, skipped: 0 }
+
+        const { targetIDs, skippedIDs } = pickArchiveTargets(snapshot.agents)
+        let archived = 0
+        let error: string | undefined
+        for (const sessionID of targetIDs) {
+          try {
+            await active.archiveSession(sessionID)
+            archived += 1
+          } catch (err) {
+            // Para no primeiro erro: insistir nos seguintes só pioraria a fila.
+            error = managementError(err)
+            break
+          }
+        }
+
+        if (archived > 0) refreshOffice()
+        logger.info(
+          'office',
+          `Arquivamento em lote: ${archived} arquivada(s), ${skippedIDs.length} pulada(s) por estar trabalhando.`
+        )
+        return {
+          ok: !error,
+          archived,
+          skipped: skippedIDs.length,
+          ...(error ? { error } : {})
+        }
+      }
+    )
+  })
+
+  ipcMain.handle('office:archived-list', async (_event, ...args: unknown[]) => {
+    if (!normalizeArchiveAllInput(singleArgument(args))) {
+      throw new Error('Requisição inválida.')
+    }
+
+    const active = await resolveManagementClient()
+    if (typeof active === 'string') {
+      return { ok: false, items: [], error: active } satisfies OfficeArchivedListResult
+    }
+    try {
+      return {
+        ok: true,
+        items: await active.listArchivedSessions()
+      } satisfies OfficeArchivedListResult
+    } catch (err) {
+      return {
+        ok: false,
+        items: [],
+        error: managementError(err)
+      } satisfies OfficeArchivedListResult
+    }
+  })
+
+  ipcMain.handle('office:restore', async (_event, ...args: unknown[]) => {
+    const input = normalizeRestoreInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const active = await resolveManagementClient()
+      if (typeof active === 'string') return { ok: false, error: active }
+
+      try {
+        await active.restoreSession(input.sessionID)
+        logger.info('office', `Funcionário restaurado: sessão ${input.sessionID}.`)
+        refreshOffice()
+        return { ok: true }
+      } catch (err) {
+        logger.warn('office', `Falha ao restaurar a sessão ${input.sessionID}.`)
+        return { ok: false, error: managementError(err) }
+      }
+    })
   })
 
   logger.info('office', 'IPC do escritório registrado.')

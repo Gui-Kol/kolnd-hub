@@ -20,7 +20,16 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type { OfficeHealth, OfficeSnapshot } from '../shared/office'
+import type {
+  OfficeArchiveAllResult,
+  OfficeArchivedListResult,
+  OfficeHealth,
+  OfficeHireInput,
+  OfficeManageResult,
+  OfficeRosterResult,
+  OfficeSetRoleInput,
+  OfficeSnapshot
+} from '../shared/office'
 import type {
   PluginInstallResult,
   PluginRemoveResult,
@@ -506,6 +515,26 @@ const api = {
 
   officePluginSnippet: (): Promise<PluginSnippetResult> =>
     ipcRenderer.invoke('office:plugin-snippet'),
+
+  // Funcionários (Fase 4): contratar, dar função e arquivar/restaurar. O main
+  // valida tudo de novo; aqui é só transporte tipado.
+  officeRosterOptions: (input: { directory: string }): Promise<OfficeRosterResult> =>
+    ipcRenderer.invoke('office:roster-options', input),
+
+  officeHire: (input: OfficeHireInput): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:hire', input),
+
+  officeSetRole: (input: OfficeSetRoleInput): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:set-role', input),
+
+  officeArchiveAll: (input: Record<string, never>): Promise<OfficeArchiveAllResult> =>
+    ipcRenderer.invoke('office:archive-all', input),
+
+  officeArchivedList: (input: Record<string, never>): Promise<OfficeArchivedListResult> =>
+    ipcRenderer.invoke('office:archived-list', input),
+
+  officeRestore: (input: { sessionID: string }): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:restore', input),
 
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<
