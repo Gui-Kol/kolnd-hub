@@ -168,17 +168,16 @@ describe('layout isométrico', () => {
     expect(JSON.stringify(second.rooms)).toBe(JSON.stringify(first.rooms))
   })
 
-  it('sessões sem departamento caem em "Sem sala" com chip próprio', () => {
+  it('sessões sem departamento não entram no layout (nem no contador de mesas)', () => {
     const snapshot = deriveOfficeSnapshot({
       now: NOW,
       sessions: [workingSession('ses_a'), workingSession('ses_b')]
     })
-    expect(snapshot.rooms).toHaveLength(1)
+    expect(snapshot.rooms).toHaveLength(0)
+    expect(snapshot.unassignedCount).toBe(2)
     const layout = layoutOffice(snapshot, CANVAS)
-    expect(layout.rooms).toHaveLength(1)
-    expect(layout.rooms[0].room.unassigned).toBe(true)
-    expect(layout.rooms[0].room.name).toBe('Sem sala')
-    expect(layout.seats).toHaveLength(2)
+    expect(layout.rooms).toHaveLength(0)
+    expect(layout.seats).toHaveLength(0)
   })
 
   it('hit test: personagem, sala (piso/chip) e vazio', () => {

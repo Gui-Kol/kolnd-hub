@@ -24,6 +24,8 @@ export type OfficeActivityKind = 'read' | 'edit' | 'shell' | 'search' | 'web' | 
 export interface OfficeModel {
   providerID: string
   id: string
+  /** Esforço/raciocínio aplicado (campo `variant` do OpenCode), quando houver. */
+  variant?: string
 }
 
 export interface OfficeTokens {
@@ -72,8 +74,8 @@ export interface OfficeAgent {
  * Departamento criado pelo usuário (persistido em `officeDepartments`).
  *
  * A "sala" do escritório É o departamento: nome + função (agente do OpenCode)
- * + funcionários designados. Sessões sem departamento caem na sala sintética
- * "Sem sala" (nunca persistida).
+ * + funcionários designados. Sessão que não está em nenhum departamento fica
+ * FORA do escritório (não há mais sala sintética "Sem sala").
  */
 export interface OfficeDepartment {
   /** `dep_<8 hex>`, gerado no main. */
@@ -89,11 +91,11 @@ export interface OfficeDepartment {
 }
 
 export interface OfficeRoom {
-  /** `dep_…` do departamento ou `sem-sala` na sala sintética. */
+  /** `dep_…` do departamento que virou sala. */
   id: string
-  /** Nome do departamento ("Sem sala" na sintética). */
+  /** Nome do departamento. */
   name: string
-  /** Função da sala (agente). Ausente na sala sintética. */
+  /** Função da sala (agente). */
   agent?: string
   /**
    * Diretório ORIGINAL comum a todos os membros (caixa/separadores
@@ -102,7 +104,11 @@ export interface OfficeRoom {
    */
   path?: string
   agentIDs: string[]
-  /** Sala sintética "Sem sala" (criada na derivação, nunca persistida). */
+  /**
+   * Mantido no contrato por compatibilidade de leitura de snapshots antigos.
+   * A derivação atual NUNCA cria sala sem `dep_…` (sessão fora de departamento
+   * simplesmente não aparece).
+   */
   unassigned?: boolean
 }
 
@@ -155,6 +161,12 @@ export interface OfficeSnapshot {
   source: OfficeSource
   rooms: OfficeRoom[]
   agents: OfficeAgent[]
+  /**
+   * Sessões ativas que ficaram de fora por não estarem em nenhuma sala.
+   * Alimenta o aviso de gestão ("N fora das salas"); elas nunca entram em
+   * `agents`, `rooms`, `feed`, `requests` ou `totals`.
+   */
+  unassignedCount: number
   /** Aparência efetiva por sessão (store → padrão determinístico da seed). */
   avatars: Record<string, OfficeAvatarLook>
   feed: OfficeActivity[]
@@ -185,6 +197,71 @@ export interface OfficeModelOption {
   id: string
   name: string
   enabled: boolean
+  /**
+   * Esforços/raciocínios que o modelo aceita (`variants[].id`). Vazio significa
+   * que o modelo não oferece escolha de esforço.
+   */
+  variants: string[]
+  /**
+   * Esforço escolhido numa operação de gestão. Nunca vem da listagem; o main
+   * valida contra `variants` do modelo antes de enviar ao OpenCode.
+   */
+  variant?: string
+}
+
+/** Uma fala da conversa exibida no OpenOffice (somente partes de texto). */
+export interface OfficeTranscriptEntry {
+  /** Id da mensagem quando o OpenCode informa. */
+  id?: string
+  /** Autor: `user`, `assistant` ou `unknown` (o OpenCode varia entre versões). */
+  role: 'user' | 'assistant' | 'unknown'
+  /** Epoch ms da mensagem. */
+  at: number
+  /** Texto já mascarado e truncado em `TRANSCRIPT_TEXT_MAX`. */
+  text: string
+}
+
+/** Resposta de `office:transcript` (erro legível quando o CLI não responde). */
+export interface OfficeTranscriptResult {
+  ok: boolean
+  messages: OfficeTranscriptEntry[]
+  error?: string
+}
+
+/** Teto de mensagens devolvidas no transcrito. */
+export const TRANSCRIPT_MESSAGES_MAX = 8
+
+/** Teto de cada texto do transcrito. */
+export const TRANSCRIPT_TEXT_MAX = 600
+
+/** Teto do prompt enviado pelo OpenOffice. */
+export const PROMPT_TEXT_MAX = 8000
+
+/** Modo de entrega do prompt: fila (padrão) ou interromper/entregar agora. */
+export type OfficePromptDelivery = 'queue' | 'steer'
+
+/** Pedido de prompt do OpenOffice para uma sessão real do OpenCode. */
+export interface OfficePromptSendInput {
+  sessionID: string
+  /** 1–8000 caracteres (quebras de linha permitidas; controles não). */
+  text: string
+  delivery: OfficePromptDelivery
+}
+
+/** Linha mínima de `office:sessions-list` (designar quem está fora da sala). */
+export interface OfficeSessionSummary {
+  sessionID: string
+  title: string
+  agent: string
+  status: OfficeAgentStatus
+  directory: string
+}
+
+/** Resposta de `office:sessions-list`. */
+export interface OfficeSessionsListResult {
+  ok: boolean
+  items: OfficeSessionSummary[]
+  error?: string
 }
 
 /** Opções da função: agentes e modelos válidos para a sala escolhida. */
@@ -199,7 +276,7 @@ export interface OfficeRosterResult extends OfficeRosterOptions {
   error?: string
 }
 
-/** Contratar: cria uma sessão sem prompt na sala informada. */
+/** Contratar: cria uma sessão sem prompt e já a designa para a sala. */
 export interface OfficeHireInput {
   /** Título da sessão (1–80 caracteres). */
   title: string
@@ -208,6 +285,8 @@ export interface OfficeHireInput {
   model: OfficeModelOption | null
   /** Diretório original da sala (absoluto e existente, validado no main). */
   directory: string
+  /** Sala-departamento que recebe o funcionário no mesmo passo. */
+  departmentID: string
 }
 
 /** Dar função: troca o agente e (quando informado) o modelo da sessão. */
@@ -287,7 +366,7 @@ export interface OfficeSessionInput {
   parentID?: string | null
   title?: string | null
   agent?: string | null
-  model?: { id?: string | null; providerID?: string | null } | null
+  model?: { id?: string | null; providerID?: string | null; variant?: string | null } | null
   cost?: number | null
   tokens?: {
     input?: number | null
@@ -335,10 +414,10 @@ export const OFFICE_DEPARTMENTS_MAX = 30
 /** Teto de funcionários designados por departamento. */
 export const OFFICE_DEPARTMENT_MEMBERS_MAX = 60
 
-/** Id sintético da sala de quem ainda não foi designado. */
+/** Id legado da antiga sala sintética (não é mais produzido pela derivação). */
 export const UNASSIGNED_ROOM_ID = 'sem-sala'
 
-/** Nome da sala sintética (nunca persistida). */
+/** Nome legado da antiga sala sintética (não é mais produzido). */
 export const UNASSIGNED_ROOM_NAME = 'Sem sala'
 
 /** Formato do id de departamento gerado no main (`dep_` + 8 hex). */
@@ -743,11 +822,12 @@ function normalizeRequests(
  *
  * Regras fechadas: status pelos `time.*` da sessão (com a janela
  * `IDLE_VISIBLE_MS` para o ocioso não virar personagem eterno); sala pelo
- * departamento em que a sessão foi designada — quem não está em nenhum cai na
- * sala sintética "Sem sala"; subagente por `parentID`; ordem working → needsYou
- * → idle → ended (empate por `sessionID`) e feed com as 40 atividades mais
- * recentes. `rolePending` sai da diferença entre a função da sala e a função
- * real da sessão (é o badge "pendente" de quem ainda não recebeu a troca).
+ * departamento em que a sessão foi designada — quem não está em nenhum fica
+ * FORA do snapshot e só entra em `unassignedCount`; subagente por `parentID`;
+ * ordem working → needsYou → idle → ended (empate por `sessionID`) e feed com
+ * as 40 atividades mais recentes DAS SESSÕES VISÍVEIS. `rolePending` sai da
+ * diferença entre a função da sala e a função real da sessão (é o badge
+ * "pendente" de quem ainda não recebeu a troca).
  */
 export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
   const requests = normalizeRequests(input.requests, input.now)
@@ -780,7 +860,7 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     }
   }
 
-  let unassignedRoom: OfficeRoom | null = null
+  let unassignedCount = 0
   /** Diretório normalizado → original, por sala (path só quando comum). */
   const directoriesByRoom = new Map<string, Map<string, string>>()
 
@@ -788,16 +868,14 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     if (!session || typeof session.id !== 'string' || !session.id || seen.has(session.id)) continue
     seen.add(session.id)
 
+    // Visibilidade fechada: sem departamento criado pelo usuário, a sessão não
+    // entra no escritório (nem no feed/requests). Só o contador avisa que ela
+    // existe para a gestão de salas poder designá-la depois.
     const departmentID = roomIDBySession.get(session.id)
-    let room = departmentID ? roomByID.get(departmentID) : undefined
+    const room = departmentID ? roomByID.get(departmentID) : undefined
     if (!room) {
-      unassignedRoom ??= {
-        id: UNASSIGNED_ROOM_ID,
-        name: UNASSIGNED_ROOM_NAME,
-        agentIDs: [],
-        unassigned: true
-      }
-      room = unassignedRoom
+      unassignedCount += 1
+      continue
     }
 
     const directory = (session.location?.directory ?? '').trim()
@@ -813,7 +891,8 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
       agent: session.agent?.trim() || 'general',
       model: {
         providerID: session.model?.providerID?.trim() || 'desconhecido',
-        id: session.model?.id?.trim() || 'desconhecido'
+        id: session.model?.id?.trim() || 'desconhecido',
+        ...(session.model?.variant?.trim() ? { variant: session.model.variant.trim() } : {})
       },
       status: statusFor(session, needsYou, input.now),
       cost: toNumber(session.cost),
@@ -853,11 +932,10 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     return delta !== 0 ? delta : a.sessionID.localeCompare(b.sessionID)
   })
 
-  const departmentRooms = [...roomByID.values()].sort((a, b) => {
+  const sortedRooms = [...roomByID.values()].sort((a, b) => {
     const byName = a.name.localeCompare(b.name, 'pt-BR')
     return byName !== 0 ? byName : a.id.localeCompare(b.id)
   })
-  const sortedRooms = unassignedRoom ? [...departmentRooms, unassignedRoom] : departmentRooms
 
   const position = new Map<string, number>()
   agents.forEach((agent, index) => position.set(agent.sessionID, index))
@@ -867,12 +945,16 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     if (directories && directories.size === 1) room.path = [...directories.values()][0]
   }
 
+  // Atividade só de quem está na cena: o feed não pode vazar sessão escondida.
+  const visibleSessionIDs = new Set(agents.map((agent) => agent.sessionID))
   const feed: OfficeActivity[] = []
   if (input.activityBySession instanceof Map) {
-    for (const activity of input.activityBySession.values()) feed.push(activity)
+    for (const [sessionID, activity] of input.activityBySession) {
+      if (activity && visibleSessionIDs.has(sessionID)) feed.push(activity)
+    }
   } else if (input.activityBySession) {
-    for (const activity of Object.values(input.activityBySession)) {
-      if (activity) feed.push(activity)
+    for (const [sessionID, activity] of Object.entries(input.activityBySession)) {
+      if (activity && visibleSessionIDs.has(sessionID)) feed.push(activity)
     }
   }
   feed.sort((a, b) => (b.at !== a.at ? b.at - a.at : a.label.localeCompare(b.label, 'pt-BR')))
@@ -895,9 +977,10 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     source: input.source ?? 'poller',
     rooms: sortedRooms,
     agents,
+    unassignedCount,
     avatars,
     feed: recentFeed,
-    requests,
+    requests: requests.filter((request) => visibleSessionIDs.has(request.sessionID)),
     totals,
     health: {
       cliFound: input.health?.cliFound ?? true,

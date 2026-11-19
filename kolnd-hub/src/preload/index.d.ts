@@ -29,9 +29,12 @@ import type {
   OfficeHealth,
   OfficeHireInput,
   OfficeManageResult,
+  OfficePromptSendInput,
   OfficeRosterResult,
+  OfficeSessionsListResult,
   OfficeSetRoleInput,
-  OfficeSnapshot
+  OfficeSnapshot,
+  OfficeTranscriptResult
 } from '../shared/office'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type {
@@ -388,6 +391,14 @@ declare global {
       officeRosterOptions: (input: { directory: string }) => Promise<OfficeRosterResult>
       officeHire: (input: OfficeHireInput) => Promise<OfficeManageResult>
       officeSetRole: (input: OfficeSetRoleInput) => Promise<OfficeManageResult>
+      // Operação direta pelo CLI (sem depender do plugin): prompt, parar e conversa.
+      officePrompt: (input: OfficePromptSendInput) => Promise<OfficeManageResult>
+      officeInterrupt: (input: { sessionID: string }) => Promise<OfficeManageResult>
+      officeTranscript: (input: {
+        sessionID: string
+        limit?: number
+      }) => Promise<OfficeTranscriptResult>
+      officeSessionsList: (input: Record<string, never>) => Promise<OfficeSessionsListResult>
       officeArchiveAll: (input: Record<string, never>) => Promise<OfficeArchiveAllResult>
       officeArchivedList: (input: Record<string, never>) => Promise<OfficeArchivedListResult>
       officeRestore: (input: { sessionID: string }) => Promise<OfficeManageResult>

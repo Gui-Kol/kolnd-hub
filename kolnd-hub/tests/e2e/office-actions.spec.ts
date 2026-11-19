@@ -107,6 +107,38 @@ function baseEnv(ctx: E2eContext): NodeJS.ProcessEnv {
   }
 }
 
+interface DepartmentFile {
+  id: string
+  name: string
+  agentID: string
+  sessionIDs: string[]
+  createdAt: number
+}
+
+/** Semeia as salas no config.json isolado ANTES de abrir o app. */
+function seedDepartments(ctx: E2eContext, departments: DepartmentFile[]): void {
+  const file = join(ctx.userDataDir, 'config.json')
+  let current: Record<string, unknown>
+  try {
+    current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    current = {}
+  }
+  current.officeDepartments = departments
+  writeFileSync(file, JSON.stringify(current, null, 2), 'utf8')
+}
+
+/** Sem sala designada, a sessão não aparece (regra nova de visibilidade). */
+const DEPARTMENTS: DepartmentFile[] = [
+  {
+    id: 'dep_0004a001',
+    name: 'Teste',
+    agentID: 'general',
+    sessionIDs: [ID_MAP.ses_e2e_office_main, ID_MAP.ses_e2e_office_idle, ID_MAP.ses_e2e_office_sub],
+    createdAt: 1
+  }
+]
+
 async function launchApp(env: NodeJS.ProcessEnv): Promise<ElectronApplication> {
   // Ponte de uma execução anterior (teste interrompido) não pode confundir o
   // long-poll deste teste.
@@ -237,6 +269,7 @@ test('ações: aprovar um pedido entrega permission.reply e resolve o card', asy
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeFullFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)
@@ -295,6 +328,7 @@ test('ações: com a chave desligada nada é enfileirado (long-poll 204)', async
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeFullFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)
@@ -323,13 +357,13 @@ test('ações: com a chave desligada nada é enfileirado (long-poll 204)', async
     await expect(card.getByTestId('office-request-deny')).toBeDisabled()
     await expect(card.getByText('Ações em somente leitura')).toBeVisible()
 
-    // Sessão ociosa: a caixa de mensagem aparece, mas o modo a deixa inerte.
+    // Sessão ociosa: prompt funciona sem plugin (ações só gateiam permissões).
     await selectAgent(window, 'Ocioso')
     const box = window.getByTestId('office-message-box')
     await expect(box).toBeVisible()
-    await expect(window.getByTestId('office-message-input')).toBeDisabled()
-    await expect(window.getByTestId('office-message-send')).toBeDisabled()
-    await expect(box.getByText('Ações em somente leitura')).toBeVisible()
+    await expect(box.getByTestId('office-prompt-input')).toBeEnabled()
+    await expect(box.getByTestId('office-prompt-send')).toBeDisabled()
+    await expect(box.getByTestId('office-prompt-steer')).toBeVisible()
 
     // Nada foi enfileirado na ponte: o long-poll devolve 204.
     expect(await nextAction(bridge, 400)).toBeNull()
@@ -342,6 +376,7 @@ test('ações: enviar mensagem mostra na fila e depois entregue, e o texto some'
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeFullFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)
@@ -352,40 +387,30 @@ test('ações: enviar mensagem mostra na fila e depois entregue, e o texto some'
 
     await selectAgent(window, 'Trabalhando')
     const bridge = await waitForBridge(ctx)
-    // Handshake do plugin real: sem ele o main mantém as ações desabilitadas (D11).
-    await postEvent(bridge, { type: 'hello', at: Date.now(), version: '1.1.0' })
 
+    // Prompt vai pelo CLI (fixture), sem plugin e sem a chave de ações.
     const box = window.getByTestId('office-message-box')
     await expect(box).toBeVisible()
-    await expect(window.getByTestId('office-message-input')).toBeDisabled()
-
-    const mode = window.getByTestId('office-action-mode')
-    await expect(mode).toBeEnabled({ timeout: 20_000 })
-    await mode.click()
-    await expect(mode).toHaveAttribute('aria-checked', 'true')
-
-    const input = window.getByTestId('office-message-input')
+    const input = box.getByTestId('office-prompt-input')
     await expect(input).toBeEnabled()
-    await expect(window.getByTestId('office-message-send')).toBeDisabled()
+    await expect(box.getByTestId('office-prompt-send')).toBeDisabled()
 
     await input.fill('Revise o build, por favor')
-    const pending = nextAction(bridge)
+    // Long-poll como o plugin: nada deve ser enfileirado na ponte.
+    const pending = nextAction(bridge, 400)
     // Enter envia (Shift+Enter é o que quebra linha).
     await input.press('Enter')
 
-    const action = await pending
-    expect(action).toMatchObject({
-      action: 'session.prompt',
-      sessionID: SESSION_ID,
-      text: 'Revise o build, por favor'
-    })
-
-    await expect(box.getByText('na fila')).toBeVisible()
-
-    await postResult(bridge, action!.id, true)
-    await expect(window.getByTestId('office-message-status')).toContainText('entregue')
+    await expect(box.getByTestId('office-prompt-status')).toContainText('enviado')
     // Privacidade: entregue ⇒ o texto não fica nem no campo.
     await expect(input).toHaveValue('')
+    expect(await pending).toBeNull()
+
+    // A conversa vem do transcrito do CLI (a fixture responde ao prompt).
+    await expect(box.getByTestId('office-transcript')).toContainText('Revise o build, por favor', {
+      timeout: 10_000
+    })
+    await expect(box.getByTestId('office-transcript')).toContainText('Recebi seu pedido (queue)')
   } finally {
     await closeApp(app)
   }

@@ -141,6 +141,64 @@ describe('loadOfficeFixture — gestão de funcionários', () => {
     expect(agents.map((agent) => agent.id)).toContain('build')
     expect(models.some((model) => model.enabled)).toBe(true)
     expect(models.some((model) => !model.enabled)).toBe(true)
+    expect(models.find((model) => model.id === 'qwen4-max')?.variants).toEqual([
+      'none',
+      'low',
+      'high',
+      'xhigh'
+    ])
+    expect(models.find((model) => model.id === 'deepseek-v4.1-flash')?.variants).toEqual([
+      'none',
+      'low',
+      'high'
+    ])
+  })
+
+  it('sendPrompt registra texto/delivery e aparece no transcrito', async () => {
+    const client = loadOfficeFixture(writeFixture('prompt.json', { sessions: SESSIONS }))
+
+    await client.sendPrompt('ses_fixture_main', { text: 'Revise o build', delivery: 'queue' })
+    await client.sendPrompt('ses_fixture_main', { text: 'Agora', delivery: 'steer' })
+
+    const transcript = await client.sessionTranscript('ses_fixture_main')
+    expect(transcript.map((entry) => entry.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant'
+    ])
+    expect(transcript[0].text).toBe('Revise o build')
+    expect(transcript[1].text).toContain('queue')
+    expect(transcript[2].text).toBe('Agora')
+    expect(transcript[3].text).toContain('steer')
+
+    await expect(
+      client.sendPrompt('ses_inexistente', { text: 'oi', delivery: 'queue' })
+    ).rejects.toThrow(/não existe na fixture/i)
+  })
+
+  it('setSessionModel guarda o esforço e interruptSession volta ao ocioso', async () => {
+    const client = loadOfficeFixture(writeFixture('variant.json', { sessions: SESSIONS }))
+
+    await client.setSessionModel('ses_fixture_main', {
+      providerID: 'opencode-go',
+      id: 'qwen4-max',
+      variant: 'xhigh'
+    })
+    const changed = (await client.listSessions()).find(
+      (session) => session.id === 'ses_fixture_main'
+    )
+    expect(changed?.model).toEqual({
+      providerID: 'opencode-go',
+      id: 'qwen4-max',
+      variant: 'xhigh'
+    })
+
+    await client.interruptSession('ses_fixture_main')
+    const interrupted = (await client.listSessions()).find(
+      (session) => session.id === 'ses_fixture_main'
+    )
+    expect(interrupted?.time?.idle).toBeGreaterThan(interrupted?.time?.busy ?? 0)
   })
 
   it('createSession acrescenta uma sessão ativa com função, modelo e sala', async () => {
@@ -150,7 +208,8 @@ describe('loadOfficeFixture — gestão de funcionários', () => {
       title: 'Contratar dev',
       agentID: 'build',
       model: null,
-      directory: 'C:\\projetos\\kolnd-hub'
+      directory: 'C:\\projetos\\kolnd-hub',
+      departmentID: 'dep_0000a001'
     })
     expect(sessionID).toBe('ses_fixture_hire_1')
 
@@ -171,14 +230,22 @@ describe('loadOfficeFixture — gestão de funcionários', () => {
     const first = await client.createSession({
       title: 'Um',
       agentID: 'plan',
-      model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4', enabled: true },
-      directory: 'C:\\projetos\\kolnd-hub'
+      model: {
+        providerID: 'opencode-go',
+        id: 'qwen4-max',
+        name: 'Qwen4',
+        enabled: true,
+        variants: ['none', 'low', 'high', 'xhigh']
+      },
+      directory: 'C:\\projetos\\kolnd-hub',
+      departmentID: 'dep_0000a001'
     })
     const second = await client.createSession({
       title: 'Dois',
       agentID: 'plan',
       model: null,
-      directory: 'C:\\projetos\\kolnd-hub'
+      directory: 'C:\\projetos\\kolnd-hub',
+      departmentID: 'dep_0000a001'
     })
     expect(first).not.toBe(second)
 
@@ -193,7 +260,8 @@ describe('loadOfficeFixture — gestão de funcionários', () => {
       title: 'Contratar dev',
       agentID: 'build',
       model: null,
-      directory: 'C:\\projetos\\kolnd-hub'
+      directory: 'C:\\projetos\\kolnd-hub',
+      departmentID: 'dep_0000a001'
     })
 
     await client.setSessionAgent(sessionID, 'plan')

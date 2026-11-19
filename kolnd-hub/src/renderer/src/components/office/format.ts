@@ -92,6 +92,22 @@ export function formatDuration(ms: number): string {
   return restHours > 0 ? `${days} d ${restHours} h` : `${days} d`
 }
 
+/** Rótulo pt-BR do esforço (`variant`) devolvido pelo OpenCode. */
+export function effortLabel(value: string): string {
+  switch (value.trim().toLowerCase()) {
+    case 'none':
+      return 'Sem raciocínio'
+    case 'low':
+      return 'Baixo'
+    case 'high':
+      return 'Alto'
+    case 'xhigh':
+      return 'Máximo'
+    default:
+      return value.trim() || 'Padrão'
+  }
+}
+
 /** Horário curto (HH:MM) para o feed. */
 export function formatClock(epoch: number): string {
   if (!Number.isFinite(epoch) || epoch <= 0) return '—'

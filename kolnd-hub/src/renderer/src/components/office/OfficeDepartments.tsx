@@ -18,6 +18,7 @@ import type {
   OfficeDepartmentApplyResult,
   OfficeModelOption,
   OfficeRoom,
+  OfficeSessionSummary,
   OfficeSnapshot
 } from '../../../../shared/office'
 import { STATUS_META } from './format'
@@ -113,6 +114,73 @@ export function OfficeDepartments({
   onOpenRoom
 }: OfficeDepartmentsProps): JSX.Element {
   const [createOpen, setCreateOpen] = useState(false)
+  const [sessions, setSessions] = useState<OfficeSessionSummary[]>([])
+  const [unassignedOpen, setUnassignedOpen] = useState(false)
+  const [targetRoomID, setTargetRoomID] = useState('')
+  const [assigningID, setAssigningID] = useState<string | null>(null)
+  const [unassignedError, setUnassignedError] = useState<string | null>(null)
+  const [unassignedNotice, setUnassignedNotice] = useState<string | null>(null)
+
+  const roomSignature = snapshot.rooms.map((room) => `${room.id}:${room.agentIDs.length}`).join('|')
+
+  function loadSessions(): void {
+    void window.api
+      .officeSessionsList({})
+      .then((result) => {
+        if (!result.ok) {
+          setUnassignedError(result.error ?? 'Não consegui listar as sessões fora das salas.')
+          return
+        }
+        setUnassignedError(null)
+        setSessions(result.items)
+      })
+      .catch(() => setUnassignedError('Não consegui falar com o processo principal.'))
+  }
+
+  useEffect(() => {
+    // A assinatura muda quando uma sala é criada/excluída/designada: relê a
+    // lista mínima de TODAS as sessões ativas só para a gestão.
+    loadSessions()
+  }, [roomSignature])
+
+  const assignedIDs = new Set(snapshot.rooms.flatMap((room) => room.agentIDs))
+  const outside = sessions.filter((session) => !assignedIDs.has(session.sessionID))
+
+  function openUnassigned(): void {
+    setTargetRoomID(snapshot.rooms[0]?.id ?? '')
+    setUnassignedError(null)
+    setUnassignedNotice(null)
+    setUnassignedOpen(true)
+    loadSessions()
+  }
+
+  function designate(session: OfficeSessionSummary): void {
+    if (!targetRoomID || assigningID) return
+    setAssigningID(session.sessionID)
+    setUnassignedError(null)
+    setUnassignedNotice(null)
+    void window.api
+      .officeDepartmentAssign({
+        sessionID: session.sessionID,
+        departmentID: targetRoomID,
+        applyRole: true
+      })
+      .then((result) => {
+        if (!result.ok) {
+          setUnassignedError(result.error ?? 'Não consegui designar o funcionário.')
+          return
+        }
+        setUnassignedNotice(
+          `${session.title} entrou na sala. A função ${
+            snapshot.rooms.find((room) => room.id === targetRoomID)?.agent ?? 'da sala'
+          } foi aplicada (ou ficou pendente se estiver trabalhando).`
+        )
+        onChanged()
+        loadSessions()
+      })
+      .catch(() => setUnassignedError('Não consegui falar com o processo principal.'))
+      .finally(() => setAssigningID(null))
+  }
 
   return (
     <section
@@ -178,6 +246,133 @@ export function OfficeDepartments({
         </ul>
       )}
 
+      {outside.length > 0 && (
+        <div
+          data-testid="office-unassigned"
+          className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] px-2.5 py-2"
+        >
+          <span className="min-w-0 flex-1 text-[10.5px] leading-snug text-ink-secondary">
+            <strong data-testid="office-unassigned-count" className="tnum font-semibold text-warn">
+              {outside.length}
+            </strong>{' '}
+            fora das salas
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={openUnassigned}
+            data-testid="office-unassigned-open"
+          >
+            <UserPlus size={12} aria-hidden="true" />
+            Designar
+          </Button>
+        </div>
+      )}
+
+      {unassignedOpen && (
+        <Modal
+          title="Sessões fora das salas"
+          onClose={() => setUnassignedOpen(false)}
+          className="max-w-2xl"
+          footer={
+            <Button variant="ghost" onClick={() => setUnassignedOpen(false)}>
+              Fechar
+            </Button>
+          }
+        >
+          <div className="space-y-3" data-testid="office-unassigned-dialog">
+            <p className="text-[12px] leading-5 text-ink-secondary">
+              Estas sessões existem no OpenCode, mas não estão em nenhuma sala criada por você.
+              Enquanto isso, não aparecem no escritório. Escolha a sala de destino e designe.
+            </p>
+
+            <div>
+              <label
+                htmlFor="office-unassigned-room"
+                className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary"
+              >
+                Sala de destino
+              </label>
+              <Select
+                id="office-unassigned-room"
+                data-testid="office-unassigned-room"
+                className="mt-1.5"
+                value={targetRoomID}
+                disabled={snapshot.rooms.length === 0 || assigningID !== null}
+                onChange={(event) => setTargetRoomID(event.target.value)}
+              >
+                {snapshot.rooms.length === 0 && <option value="">Crie uma sala primeiro</option>}
+                {snapshot.rooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.name}
+                    {room.agent ? ` — ${room.agent}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div aria-live="polite" className="min-h-[16px]">
+              {unassignedNotice && (
+                <p className="flex items-start gap-1.5 text-[11px] leading-snug text-success">
+                  <Check size={12} className="mt-px shrink-0" aria-hidden="true" />
+                  {unassignedNotice}
+                </p>
+              )}
+              {unassignedError && (
+                <p className="flex items-start gap-1.5 text-[11px] leading-snug text-danger">
+                  <CircleAlert size={12} className="mt-px shrink-0" aria-hidden="true" />
+                  {unassignedError}
+                </p>
+              )}
+            </div>
+
+            {outside.length === 0 ? (
+              <p className="text-[12px] text-ink-tertiary">
+                Tudo designado — nenhuma sessão fora das salas.
+              </p>
+            ) : (
+              <ul
+                className="divide-y divide-[var(--border-subtle)] rounded-control border border-[var(--border-subtle)]"
+                aria-label="Sessões fora das salas"
+              >
+                {outside.map((session) => (
+                  <li
+                    key={session.sessionID}
+                    data-testid="office-unassigned-session"
+                    data-session-id={session.sessionID}
+                    className="flex flex-wrap items-center gap-2 px-2.5 py-1.5"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-ink-primary">
+                        {session.title}
+                      </span>
+                      <span className="block truncate text-[10px] text-ink-tertiary">
+                        {session.agent} · {STATUS_META[session.status].label}
+                        {session.directory ? ` · ${session.directory}` : ''}
+                      </span>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => designate(session)}
+                      disabled={!targetRoomID || assigningID !== null}
+                      data-testid="office-unassigned-designate"
+                    >
+                      {assigningID === session.sessionID ? (
+                        <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <UserPlus size={12} aria-hidden="true" />
+                      )}
+                      Designar
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Modal>
+      )}
+
       {createOpen && (
         <CreateRoomDialog
           snapshot={snapshot}
@@ -198,12 +393,47 @@ interface CreateRoomDialogProps {
   onCreated: () => void
 }
 
-function CreateRoomDialog({ snapshot, onClose, onCreated }: CreateRoomDialogProps): JSX.Element {
-  const directory = (snapshot.agents.find((agent) => agent.directory)?.directory ?? '').trim()
-  const roles = useRoleOptions(
-    directory,
-    snapshot.agents.map((agent) => agent.agent)
-  )
+export function CreateRoomDialog({
+  snapshot,
+  onClose,
+  onCreated
+}: CreateRoomDialogProps): JSX.Element {
+  /** Sem sessão visível, a pasta/função vem de `office:sessions-list`. */
+  const [fallback, setFallback] = useState<{ directory: string; agentIDs: string[] }>({
+    directory: '',
+    agentIDs: []
+  })
+  const visibleDirectory = (
+    snapshot.agents.find((agent) => agent.directory)?.directory ?? ''
+  ).trim()
+
+  useEffect(() => {
+    if (visibleDirectory) return
+    let alive = true
+    window.api
+      .officeSessionsList({})
+      .then((result) => {
+        if (!alive || !result.ok) return
+        const withDirectory = result.items.filter((item) => item.directory.trim())
+        if (withDirectory.length === 0) return
+        setFallback({
+          directory: withDirectory[0].directory.trim(),
+          agentIDs: withDirectory.map((item) => item.agent)
+        })
+      })
+      .catch(() => {
+        // Sem pasta conhecida, a sala ainda pode ser criada com o agente padrão.
+      })
+    return () => {
+      alive = false
+    }
+  }, [visibleDirectory])
+
+  const directory = visibleDirectory || fallback.directory
+  const roles = useRoleOptions(directory, [
+    ...snapshot.agents.map((agent) => agent.agent),
+    ...fallback.agentIDs
+  ])
   const [name, setName] = useState('')
   const [agentID, setAgentID] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -362,10 +592,45 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
   const [confirmDesignate, setConfirmDesignate] = useState(false)
   const [designateID, setDesignateID] = useState('')
   const [designateApply, setDesignateApply] = useState(true)
+  const [outsideSessions, setOutsideSessions] = useState<OfficeSessionSummary[]>([])
+
+  useEffect(() => {
+    let alive = true
+    window.api
+      .officeSessionsList({})
+      .then((result) => {
+        if (!alive || !result.ok) return
+        setOutsideSessions(result.items)
+      })
+      .catch(() => {
+        // A lista de fora é um extra da gestão; a sala continua funcionando.
+      })
+    return () => {
+      alive = false
+    }
+  }, [room.id])
 
   const selectedAgentID = agentID || roles.agents[0]?.id || ''
   const memberIDs = new Set(room.agentIDs)
+  const visibleIDs = new Set(agents.map((agent) => agent.sessionID))
   const candidates = agents.filter((agent) => !memberIDs.has(agent.sessionID))
+  const externalCandidates = outsideSessions.filter(
+    (session) => !memberIDs.has(session.sessionID) && !visibleIDs.has(session.sessionID)
+  )
+  const candidateOptions = [
+    ...candidates.map((agent) => ({
+      sessionID: agent.sessionID,
+      name: agent.name,
+      agent: agent.agent,
+      outside: false
+    })),
+    ...externalCandidates.map((session) => ({
+      sessionID: session.sessionID,
+      name: session.title,
+      agent: session.agent,
+      outside: true
+    }))
+  ]
   const canSave =
     !room.unassigned && !saving && name.trim().length > 0 && selectedAgentID.length > 0
   const canDesignate = !room.unassigned && designateID.length > 0 && !saving
@@ -465,8 +730,11 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
       }
       setNotice(
         designateApply
-          ? 'Funcionário designado; a função foi aplicada (ou ficou pendente se estiver trabalhando).'
-          : 'Funcionário designado. A função será aplicada quando você pedir.'
+          ? 'Funcionário entrou na sala; a função foi aplicada (ou ficou pendente se estiver trabalhando).'
+          : 'Funcionário entrou na sala. A função será aplicada quando você pedir.'
+      )
+      setOutsideSessions((current) =>
+        current.filter((session) => session.sessionID !== designateID)
       )
       onChanged()
     })()
@@ -717,7 +985,7 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
                       onClick={() =>
                         run(
                           () => window.api.officeDepartmentUnassign({ sessionID: agent.sessionID }),
-                          'Funcionário devolvido para "Sem sala".'
+                          'Funcionário saiu do escritório (fora das salas).'
                         )
                       }
                       disabled={saving}
@@ -747,14 +1015,15 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
                   setDesignateID(event.target.value)
                   setConfirmDesignate(false)
                 }}
-                disabled={saving || candidates.length === 0}
+                disabled={saving || candidateOptions.length === 0}
               >
                 <option value="">
-                  {candidates.length === 0 ? 'Nenhum funcionário fora da sala' : 'Escolher…'}
+                  {candidateOptions.length === 0 ? 'Nenhum funcionário fora da sala' : 'Escolher…'}
                 </option>
-                {candidates.map((agent) => (
-                  <option key={agent.sessionID} value={agent.sessionID}>
-                    {agent.name} — {agent.agent}
+                {candidateOptions.map((option) => (
+                  <option key={option.sessionID} value={option.sessionID}>
+                    {option.name} — {option.agent}
+                    {option.outside ? ' (fora das salas)' : ''}
                   </option>
                 ))}
               </Select>
@@ -783,7 +1052,8 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
               <div className="flex flex-wrap items-center gap-1.5 rounded-control border border-accent-border bg-accent-muted px-2 py-1.5 text-[10.5px] text-ink-primary">
                 <ArrowRightLeft size={12} aria-hidden="true" />
                 Designar{' '}
-                {agents.find((agent) => agent.sessionID === designateID)?.name ?? 'funcionário'}
+                {candidateOptions.find((option) => option.sessionID === designateID)?.name ??
+                  'funcionário'}
                 {designateApply ? ` e aplicar a função ${selectedAgentID}` : ' sem aplicar função'}?
                 <Button
                   size="sm"
@@ -805,8 +1075,8 @@ export function RoomDialog({ room, agents, onClose, onChanged }: RoomDialogProps
           <div className="rounded-control border border-danger-border bg-danger-bg px-2.5 py-2">
             <p className="flex items-start gap-1.5 text-[11px] leading-snug text-danger">
               <DoorOpen size={12} className="mt-px shrink-0" aria-hidden="true" />
-              Excluir a sala devolve {members.length} funcionário(s) para "Sem sala". Nenhuma sessão
-              é apagada do OpenCode.
+              Excluir a sala remove {members.length} funcionário(s) do escritório até você
+              designá-los a outra sala. Nenhuma sessão é apagada do OpenCode.
             </p>
             <div className="mt-1.5 flex gap-1.5">
               <Button

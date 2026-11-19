@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { OfficeSessionInput, OfficeSnapshot } from '../../shared/office'
+import type { OfficeDepartment, OfficeSessionInput, OfficeSnapshot } from '../../shared/office'
 import { OfficeCliError, type OfficeClient } from './client'
-import { createOfficeService } from './service'
+import { createOfficeService, type OfficeService, type OfficeServiceDeps } from './service'
 
 interface FakeClient {
   client: OfficeClient
@@ -24,6 +24,9 @@ function createFakeClient(): FakeClient {
     createSession: async () => 'ses_novo',
     setSessionAgent: async () => {},
     setSessionModel: async () => {},
+    sendPrompt: async () => {},
+    interruptSession: async () => {},
+    sessionTranscript: async () => [],
     archiveSession: async () => {},
     restoreSession: async () => {},
     listArchivedSessions: async () => []
@@ -38,7 +41,34 @@ function createFakeClient(): FakeClient {
   }
 }
 
+/**
+ * Sala automática dos testes: depois da regra de visibilidade, sessão fora de
+ * departamento não entra no snapshot. `session()` registra o id aqui.
+ */
+const ASSIGNED = new Set<string>()
+
+function departmentFor(sessionIDs: readonly string[]): OfficeDepartment[] {
+  if (sessionIDs.length === 0) return []
+  return [
+    {
+      id: 'dep_0000a001',
+      name: 'Sala de teste',
+      agentID: 'general',
+      sessionIDs: [...sessionIDs],
+      createdAt: 1
+    }
+  ]
+}
+
+function createService(deps: Omit<OfficeServiceDeps, 'getDepartments'>): OfficeService {
+  return createOfficeService({
+    ...deps,
+    getDepartments: () => departmentFor([...ASSIGNED])
+  })
+}
+
 function session(id: string, overrides: Partial<OfficeSessionInput> = {}): OfficeSessionInput {
+  ASSIGNED.add(id)
   return {
     id,
     title: `Sessão ${id}`,
@@ -73,6 +103,7 @@ describe('createOfficeService', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    ASSIGNED.clear()
     fake = createFakeClient()
     fake.listSessions.mockResolvedValue([])
     fake.sessionMessages.mockResolvedValue([])
@@ -84,7 +115,7 @@ describe('createOfficeService', () => {
   })
 
   it('refcount: 2 start = 1 loop; 1 stop não para; refcount 0 limpa os timers', async () => {
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
 
     service.start()
     service.start()
@@ -112,7 +143,7 @@ describe('createOfficeService', () => {
   it('backoff da lista: 2→4→8→16→30 s e reset no sucesso', async () => {
     const failure = new OfficeCliError('falhou', 'CLI falhou')
     fake.listSessions.mockRejectedValue(failure)
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
 
     await vi.advanceTimersByTimeAsync(0)
@@ -157,7 +188,7 @@ describe('createOfficeService', () => {
   it('busca mensagens só de sessões working, no máximo 6 por tick, rotacionando', async () => {
     const sessions = Array.from({ length: 8 }, (_, index) => session(`ses_w${index}`))
     fake.listSessions.mockResolvedValue(sessions)
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
 
@@ -176,7 +207,7 @@ describe('createOfficeService', () => {
 
   it('não busca mensagens quando nenhuma sessão está working', async () => {
     fake.listSessions.mockResolvedValue([session('ses_idle', { time: { busy: 1, idle: 2 } })])
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(9000)
@@ -186,7 +217,7 @@ describe('createOfficeService', () => {
 
   it('pausa buscas de mensagem enquanto a lista está em backoff', async () => {
     fake.listSessions.mockResolvedValue([session('ses_1')])
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
 
@@ -201,7 +232,7 @@ describe('createOfficeService', () => {
   it('dedupe de emissão: snapshot igual não emite; mudança de título emite', async () => {
     const emitted: number[] = []
     fake.listSessions.mockResolvedValue([session('ses_1')])
-    const service = createOfficeService({
+    const service = createService({
       client: fake.client,
       emit: () => emitted.push(1)
     })
@@ -226,7 +257,7 @@ describe('createOfficeService', () => {
     fake.listSessions.mockRejectedValue(
       new OfficeCliError('cliAusente', 'Não encontrei o CLI do OpenCode.')
     )
-    const service = createOfficeService({
+    const service = createService({
       client: fake.client,
       emit: (snapshot) => emitted.push(snapshot)
     })
@@ -258,7 +289,7 @@ describe('createOfficeService', () => {
     fake.listSessions.mockResolvedValue([session('ses_1')])
     fake.sessionMessages.mockResolvedValue(toolMessage('npm run verify', 5000))
     const emitted: string[] = []
-    const service = createOfficeService({
+    const service = createService({
       client: fake.client,
       emit: (snapshot) => emitted.push(snapshot.agents[0]?.activity?.label ?? '')
     })
@@ -281,7 +312,7 @@ describe('createOfficeService', () => {
   it('falha ao buscar mensagens não derruba a lista (só reporta no health)', async () => {
     fake.listSessions.mockResolvedValue([session('ses_1')])
     fake.sessionMessages.mockRejectedValue(new OfficeCliError('timeout', 'Demorou demais.'))
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(3000)
@@ -304,7 +335,7 @@ describe('createOfficeService', () => {
           pending.push(resolve)
         })
     )
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(fake.listSessions).toHaveBeenCalledTimes(1)
@@ -323,14 +354,14 @@ describe('createOfficeService', () => {
   })
 
   it('refresh sem assinatura não inicia a coleta', async () => {
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.refresh()
     await vi.advanceTimersByTimeAsync(0)
     expect(fake.listSessions).not.toHaveBeenCalled()
   })
 
   it('dispose para tudo, limpa o snapshot e ignora start posterior', async () => {
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(service.getSnapshot()).not.toBeNull()
@@ -354,7 +385,7 @@ describe('createOfficeService', () => {
           pending.push(resolve)
         })
     )
-    const service = createOfficeService({ client: fake.client, emit: () => {} })
+    const service = createService({ client: fake.client, emit: () => {} })
     service.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(fake.listSessions).toHaveBeenCalledTimes(1)

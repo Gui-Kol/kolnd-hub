@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
+import type { ReactNode, Ref } from 'react'
 import {
   Bot,
   Check,
@@ -11,10 +11,8 @@ import {
   Hash,
   Info,
   Loader2,
-  MessageSquare,
   MousePointerClick,
   Palette,
-  Send,
   ShieldCheck,
   Timer,
   UserCog,
@@ -38,10 +36,13 @@ import {
   SKIN_TONES
 } from '../../../../shared/officeAvatar'
 import { Badge, Button, Select } from '../ui'
+import { OfficeTranscript } from './OfficeTranscript'
+import { PromptComposer } from './PromptComposer'
 import {
   ACTIVITY_META,
   STATUS_META,
   activityLabel,
+  effortLabel,
   formatClock,
   formatCost,
   formatDuration,
@@ -73,14 +74,6 @@ type PermissionDecision = 'once' | 'always' | 'reject'
 interface RequestUiState {
   status: RequestStatus
   decision?: PermissionDecision
-  actionID?: string
-  error?: string
-}
-
-type SendStatus = 'idle' | 'fila' | 'entregue' | 'falhou'
-
-interface SendUiState {
-  status: SendStatus
   actionID?: string
   error?: string
 }
@@ -204,6 +197,7 @@ function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
   const [loading, setLoading] = useState(directory.length > 0)
   const [agentID, setAgentID] = useState(agent.agent)
   const [modelKeyValue, setModelKeyValue] = useState(currentModelKey)
+  const [variantValue, setVariantValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -242,12 +236,28 @@ function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
   const modelOptions = (options?.models ?? []).filter((model) => model.enabled)
   const hasCurrentAgent = agentOptions.some((option) => option.id === agent.agent)
   const hasCurrentModel = modelOptions.some((model) => modelKey(model) === currentModelKey)
+  const selectedModel = modelOptions.find((model) => modelKey(model) === modelKeyValue) ?? null
+  const effortSource =
+    selectedModel ?? modelOptions.find((model) => modelKey(model) === currentModelKey) ?? null
+  const effortOptions = effortSource?.variants ?? []
   const blocked = working || !directory
   const canSave = !blocked && !loading && !saving && options !== null
 
   function save(): void {
     if (!canSave) return
-    const chosenModel = modelOptions.find((model) => modelKey(model) === modelKeyValue) ?? null
+    let chosenModel: OfficeModelOption | null = selectedModel
+    if (!chosenModel && variantValue && agent.model.id !== 'desconhecido') {
+      chosenModel = {
+        providerID: agent.model.providerID,
+        id: agent.model.id,
+        name: agent.model.id,
+        enabled: true,
+        variants: effortOptions,
+        variant: variantValue
+      }
+    } else if (chosenModel && variantValue) {
+      chosenModel = { ...chosenModel, variant: variantValue }
+    }
     setSaving(true)
     setError(null)
     setSaved(false)
@@ -339,6 +349,8 @@ function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
             onChange={(event) => {
               setSaved(false)
               setModelKeyValue(event.target.value)
+              // Esforço pertence ao modelo: troca de modelo zera a escolha.
+              setVariantValue('')
             }}
           >
             <option value="">Manter modelo atual</option>
@@ -349,6 +361,37 @@ function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
               </option>
             ))}
           </Select>
+        </div>
+
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="office-role-effort"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Esforço
+          </label>
+          <Select
+            id="office-role-effort"
+            data-testid="office-role-effort"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={variantValue}
+            disabled={blocked || loading || effortOptions.length === 0}
+            onChange={(event) => {
+              setSaved(false)
+              setVariantValue(event.target.value)
+            }}
+          >
+            <option value="">Padrão</option>
+            {effortOptions.map((variant) => (
+              <option key={variant} value={variant}>
+                {effortLabel(variant)}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[9.5px] text-ink-tertiary">
+            Atual: {agent.model.variant ? effortLabel(agent.model.variant) : 'padrão'}
+            {effortOptions.length === 0 ? ' · este modelo não oferece esforço' : ''}
+          </p>
         </div>
       </div>
 
@@ -684,11 +727,10 @@ export function OfficeDetails({
   onRoomChange
 }: OfficeDetailsProps): JSX.Element {
   const [requestStates, setRequestStates] = useState<Record<string, RequestUiState>>({})
-  const [sendState, setSendState] = useState<SendUiState>({ status: 'idle' })
-  const [text, setText] = useState('')
+  /** Cada envio/parada força a releitura da conversa. */
+  const [transcriptKey, setTranscriptKey] = useState(0)
 
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
-  const messageActionID = useRef<string | null>(null)
   const firstCardRef = useRef<HTMLDivElement | null>(null)
   const seenRequests = useRef(new Set<string>())
 
@@ -735,17 +777,6 @@ export function OfficeDetails({
         }
         return changed ? next : current
       })
-
-      if (messageActionID.current === result.id) {
-        messageActionID.current = null
-        if (result.ok) {
-          // Privacidade (D10): entregue ⇒ o texto sai também do estado da UI.
-          setText('')
-          setSendState({ status: 'entregue' })
-        } else {
-          setSendState({ status: 'falhou', error: result.error ?? 'A entrega falhou.' })
-        }
-      }
     })
 
     return () => {
@@ -829,37 +860,6 @@ export function OfficeDetails({
     }))
   }
 
-  function sendMessage(): void {
-    if (!agent || !actionsEnabled || !pluginConnected) return
-    const value = text.trim()
-    if (!value || sendState.status === 'fila') return
-
-    setSendState({ status: 'fila' })
-    void window.api
-      .officeSendMessage({ sessionID: agent.sessionID, text: value })
-      .then((result) => {
-        if (!result.ok) {
-          setSendState({ status: 'falhou', error: refusalLabel(result.reason) })
-          return
-        }
-        messageActionID.current = result.id
-        setSendState({ status: 'fila', actionID: result.id })
-      })
-      .catch(() => {
-        setSendState({
-          status: 'falhou',
-          error: 'Não consegui falar com o processo principal.'
-        })
-      })
-  }
-
-  function handleMessageKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      sendMessage()
-    }
-  }
-
   if (!agent) {
     return (
       <section
@@ -889,9 +889,6 @@ export function OfficeDetails({
   const activity = ACTIVITY_META[agent.activity?.kind ?? 'other']
   // Sem relógio no render: usa o snapshot (ou o último contato) como referência.
   const reference = now ?? agent.lastSeenAt
-  const canMessage =
-    !agent.parentID && (agent.status === 'idle' || agent.status === 'working') && !requests.length
-  const messageDisabled = !actionsEnabled || !pluginConnected || !canMessage
   const announcement = requests[0]
     ? `${requests.length} ${requests.length === 1 ? 'pedido' : 'pedidos'} aguardando você: ${permissionActionLabel(requests[0].action)}.`
     : ''
@@ -1076,7 +1073,7 @@ export function OfficeDetails({
               value={room && !room.unassigned ? room.id : ''}
               onChange={(event) => onRoomChange(event.target.value || null)}
             >
-              <option value="">Sem sala</option>
+              <option value="">Fora das salas (sai do escritório)</option>
               {rooms.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.name}
@@ -1092,101 +1089,23 @@ export function OfficeDetails({
 
         <RoleCard agent={agent} room={room} onSaved={onRoleSaved ?? (() => {})} />
 
-        {canMessage && (
-          <section
-            aria-label="Enviar mensagem"
-            data-testid="office-message-box"
-            className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
-                <MessageSquare size={11} aria-hidden="true" />
-                Enviar mensagem
-              </span>
-              {sendState.status === 'fila' && <Badge tone="neutral">na fila</Badge>}
-              {sendState.status === 'entregue' && <Badge tone="success">entregue</Badge>}
-              {sendState.status === 'falhou' && <Badge tone="danger">falhou</Badge>}
-            </div>
-
-            <label htmlFor="office-message" className="sr-only">
-              Mensagem para {agent.name}
-            </label>
-            <textarea
-              id="office-message"
-              data-testid="office-message-input"
-              value={text}
-              rows={3}
-              maxLength={MESSAGE_MAX}
-              disabled={messageDisabled || sendState.status === 'fila'}
-              onChange={(event) => {
-                setText(event.target.value)
-                if (sendState.status !== 'idle') setSendState({ status: 'idle' })
-              }}
-              onKeyDown={handleMessageKeyDown}
-              placeholder="Escreva para o agente… (Enter envia, Shift+Enter quebra linha)"
-              className="mt-1.5 w-full resize-y rounded-control border border-[var(--border-subtle)] bg-surface-1 px-2 py-1.5 font-mono text-[11px] leading-snug text-ink-primary placeholder:text-ink-tertiary focus-visible:border-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-            />
-
-            <div className="mt-1.5 flex items-center justify-between gap-2">
-              <span className="tnum text-[9.5px] text-ink-tertiary">
-                {text.length}/{MESSAGE_MAX}
-              </span>
-              <Button
-                size="sm"
-                variant="primary"
-                data-testid="office-message-send"
-                disabled={
-                  messageDisabled || sendState.status === 'fila' || text.trim().length === 0
-                }
-                onClick={sendMessage}
-              >
-                {sendState.status === 'fila' ? (
-                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <Send size={12} aria-hidden="true" />
-                )}
-                Enviar
-              </Button>
-            </div>
-
-            <div aria-live="polite">
-              {sendState.status === 'falhou' && (
-                <p
-                  data-testid="office-message-status"
-                  className="mt-1 flex items-start gap-1.5 text-[10.5px] leading-snug text-danger"
-                >
-                  <CircleAlert size={12} className="mt-px shrink-0" aria-hidden="true" />
-                  {sendState.error ?? 'A entrega falhou.'}
-                </p>
-              )}
-              {sendState.status === 'fila' && (
-                <p className="mt-1 text-[10px] text-ink-tertiary">
-                  Aguardando o plugin entregar ao OpenCode…
-                </p>
-              )}
-              {sendState.status === 'entregue' && (
-                <p
-                  data-testid="office-message-status"
-                  className="mt-1 flex items-center gap-1.5 text-[10.5px] text-success"
-                >
-                  <Check size={12} aria-hidden="true" />
-                  Mensagem entregue ao agente.
-                </p>
-              )}
-            </div>
-
-            {!pluginConnected && (
-              <p className="mt-1.5 text-[10px] leading-snug text-ink-tertiary">
-                Instale o plugin em Configurações → OpenOffice para enviar mensagens.
-              </p>
-            )}
-            {pluginConnected && !actionsEnabled && (
-              <p className="mt-1.5 text-[10px] leading-snug text-ink-tertiary">
-                Ações em somente leitura — ligue a chave no topo para enviar.
-              </p>
-            )}
-          </section>
-        )}
+        <section
+          aria-label="Operar funcionário"
+          data-testid="office-message-box"
+          className="space-y-3 rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+        >
+          <PromptComposer
+            agent={agent}
+            compact
+            onActivity={() => {
+              setTranscriptKey((current) => current + 1)
+              onRoleSaved?.()
+            }}
+          />
+          <div className="border-t border-[var(--border-subtle)] pt-2.5">
+            <OfficeTranscript sessionID={agent.sessionID} refreshKey={transcriptKey} compact />
+          </div>
+        </section>
 
         {!pluginConnected && (
           <p
@@ -1194,14 +1113,14 @@ export function OfficeDetails({
             className="flex items-start gap-1.5 rounded-control border border-[var(--border-subtle)] px-2.5 py-2 text-[10.5px] leading-snug text-ink-tertiary"
           >
             <Info size={12} className="mt-px shrink-0" aria-hidden="true" />
-            Instale o plugin em Configurações → OpenOffice para responder pedidos e enviar
-            mensagens.
+            Prompt, modelo, esforço e Parar funcionam sem o plugin. Instale o plugin em
+            Configurações → OpenOffice apenas para responder pedidos de permissão.
           </p>
         )}
 
-        {pluginConnected && !actionsEnabled && !requests.length && !canMessage && (
+        {pluginConnected && !actionsEnabled && !requests.length && (
           <p className="text-[10.5px] leading-snug text-ink-tertiary">
-            Ações em somente leitura — ligue a chave no topo para responder.
+            Ações em somente leitura — ligue a chave no topo para responder pedidos de permissão.
           </p>
         )}
       </div>

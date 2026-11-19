@@ -316,6 +316,7 @@ export function createOfficeAggregator(
     }
     requests.sort((a, b) => (b.at !== a.at ? b.at - a.at : a.id.localeCompare(b.id)))
 
+    const departments = deps.getDepartments?.() ?? []
     const snapshot = deriveOfficeSnapshot({
       sessions: [...sessions.values()],
       activityBySession,
@@ -323,7 +324,7 @@ export function createOfficeAggregator(
       requests: requests.slice(0, REQUEST_MAX),
       now: at,
       source: poller && fresh ? 'both' : fresh ? 'plugin' : 'poller',
-      departments: deps.getDepartments?.() ?? [],
+      departments,
       avatars: deps.getAvatars?.() ?? {},
       health: {
         cliFound: poller?.health.cliFound ?? true,
@@ -332,6 +333,14 @@ export function createOfficeAggregator(
         pluginConnected: fresh
       }
     })
+
+    // O poller conta quem ficou fora das salas, mas o snapshot mesclado é
+    // re-derivado só com as sessões visíveis (as escondidas não entram em
+    // `agents`). Sem sessões do plugin, carrega o contador do poller; com elas,
+    // a própria derivação já conta as sessões do plugin (evita somar duas vezes).
+    if (poller && !(fresh && plugin.sessions.size > 0)) {
+      snapshot.unassignedCount += poller.unassignedCount
+    }
 
     lastSnapshot = snapshot
     return snapshot

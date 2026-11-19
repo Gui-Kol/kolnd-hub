@@ -58,6 +58,15 @@ function snapshot(title = 'Sessão do poller'): OfficeSnapshot {
         location: { directory: 'C:\\repo\\alpha' }
       }
     ],
+    departments: [
+      {
+        id: 'dep_0000a001',
+        name: 'Sala do teste',
+        agentID: 'general',
+        sessionIDs: ['ses_1'],
+        createdAt: 1
+      }
+    ],
     now: 1000,
     source: 'poller',
     health: { cliFound: true }
@@ -90,6 +99,9 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
     createSession: ReturnType<typeof vi.fn>
     setSessionAgent: ReturnType<typeof vi.fn>
     setSessionModel: ReturnType<typeof vi.fn>
+    sendPrompt: ReturnType<typeof vi.fn>
+    interruptSession: ReturnType<typeof vi.fn>
+    sessionTranscript: ReturnType<typeof vi.fn>
     archiveSession: ReturnType<typeof vi.fn>
     restoreSession: ReturnType<typeof vi.fn>
     listArchivedSessions: ReturnType<typeof vi.fn>
@@ -119,7 +131,17 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
       if (subscribers > 0) subscribers -= 1
     })
     serviceRefresh = vi.fn()
-    mocks.storeDepartments = []
+    // A derivação esconde sessão fora de sala; a sala padrão mantém `ses_1`
+    // visível nos testes de ciclo de vida (os testes de salas trocam a lista).
+    mocks.storeDepartments = [
+      {
+        id: 'dep_0000a001',
+        name: 'Sala do teste',
+        agentID: 'general',
+        sessionIDs: ['ses_1'],
+        createdAt: 1
+      }
+    ]
     mocks.storeAvatars = {}
 
     mocks.createClient.mockReset()
@@ -132,6 +154,9 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
       createSession: vi.fn(async () => 'ses_novo'),
       setSessionAgent: vi.fn(async () => {}),
       setSessionModel: vi.fn(async () => {}),
+      sendPrompt: vi.fn(async () => {}),
+      interruptSession: vi.fn(async () => {}),
+      sessionTranscript: vi.fn(async () => []),
       archiveSession: vi.fn(async () => {}),
       restoreSession: vi.fn(async () => {}),
       listArchivedSessions: vi.fn(async () => [])
@@ -391,7 +416,8 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
         title: 'Contratar dev',
         agentID: 'build',
         model: null,
-        directory: process.cwd()
+        directory: process.cwd(),
+        departmentID: 'dep_0000a001'
       }
     }
 
@@ -513,6 +539,15 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
     })
 
     it('office:archive-all arquiva o snapshot e pula quem está trabalhando', async () => {
+      mocks.storeDepartments = [
+        {
+          id: 'dep_0000a001',
+          name: 'Sala do teste',
+          agentID: 'general',
+          sessionIDs: ['ses_work', 'ses_idle'],
+          createdAt: 1
+        }
+      ]
       await register(mainWindow())
       callHandler('office:subscribe')
       serviceEmit?.(
@@ -521,6 +556,15 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
           sessions: [
             { id: 'ses_work', agent: 'general', time: { busy: Date.now() } },
             { id: 'ses_idle', agent: 'plan', time: { busy: Date.now() - 5000, idle: Date.now() } }
+          ],
+          departments: [
+            {
+              id: 'dep_0000a001',
+              name: 'Sala do teste',
+              agentID: 'general',
+              sessionIDs: ['ses_work', 'ses_idle'],
+              createdAt: 1
+            }
           ]
         })
       )
@@ -558,6 +602,168 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
       await expect(callHandler('office:restore', { sessionID: 'sessao' })).rejects.toThrow(
         'Requisição inválida.'
       )
+    })
+
+    it('office:prompt valida o payload e audita sem o texto', async () => {
+      await register(mainWindow())
+      callHandler('office:subscribe')
+      expect(
+        await callHandler('office:prompt', {
+          sessionID: 'ses_1',
+          text: '  Revise o build  ',
+          delivery: 'steer'
+        })
+      ).toEqual({ ok: true })
+      expect(clientFns.sendPrompt).toHaveBeenCalledWith('ses_1', {
+        text: 'Revise o build',
+        delivery: 'steer'
+      })
+      expect(serviceRefresh).toHaveBeenCalled()
+
+      const logs = JSON.stringify(vi.mocked(logger.info).mock.calls)
+      expect(logs).toContain('ses_1')
+      expect(logs).toContain('steer')
+      expect(logs).not.toContain('Revise o build')
+
+      await expect(
+        callHandler('office:prompt', { sessionID: 'ses_1', text: '', delivery: 'queue' })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:prompt', { sessionID: 'sessao', text: 'oi', delivery: 'queue' })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:prompt', {
+          sessionID: 'ses_1',
+          text: 'x'.repeat(8001),
+          delivery: 'queue'
+        })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:prompt', { sessionID: 'ses_1', text: 'oi', delivery: 'agora' })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:prompt', { sessionID: 'ses_1', text: 'oi', delivery: 'queue', x: 1 })
+      ).rejects.toThrow('Requisição inválida.')
+      expect(clientFns.sendPrompt).toHaveBeenCalledTimes(1)
+    })
+
+    it('office:interrupt e office:transcript usam o cliente e validam o payload', async () => {
+      await register()
+      expect(await callHandler('office:interrupt', { sessionID: 'ses_1' })).toEqual({ ok: true })
+      expect(clientFns.interruptSession).toHaveBeenCalledWith('ses_1')
+      await expect(callHandler('office:interrupt', { sessionID: 'sessao' })).rejects.toThrow(
+        'Requisição inválida.'
+      )
+
+      const messages = [{ role: 'user', at: 1, text: 'oi' }]
+      clientFns.sessionTranscript.mockResolvedValue(messages)
+      expect(await callHandler('office:transcript', { sessionID: 'ses_1', limit: 4 })).toEqual({
+        ok: true,
+        messages
+      })
+      expect(clientFns.sessionTranscript).toHaveBeenCalledWith('ses_1', 4)
+      await expect(
+        callHandler('office:transcript', { sessionID: 'ses_1', limit: 9 })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:transcript', { sessionID: 'ses_1', limit: 0 })
+      ).rejects.toThrow('Requisição inválida.')
+    })
+
+    it('office:sessions-list devolve resumo de TODAS as sessões ativas', async () => {
+      await register()
+      clientFns.listSessions.mockResolvedValue([
+        {
+          id: 'ses_1',
+          title: 'Dentro',
+          agent: 'plan',
+          location: { directory: 'C:\\repo' },
+          time: { busy: Date.now() }
+        },
+        {
+          id: 'ses_fora',
+          title: 'Fora',
+          agent: 'build',
+          location: { directory: 'C:\\outro' },
+          time: { busy: Date.now() - 5000, idle: Date.now() }
+        },
+        { id: 'invalido', title: 'ignorar' }
+      ])
+
+      const result = (await callHandler('office:sessions-list', {})) as {
+        ok: boolean
+        items: Array<Record<string, unknown>>
+      }
+      expect(result.ok).toBe(true)
+      expect(result.items).toEqual([
+        {
+          sessionID: 'ses_1',
+          title: 'Dentro',
+          agent: 'plan',
+          status: 'working',
+          directory: 'C:\\repo'
+        },
+        {
+          sessionID: 'ses_fora',
+          title: 'Fora',
+          agent: 'build',
+          status: 'idle',
+          directory: 'C:\\outro'
+        }
+      ])
+      await expect(callHandler('office:sessions-list', { x: 1 })).rejects.toThrow(
+        'Requisição inválida.'
+      )
+    })
+
+    it('office:set-role valida o esforço contra a lista real do modelo', async () => {
+      await register()
+      clientFns.listSessions.mockResolvedValue([
+        {
+          id: 'ses_1',
+          agent: 'general',
+          location: { directory: process.cwd() },
+          time: { busy: Date.now() - 2000, idle: Date.now() }
+        }
+      ])
+      clientFns.listModels.mockResolvedValue([
+        {
+          providerID: 'opencode-go',
+          id: 'qwen4-max',
+          name: 'Qwen',
+          enabled: true,
+          variants: ['none', 'low', 'high', 'xhigh']
+        }
+      ])
+
+      const model = {
+        providerID: 'opencode-go',
+        id: 'qwen4-max',
+        name: 'Qwen',
+        enabled: true,
+        variants: ['none', 'low', 'high', 'xhigh']
+      }
+      expect(
+        await callHandler('office:set-role', {
+          sessionID: 'ses_1',
+          agentID: 'plan',
+          model: { ...model, variant: 'xhigh' }
+        })
+      ).toEqual({ ok: true })
+      expect(clientFns.setSessionModel).toHaveBeenCalledWith('ses_1', {
+        id: 'qwen4-max',
+        providerID: 'opencode-go',
+        variant: 'xhigh'
+      })
+
+      expect(
+        await callHandler('office:set-role', {
+          sessionID: 'ses_1',
+          agentID: 'plan',
+          model: { ...model, variant: 'turbo' }
+        })
+      ).toEqual({ ok: false, error: 'Esforço inválido para o modelo escolhido.' })
+      expect(clientFns.setSessionModel).toHaveBeenCalledTimes(1)
     })
   })
 

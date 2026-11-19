@@ -4,13 +4,18 @@ import { join } from 'path'
 import {
   describeToolActivity,
   maskSecrets,
+  PROMPT_TEXT_MAX,
+  TRANSCRIPT_MESSAGES_MAX,
+  TRANSCRIPT_TEXT_MAX,
   truncateLabel,
   type OfficeActivity,
   type OfficeAgentOption,
   type OfficeArchivedEmployee,
   type OfficeHireInput,
   type OfficeModelOption,
-  type OfficeSessionInput
+  type OfficePromptDelivery,
+  type OfficeSessionInput,
+  type OfficeTranscriptEntry
 } from '../../shared/office'
 import { logger } from '../logger'
 import {
@@ -363,6 +368,8 @@ export function runApi(args: readonly string[], options: RunApiOptions = {}): Pr
 /** Mensagem da API: só o que o Escritório lê (sem persistir conversa). */
 export interface OfficeMessagePart {
   type?: string
+  /** Presente nas partes `text` (o único tipo que a conversa exibe). */
+  text?: string
   name?: string
   state?: { status?: string; input?: Record<string, unknown> }
   time?: { created?: number }
@@ -370,8 +377,17 @@ export interface OfficeMessagePart {
 
 export interface OfficeMessageInput {
   id?: string
+  /** Autor da mensagem (`user`/`assistant`), quando o OpenCode informa. */
+  role?: string
   content?: OfficeMessagePart[]
   time?: { created?: number }
+}
+
+/** Prompt do OpenOffice: texto já validado pelo IPC (aqui é defesa extra). */
+export interface OfficePromptInput {
+  text: string
+  /** `queue` (padrão) espera a sessão; `steer` entrega agora. */
+  delivery: OfficePromptDelivery
 }
 
 export interface ListSessionsOptions {
@@ -402,7 +418,16 @@ export interface OfficeClient {
   /** Cria uma sessão sem prompt; devolve o id novo. */
   createSession(input: OfficeHireInput): Promise<string>
   setSessionAgent(sessionID: string, agentID: string): Promise<void>
-  setSessionModel(sessionID: string, model: { id: string; providerID: string }): Promise<void>
+  setSessionModel(
+    sessionID: string,
+    model: { id: string; providerID: string; variant?: string }
+  ): Promise<void>
+  /** Envia um prompt direto pelo CLI (funciona sem o plugin). */
+  sendPrompt(sessionID: string, input: OfficePromptInput): Promise<void>
+  /** Para a execução em andamento da sessão. */
+  interruptSession(sessionID: string): Promise<void>
+  /** Últimas falas da conversa (somente partes de texto, mascaradas). */
+  sessionTranscript(sessionID: string, limit?: number): Promise<OfficeTranscriptEntry[]>
   /** Arquivar/restaurar é reversível — nunca exclui a sessão. */
   archiveSession(sessionID: string): Promise<void>
   restoreSession(sessionID: string): Promise<void>
@@ -437,15 +462,26 @@ function toMessageList(data: unknown): OfficeMessageInput[] {
       'As mensagens da sessão do OpenCode vieram em um formato inesperado.'
     )
   }
-  return data.filter(isRecord).map((item) => ({
-    id: typeof item.id === 'string' ? item.id : undefined,
-    content: Array.isArray(item.content)
-      ? (item.content.filter(isRecord) as OfficeMessagePart[])
-      : [],
-    time: isRecord(item.time)
-      ? { created: typeof item.time.created === 'number' ? item.time.created : undefined }
-      : undefined
-  }))
+  return data.filter(isRecord).map((item) => {
+    // O OpenCode já expôs o autor em `role` e em `info.role`; aceitamos os dois.
+    const info = isRecord(item.info) ? item.info : null
+    const role =
+      typeof item.role === 'string'
+        ? item.role
+        : typeof info?.role === 'string'
+          ? info.role
+          : undefined
+    return {
+      id: typeof item.id === 'string' ? item.id : undefined,
+      ...(role ? { role } : {}),
+      content: Array.isArray(item.content)
+        ? (item.content.filter(isRecord) as OfficeMessagePart[])
+        : [],
+      time: isRecord(item.time)
+        ? { created: typeof item.time.created === 'number' ? item.time.created : undefined }
+        : undefined
+    }
+  })
 }
 
 /** Cabeçalho de projeto usado por `/api/agent` e `/api/model`. */
@@ -471,6 +507,58 @@ function requireAgentID(value: string): string {
     throw new OfficeCliError('falhou', 'Função inválida para a operação.')
   }
   return agentID
+}
+
+/** C0 perigosos: quebra de linha e tab são permitidos; o resto não. */
+// eslint-disable-next-line no-control-regex -- validar controles é o objetivo
+const PROMPT_CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+
+function normalizePromptText(value: unknown): string {
+  const text = typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : ''
+  if (!text || text.length > PROMPT_TEXT_MAX || PROMPT_CONTROL_RE.test(text)) {
+    throw new OfficeCliError('falhou', 'Prompt inválido para envio.')
+  }
+  return text
+}
+
+function normalizeDelivery(value: unknown): OfficePromptDelivery {
+  return value === 'steer' ? 'steer' : 'queue'
+}
+
+function transcriptRole(value: string | undefined): OfficeTranscriptEntry['role'] {
+  const role = (value ?? '').trim().toLowerCase()
+  if (role === 'user') return 'user'
+  if (role === 'assistant') return 'assistant'
+  return 'unknown'
+}
+
+/**
+ * Extrai o transcrito exibível: só partes `text`, mascaradas e truncadas.
+ * A conversa é pública na UI, então nada de ferramenta/segredo aqui.
+ */
+export function transcriptFromMessages(
+  messages: readonly OfficeMessageInput[],
+  limit: number = TRANSCRIPT_MESSAGES_MAX
+): OfficeTranscriptEntry[] {
+  const entries: OfficeTranscriptEntry[] = []
+  for (const message of messages) {
+    const role = transcriptRole(message.role)
+    const at = message.time?.created ?? 0
+    for (const part of message.content ?? []) {
+      if (part.type !== 'text' || typeof part.text !== 'string') continue
+      const text = truncateLabel(maskSecrets(part.text), TRANSCRIPT_TEXT_MAX)
+      if (!text) continue
+      entries.push({
+        ...(message.id ? { id: message.id } : {}),
+        role,
+        at,
+        text
+      })
+    }
+  }
+  entries.sort((a, b) => (a.at !== b.at ? a.at - b.at : (a.id ?? '').localeCompare(b.id ?? '')))
+  const max = Math.max(1, Math.min(TRANSCRIPT_MESSAGES_MAX, Math.floor(limit)))
+  return entries.slice(-max)
 }
 
 interface ApiExtras {
@@ -508,18 +596,26 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
     })
   }
 
+  async function fetchMessages(sessionID: string, limit: number): Promise<OfficeMessageInput[]> {
+    if (!sessionID.trim()) {
+      throw new OfficeCliError('falhou', 'Sessão inválida para buscar mensagens.')
+    }
+    const max = Math.max(1, Math.min(50, Math.floor(limit)))
+    const query = `/api/session/${encodeURIComponent(sessionID)}/message?limit=${max}`
+    return toMessageList(await api(['get', query]))
+  }
+
   /** Escrita numa sessão: valida o id e aceita 204 (sem corpo). */
   async function writeSession(
     method: 'post' | 'patch',
     sessionID: string,
     suffix: string,
-    body: unknown
+    body?: unknown
   ): Promise<void> {
     const id = requireSessionID(sessionID)
-    await api(
-      [method, `/api/session/${encodeURIComponent(id)}${suffix}`, '--data', JSON.stringify(body)],
-      { allowEmpty: true, timeoutMs: WRITE_TIMEOUT_MS }
-    )
+    const args = [method, `/api/session/${encodeURIComponent(id)}${suffix}`]
+    if (body !== undefined) args.push('--data', JSON.stringify(body))
+    await api(args, { allowEmpty: true, timeoutMs: WRITE_TIMEOUT_MS })
   }
 
   return {
@@ -537,12 +633,7 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
       return toSessionList(await api(['get', query]))
     },
     async sessionMessages(sessionID, messageOptions = {}) {
-      if (!sessionID.trim()) {
-        throw new OfficeCliError('falhou', 'Sessão inválida para buscar mensagens.')
-      }
-      const limit = Math.max(1, Math.min(50, Math.floor(messageOptions.limit ?? 8)))
-      const query = `/api/session/${encodeURIComponent(sessionID)}/message?limit=${limit}`
-      return toMessageList(await api(['get', query]))
+      return fetchMessages(sessionID, messageOptions.limit ?? 8)
     },
     async listAgents(directory) {
       const data = await api(['get', '/api/agent'], { headers: [directoryHeader(directory)] })
@@ -574,6 +665,23 @@ export function createOfficeClient(options: OfficeClientOptions = {}): OfficeCli
       const ref = normalizeModelRef(model)
       if (!ref) throw new OfficeCliError('falhou', 'Modelo inválido para a operação.')
       await writeSession('post', sessionID, '/model', { model: ref })
+    },
+    async sendPrompt(sessionID, input) {
+      // Texto nunca vai para log; a validação aqui repete a do IPC.
+      const text = normalizePromptText(input?.text)
+      const delivery = normalizeDelivery(input?.delivery)
+      await writeSession('post', sessionID, '/prompt', { text, delivery })
+    },
+    async interruptSession(sessionID) {
+      await writeSession('post', sessionID, '/interrupt')
+    },
+    async sessionTranscript(sessionID, limit = TRANSCRIPT_MESSAGES_MAX) {
+      if (!isValidSessionID(sessionID?.trim?.() ?? '')) {
+        throw new OfficeCliError('falhou', 'Sessão inválida para buscar a conversa.')
+      }
+      const max = Math.max(1, Math.min(TRANSCRIPT_MESSAGES_MAX, Math.floor(limit)))
+      const messages = await fetchMessages(sessionID, max)
+      return transcriptFromMessages(messages, max)
     },
     async archiveSession(sessionID) {
       await writeSession('patch', sessionID, '', { archived: true })

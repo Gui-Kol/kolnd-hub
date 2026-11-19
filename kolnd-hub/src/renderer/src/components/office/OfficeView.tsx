@@ -11,7 +11,7 @@ import { Badge, Button, Switch } from '../ui'
 import { AgentPopover } from './AgentPopover'
 import { AvatarEditor } from './AvatarEditor'
 import { OfficeCanvas, type OfficeAgentAnchor } from './OfficeCanvas'
-import { OfficeDepartments, RoomDialog } from './OfficeDepartments'
+import { CreateRoomDialog, OfficeDepartments, RoomDialog } from './OfficeDepartments'
 import { OfficeDetails } from './OfficeDetails'
 import { OfficeEmpty } from './OfficeEmpty'
 import { OfficeRoster } from './OfficeRoster'
@@ -128,6 +128,7 @@ export function OfficeView(): JSX.Element {
   )
   const [avatarID, setAvatarID] = useState<string | null>(null)
   const [roomDialogID, setRoomDialogID] = useState<string | null>(null)
+  const [createRoomOpen, setCreateRoomOpen] = useState(false)
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
   const anchorsRef = useRef(new Map<string, OfficeAgentAnchor>())
   const [attempt, setAttempt] = useState(0)
@@ -424,7 +425,22 @@ export function OfficeView(): JSX.Element {
       )}
 
       {snapshot && snapshot.health.cliFound && snapshot.agents.length === 0 && (
-        <OfficeEmpty kind="empty" onRetry={retry} busy={loading} />
+        <div className="space-y-3">
+          <OfficeEmpty
+            kind={snapshot.unassignedCount > 0 ? 'unassigned' : 'empty'}
+            unassignedCount={snapshot.unassignedCount}
+            onCreateRoom={() => setCreateRoomOpen(true)}
+            onRetry={retry}
+            busy={loading}
+          />
+          {/* Sem ninguém visível, a gestão de salas continua na página para
+              designar as sessões que ficaram fora (nunca no canvas/sidebar). */}
+          <OfficeDepartments
+            snapshot={snapshot}
+            onChanged={refreshSnapshot}
+            onOpenRoom={openRoom}
+          />
+        </div>
       )}
 
       {snapshot && hasOffice && (
@@ -516,6 +532,17 @@ export function OfficeView(): JSX.Element {
           agents={snapshot.agents}
           onClose={closeRoom}
           onChanged={refreshSnapshot}
+        />
+      )}
+
+      {createRoomOpen && snapshot && (
+        <CreateRoomDialog
+          snapshot={snapshot}
+          onClose={() => setCreateRoomOpen(false)}
+          onCreated={() => {
+            setCreateRoomOpen(false)
+            refreshSnapshot()
+          }}
         />
       )}
 

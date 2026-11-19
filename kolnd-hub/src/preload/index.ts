@@ -31,9 +31,12 @@ import type {
   OfficeHealth,
   OfficeHireInput,
   OfficeManageResult,
+  OfficePromptSendInput,
   OfficeRosterResult,
+  OfficeSessionsListResult,
   OfficeSetRoleInput,
-  OfficeSnapshot
+  OfficeSnapshot,
+  OfficeTranscriptResult
 } from '../shared/office'
 import type {
   PluginInstallResult,
@@ -531,6 +534,22 @@ const api = {
 
   officeSetRole: (input: OfficeSetRoleInput): Promise<OfficeManageResult> =>
     ipcRenderer.invoke('office:set-role', input),
+
+  // Operação direta pelo CLI (não depende do plugin): prompt, parar e conversa.
+  // O texto do prompt nunca é logado pelo main.
+  officePrompt: (input: OfficePromptSendInput): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:prompt', input),
+
+  officeInterrupt: (input: { sessionID: string }): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:interrupt', input),
+
+  officeTranscript: (input: {
+    sessionID: string
+    limit?: number
+  }): Promise<OfficeTranscriptResult> => ipcRenderer.invoke('office:transcript', input),
+
+  officeSessionsList: (input: Record<string, never>): Promise<OfficeSessionsListResult> =>
+    ipcRenderer.invoke('office:sessions-list', input),
 
   officeArchiveAll: (input: Record<string, never>): Promise<OfficeArchiveAllResult> =>
     ipcRenderer.invoke('office:archive-all', input),

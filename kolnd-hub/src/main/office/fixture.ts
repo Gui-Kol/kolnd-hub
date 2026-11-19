@@ -1,13 +1,14 @@
 import { readFileSync } from 'fs'
 import {
   normalizeDirectory,
+  TRANSCRIPT_MESSAGES_MAX,
   type OfficeAgentOption,
   type OfficeArchivedEmployee,
   type OfficeHireInput,
   type OfficeModelOption,
   type OfficeSessionInput
 } from '../../shared/office'
-import type { OfficeClient, OfficeMessageInput } from './client'
+import { transcriptFromMessages, type OfficeClient, type OfficeMessageInput } from './client'
 import { parseAgentList, parseModelList } from './roster'
 
 /**
@@ -45,14 +46,22 @@ export const FIXTURE_DEFAULT_MODELS: OfficeModelOption[] = [
     providerID: 'opencode-go',
     id: 'deepseek-v4.1-flash',
     name: 'DeepSeek V4.1 Flash',
-    enabled: true
+    enabled: true,
+    variants: ['none', 'low', 'high']
   },
-  { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4 Max', enabled: true },
+  {
+    providerID: 'opencode-go',
+    id: 'qwen4-max',
+    name: 'Qwen4 Max',
+    enabled: true,
+    variants: ['none', 'low', 'high', 'xhigh']
+  },
   {
     providerID: 'opencode',
     id: 'tidepool-alpha-free',
     name: 'Tidepool Alpha Free',
-    enabled: false
+    enabled: false,
+    variants: []
   }
 ]
 
@@ -184,7 +193,16 @@ export function loadOfficeFixture(filePath: string): OfficeFixtureClient {
   // Estado em memória: o e2e contrata/arquiva/restaura e o poller relê daqui.
   const sessions: OfficeSessionInput[] = file.sessions.map((session) => ({ ...session }))
   const archived = new Set<string>()
+  // Conversa em memória: o prompt do e2e entra aqui e o transcrito relê.
+  const messagesBySession: Record<string, OfficeMessageInput[]> = {}
+  for (const [sessionID, list] of Object.entries(file.messages ?? {})) {
+    messagesBySession[sessionID] = list.map((message) => ({ ...message }))
+  }
+  const prompts: Array<{ sessionID: string; text: string; delivery: string }> = []
   let hireCount = 0
+  let promptCount = 0
+  /** Garante ordem cronológica mesmo com dois prompts no mesmo milissegundo. */
+  let lastMessageAt = 0
 
   const waitFixture = (): Promise<void> => wait(delayMs)
 
@@ -208,7 +226,7 @@ export function loadOfficeFixture(filePath: string): OfficeFixtureClient {
     },
     async sessionMessages(sessionID) {
       await waitFixture()
-      return file.messages?.[sessionID] ?? []
+      return (messagesBySession[sessionID] ?? []).map((message) => ({ ...message }))
     },
     async listAgents(_directory?: string) {
       await waitFixture()
@@ -250,7 +268,47 @@ export function loadOfficeFixture(filePath: string): OfficeFixtureClient {
     },
     async setSessionModel(sessionID, model) {
       await waitFixture()
-      findSession(sessionID).model = { id: model.id, providerID: model.providerID }
+      findSession(sessionID).model = {
+        id: model.id,
+        providerID: model.providerID,
+        ...(model.variant ? { variant: model.variant } : {})
+      }
+    },
+    async sendPrompt(sessionID, input) {
+      await waitFixture()
+      findSession(sessionID)
+      const text = input.text.trim()
+      if (!text) throw fixtureError('O prompt não pode ficar vazio.')
+      prompts.push({ sessionID, text, delivery: input.delivery })
+      promptCount += 1
+      const at = Math.max(Date.now(), lastMessageAt + 1)
+      lastMessageAt = at + 1
+      const list = messagesBySession[sessionID] ?? (messagesBySession[sessionID] = [])
+      list.push({
+        id: `msg_fixture_prompt_${promptCount}`,
+        role: 'user',
+        time: { created: at },
+        content: [{ type: 'text', text }]
+      })
+      // A fixture "aceita" o prompt e responde: o transcrito do e2e fica real.
+      list.push({
+        id: `msg_fixture_reply_${promptCount}`,
+        role: 'assistant',
+        time: { created: at + 1 },
+        content: [{ type: 'text', text: `Recebi seu pedido (${input.delivery}): ${text}` }]
+      })
+    },
+    async interruptSession(sessionID) {
+      await waitFixture()
+      const session = findSession(sessionID)
+      const at = Date.now()
+      // Interromper devolve a sessão ao estado ocioso (sem apagar histórico).
+      session.time = { ...(session.time ?? {}), updated: at, busy: at - 1, idle: at }
+    },
+    async sessionTranscript(sessionID, limit = TRANSCRIPT_MESSAGES_MAX) {
+      await waitFixture()
+      findSession(sessionID)
+      return transcriptFromMessages(messagesBySession[sessionID] ?? [], limit)
     },
     async archiveSession(sessionID) {
       await waitFixture()

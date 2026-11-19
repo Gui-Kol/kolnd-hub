@@ -11,8 +11,11 @@ import {
   toolActivityKind,
   truncateLabel,
   type OfficeActivity,
+  type OfficeDepartment,
+  type OfficeDeriveInput,
   type OfficePermissionRequest,
-  type OfficeSessionInput
+  type OfficeSessionInput,
+  type OfficeSnapshot
 } from './office'
 import { defaultLookFor } from './officeAvatar'
 
@@ -31,9 +34,34 @@ function session(overrides: Partial<OfficeSessionInput> & { id: string }): Offic
   }
 }
 
+/**
+ * Sala automática para os testes que só se importam com status/métricas:
+ * depois da regra de visibilidade, sessão fora de departamento não aparece.
+ */
+function autoDepartments(sessions: readonly OfficeSessionInput[]): OfficeDepartment[] {
+  if (sessions.length === 0) return []
+  return [
+    {
+      id: 'dep_0000feed',
+      name: 'Sala de teste',
+      agentID: 'general',
+      sessionIDs: sessions.map((item) => item.id),
+      createdAt: 1
+    }
+  ]
+}
+
+/** Deriva com a sala automática quando o teste não declara departamentos. */
+function derive(input: OfficeDeriveInput): OfficeSnapshot {
+  return deriveOfficeSnapshot({
+    ...input,
+    departments: input.departments ?? autoDepartments(input.sessions)
+  })
+}
+
 describe('deriveOfficeSnapshot — status', () => {
   it('busy sem idle ⇒ working', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_busy', time: { created: NOW - 5000, busy: NOW - 4000 } })]
     })
@@ -41,7 +69,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('idle >= busy ⇒ idle enquanto dentro da janela', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -54,7 +82,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('ocioso dentro dos 15 min ⇒ idle', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -67,7 +95,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('ocioso exatamente no limite da janela ⇒ idle', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -80,7 +108,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('ocioso 1 ms além da janela ⇒ ended (sessão antiga sai do escritório)', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -93,7 +121,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('sem busy e com idle antigo ⇒ ended', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_so_idle', time: { idle: NOW - 60 * 60_000 } })]
     })
@@ -102,7 +130,7 @@ describe('deriveOfficeSnapshot — status', () => {
 
   it('outcome com busy antigo ⇒ ended (não fica "trabalhando" para sempre)', () => {
     const antigo = NOW - 2 * 24 * 60 * 60_000
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -116,7 +144,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('idle mais antigo que busy ⇒ working', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -129,7 +157,7 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('outcome sem busy ⇒ ended', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_ended', outcome: 'succeeded', time: { created: NOW - 9000 } })]
     })
@@ -137,12 +165,12 @@ describe('deriveOfficeSnapshot — status', () => {
   })
 
   it('sem dados de tempo nem outcome ⇒ unknown', () => {
-    const snapshot = deriveOfficeSnapshot({ now: NOW, sessions: [session({ id: 'ses_unknown' })] })
+    const snapshot = derive({ now: NOW, sessions: [session({ id: 'ses_unknown' })] })
     expect(snapshot.agents[0].status).toBe('unknown')
   })
 
   it('permissão pendente (plugin) ⇒ needsYou, mesmo com busy', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       needsYouSessionIDs: ['ses_needs'],
       sessions: [session({ id: 'ses_needs', time: { busy: NOW - 1000 } })]
@@ -155,7 +183,7 @@ describe('deriveOfficeSnapshot — status', () => {
 
 describe('deriveOfficeSnapshot — salas e subagentes', () => {
   it('cada departamento vira uma sala com a função e os membros designados', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       departments: [
         {
@@ -208,7 +236,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
     expect(member?.roomID).toBe('dep_0000beef')
   })
 
-  it('sessão sem departamento cai na sala sintética "Sem sala" (sempre no fim)', () => {
+  it('sessão sem departamento NÃO aparece: só conta em unassignedCount', () => {
     const snapshot = deriveOfficeSnapshot({
       now: NOW,
       departments: [
@@ -227,17 +255,18 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
       ]
     })
 
-    expect(snapshot.rooms.map((room) => room.id)).toEqual(['dep_0000face', 'sem-sala'])
-    const unassigned = snapshot.rooms.at(-1)
-    expect(unassigned?.name).toBe('Sem sala')
-    expect(unassigned?.unassigned).toBe(true)
-    expect(unassigned?.agentIDs).toEqual(['ses_fora', 'ses_sem_pasta'])
-    // Só quem tem pasta entra na etiqueta; com uma pasta única ela vira o path.
-    expect(unassigned?.path).toBe('C:\\outro')
-    expect(snapshot.agents.find((agent) => agent.sessionID === 'ses_fora')?.roomID).toBe('sem-sala')
+    expect(snapshot.rooms.map((room) => room.id)).toEqual(['dep_0000face'])
+    expect(snapshot.rooms[0].agentIDs).toEqual(['ses_dentro'])
+    expect(snapshot.agents.map((agent) => agent.sessionID)).toEqual(['ses_dentro'])
+    expect(snapshot.avatars).toEqual({
+      ses_dentro: expect.anything()
+    })
+    expect(snapshot.unassignedCount).toBe(2)
+    expect(snapshot.totals.cost).toBe(0)
+    expect(snapshot.totals.tokens).toBe(0)
   })
 
-  it('departamento vazio continua visível e sessão designada a id inexistente cai em "Sem sala"', () => {
+  it('departamento vazio continua visível; designação a sala inexistente fica fora', () => {
     const snapshot = deriveOfficeSnapshot({
       now: NOW,
       departments: [
@@ -259,17 +288,34 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
       sessions: [session({ id: 'ses_1' })]
     })
 
-    expect(snapshot.rooms.map((room) => room.id)).toEqual([
-      'dep_0000f00d',
-      'dep_0000dead',
-      'sem-sala'
-    ])
+    expect(snapshot.rooms.map((room) => room.id)).toEqual(['dep_0000f00d', 'dep_0000dead'])
     expect(snapshot.rooms[0].agentIDs).toEqual([])
-    expect(snapshot.agents[0].roomID).toBe('sem-sala')
+    expect(snapshot.rooms[0].unassigned).toBeUndefined()
+    expect(snapshot.agents).toEqual([])
+    expect(snapshot.unassignedCount).toBe(1)
+  })
+
+  it('designação parcial mostra só os designados (duplicata não conta duas vezes)', () => {
+    const snapshot = deriveOfficeSnapshot({
+      now: NOW,
+      departments: [
+        {
+          id: 'dep_0000aaaa',
+          name: 'Parcial',
+          agentID: 'build',
+          sessionIDs: ['ses_1', 'ses_1'],
+          createdAt: NOW
+        }
+      ],
+      sessions: [session({ id: 'ses_1' }), session({ id: 'ses_2' }), session({ id: 'ses_2' })]
+    })
+
+    expect(snapshot.agents.map((agent) => agent.sessionID)).toEqual(['ses_1'])
+    expect(snapshot.unassignedCount).toBe(1)
   })
 
   it('parentID marca subagente e conta em totals.subagents', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({ id: 'ses_pai', time: { busy: NOW - 1000 } }),
@@ -282,7 +328,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
   })
 
   it('ordem estável: working → needsYou → idle → ended, empate por sessionID', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       needsYouSessionIDs: ['ses_needs'],
       sessions: [
@@ -303,11 +349,12 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
   })
 
   it('snapshot vazio: sem agentes, totais zerados e health padrão', () => {
-    const snapshot = deriveOfficeSnapshot({ now: NOW, sessions: [] })
+    const snapshot = derive({ now: NOW, sessions: [] })
     expect(snapshot.generatedAt).toBe(NOW)
     expect(snapshot.source).toBe('poller')
     expect(snapshot.agents).toEqual([])
     expect(snapshot.rooms).toEqual([])
+    expect(snapshot.unassignedCount).toBe(0)
     expect(snapshot.avatars).toEqual({})
     expect(snapshot.feed).toEqual([])
     expect(snapshot.totals).toEqual({
@@ -322,7 +369,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
   })
 
   it('health preserva cliPath e lastError quando informados', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [],
       health: {
@@ -343,7 +390,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
 
 describe('deriveOfficeSnapshot — métricas e feed', () => {
   it('tokens somam input + output e custo soma por sessão', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({
@@ -369,9 +416,9 @@ describe('deriveOfficeSnapshot — métricas e feed', () => {
         at: NOW - index * 1000
       }
     }
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
-      sessions: [session({ id: 'ses_0' })],
+      sessions: Array.from({ length: 45 }, (_, index) => session({ id: `ses_${index}` })),
       activityBySession
     })
     expect(snapshot.feed).toHaveLength(40)
@@ -380,7 +427,7 @@ describe('deriveOfficeSnapshot — métricas e feed', () => {
   })
 
   it('atividade da sessão entra no agente com o label mascarado', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_1' })],
       activityBySession: {
@@ -409,7 +456,7 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
   }
 
   it('pedido pendente marca a sessão como needsYou e entra em requests', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_pedido', time: { busy: NOW - 1000 } })],
       requests: [
@@ -438,7 +485,7 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
   })
 
   it('needsYouSessionIDs continua valendo junto com requests (compatibilidade)', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [
         session({ id: 'ses_lista', time: { busy: NOW - 1000 } }),
@@ -476,7 +523,11 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
       })
     )
 
-    const snapshot = deriveOfficeSnapshot({ now: NOW, sessions: [], requests })
+    const snapshot = derive({
+      now: NOW,
+      sessions: [session({ id: 'ses_0' }), session({ id: 'ses_1' }), session({ id: 'ses_2' })],
+      requests
+    })
 
     expect(snapshot.requests).toHaveLength(REQUEST_MAX)
     expect(snapshot.requests[0].id).toBe('req_5')
@@ -488,7 +539,7 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
   })
 
   it('mascara segredos, trunca recursos em 200 e salva a mensagem em ≤ 500', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_1' })],
       requests: [
@@ -513,10 +564,10 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
   })
 
   it('sem pedidos (ou com requests presente e vazio) a fila vem vazia', () => {
-    const withoutRequests = deriveOfficeSnapshot({ now: NOW, sessions: [] })
+    const withoutRequests = derive({ now: NOW, sessions: [] })
     expect(withoutRequests.requests).toEqual([])
 
-    const explicitlyEmpty = deriveOfficeSnapshot({
+    const explicitlyEmpty = derive({
       now: NOW,
       sessions: [session({ id: 'ses_1', time: { busy: NOW - 1000 } })],
       requests: []
@@ -524,13 +575,43 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
     expect(explicitlyEmpty.requests).toEqual([])
     expect(explicitlyEmpty.agents[0].status).toBe('working')
   })
+
+  it('pedido e atividade de sessão fora das salas não vazam para a página', () => {
+    const snapshot = deriveOfficeSnapshot({
+      now: NOW,
+      departments: [
+        {
+          id: 'dep_0000beef',
+          name: 'Dentro',
+          agentID: 'general',
+          sessionIDs: ['ses_dentro'],
+          createdAt: NOW
+        }
+      ],
+      sessions: [
+        session({ id: 'ses_dentro', time: { busy: NOW - 1000 } }),
+        session({ id: 'ses_fora', time: { busy: NOW - 1000 } })
+      ],
+      requests: [request({ id: 'req_fora', sessionID: 'ses_fora' })],
+      activityBySession: {
+        ses_dentro: { kind: 'shell', label: 'Executando npm test', at: NOW - 500 },
+        ses_fora: { kind: 'shell', label: 'Segredo da sessão escondida', at: NOW }
+      }
+    })
+
+    expect(snapshot.requests).toEqual([])
+    expect(snapshot.feed.map((entry) => entry.label)).toEqual(['Executando npm test'])
+    expect(snapshot.agents.map((agent) => agent.sessionID)).toEqual(['ses_dentro'])
+    expect(snapshot.totals.needsYou).toBe(0)
+    expect(snapshot.unassignedCount).toBe(1)
+  })
 })
 
 describe('deriveOfficeSnapshot — aparência', () => {
   it('sessão sem look salvo recebe o padrão determinístico da seed', () => {
     const sessions = [session({ id: 'ses_look_a' }), session({ id: 'ses_look_b' })]
-    const first = deriveOfficeSnapshot({ now: NOW, sessions })
-    const second = deriveOfficeSnapshot({ now: NOW + 1000, sessions })
+    const first = derive({ now: NOW, sessions })
+    const second = derive({ now: NOW + 1000, sessions })
 
     expect(first.avatars).toEqual(second.avatars)
     expect(Object.keys(first.avatars)).toEqual(['ses_look_a', 'ses_look_b'])
@@ -547,7 +628,7 @@ describe('deriveOfficeSnapshot — aparência', () => {
       shirt: 9,
       pants: 7
     }
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       sessions: [session({ id: 'ses_salvo' }), session({ id: 'ses_invalido' })],
       avatars: {
@@ -562,7 +643,7 @@ describe('deriveOfficeSnapshot — aparência', () => {
   })
 
   it('departamentos duplicados ou inválidos não quebram a derivação', () => {
-    const snapshot = deriveOfficeSnapshot({
+    const snapshot = derive({
       now: NOW,
       departments: [
         {

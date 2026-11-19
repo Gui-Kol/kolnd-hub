@@ -7,7 +7,9 @@ import type {
   OfficeRoom,
   OfficeRosterOptions
 } from '../../../../shared/office'
-import { STATUS_META } from './format'
+import { effortLabel, STATUS_META } from './format'
+import { OfficeTranscript } from './OfficeTranscript'
+import { PromptComposer } from './PromptComposer'
 import { Badge, Button, Select } from '../ui'
 
 /**
@@ -29,8 +31,8 @@ export interface AgentPopoverProps {
   onSaved: () => void
 }
 
-const POPOVER_WIDTH = 300
-const POPOVER_HEIGHT = 340
+const POPOVER_WIDTH = 340
+const POPOVER_HEIGHT = 600
 
 function modelKey(model: Pick<OfficeModelOption, 'providerID' | 'id'>): string {
   return `${model.providerID}/${model.id}`
@@ -57,9 +59,12 @@ export function AgentPopover({
   const [loading, setLoading] = useState(directory.length > 0)
   const [agentID, setAgentID] = useState(agent.agent)
   const [modelValue, setModelValue] = useState('')
+  const [variantValue, setVariantValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Cada envio/parada incrementa e força a releitura da conversa. */
+  const [transcriptKey, setTranscriptKey] = useState(0)
 
   useEffect(() => {
     if (!directory) return
@@ -112,9 +117,15 @@ export function AgentPopover({
   const hasCurrentAgent = agentOptions.some((option) => option.id === agent.agent)
   const currentModelKey = modelKey(agent.model)
   const hasCurrentModel = modelOptions.some((model) => modelKey(model) === currentModelKey)
+  const selectedModel = modelOptions.find((model) => modelKey(model) === modelValue) ?? null
+  /** Esforços do modelo escolhido; sem escolha, os do modelo atual (se listado). */
+  const effortSource =
+    selectedModel ?? modelOptions.find((model) => modelKey(model) === currentModelKey) ?? null
+  const effortOptions = effortSource?.variants ?? []
   const working = agent.status === 'working'
   const blocked = working || saving
   const canSave = !blocked && !loading && options !== null && agentID.length > 0
+  const canChooseVariant = !blocked && !loading && effortOptions.length > 0
 
   const width = Math.max(0, bounds.width)
   const height = Math.max(0, bounds.height)
@@ -125,7 +136,20 @@ export function AgentPopover({
 
   function save(): void {
     if (!canSave) return
-    const chosenModel = modelOptions.find((model) => modelKey(model) === modelValue) ?? null
+    let chosenModel: OfficeModelOption | null = selectedModel
+    if (!chosenModel && variantValue && agent.model.id !== 'desconhecido') {
+      // Só o esforço mudou: mantém modelo/provider atuais e envia o variant.
+      chosenModel = {
+        providerID: agent.model.providerID,
+        id: agent.model.id,
+        name: agent.model.id,
+        enabled: true,
+        variants: effortOptions,
+        variant: variantValue
+      }
+    } else if (chosenModel && variantValue) {
+      chosenModel = { ...chosenModel, variant: variantValue }
+    }
     setSaving(true)
     setError(null)
     setSaved(false)
@@ -149,7 +173,7 @@ export function AgentPopover({
       role="dialog"
       aria-label={`Função de ${agent.name}`}
       data-testid="office-agent-popover"
-      className="absolute z-dropdown w-[300px] overflow-hidden rounded-card border border-[var(--border-strong)] bg-surface-3 shadow-elevation-3"
+      className="absolute z-dropdown flex w-[340px] max-h-[min(80vh,600px)] flex-col overflow-hidden rounded-card border border-[var(--border-strong)] bg-surface-3 shadow-elevation-3"
       style={{ left, top }}
     >
       <header className="flex items-start gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
@@ -173,7 +197,7 @@ export function AgentPopover({
         </button>
       </header>
 
-      <div className="space-y-2.5 p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {agent.rolePending && (
           <Badge tone="warning" data-testid="office-popover-pending">
             função {agent.rolePending} pendente
@@ -224,6 +248,8 @@ export function AgentPopover({
             onChange={(event) => {
               setSaved(false)
               setModelValue(event.target.value)
+              // Os esforços mudam com o modelo: não carregar um variant inválido.
+              setVariantValue('')
             }}
           >
             <option value="">Manter modelo atual</option>
@@ -234,6 +260,37 @@ export function AgentPopover({
               </option>
             ))}
           </Select>
+        </div>
+
+        <div>
+          <label
+            htmlFor={`popover-effort-${agent.sessionID}`}
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Esforço
+          </label>
+          <Select
+            id={`popover-effort-${agent.sessionID}`}
+            data-testid="office-popover-effort"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={variantValue}
+            disabled={!canChooseVariant}
+            onChange={(event) => {
+              setSaved(false)
+              setVariantValue(event.target.value)
+            }}
+          >
+            <option value="">Padrão</option>
+            {effortOptions.map((variant) => (
+              <option key={variant} value={variant}>
+                {effortLabel(variant)}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[9.5px] text-ink-tertiary">
+            Atual: {agent.model.variant ? effortLabel(agent.model.variant) : 'padrão'}
+            {effortOptions.length === 0 ? ' · este modelo não oferece esforço' : ''}
+          </p>
         </div>
 
         {working && (
@@ -266,6 +323,20 @@ export function AgentPopover({
               Função atualizada.
             </span>
           )}
+        </div>
+
+        <div className="border-t border-[var(--border-subtle)] pt-2.5">
+          <PromptComposer
+            agent={agent}
+            onActivity={() => {
+              setTranscriptKey((current) => current + 1)
+              onSaved()
+            }}
+          />
+        </div>
+
+        <div className="border-t border-[var(--border-subtle)] pt-2.5">
+          <OfficeTranscript sessionID={agent.sessionID} refreshKey={transcriptKey} compact />
         </div>
       </div>
 

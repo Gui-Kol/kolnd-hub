@@ -26,11 +26,14 @@ import {
 } from '../office/pluginInstaller'
 import { loadOfficeFixture } from '../office/fixture'
 import {
+  isValidSessionID,
   normalizeArchiveAllInput,
   normalizeHireInput,
+  normalizePromptInput,
   normalizeRestoreInput,
   normalizeRosterOptionsInput,
   normalizeSetRoleInput,
+  normalizeTranscriptInput,
   pickArchiveTargets
 } from '../office/roster'
 import {
@@ -72,8 +75,13 @@ import type {
   OfficeDepartmentResult,
   OfficeHealth,
   OfficeManageResult,
+  OfficeModelOption,
   OfficeRosterResult,
-  OfficeSnapshot
+  OfficeSessionInput,
+  OfficeSessionSummary,
+  OfficeSessionsListResult,
+  OfficeSnapshot,
+  OfficeTranscriptResult
 } from '../../shared/office'
 
 /**
@@ -373,12 +381,62 @@ function persistDepartments(next: readonly OfficeDepartment[]): string | null {
   return result.success ? null : (result.error ?? 'Não consegui salvar as salas.')
 }
 
-/** Status fresco das sessões (o snapshot pode estar alguns segundos atrasado). */
+/**
+ * Status fresco de TODAS as sessões (o snapshot pode estar alguns segundos
+ * atrasado).
+ *
+ * A derivação da UI esconde quem não está em sala; para a gestão precisamos do
+ * estado real mesmo de sessão ainda não designada. Uma sala técnica com todos
+ * os ids serve só para consultar o status — o resultado não vai para a tela.
+ */
 async function freshAgents(
   client: OfficeClient
 ): Promise<Array<{ sessionID: string; status: OfficeAgentStatus }>> {
   const sessions = await client.listSessions({ limit: 200 })
-  return deriveOfficeSnapshot({ sessions, now: Date.now() }).agents
+  return statusAgents(sessions)
+}
+
+/**
+ * Confere o esforço escolhido contra a lista REAL do modelo na pasta da sessão
+ * (o renderer pode ter sido comprometido). Sem variante, nada é consultado.
+ */
+async function validateModelVariant(
+  client: OfficeClient,
+  sessionID: string,
+  model: OfficeModelOption
+): Promise<string | null> {
+  const variant = model.variant?.trim()
+  if (!variant) return null
+
+  const sessions = await client.listSessions({ limit: 200 })
+  const directory = (
+    sessions.find((session) => session.id === sessionID)?.location?.directory ?? ''
+  ).trim()
+  if (!directory) {
+    return 'Não consegui confirmar a pasta desta sessão para validar o esforço.'
+  }
+
+  const models = await client.listModels(directory)
+  const listed = models.find(
+    (option) => option.providerID === model.providerID && option.id === model.id
+  )
+  if (!listed) return 'Modelo indisponível na pasta desta sessão.'
+  if (listed.variants.length === 0) return 'Este modelo não aceita escolha de esforço.'
+  if (!listed.variants.includes(variant)) return 'Esforço inválido para o modelo escolhido.'
+  return null
+}
+
+function statusAgents(
+  sessions: readonly OfficeSessionInput[]
+): Array<{ sessionID: string; status: OfficeAgentStatus }> {
+  const technicalRoom: OfficeDepartment = {
+    id: 'dep_00000000',
+    name: 'Status',
+    agentID: 'general',
+    sessionIDs: sessions.map((session) => session.id).filter(Boolean),
+    createdAt: 1
+  }
+  return deriveOfficeSnapshot({ sessions, now: Date.now(), departments: [technicalRoom] }).agents
 }
 
 /**
@@ -419,8 +477,7 @@ function newDepartmentID(existing: readonly OfficeDepartment[]): string {
  */
 async function sessionIsWorking(client: OfficeClient, sessionID: string): Promise<boolean> {
   const sessions = await client.listSessions({ limit: 200 })
-  const snapshot = deriveOfficeSnapshot({ sessions, now: Date.now() })
-  return snapshot.agents.some(
+  return statusAgents(sessions).some(
     (agent) => agent.sessionID === sessionID && agent.status === 'working'
   )
 }
@@ -632,6 +689,12 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
     if (!input) throw new Error('Requisição inválida.')
 
     return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const current = getOfficeDepartments()
+      const department = findDepartment(current, input.departmentID)
+      if (!department) {
+        return { ok: false, error: DEPARTMENT_MISSING_MESSAGE }
+      }
+
       const active = await resolveManagementClient()
       if (typeof active === 'string') return { ok: false, error: active }
       if (!isExistingDirectory(input.directory)) {
@@ -640,16 +703,37 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
 
       try {
         const sessionID = await active.createSession(input)
-        // Auditoria sem título: só sessão/cargo/modelo (a mensagem nunca entra).
+
+        // Contratar já entra na sala: sem isso a sessão nasceria escondida.
+        const assigned = assignSession(current, sessionID, department.id)
+        if (!assigned) return { ok: false, error: DEPARTMENT_FULL_MESSAGE }
+        const persistError = persistDepartments(assigned)
+        if (persistError) return { ok: false, error: persistError }
+
+        // Função da sala: aplica agora se a sessão nova não estiver trabalhando
+        // (o badge "pendente" cobre o caso raro de já nascer ocupada).
+        let applied = 0
+        try {
+          const agents = await freshAgents(active)
+          const outcome = await applyRoleToOne(active, sessionID, department.agentID, agents)
+          if (outcome === 'applied') applied = 1
+        } catch {
+          // Sessão recém-criada pode não aparecer na lista na hora: o papel fica
+          // pendente e o usuário aplica pelo painel da sala.
+        }
+
+        // Auditoria sem título: só sessão/cargo/modelo/sala (texto nunca entra).
         const model = input.model ? `${input.model.providerID}/${input.model.id}` : 'padrão'
         logger.info(
           'office',
-          `Funcionário contratado: sessão ${sessionID}, agente ${input.agentID}, modelo ${model}.`
+          `Funcionário contratado: sessão ${sessionID}, sala ${department.id}, agente ${department.agentID}, modelo ${model}, função ${
+            applied ? 'aplicada' : 'pendente'
+          }.`
         )
         refreshOffice()
         return { ok: true }
       } catch (err) {
-        logger.warn('office', `Falha ao contratar funcionário (agente ${input.agentID}).`)
+        logger.warn('office', `Falha ao contratar funcionário (sala ${department.id}).`)
         return { ok: false, error: managementError(err) }
       }
     })
@@ -667,14 +751,23 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
         if (await sessionIsWorking(active, input.sessionID)) {
           return { ok: false, error: WORKING_MESSAGE }
         }
+        if (input.model?.variant) {
+          const variantError = await validateModelVariant(active, input.sessionID, input.model)
+          if (variantError) return { ok: false, error: variantError }
+        }
         await active.setSessionAgent(input.sessionID, input.agentID)
         if (input.model) {
           await active.setSessionModel(input.sessionID, {
             id: input.model.id,
-            providerID: input.model.providerID
+            providerID: input.model.providerID,
+            ...(input.model.variant ? { variant: input.model.variant } : {})
           })
         }
-        const model = input.model ? `${input.model.providerID}/${input.model.id}` : 'mantido'
+        const model = input.model
+          ? `${input.model.providerID}/${input.model.id}${
+              input.model.variant ? ` (${input.model.variant})` : ''
+            }`
+          : 'mantido'
         logger.info(
           'office',
           `Função da sessão ${input.sessionID} atualizada: agente ${input.agentID}, modelo ${model}.`
@@ -686,6 +779,116 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
         return { ok: false, error: managementError(err) }
       }
     })
+  })
+
+  // ── Operação (prompt / parar / conversa / lista de sessões) ────────
+  // Auditoria NUNCA inclui o texto: só sessão, delivery e desfecho.
+  ipcMain.handle('office:prompt', async (_event, ...args: unknown[]) => {
+    const input = normalizePromptInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const active = await resolveManagementClient()
+      if (typeof active === 'string') return { ok: false, error: active }
+
+      try {
+        await active.sendPrompt(input.sessionID, {
+          text: input.text,
+          delivery: input.delivery
+        })
+        logger.info(
+          'office',
+          `Prompt entregue (${input.delivery}) para a sessão ${input.sessionID}.`
+        )
+        refreshOffice()
+        return { ok: true } satisfies OfficeManageResult
+      } catch (err) {
+        logger.warn(
+          'office',
+          `Falha ao enviar prompt (${input.delivery}) para a sessão ${input.sessionID}.`
+        )
+        return { ok: false, error: managementError(err) } satisfies OfficeManageResult
+      }
+    })
+  })
+
+  ipcMain.handle('office:interrupt', async (_event, ...args: unknown[]) => {
+    const input = normalizeRestoreInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const active = await resolveManagementClient()
+      if (typeof active === 'string') return { ok: false, error: active }
+
+      try {
+        await active.interruptSession(input.sessionID)
+        logger.info('office', `Interrupção solicitada para a sessão ${input.sessionID}.`)
+        refreshOffice()
+        return { ok: true } satisfies OfficeManageResult
+      } catch (err) {
+        logger.warn('office', `Falha ao interromper a sessão ${input.sessionID}.`)
+        return { ok: false, error: managementError(err) } satisfies OfficeManageResult
+      }
+    })
+  })
+
+  ipcMain.handle('office:transcript', async (_event, ...args: unknown[]) => {
+    const input = normalizeTranscriptInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    const active = await resolveManagementClient()
+    if (typeof active === 'string') {
+      return { ok: false, messages: [], error: active } satisfies OfficeTranscriptResult
+    }
+    try {
+      const messages = await active.sessionTranscript(input.sessionID, input.limit)
+      return { ok: true, messages } satisfies OfficeTranscriptResult
+    } catch (err) {
+      return {
+        ok: false,
+        messages: [],
+        error: managementError(err)
+      } satisfies OfficeTranscriptResult
+    }
+  })
+
+  ipcMain.handle('office:sessions-list', async (_event, ...args: unknown[]) => {
+    if (!normalizeArchiveAllInput(singleArgument(args))) {
+      throw new Error('Requisição inválida.')
+    }
+
+    const active = await resolveManagementClient()
+    if (typeof active === 'string') {
+      return { ok: false, items: [], error: active } satisfies OfficeSessionsListResult
+    }
+
+    try {
+      const sessions = await active.listSessions({ limit: 200 })
+      const statusByID = new Map(
+        statusAgents(sessions).map((agent) => [agent.sessionID, agent.status])
+      )
+      const items: OfficeSessionSummary[] = []
+      const seen = new Set<string>()
+      for (const session of sessions) {
+        const sessionID = session.id?.trim() ?? ''
+        if (!isValidSessionID(sessionID) || seen.has(sessionID)) continue
+        seen.add(sessionID)
+        items.push({
+          sessionID,
+          title: session.title?.trim() || 'Sessão sem título',
+          agent: session.agent?.trim() || 'general',
+          status: statusByID.get(sessionID) ?? 'unknown',
+          directory: (session.location?.directory ?? '').trim()
+        })
+      }
+      return { ok: true, items } satisfies OfficeSessionsListResult
+    } catch (err) {
+      return {
+        ok: false,
+        items: [],
+        error: managementError(err)
+      } satisfies OfficeSessionsListResult
+    }
   })
 
   ipcMain.handle('office:archive-all', async (_event, ...args: unknown[]) => {
@@ -873,7 +1076,7 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
         if (error) return { ok: false, released: 0, error }
         logger.info(
           'office',
-          `Sala ${input.id} excluída; ${removed.released.length} funcionário(s) voltaram para "Sem sala".`
+          `Sala ${input.id} excluída; ${removed.released.length} funcionário(s) saíram do escritório (fora das salas).`
         )
         refreshOffice()
         return {
@@ -951,7 +1154,7 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
       const current = getOfficeDepartments()
       const error = persistDepartments(unassignSession(current, input.sessionID))
       if (error) return { ok: false, error }
-      logger.info('office', `Sessão ${input.sessionID} devolvida para "Sem sala".`)
+      logger.info('office', `Sessão ${input.sessionID} saiu do escritório (fora das salas).`)
       refreshOffice()
       return { ok: true }
     })

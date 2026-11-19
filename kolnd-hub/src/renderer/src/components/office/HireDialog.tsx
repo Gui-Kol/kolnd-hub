@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CircleAlert, Loader2, UserPlus } from 'lucide-react'
-import type { OfficeAgentOption, OfficeModelOption, OfficeRoom } from '../../../../shared/office'
+import type { OfficeModelOption, OfficeRoom } from '../../../../shared/office'
 import { Button, Input, Modal, Select } from '../ui'
 
 /**
@@ -11,6 +11,7 @@ import { Button, Input, Modal, Select } from '../ui'
  */
 
 const TITLE_MAX = 80
+const DIRECTORY_MAX = 512
 
 function modelKey(model: OfficeModelOption): string {
   return `${model.providerID}/${model.id}`
@@ -24,54 +25,55 @@ export interface HireDialogProps {
 }
 
 export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.Element {
-  const hireableRooms = rooms.filter((room) => (room.path ?? '').trim().length > 0)
+  const hireableRooms = rooms
   const [roomID, setRoomID] = useState(() => hireableRooms[0]?.id ?? '')
   const [title, setTitle] = useState('')
-  const [agentID, setAgentID] = useState('')
+  const [directory, setDirectory] = useState(() => (hireableRooms[0]?.path ?? '').trim())
   const [modelKeyValue, setModelKeyValue] = useState('')
-  const [agents, setAgents] = useState<OfficeAgentOption[]>([])
   const [models, setModels] = useState<OfficeModelOption[]>([])
-  const [loadingOptions, setLoadingOptions] = useState(hireableRooms.length > 0)
+  const [loadingOptions, setLoadingOptions] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const room = hireableRooms.find((item) => item.id === roomID) ?? null
   const roomPath = (room?.path ?? '').trim()
+  const roomAgentID = (room?.agent ?? '').trim()
   const optionsError = room
     ? fetchError
     : hireableRooms.length === 0
-      ? 'Nenhuma sala disponível. Abra uma sessão no OpenCode para criar uma sala.'
-      : 'Escolha uma sala com pasta válida.'
+      ? 'Nenhuma sala disponível. Crie uma sala antes de contratar.'
+      : 'Escolha uma sala.'
 
   useEffect(() => {
     if (!roomPath) return
 
     let alive = true
-    window.api
-      .officeRosterOptions({ directory: roomPath })
-      .then((result) => {
-        if (!alive) return
-        if (!result.ok) {
-          setAgents([])
+    // Microtask: a leitura é externa e não dispara setState no corpo do efeito.
+    queueMicrotask(() => {
+      if (!alive) return
+      setLoadingOptions(true)
+      window.api
+        .officeRosterOptions({ directory: roomPath })
+        .then((result) => {
+          if (!alive) return
+          if (!result.ok) {
+            setModels([])
+            setFetchError(result.error ?? 'Não consegui consultar os modelos desta sala.')
+            return
+          }
+          setFetchError(null)
+          setModels(result.models)
+        })
+        .catch(() => {
+          if (!alive) return
           setModels([])
-          setFetchError(result.error ?? 'Não consegui consultar as funções desta sala.')
-          return
-        }
-        setFetchError(null)
-        setAgents(result.agents)
-        setModels(result.models)
-        setAgentID(result.agents[0]?.id ?? '')
-      })
-      .catch(() => {
-        if (!alive) return
-        setAgents([])
-        setModels([])
-        setFetchError('Não consegui falar com o processo principal.')
-      })
-      .finally(() => {
-        if (alive) setLoadingOptions(false)
-      })
+          setFetchError('Não consegui falar com o processo principal.')
+        })
+        .finally(() => {
+          if (alive) setLoadingOptions(false)
+        })
+    })
 
     return () => {
       alive = false
@@ -79,25 +81,26 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
   }, [roomPath])
 
   function changeRoom(nextRoomID: string): void {
+    const next = hireableRooms.find((item) => item.id === nextRoomID) ?? null
     setRoomID(nextRoomID)
-    setAgents([])
+    setDirectory((next?.path ?? '').trim())
     setModels([])
-    setAgentID('')
     setModelKeyValue('')
     setFetchError(null)
-    setLoadingOptions(true)
+    setLoadingOptions(false)
   }
 
   const enableModels = models.filter((model) => model.enabled)
   const titleInvalid = title.length > 0 && title.trim().length === 0
+  const directoryInvalid = directory.length > 0 && directory.trim().length === 0
   const canSubmit =
     !submitting &&
-    !loadingOptions &&
     Boolean(room) &&
     title.trim().length > 0 &&
     title.trim().length <= TITLE_MAX &&
-    agentID.length > 0 &&
-    agents.length > 0
+    directory.trim().length > 0 &&
+    directory.trim().length <= DIRECTORY_MAX &&
+    roomAgentID.length > 0
 
   function submit(): void {
     if (!room || !canSubmit) return
@@ -108,9 +111,10 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
     void window.api
       .officeHire({
         title: title.trim(),
-        agentID,
+        agentID: roomAgentID,
         model: chosenModel,
-        directory: (room.path ?? '').trim()
+        directory: directory.trim(),
+        departmentID: room.id
       })
       .then((result) => {
         if (!result.ok) {
@@ -150,8 +154,8 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
     >
       <div className="space-y-4" data-testid="office-hire-dialog">
         <p className="text-[12px] leading-5 text-ink-secondary">
-          O funcionário é uma sessão real do OpenCode. Nada é enviado ao modelo: a sessão nasce
-          vazia, pronta para receber trabalho.
+          O funcionário é uma sessão real do OpenCode, criada já dentro da sala escolhida. Nada é
+          enviado ao modelo: a sessão nasce vazia, pronta para receber um prompt do OpenOffice.
         </p>
 
         <div>
@@ -192,37 +196,42 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
             onChange={(event) => changeRoom(event.target.value)}
             disabled={submitting || hireableRooms.length === 0}
           >
+            {hireableRooms.length === 0 && <option value="">Crie uma sala primeiro</option>}
             {hireableRooms.map((option) => (
               <option key={option.id} value={option.id}>
-                {option.name} — {option.path}
+                {option.name}
+                {option.agent ? ` — ${option.agent}` : ''}
               </option>
             ))}
           </Select>
+          {roomAgentID && (
+            <p className="mt-1 text-[10px] text-ink-tertiary">
+              Função da sala: <strong className="text-ink-secondary">{roomAgentID}</strong>
+            </p>
+          )}
         </div>
 
         <div>
           <label
-            htmlFor="office-hire-agent"
+            htmlFor="office-hire-directory"
             className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary"
           >
-            Função
+            Pasta do projeto
           </label>
-          <Select
-            id="office-hire-agent"
-            data-testid="office-hire-agent"
+          <Input
+            id="office-hire-directory"
+            data-testid="office-hire-directory"
             className="mt-1.5"
-            value={agentID}
-            onChange={(event) => setAgentID(event.target.value)}
-            disabled={submitting || loadingOptions || agents.length === 0}
-          >
-            {agents.length === 0 && <option value="">Nenhuma função disponível</option>}
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-                {agent.description ? ` — ${agent.description}` : ''}
-              </option>
-            ))}
-          </Select>
+            value={directory}
+            maxLength={DIRECTORY_MAX}
+            placeholder="C:\\caminho\\do\\projeto"
+            onChange={(event) => setDirectory(event.target.value)}
+            error={directoryInvalid}
+            errorMessage={directoryInvalid ? 'Informe uma pasta válida.' : undefined}
+          />
+          <p className="mt-1 text-[10px] text-ink-tertiary">
+            A pasta precisa existir no disco; o funcionário nasce dentro dela.
+          </p>
         </div>
 
         <div>
@@ -252,7 +261,7 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
         {loadingOptions && (
           <p role="status" className="flex items-center gap-2 text-[11px] text-ink-secondary">
             <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-            Consultando as funções da sala…
+            Consultando os modelos da sala…
           </p>
         )}
 

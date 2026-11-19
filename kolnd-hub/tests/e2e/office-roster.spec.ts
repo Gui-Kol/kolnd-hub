@@ -189,11 +189,12 @@ test('funcionários: contratar cria a sessão com a função e o modelo escolhid
     await expect(dialog).toBeVisible()
 
     await window.getByTestId('office-hire-title').fill('Contratar dev e2e')
+    await expect(dialog).toContainText('Função da sala:')
+    await expect(window.getByTestId('office-hire-directory')).not.toHaveValue('')
 
-    const agentSelect = window.getByTestId('office-hire-agent')
-    await expect(agentSelect).toBeEnabled()
-    await agentSelect.selectOption('build')
-    await window.getByTestId('office-hire-model').selectOption('opencode-go/qwen4-max')
+    const modelSelect = window.getByTestId('office-hire-model')
+    await expect(modelSelect).toBeEnabled()
+    await modelSelect.selectOption('opencode-go/qwen4-max')
 
     await window.getByTestId('office-hire-submit').click()
     await expect(dialog).toHaveCount(0)
@@ -208,7 +209,8 @@ test('funcionários: contratar cria a sessão com a função e o modelo escolhid
 
     const details = window.getByTestId('office-details')
     await expect(details).toContainText('Contratar dev e2e')
-    await expect(details).toContainText('build')
+    // A função vem da sala (api-core => plan), aplicada na contratação.
+    await expect(details).toContainText('plan')
     await expect(details).toContainText('qwen4-max')
     await expect(window.getByTestId('office-roster')).toContainText('Funcionário contratado.')
   } finally {

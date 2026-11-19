@@ -56,7 +56,13 @@ describe('parseModelList', () => {
   it('normaliza provider/modelo, deduplica e ordena por nome', () => {
     const models = parseModelList({
       data: [
-        { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen4 Max', enabled: true },
+        {
+          providerID: 'opencode-go',
+          id: 'qwen4-max',
+          name: 'Qwen4 Max',
+          enabled: true,
+          variants: [{ id: 'none' }, { id: 'low' }, { id: 'high' }, { id: 'xhigh' }]
+        },
         { providerID: 'opencode', id: 'tidepool-alpha-free', name: 'Tidepool', enabled: false },
         { providerID: 'opencode-go', id: 'qwen4-max', name: 'Repetido', enabled: true },
         { providerID: '', id: 'sem-provider', name: 'X', enabled: true },
@@ -71,6 +77,8 @@ describe('parseModelList', () => {
     ])
     expect(models[1].name).toBe('Qwen4 Max')
     expect(models[2].enabled).toBe(false)
+    expect(models[1].variants).toEqual(['none', 'low', 'high', 'xhigh'])
+    expect(models[2].variants).toEqual([])
   })
 
   it('sem nome usa provider/id; ausência de enabled conta como habilitado', () => {
@@ -79,7 +87,8 @@ describe('parseModelList', () => {
       providerID: 'openai',
       id: 'gpt-x',
       name: 'openai/gpt-x',
-      enabled: true
+      enabled: true,
+      variants: []
     })
   })
 })
@@ -156,13 +165,15 @@ describe('normalizeHireInput', () => {
     title: 'Contratar dev',
     agentID: 'build',
     model: null,
-    directory: 'C:\\repo\\alpha'
+    directory: 'C:\\repo\\alpha',
+    departmentID: 'dep_0000a001'
   }
 
   it('aceita model null e normaliza o caminho', () => {
     expect(normalizeHireInput({ ...base, directory: '  C:\\repo\\alpha  ' })).toEqual({
       ...base,
-      directory: 'C:\\repo\\alpha'
+      directory: 'C:\\repo\\alpha',
+      departmentID: 'dep_0000a001'
     })
   })
 
@@ -175,7 +186,8 @@ describe('normalizeHireInput', () => {
       providerID: 'opencode-go',
       id: 'qwen4-max',
       name: 'opencode-go/qwen4-max',
-      enabled: true
+      enabled: true,
+      variants: []
     })
   })
 
@@ -208,6 +220,28 @@ describe('normalizeSetRoleInput', () => {
         model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen', enabled: true }
       })?.model?.id
     ).toBe('qwen4-max')
+
+    expect(
+      normalizeSetRoleInput({
+        sessionID: 'ses_1',
+        agentID: 'plan',
+        model: {
+          providerID: 'opencode-go',
+          id: 'qwen4-max',
+          name: 'Qwen',
+          enabled: true,
+          variants: ['none', 'low', 'high', 'xhigh'],
+          variant: 'xhigh'
+        }
+      })?.model?.variant
+    ).toBe('xhigh')
+    expect(
+      normalizeSetRoleInput({
+        sessionID: 'ses_1',
+        agentID: 'plan',
+        model: { providerID: 'opencode-go', id: 'qwen4-max', variant: 'a/b' }
+      })
+    ).toBeNull()
     expect(normalizeSetRoleInput({ sessionID: 'abc', agentID: 'plan' })).toBeNull()
     expect(normalizeSetRoleInput({ sessionID: 'ses_1', agentID: 'a/b' })).toBeNull()
     expect(normalizeSetRoleInput({ sessionID: 'ses_1', agentID: 'plan', extra: 1 })).toBeNull()
@@ -239,7 +273,8 @@ describe('buildCreateSessionBody', () => {
       title: 'Contratar dev',
       agentID: 'build',
       model: null,
-      directory: 'C:\\repo\\alpha'
+      directory: 'C:\\repo\\alpha',
+      departmentID: 'dep_0000a001'
     })
     expect(body).toEqual({
       title: 'Contratar dev',
@@ -250,8 +285,15 @@ describe('buildCreateSessionBody', () => {
     const withModel = buildCreateSessionBody({
       title: 'Contratar dev',
       agentID: 'build',
-      model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen', enabled: true },
-      directory: 'C:\\repo\\alpha'
+      model: {
+        providerID: 'opencode-go',
+        id: 'qwen4-max',
+        name: 'Qwen',
+        enabled: true,
+        variants: ['none', 'low', 'high', 'xhigh']
+      },
+      directory: 'C:\\repo\\alpha',
+      departmentID: 'dep_0000a001'
     })
     expect(withModel.model).toEqual({ id: 'qwen4-max', providerID: 'opencode-go' })
   })

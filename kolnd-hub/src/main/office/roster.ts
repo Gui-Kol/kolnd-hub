@@ -1,10 +1,14 @@
-import type {
-  OfficeAgentOption,
-  OfficeAgentStatus,
-  OfficeArchivedEmployee,
-  OfficeHireInput,
-  OfficeModelOption,
-  OfficeSetRoleInput
+import {
+  OFFICE_DEPARTMENT_ID_RE,
+  PROMPT_TEXT_MAX,
+  TRANSCRIPT_MESSAGES_MAX,
+  type OfficeAgentOption,
+  type OfficeAgentStatus,
+  type OfficeArchivedEmployee,
+  type OfficeHireInput,
+  type OfficeModelOption,
+  type OfficePromptSendInput,
+  type OfficeSetRoleInput
 } from '../../shared/office'
 
 /**
@@ -39,6 +43,8 @@ export const DIRECTORY_MAX = 512
 const MODEL_NAME_MAX = 120
 const DESCRIPTION_MAX = 200
 const ARCHIVED_TITLE_MAX = 120
+/** Id de esforço/raciocínio (`none`, `low`, `high`, `xhigh`…). */
+const VARIANT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 // eslint-disable-next-line no-control-regex -- validar controles é o objetivo
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/
@@ -95,12 +101,32 @@ export function isValidDirectory(value: unknown): value is string {
   return /^\/(?!\/)/.test(path)
 }
 
-/** Referência mínima de modelo aceita pela API (`{ id, providerID }`). */
-export function normalizeModelRef(value: unknown): { providerID: string; id: string } | null {
+/** Referência de modelo aceita pela API (`{ id, providerID, variant? }`). */
+export function normalizeModelRef(
+  value: unknown
+): { providerID: string; id: string; variant?: string } | null {
   if (!isRecord(value)) return null
   const providerID = token(value.providerID, PROVIDER_ID_RE)
   const id = token(value.id, MODEL_ID_RE)
-  return providerID && id ? { providerID, id } : null
+  if (!providerID || !id) return null
+
+  if (value.variant === undefined || value.variant === null) return { providerID, id }
+  const variant = token(value.variant, VARIANT_ID_RE)
+  return variant ? { providerID, id, variant } : null
+}
+
+/** `variants` do modelo: aceita `[{ id }]` (API) ou `['none', …]` (fixture). */
+function parseVariants(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const id = isRecord(item) ? token(item.id, VARIANT_ID_RE) : token(item, VARIANT_ID_RE)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 /** Lista tolerante: aceita o array cru ou o envelope `{ data }` do CLI. */
@@ -154,7 +180,8 @@ export function parseModelList(data: unknown): OfficeModelOption[] {
       id,
       name: cleanText(raw.name, MODEL_NAME_MAX) ?? key,
       // A API marca `enabled` explicitamente; ausência significa habilitado.
-      enabled: raw.enabled !== false
+      enabled: raw.enabled !== false,
+      variants: parseVariants(raw.variants)
     })
   }
 
@@ -198,16 +225,24 @@ export function parseArchivedList(data: unknown): OfficeArchivedEmployee[] {
 
 function parseModelOption(value: unknown): OfficeModelOption | null {
   if (!isRecord(value)) return null
-  if (!onlyKeys(value, ['providerID', 'id', 'name', 'enabled'])) return null
+  if (!onlyKeys(value, ['providerID', 'id', 'name', 'enabled', 'variants', 'variant'])) return null
   const providerID = token(value.providerID, PROVIDER_ID_RE)
   const id = token(value.id, MODEL_ID_RE)
   if (!providerID || !id) return null
-  return {
+
+  const option: OfficeModelOption = {
     providerID,
     id,
     name: cleanText(value.name, MODEL_NAME_MAX) ?? `${providerID}/${id}`,
-    enabled: value.enabled !== false
+    enabled: value.enabled !== false,
+    variants: parseVariants(value.variants)
   }
+  if (value.variant !== undefined && value.variant !== null) {
+    const variant = token(value.variant, VARIANT_ID_RE)
+    if (!variant) return null
+    option.variant = variant
+  }
+  return option
 }
 
 /**
@@ -216,12 +251,14 @@ function parseModelOption(value: unknown): OfficeModelOption | null {
  */
 export function normalizeHireInput(input: unknown): OfficeHireInput | null {
   if (!isRecord(input)) return null
-  if (!onlyKeys(input, ['title', 'agentID', 'model', 'directory'])) return null
+  if (!onlyKeys(input, ['title', 'agentID', 'model', 'directory', 'departmentID'])) return null
 
   const title = normalizeHireTitle(input.title)
   const agentID = token(input.agentID, AGENT_ID_RE)
   const directory = typeof input.directory === 'string' ? input.directory.trim() : ''
+  const departmentID = typeof input.departmentID === 'string' ? input.departmentID.trim() : ''
   if (!title || !agentID || !isValidDirectory(directory)) return null
+  if (!OFFICE_DEPARTMENT_ID_RE.test(departmentID)) return null
 
   let model: OfficeModelOption | null = null
   if (input.model !== null) {
@@ -229,7 +266,7 @@ export function normalizeHireInput(input: unknown): OfficeHireInput | null {
     if (!model) return null
   }
 
-  return { title, agentID, model, directory }
+  return { title, agentID, model, directory, departmentID }
 }
 
 /** Valida a troca de função. `model: null` mantém o modelo atual da sessão. */
@@ -255,6 +292,47 @@ export function normalizeRestoreInput(input: unknown): { sessionID: string } | n
   if (!isRecord(input) || !onlyKeys(input, ['sessionID'])) return null
   const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : ''
   return isValidSessionID(sessionID) ? { sessionID } : null
+}
+
+/** C0 perigosos no prompt; quebra de linha e tab são permitidos. */
+// eslint-disable-next-line no-control-regex -- validar controles é o objetivo
+const PROMPT_CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+
+/**
+ * Prompt do OpenOffice: texto 1–8000 sem controles perigosos e `delivery`
+ * `queue` (padrão) ou `steer`. O texto nunca é logado.
+ */
+export function normalizePromptInput(input: unknown): OfficePromptSendInput | null {
+  if (!isRecord(input) || !onlyKeys(input, ['sessionID', 'text', 'delivery'])) return null
+  const sessionID = token(input.sessionID, SESSION_ID_RE)
+  if (!sessionID || typeof input.text !== 'string') return null
+
+  const text = input.text.replace(/\r\n?/g, '\n').trim()
+  if (!text || text.length > PROMPT_TEXT_MAX || PROMPT_CONTROL_CHARS.test(text)) return null
+
+  const delivery = input.delivery === undefined ? 'queue' : input.delivery
+  if (delivery !== 'queue' && delivery !== 'steer') return null
+  return { sessionID, text, delivery }
+}
+
+/** `{ sessionID, limit? }` do transcrito (limit 1–8, padrão 8). */
+export function normalizeTranscriptInput(
+  input: unknown
+): { sessionID: string; limit: number } | null {
+  if (!isRecord(input) || !onlyKeys(input, ['sessionID', 'limit'])) return null
+  const sessionID = token(input.sessionID, SESSION_ID_RE)
+  if (!sessionID) return null
+
+  if (input.limit === undefined) return { sessionID, limit: TRANSCRIPT_MESSAGES_MAX }
+  if (
+    typeof input.limit !== 'number' ||
+    !Number.isInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > TRANSCRIPT_MESSAGES_MAX
+  ) {
+    return null
+  }
+  return { sessionID, limit: input.limit }
 }
 
 /** `{ directory }` para buscar agentes/modelos da sala. */

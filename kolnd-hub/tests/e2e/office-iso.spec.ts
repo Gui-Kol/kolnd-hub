@@ -162,7 +162,15 @@ function roomRow(window: Page, name: string) {
 
 test('iso: render isométrico, clique no boneco/sala e aparência persiste', async () => {
   const ctx = loadContext()
-  seedDepartments(ctx, [])
+  seedDepartments(ctx, [
+    {
+      id: 'dep_0000a001',
+      name: 'Geral',
+      agentID: 'general',
+      sessionIDs: [MAIN, IDLE, SUB],
+      createdAt: 1
+    }
+  ])
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeFixture(ctx)
   delete env.KOLDND_HUB_OPENCODE_CLI
@@ -172,13 +180,14 @@ test('iso: render isométrico, clique no boneco/sala e aparência persiste', asy
     const window = await app.firstWindow()
     await openOfficeFromAiCard(window)
 
-    // Render isométrico presente + "Sem sala" sintética (nenhum departamento).
+    // Render isométrico: todos designados à sala "Geral" (sem sala sintética).
     const canvas = window.getByTestId('office-canvas')
     await expect(canvas).toBeVisible()
     await expect(canvas).toHaveAttribute('data-iso', 'true')
     await expect(window.getByTestId('office-seat')).toHaveCount(3, { timeout: 20_000 })
     await expect(window.getByTestId('office-room-hit')).toHaveCount(1)
-    await expect(roomRow(window, 'Sem sala')).toBeVisible()
+    await expect(roomRow(window, 'Geral')).toBeVisible()
+    await expect(roomRow(window, 'Sem sala')).toHaveCount(0)
 
     // Clique no boneco → popover ancorado com função/modelo e atalho Aparência.
     await clickMarker(window, `[data-testid="office-seat"][data-session-id="${MAIN}"]`)
@@ -270,10 +279,16 @@ test('iso: criar sala, designar, aplicar função e working fica pendente', asyn
   try {
     const window = await app.firstWindow()
     await openOfficeFromAiCard(window)
-    await expect(window.getByTestId('office-seat')).toHaveCount(3, { timeout: 20_000 })
 
-    // Criar sala com a função build (opções reais da fixture).
-    await window.getByTestId('office-department-create').click()
+    // Ninguém designado: empty state com contagem e CTA (sem canvas).
+    await expect(window.getByTestId('office-empty')).toContainText('Nenhum funcionário nas salas', {
+      timeout: 20_000
+    })
+    await expect(window.getByTestId('office-empty-unassigned')).toContainText('3 sessões')
+    await expect(window.getByTestId('office-seat')).toHaveCount(0)
+
+    // Criar sala direto do empty state (funções vêm das sessões ativas).
+    await window.getByTestId('office-empty-create-room').click()
     await window.getByTestId('office-department-name').fill('Build E2E')
     await expect(window.getByTestId('office-department-agent')).toBeEnabled()
     await window.getByTestId('office-department-agent').selectOption('build')
@@ -281,27 +296,39 @@ test('iso: criar sala, designar, aplicar função e working fica pendente', asyn
     await expect(window.getByTestId('office-department-dialog')).toHaveCount(0, {
       timeout: 10_000
     })
-    await expect(roomRow(window, 'Build E2E')).toBeVisible()
-    await expect(window.getByTestId('office-room-hit')).toHaveCount(2)
 
-    // Abrir a sala e designar a sessão ociosa já aplicando a função.
+    // A gestão lista as sessões fora das salas; nada disso vira personagem.
+    await expect(window.getByTestId('office-unassigned-count')).toHaveText('3', {
+      timeout: 10_000
+    })
+    await expect(window.getByTestId('office-seat')).toHaveCount(0)
+    await window.getByTestId('office-unassigned-open').click()
+    const outsideDialog = window.getByTestId('office-unassigned-dialog')
+    await expect(outsideDialog).toBeVisible()
+    await expect(window.getByTestId('office-unassigned-session')).toHaveCount(3)
+
+    // Designar a sessão ociosa: agora ela entra no escritório.
+    await window
+      .locator(`[data-testid="office-unassigned-session"][data-session-id="${IDLE}"]`)
+      .getByTestId('office-unassigned-designate')
+      .click()
+    await expect(window.getByTestId('office-seat')).toHaveCount(1, { timeout: 10_000 })
+    await expect(roomRow(window, 'Build E2E')).toBeVisible()
+
+    // Abrir a sala: membro designado com a função aplicada.
     await roomRow(window, 'Build E2E').getByTestId('office-department-open').click()
     const dialog = window.getByTestId('office-room-dialog')
     await expect(dialog).toBeVisible()
-    await window.getByTestId('office-room-designate-select').selectOption(IDLE)
-    await window.getByTestId('office-room-designate').click()
-    await window.getByTestId('office-room-designate-confirm').click()
-    await expect(dialog).toContainText('Funcionário designado', { timeout: 10_000 })
     await expect(window.getByTestId('office-room-member')).toHaveCount(1)
-
-    // Aplicar a função a todos: idle recebe build de verdade.
-    await window.getByTestId('office-room-apply-all').click()
-    await window.getByTestId('office-room-apply-confirm').click()
-    await expect(dialog).toContainText('1 função(ões) aplicada(s)', { timeout: 15_000 })
     const idleMember = window.locator(
       `[data-testid="office-room-member"][data-session-id="${IDLE}"]`
     )
     await expect(idleMember).toContainText('build')
+
+    // Aplicar a função a todos mantém o idle com build.
+    await window.getByTestId('office-room-apply-all').click()
+    await window.getByTestId('office-room-apply-confirm').click()
+    await expect(dialog).toContainText('1 função(ões) aplicada(s)', { timeout: 15_000 })
 
     // Designar a sessão que está trabalhando: fica PENDENTE.
     await window.getByTestId('office-room-designate-select').selectOption(MAIN)
@@ -322,15 +349,15 @@ test('iso: criar sala, designar, aplicar função e working fica pendente', asyn
     await expect(workingMember.getByTestId('office-room-pending')).toBeVisible()
     await expect(workingMember.getByTestId('office-room-apply-one')).toBeVisible()
 
-    // Excluir a sala devolve todos (inclusive o working) para "Sem sala".
+    // Excluir a sala tira todos do escritório (voltam para "fora das salas").
     await window.getByTestId('office-room-delete').click()
     await window.getByTestId('office-room-delete-confirm').click()
     await expect(dialog).toHaveCount(0, { timeout: 10_000 })
     await expect(roomRow(window, 'Build E2E')).toHaveCount(0)
-    await expect(roomRow(window, 'Sem sala')).toBeVisible()
-    await expect(window.getByTestId('office-room-hit')).toHaveCount(1)
-    await expect(window.getByTestId('office-agent-pending')).toHaveCount(0)
-    await expect(window.getByTestId('office-seat')).toHaveCount(3)
+    await expect(roomRow(window, 'Sem sala')).toHaveCount(0)
+    await expect(window.getByTestId('office-seat')).toHaveCount(0, { timeout: 10_000 })
+    await expect(window.getByTestId('office-empty-unassigned')).toContainText('3 sessões')
+    await expect(window.getByTestId('office-unassigned-count')).toHaveText('3')
   } finally {
     await closeApp(app)
   }

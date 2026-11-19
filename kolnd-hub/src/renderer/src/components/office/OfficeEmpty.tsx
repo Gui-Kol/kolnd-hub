@@ -1,4 +1,4 @@
-import { FolderOpen, MonitorX, PlugZap, RefreshCw } from 'lucide-react'
+import { Building2, FolderOpen, MonitorX, PlugZap, RefreshCw } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Badge, Button } from '../ui'
 
@@ -10,7 +10,7 @@ import { Badge, Button } from '../ui'
  * novamente", que reassina o snapshot no main.
  */
 
-export type OfficeEmptyKind = 'cli' | 'empty' | 'plugin'
+export type OfficeEmptyKind = 'cli' | 'empty' | 'unassigned' | 'plugin'
 
 export interface OfficeEmptyProps {
   kind: OfficeEmptyKind
@@ -19,6 +19,10 @@ export interface OfficeEmptyProps {
   busy?: boolean
   /** Versão enxuta para a sidebar (aviso de plugin, por exemplo). */
   compact?: boolean
+  /** Sessões ativas que ficaram fora das salas (empty state de designação). */
+  unassignedCount?: number
+  /** Abre o modal "Nova sala" (CTA do empty state). */
+  onCreateRoom?: () => void
 }
 
 interface EmptyVariant {
@@ -45,9 +49,17 @@ const VARIANTS: Record<OfficeEmptyKind, EmptyVariant> = {
     badge: 'Tudo vazio',
     icon: FolderOpen,
     iconClass: 'text-accent',
-    body: 'O CLI respondeu, mas não há sessões do OpenCode agora. Abra uma sessão em qualquer projeto e o personagem aparece na sala daquela pasta em até 2 segundos.',
+    body: 'O CLI respondeu, mas não há sessões do OpenCode agora. Abra uma sessão em qualquer projeto e designe-a a uma sala para ela aparecer aqui.',
+    detail: 'Só sessões designadas a uma sala criada por você aparecem no escritório.'
+  },
+  unassigned: {
+    title: 'Nenhum funcionário nas salas',
+    badge: 'Fora das salas',
+    icon: Building2,
+    iconClass: 'text-warn',
+    body: 'Nenhuma sessão ativa está designada a uma sala. Crie uma sala e designe os funcionários para vê-los no escritório.',
     detail:
-      'Cada pasta de projeto vira uma sala; cada sessão vira um personagem com nome e visual determinísticos.'
+      'Sessões fora das salas não aparecem no canvas, na lista, nos contadores, no feed nem nos pedidos.'
   },
   plugin: {
     title: 'Plugin de tempo real não instalado',
@@ -63,10 +75,17 @@ export function OfficeEmpty({
   kind,
   onRetry,
   busy = false,
-  compact = false
+  compact = false,
+  unassignedCount = 0,
+  onCreateRoom
 }: OfficeEmptyProps): JSX.Element {
   const variant = VARIANTS[kind]
   const Icon = variant.icon
+  const outside = Math.max(0, unassignedCount)
+  const body =
+    kind === 'unassigned' && outside > 0
+      ? `${outside} ${outside === 1 ? 'sessão ativa está' : 'sessões ativas estão'} fora das salas. Crie uma sala e designe ${outside === 1 ? 'essa sessão' : 'essas sessões'} para ${outside === 1 ? 'ela aparecer' : 'elas aparecerem'} no escritório.`
+      : variant.body
 
   return (
     <section
@@ -85,7 +104,15 @@ export function OfficeEmpty({
           >
             <Icon size={compact ? 15 : 18} aria-hidden="true" />
           </span>
-          <Badge tone={kind === 'cli' ? 'danger' : kind === 'plugin' ? 'warning' : 'accent'}>
+          <Badge
+            tone={
+              kind === 'cli'
+                ? 'danger'
+                : kind === 'plugin' || kind === 'unassigned'
+                  ? 'warning'
+                  : 'accent'
+            }
+          >
             {variant.badge}
           </Badge>
         </div>
@@ -102,8 +129,9 @@ export function OfficeEmpty({
             className={`mt-1 leading-snug text-ink-secondary ${
               compact ? 'text-[10.5px]' : 'text-[12px]'
             }`}
+            data-testid={kind === 'unassigned' ? 'office-empty-unassigned' : undefined}
           >
-            {variant.body}
+            {body}
           </p>
           {!compact && (
             <p className="mt-2 break-words rounded-control bg-surface-sunken px-2.5 py-1.5 font-mono text-[10.5px] leading-snug text-ink-tertiary">
@@ -114,6 +142,17 @@ export function OfficeEmpty({
       </div>
 
       <div className={`flex flex-wrap items-center gap-2 ${compact ? 'mt-2.5' : 'mt-4'}`}>
+        {kind === 'unassigned' && onCreateRoom && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onCreateRoom}
+            data-testid="office-empty-create-room"
+          >
+            <Building2 size={12} aria-hidden="true" />
+            Criar sala
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={onRetry} disabled={busy}>
           <RefreshCw size={12} className={busy ? 'animate-spin' : undefined} aria-hidden="true" />
           Tentar novamente

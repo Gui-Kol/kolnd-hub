@@ -7,6 +7,7 @@ import {
   OfficeCliError,
   parseApiJson,
   runApi,
+  transcriptFromMessages,
   type CliExecError,
   type CliExecOptions,
   type ExecFileFn
@@ -352,7 +353,8 @@ describe('Gestão de funcionários (client)', () => {
       title: 'Contratar dev',
       agentID: 'build',
       model: null,
-      directory: DIRECTORY
+      directory: DIRECTORY,
+      departmentID: 'dep_0000a001'
     })
 
     expect(id).toBe('ses_novo123')
@@ -379,8 +381,15 @@ describe('Gestão de funcionários (client)', () => {
     await withModel.client.createSession({
       title: 'Contratar dev',
       agentID: 'build',
-      model: { providerID: 'opencode-go', id: 'qwen4-max', name: 'Qwen', enabled: true },
-      directory: DIRECTORY
+      model: {
+        providerID: 'opencode-go',
+        id: 'qwen4-max',
+        name: 'Qwen',
+        enabled: true,
+        variants: ['none', 'low', 'high', 'xhigh']
+      },
+      directory: DIRECTORY,
+      departmentID: 'dep_0000a001'
     })
     const body = JSON.parse(withModel.fake.calls[0].args[4]) as Record<string, unknown>
     expect(body.model).toEqual({ id: 'qwen4-max', providerID: 'opencode-go' })
@@ -391,7 +400,8 @@ describe('Gestão de funcionários (client)', () => {
         title: 'Contratar dev',
         agentID: 'build',
         model: null,
-        directory: DIRECTORY
+        directory: DIRECTORY,
+        departmentID: 'dep_0000a001'
       })
     ).rejects.toMatchObject({ code: 'jsonInvalido' })
   })
@@ -414,6 +424,95 @@ describe('Gestão de funcionários (client)', () => {
       '/api/session/ses_1/model',
       '--data',
       '{"model":{"providerID":"opencode-go","id":"qwen4-max"}}'
+    ])
+
+    await client.setSessionModel('ses_1', {
+      providerID: 'opencode-go',
+      id: 'qwen4-max',
+      variant: 'xhigh'
+    })
+    expect(fake.calls[2].args).toEqual([
+      'api',
+      'post',
+      '/api/session/ses_1/model',
+      '--data',
+      '{"model":{"providerID":"opencode-go","id":"qwen4-max","variant":"xhigh"}}'
+    ])
+  })
+
+  it('sendPrompt monta o corpo exato, aceita 204 e usa `queue` por padrão', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await client.sendPrompt('ses_1', { text: '  Revise o build  ', delivery: 'queue' })
+    await client.sendPrompt('ses_1', { text: 'Entregue agora', delivery: 'steer' })
+
+    expect(fake.calls[0].args).toEqual([
+      'api',
+      'post',
+      '/api/session/ses_1/prompt',
+      '--data',
+      JSON.stringify({ text: 'Revise o build', delivery: 'queue' })
+    ])
+    expect(fake.calls[1].args).toEqual([
+      'api',
+      'post',
+      '/api/session/ses_1/prompt',
+      '--data',
+      JSON.stringify({ text: 'Entregue agora', delivery: 'steer' })
+    ])
+    expect(fake.calls[0].options.timeout).toBe(10_000)
+  })
+
+  it('sendPrompt recusa texto vazio/longo e não executa o CLI', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await expect(
+      client.sendPrompt('ses_1', { text: '   ', delivery: 'queue' })
+    ).rejects.toMatchObject({
+      code: 'falhou'
+    })
+    await expect(
+      client.sendPrompt('ses_1', { text: 'x'.repeat(8001), delivery: 'queue' })
+    ).rejects.toMatchObject({ code: 'falhou' })
+    await expect(
+      client.sendPrompt('sessao', { text: 'oi', delivery: 'queue' })
+    ).rejects.toMatchObject({ code: 'falhou' })
+    expect(fake.calls).toHaveLength(0)
+  })
+
+  it('interruptSession usa POST sem corpo e tolera 204', async () => {
+    const { client, fake } = createClient(() => ({ stdout: '' }))
+    await client.interruptSession('ses_1')
+    expect(fake.calls[0].args).toEqual(['api', 'post', '/api/session/ses_1/interrupt'])
+  })
+
+  it('sessionTranscript monta o transcrito só com partes de texto, mascaradas', async () => {
+    const { client, fake } = createClient(() => ({
+      stdout: JSON.stringify({
+        data: [
+          {
+            id: 'msg_1',
+            role: 'user',
+            time: { created: 100 },
+            content: [{ type: 'text', text: 'token=abcdef123456' }]
+          },
+          {
+            id: 'msg_2',
+            info: { role: 'assistant' },
+            time: { created: 200 },
+            content: [
+              { type: 'text', text: '  use  Bearer abcdef123456  ' },
+              { type: 'tool', name: 'shell', state: { input: { command: 'npm test' } } },
+              { type: 'text', text: 'fim' }
+            ]
+          }
+        ]
+      })
+    }))
+    const transcript = await client.sessionTranscript('ses_1', 5)
+    expect(fake.calls[0].args[2]).toBe('/api/session/ses_1/message?limit=5')
+    expect(transcript).toEqual([
+      { id: 'msg_1', role: 'user', at: 100, text: 'token=***' },
+      { id: 'msg_2', role: 'assistant', at: 200, text: 'use Bearer ***' },
+      { id: 'msg_2', role: 'assistant', at: 200, text: 'fim' }
     ])
   })
 
@@ -506,5 +605,31 @@ describe('latestToolActivity', () => {
   it('sem parte de ferramenta devolve undefined', () => {
     expect(latestToolActivity([{ content: [{ type: 'text' }] }], 1)).toBeUndefined()
     expect(latestToolActivity([], 1)).toBeUndefined()
+  })
+})
+
+describe('transcriptFromMessages', () => {
+  it('corta em 8 mensagens, trunca o texto em 600 e preserva a ordem cronológica', () => {
+    const messages = Array.from({ length: 12 }, (_, index) => ({
+      id: `msg_${index}`,
+      role: 'assistant',
+      time: { created: index },
+      content: [{ type: 'text' as const, text: `${index}: ${'a'.repeat(700)}` }]
+    }))
+    const transcript = transcriptFromMessages([...messages].reverse())
+    expect(transcript).toHaveLength(8)
+    expect(transcript[0].id).toBe('msg_4')
+    expect(transcript.at(-1)?.id).toBe('msg_11')
+    for (const entry of transcript) {
+      expect(entry.text.length).toBeLessThanOrEqual(600)
+      expect(entry.text.endsWith('…')).toBe(true)
+    }
+  })
+
+  it('autor desconhecido vira unknown e texto sem segredo passa intacto', () => {
+    const transcript = transcriptFromMessages([
+      { role: 'system', content: [{ type: 'text', text: '  olá  ' }] }
+    ])
+    expect(transcript).toEqual([{ role: 'unknown', at: 0, text: 'olá' }])
   })
 })
