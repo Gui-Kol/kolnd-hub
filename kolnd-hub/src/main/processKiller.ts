@@ -1,5 +1,5 @@
 import treeKill from 'tree-kill'
-import { listRunningProcesses } from './startupManager'
+import { listRunningProcesses, type RunningProcess } from './startupManager'
 
 /**
  * Extrai o nome do executável a partir do comando salvo nas configurações
@@ -64,33 +64,33 @@ export interface KillResult {
  * segundo plano, mas não foi ele quem iniciou o processo nesta sessão (ex.:
  * Hub reiniciado e o programa ficou órfão).
  */
-export function killProcessesForCommand(command: string): Promise<KillResult> {
+export async function killProcessesForCommand(command: string): Promise<KillResult> {
   const exe = executableNameFromCommand(command)
   if (!exe) {
-    return Promise.resolve({
+    return {
       success: false,
       error: 'Não foi possível identificar o executável do comando',
       killed: []
-    })
+    }
   }
 
   if (GENERIC_LAUNCHERS.has(exe)) {
-    return Promise.resolve({
+    return {
       success: false,
       error: `"${exe}" é um interpretador/shell genérico — encerre o processo manualmente para não derrubar outros programas.`,
       killed: []
-    })
+    }
   }
 
-  let procs: ReturnType<typeof listRunningProcesses>
+  let procs: RunningProcess[]
   try {
-    procs = listRunningProcesses()
+    procs = await listRunningProcesses()
   } catch (err) {
-    return Promise.resolve({
+    return {
       success: false,
       error: `Não foi possível listar os processos: ${err instanceof Error ? err.message : String(err)}`,
       killed: []
-    })
+    }
   }
 
   const matches = procs.filter((p) => {

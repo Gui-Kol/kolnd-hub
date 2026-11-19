@@ -187,39 +187,39 @@ describe('checkExePaths', () => {
 // ── findGameProcesses / runningGamesMap ─────────────────────────
 
 describe('findGameProcesses', () => {
-  it('casamento por nome do processo e por baseName do caminho', () => {
+  it('casamento por nome do processo e por baseName do caminho', async () => {
     mockedListRunningProcesses.mockReturnValue([
       { name: 'jogo', id: 10, path: 'C:\\outro\\jogo.exe' },
       { name: 'outro', id: 20, path: 'C:\\Jogos\\Jogo Um\\jogo.exe' },
       { name: 'explorer', id: 30, path: 'C:\\Windows\\explorer.exe' }
     ])
-    const procs = findGameProcesses('C:\\Jogos\\Jogo Um\\jogo.exe')
+    const procs = await findGameProcesses('C:\\Jogos\\Jogo Um\\jogo.exe')
     expect(procs.map((p) => p.id)).toEqual([10, 20])
   })
 
-  it('exe sem base → []; falha na listagem → []', () => {
-    expect(findGameProcesses('')).toEqual([])
+  it('exe sem base → []; falha na listagem → []', async () => {
+    expect(await findGameProcesses('')).toEqual([])
     mockedListRunningProcesses.mockImplementation(() => {
       throw new Error('ps falhou')
     })
-    expect(findGameProcesses('C:\\x\\x.exe')).toEqual([])
+    expect(await findGameProcesses('C:\\x\\x.exe')).toEqual([])
   })
 })
 
 describe('runningGamesMap', () => {
-  it('mapeia id → rodando para os ids da biblioteca', () => {
+  it('mapeia id → rodando para os ids da biblioteca', async () => {
     mockedGetStoredGames.mockReturnValue([baseGame])
     mockedListRunningProcesses.mockReturnValue([
       { name: 'jogo', id: 1, path: 'C:\\Jogos\\Jogo Um\\jogo.exe' }
     ])
-    const res = runningGamesMap(['game-1', 'desconhecido'])
+    const res = await runningGamesMap(['game-1', 'desconhecido'])
     expect(res.ok).toBe(true)
     expect(res.running).toEqual({ 'game-1': true })
   })
 
-  it('lista vazia → {ok:true, running:{}}; não-array → {ok:false}', () => {
-    expect(runningGamesMap([])).toEqual({ ok: true, running: {} })
-    expect(runningGamesMap(null as never)).toEqual({ ok: false, running: {} })
+  it('lista vazia → {ok:true, running:{}}; não-array → {ok:false}', async () => {
+    expect(await runningGamesMap([])).toEqual({ ok: true, running: {} })
+    expect(await runningGamesMap(null as never)).toEqual({ ok: false, running: {} })
   })
 })
 

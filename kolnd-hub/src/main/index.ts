@@ -102,6 +102,23 @@ if (gotSingleInstanceLock) {
   app.quit()
 }
 
+let postWindowWorkDone = false
+
+/**
+ * Seed do Mark LVI + reparo de ícones: fora do caminho crítico da janela.
+ * Rodam uma vez por sessão, depois de `ready-to-show`, mantendo os mesmos gates
+ * de versão/idempotência de quando eram aguardados antes de criar a janela.
+ */
+function runPostWindowWork(): void {
+  if (postWindowWorkDone) return
+  postWindowWorkDone = true
+  logger.info('window', 'janela pronta: seed do Mark LVI e reparo de ícones em segundo plano')
+  seedMarkLviData()
+  void repairGameIconsIfNeeded().then((repaired) => {
+    logger.info('games', `reparo de ícones pós-abertura concluído (${repaired} regravado(s))`)
+  })
+}
+
 function createWindow(isFirstRunMode = false, startHidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -123,8 +140,11 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
   mainWindow.on('ready-to-show', () => {
     // --hidden (autostart do Hub no Windows): a janela fica viva e oculta —
     // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
-    if (startHidden) return
-    mainWindow!.show()
+    if (!startHidden) mainWindow!.show()
+    // Trabalho best-effort que não precisa estar no caminho da primeira
+    // pintura (seed do Mark LVI + reparo de ícones) roda aqui, uma vez por
+    // sessão, DEPOIS que a janela já está pronta.
+    runPostWindowWork()
   })
 
   // X do title bar, Alt+F4 e o close do SO ocultam para a bandeja em vez de
@@ -274,7 +294,7 @@ function createTray(): void {
   })
 }
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   // Sem o lock, o app já recebeu app.quit() e não faz bootstrap nenhum.
   if (!gotSingleInstanceLock) return
   electronApp.setAppUserModelId('com.kolnd.hub')
@@ -380,10 +400,6 @@ app.whenReady().then(async () => {
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
 
-  // Seed dos dados do Mark LVI para %APPDATA%/kolnd-hub/mark-lvi
-  // (migração transparente para quem já tinha config/memory ao lado do exe).
-  seedMarkLviData()
-
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -397,11 +413,8 @@ app.whenReady().then(async () => {
     logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
   }
 
-  // Ícones em cache gerados pelo pipeline antigo (genérico do Windows) são
-  // regravados uma única vez por versão — antes da janela abrir, para a
-  // primeira pintura já mostrar o ícone certo. Nunca bloqueia por falha.
-  await repairGameIconsIfNeeded()
-
+  // A janela abre JÁ: seed do Mark LVI e reparo de ícones rodam depois do
+  // `ready-to-show` (ver runPostWindowWork), fora do caminho da primeira pintura.
   createWindow(firstRun, startHidden)
   createTray()
 })

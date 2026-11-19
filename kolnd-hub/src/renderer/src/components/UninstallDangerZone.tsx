@@ -9,18 +9,25 @@
 // (Card + override pontual de borderColor), estados com Badge (warning/neutral,
 // reusando strings já existentes), botões danger via primitivo Button.
 // Lógica, estados, ordem, textos e bloqueios: INTOCADOS.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { AlertTriangle, Gamepad2, RefreshCw, Trash2, Zap } from 'lucide-react'
-import { UninstallKloudGamesModal } from './UninstallKloudGamesModal'
-import { UninstallHubModal } from './UninstallHubModal'
 import { Badge, Button, Card, IconButton, Skeleton } from './ui'
 import {
   getKloudPartialKind,
   getKloudPartialStatusText,
   type KloudDetectionLike
 } from '../lib/uninstall'
+
+// Modais de desinstalação só baixam quando abertos (código de fluxo destrutivo
+// não entra no boot). Fallback null: nenhum spinner/texto novo.
+const UninstallKloudGamesModal = lazy(() =>
+  import('./UninstallKloudGamesModal').then((m) => ({ default: m.UninstallKloudGamesModal }))
+)
+const UninstallHubModal = lazy(() =>
+  import('./UninstallHubModal').then((m) => ({ default: m.UninstallHubModal }))
+)
 
 export interface UninstallDangerZoneProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
@@ -344,23 +351,27 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
       </div>
 
       {modalOpen && (
-        <UninstallKloudGamesModal
-          open
-          isRunning={kloudRunning}
-          detection={detectionLike}
-          onClose={handleModalClose}
-          onRunningChange={setUninstalling}
-          onToast={showToast}
-        />
+        <Suspense fallback={null}>
+          <UninstallKloudGamesModal
+            open
+            isRunning={kloudRunning}
+            detection={detectionLike}
+            onClose={handleModalClose}
+            onRunningChange={setUninstalling}
+            onToast={showToast}
+          />
+        </Suspense>
       )}
 
       {hubModalOpen && (
-        <UninstallHubModal
-          open
-          onClose={handleHubModalClose}
-          onRunningChange={setUninstalling}
-          onToast={showToast}
-        />
+        <Suspense fallback={null}>
+          <UninstallHubModal
+            open
+            onClose={handleHubModalClose}
+            onRunningChange={setUninstalling}
+            onToast={showToast}
+          />
+        </Suspense>
       )}
     </section>
   )

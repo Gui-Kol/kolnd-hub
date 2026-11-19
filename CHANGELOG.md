@@ -12,6 +12,10 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 - **Ícones da Biblioteca recarregados ao abrir a aba**: o main revisa todos os jogos e re-extrai do executável apenas os ícones que não estão legíveis (arquivo ausente, vazio ou corrompido), garantindo que os cards fiquem preenchidos; ícones válidos — inclusive os escolhidos à mão no modal de edição — nunca são sobrescritos (IPC `games:reload-icons`)
 
+### Corrigido
+
+- **Travamento do mouse/PC ao abrir o Hub** (pior com jogo em fullscreen, ex.: Valorant): a listagem de processos do sistema virou **assíncrona** e roda num **único** processo PowerShell persistente por sessão (com cache de 5 s e uma consulta em voo) — antes cada consulta levava ~5 s **bloqueando o event loop** e um `powershell.exe` novo era criado a cada 5 s. A lista de inicialização também saiu do caminho da tela de loading, o seed do Mark LVI e o reparo de ícones passaram a rodar **depois** da janela abrir e as páginas/painéis do renderer entram por **code splitting** (chunk inicial de 1.334 KB → 649 KB)
+
 ## [1.1.0] - 2026-11-18
 
 Primeira versão com a numeração alinhada às tags (`v1.1.0`). Reúne o que estava em `[Não lançado]` e o que foi bumpado internamente como `1.2.0`, `1.3.0` e `1.4.0` — numeração que nunca teve tag nem release própria (ver [Notas](#notas)). Conteúdo acumulado desde a 1.0.0 (`c110ca62`), passando pelos bumps internos `1ec3dffe`, `67f654c9` e `3454e458`.

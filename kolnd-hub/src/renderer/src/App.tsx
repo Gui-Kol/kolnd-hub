@@ -1,20 +1,12 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import { useReducedMotion } from './lib/motion'
 import { Button, Modal, Toast } from './components/ui'
 import { Layout } from './components/Layout'
-import { BigPicture } from './components/BigPicture'
 import { Dashboard } from './components/Dashboard'
-import { Settings } from './components/Settings'
-import { Inicializacao } from './components/Inicializacao'
-import { Biblioteca } from './components/Biblioteca'
-import { OfficeView } from './components/office/OfficeView'
-import { GlobalSearch } from './components/GlobalSearch'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingScreen } from './components/LoadingScreen'
-import { FirstRunInstall } from './components/FirstRunInstall'
-import { UpdateBanner } from './components/UpdateBanner'
 import { apps as defaultApps } from './config/apps'
 import type { ReleaseInfo, UpdateCheckResult } from '../../shared/updates'
 import {
@@ -30,6 +22,33 @@ import {
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
 import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
 import { once } from './lib/once'
+
+// Code splitting: páginas fora da inicial viajam em chunks próprios, carregados
+// só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture/
+// Escritório inteiros). Fallback `null`: nenhum spinner/texto novo — a transição
+// de página existente continua idêntica.
+const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })))
+const Inicializacao = lazy(() =>
+  import('./components/Inicializacao').then((m) => ({ default: m.Inicializacao }))
+)
+const Biblioteca = lazy(() =>
+  import('./components/Biblioteca').then((m) => ({ default: m.Biblioteca }))
+)
+const OfficeView = lazy(() =>
+  import('./components/office/OfficeView').then((m) => ({ default: m.OfficeView }))
+)
+const BigPicture = lazy(() =>
+  import('./components/BigPicture').then((m) => ({ default: m.BigPicture }))
+)
+const FirstRunInstall = lazy(() =>
+  import('./components/FirstRunInstall').then((m) => ({ default: m.FirstRunInstall }))
+)
+const GlobalSearch = lazy(() =>
+  import('./components/GlobalSearch').then((m) => ({ default: m.GlobalSearch }))
+)
+const UpdateBanner = lazy(() =>
+  import('./components/UpdateBanner').then((m) => ({ default: m.UpdateBanner }))
+)
 
 // Uma consulta por processo (StrictMode no dev monta o init duas vezes): o main
 // paga WMI/PowerShell caro para o nome do PC e para a lista de inicialização.
@@ -212,8 +231,6 @@ function App(): JSX.Element {
         systemPcNameOnce().then((name) => {
           if (mounted) setPcName(name)
         }),
-        // Programas configurados para iniciar com o PC (lista + importância).
-        loadStartupItems(),
         // Status inicial de todos os apps gerenciados pelo Hub.
         window.api.getAllStatus().then((status) => {
           if (mounted) {
@@ -223,6 +240,11 @@ function App(): JSX.Element {
       ])
 
       if (mounted) setDataReady(true)
+
+      // A lista de inicialização não é necessária para a primeira pintura:
+      // carrega em segundo plano (a página Inicialização mostra o estado
+      // vazio até ela chegar) em vez de segurar a LoadingScreen.
+      void loadStartupItems()
     }
 
     void init()
@@ -277,8 +299,11 @@ function App(): JSX.Element {
   }, [isLoading])
 
   // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
-  // 5s com a janela visível, 30s quando oculta (bandeja), trocando
-  // imediatamente no visibilitychange.
+  // 10s com a janela visível, 60s quando oculta (bandeja), trocando
+  // imediatamente no visibilitychange. O baseline (T0) mostrou que cada
+  // consulta custava ~5 s de CPU do PowerShell; o main agora usa um helper
+  // persistente e não bloqueia mais, e o intervalo maior evita trabalho
+  // contínuo enquanto o usuário joga.
   useEffect(() => {
     let cancelled = false
     let timer: number | undefined
@@ -291,7 +316,7 @@ function App(): JSX.Element {
         // Ignore polling errors
       } finally {
         if (!cancelled) {
-          const delay = document.visibilityState === 'visible' ? 5000 : 30000
+          const delay = document.visibilityState === 'visible' ? 10000 : 60000
           timer = window.setTimeout(() => void tick(), delay)
         }
       }
@@ -644,26 +669,30 @@ function App(): JSX.Element {
     <>
       {/* ── Tela de primeira execução ─────────────────── */}
       {isFirstRun ? (
-        <FirstRunInstall
-          onComplete={() => {
-            saveDefaultAppConfigs()
-            setIsFirstRun(false)
-            // Vai direto para o Hub: a animação da loading screen só faz
-            // sentido na abertura do app, não após a primeira execução.
-            setAnimationDone(true)
-          }}
-        />
+        <Suspense fallback={null}>
+          <FirstRunInstall
+            onComplete={() => {
+              saveDefaultAppConfigs()
+              setIsFirstRun(false)
+              // Vai direto para o Hub: a animação da loading screen só faz
+              // sentido na abertura do app, não após a primeira execução.
+              setAnimationDone(true)
+            }}
+          />
+        </Suspense>
       ) : isLoading ? (
         <LoadingScreen onReady={handleLoadingReady} />
       ) : bigPicture !== 'hidden' ? (
         <>
           {/* ── Big Picture: takeover em tela cheia (no lugar do Layout) ── */}
-          <BigPicture
-            mode={bigPicture}
-            onExit={exitBigPicture}
-            onSetupComplete={handleBigPictureSetupComplete}
-            onTransitionComplete={handleBigPictureTransitionComplete}
-          />
+          <Suspense fallback={null}>
+            <BigPicture
+              mode={bigPicture}
+              onExit={exitBigPicture}
+              onSetupComplete={handleBigPictureSetupComplete}
+              onTransitionComplete={handleBigPictureTransitionComplete}
+            />
+          </Suspense>
           {noticeToast}
         </>
       ) : (
@@ -679,11 +708,13 @@ function App(): JSX.Element {
             onOpenSearch={() => setSearchOpen(true)}
             updateBanner={
               updateInfo && !updateDismissed ? (
-                <UpdateBanner
-                  release={updateInfo.release}
-                  canAutoInstall={updateInfo.canAutoInstall}
-                  onDismiss={() => setUpdateDismissed(true)}
-                />
+                <Suspense fallback={null}>
+                  <UpdateBanner
+                    release={updateInfo.release}
+                    canAutoInstall={updateInfo.canAutoInstall}
+                    onDismiss={() => setUpdateDismissed(true)}
+                  />
+                </Suspense>
               ) : null
             }
           >
@@ -710,29 +741,37 @@ function App(): JSX.Element {
                   />
                 ) : currentPage === 'openoffice' ? (
                   <ErrorBoundary>
-                    <OfficeView />
+                    <Suspense fallback={null}>
+                      <OfficeView />
+                    </Suspense>
                   </ErrorBoundary>
                 ) : currentPage === 'inicializacao' ? (
                   <ErrorBoundary>
-                    <Inicializacao
-                      pcName={pcName ?? ''}
-                      items={startupItems}
-                      importance={startupImportance}
-                      labels={IMPORTANCE_LABELS}
-                      onRemove={handleRemoveStartup}
-                      onRemoveBatch={handleRemoveBatchStartup}
-                      onAdd={handleAddStartup}
-                      onAddBatch={handleAddBatchStartup}
-                      onReload={() => loadStartupItems(true)}
-                      appsNotInStartup={appsNotInStartup}
-                    />
+                    <Suspense fallback={null}>
+                      <Inicializacao
+                        pcName={pcName ?? ''}
+                        items={startupItems}
+                        importance={startupImportance}
+                        labels={IMPORTANCE_LABELS}
+                        onRemove={handleRemoveStartup}
+                        onRemoveBatch={handleRemoveBatchStartup}
+                        onAdd={handleAddStartup}
+                        onAddBatch={handleAddBatchStartup}
+                        onReload={() => loadStartupItems(true)}
+                        appsNotInStartup={appsNotInStartup}
+                      />
+                    </Suspense>
                   </ErrorBoundary>
                 ) : currentPage === 'biblioteca' ? (
                   <ErrorBoundary>
-                    <Biblioteca />
+                    <Suspense fallback={null}>
+                      <Biblioteca />
+                    </Suspense>
                   </ErrorBoundary>
                 ) : (
-                  <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
+                  <Suspense fallback={null}>
+                    <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
+                  </Suspense>
                 )}
               </motion.div>
             </AnimatePresence>
@@ -743,12 +782,14 @@ function App(): JSX.Element {
 
           {/* ── Busca global (atalho "/") ───────────────── */}
           {searchOpen && (
-            <GlobalSearch
-              apps={apps}
-              onClose={() => setSearchOpen(false)}
-              onLaunchApp={handleSearchLaunchApp}
-              onLaunchGame={handleSearchLaunchGame}
-            />
+            <Suspense fallback={null}>
+              <GlobalSearch
+                apps={apps}
+                onClose={() => setSearchOpen(false)}
+                onLaunchApp={handleSearchLaunchApp}
+                onLaunchGame={handleSearchLaunchGame}
+              />
+            </Suspense>
           )}
 
           {/* Modal: confirmação de saída — Esc/backdrop/botões fecham (comportamento

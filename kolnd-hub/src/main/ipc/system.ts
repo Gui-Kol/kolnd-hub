@@ -9,6 +9,8 @@ export function registerSystemIpc(_ctx: IpcContext): void {
   })
 
   ipcMain.handle('system:running-processes', () => {
+    // Assíncrono: a consulta roda no helper PowerShell persistente do main e
+    // nunca bloqueia o event loop (o polling antigo travava o app por ~5 s).
     return listRunningProcesses()
   })
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import {
@@ -13,11 +13,7 @@ import {
   Trash,
   Gauge
 } from 'lucide-react'
-import { PcUpdates } from './PcUpdates'
 import { PcCleanup } from './PcCleanup'
-import { PcBenchmark } from './PcBenchmark'
-import { PcMonitor } from './PcMonitor'
-import { PcDisplay } from './PcDisplay'
 import { Badge, Button, Card, EmptyState } from './ui'
 import {
   StartupItem,
@@ -29,6 +25,13 @@ import {
 } from '../types'
 import { AppConfig } from '../types'
 import { classifyImportance } from '../lib/startup'
+
+// Painéis pesados (Monitor, Benchmark, Atualizações, Tela) só baixam ao abrir a
+// aba correspondente. Fallback null: sem spinner/texto novo.
+const PcUpdates = lazy(() => import('./PcUpdates').then((m) => ({ default: m.PcUpdates })))
+const PcBenchmark = lazy(() => import('./PcBenchmark').then((m) => ({ default: m.PcBenchmark })))
+const PcMonitor = lazy(() => import('./PcMonitor').then((m) => ({ default: m.PcMonitor })))
+const PcDisplay = lazy(() => import('./PcDisplay').then((m) => ({ default: m.PcDisplay })))
 
 type PcTab = 'inicializacao' | 'tela' | 'atualizacoes' | 'limpeza' | 'benchmark' | 'monitor'
 
@@ -548,14 +551,18 @@ export function Inicializacao({
       {/* ── Aba: Tela (escala + resolução) — montada na 1ª visita e mantida ── */}
       {telaMounted && (
         <div className={activeTab === 'tela' ? '' : 'hidden'}>
-          <PcDisplay />
+          <Suspense fallback={null}>
+            <PcDisplay />
+          </Suspense>
         </div>
       )}
 
       {/* ── Aba: Atualizações (winget) — montada na 1ª visita e mantida montada ── */}
       {atualizacoesMounted && (
         <div className={activeTab === 'atualizacoes' ? '' : 'hidden'}>
-          <PcUpdates />
+          <Suspense fallback={null}>
+            <PcUpdates />
+          </Suspense>
         </div>
       )}
 
@@ -563,10 +570,18 @@ export function Inicializacao({
       {activeTab === 'limpeza' && <PcCleanup />}
 
       {/* ── Aba: Benchmark de CPU ────────────────────────── */}
-      {activeTab === 'benchmark' && <PcBenchmark />}
+      {activeTab === 'benchmark' && (
+        <Suspense fallback={null}>
+          <PcBenchmark />
+        </Suspense>
+      )}
 
       {/* ── Aba: Monitor de hardware ─────────────────────── */}
-      {activeTab === 'monitor' && <PcMonitor />}
+      {activeTab === 'monitor' && (
+        <Suspense fallback={null}>
+          <PcMonitor />
+        </Suspense>
+      )}
     </div>
   )
 }

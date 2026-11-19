@@ -334,8 +334,16 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   `redactSecrets`). Nada é enviado a lugar nenhum.
 - **Processos filhos**: `app:launch` roda por padrão via **shell (cmd.exe)** —
   `shell: true` é o default intencional (preserva aspas/argumentos); `shell: false`
-  separa argv e executa sem interpretação. `execFileSync` no main (ex.:
-  `startupManager.ts` com `reg query`) bloqueia o event loop — evite em código novo.
+  separa argv e executa sem interpretação. `execFileSync` no main (ex.: as mutações de
+  inicialização em `startupManager.ts`) bloqueia o event loop — evite em código novo.
+- **Listagem de processos do sistema** (`startupManager.ts`): um único `powershell.exe`
+  persistente por sessão (stdin/stdout com prefixo `KOLND-RESULT`, 1 consulta em voo,
+  timeout de 15 s com kill/respawn, morre quando o stdin fecha) roda
+  `Get-CimInstance Win32_Process` — com anti-cheat ativo o antigo `Get-Process … Path`
+  levava ~5 s abrindo handle em cada processo. `listRunningProcesses()` é assíncrona,
+  tem cache de 5 s e o renderer consulta a cada 10 s (60 s com a janela na bandeja);
+  **nenhum spawn periódico**. `listStartupItems()` é assíncrona (2 `execFile` em
+  paralelo) e não segura a tela de loading.
 - **Shell externo**: `shell:openExternal` com allowlist de esquemas; `shell:openPath`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
 - **Artefato elevado**: nunca em diretório gravável pelo usuário. O helper de FPS que
