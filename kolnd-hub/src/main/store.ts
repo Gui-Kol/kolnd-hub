@@ -159,10 +159,10 @@ export interface BigPicturePrefs {
  * Preferências do acesso remoto (chave `remoteAccess`).
  *
  * Guarda apenas o RESULTADO da última consulta de IP público — credenciais do
- * Tailscale nunca passam pelo Hub (ficam no serviço/app do Tailscale).
+ * ZeroTier nunca passam pelo Hub (ficam no serviço/app do ZeroTier).
  */
 export interface RemoteAccessPrefs {
-  /** "Modo remoto" ligado pelo card do Kloud Games (só com Tailscale conectado). */
+  /** "Modo remoto" ligado pelo card do Kloud Games (só com ZeroTier conectado). */
   mode: boolean
   lastPublicIp: string | null
   /** ISO da última consulta bem-sucedida. */

@@ -13,6 +13,10 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 - **Ícones da Biblioteca recarregados ao abrir a aba**: o main revisa todos os jogos e re-extrai do executável apenas os ícones que não estão legíveis (arquivo ausente, vazio ou corrompido), garantindo que os cards fiquem preenchidos; ícones válidos — inclusive os escolhidos à mão no modal de edição — nunca são sobrescritos (IPC `games:reload-icons`)
 - **Botão "Atualizar ícones" na Biblioteca**: no cabeçalho da página, re-extrai o ícone de **todos** os jogos a partir dos executáveis — o mesmo efeito de abrir cada jogo e clicar em "Restaurar ícone". Por ser ação explícita, sobrescreve também ícones escolhidos à mão; o main grava os arquivos, persiste os caminhos novos numa única escrita do store, apaga as sobras dos ícones antigos e o renderer descarta o cache para buscar as imagens novas; o toast resume atualizados/total e quantos ficaram sem ícone utilizável (IPC `games:refresh-icons`)
 
+### Alterado
+
+- **Acesso remoto passou a usar ZeroTier no lugar do Tailscale**: a seção **Configurações → Acesso remoto** e o **Modo remoto** do card do Kloud Games detectam o CLI oficial (`zerotier-cli -j info`/`-j listnetworks`), mostram o endereço atribuído pela rede, separam os IPs da VPN dos da LAN pelo adapter/`assignedAddresses` e instalam/abrem o ZeroTier por ação explícita (`winget` e GUI oficial); ingressar na rede continua sendo feito no app/painel do ZeroTier (IPCs `remote:install-zerotier`/`remote:open-zerotier`, motivos `zerotier-missing`/`zerotier-disconnected`)
+
 ### Corrigido
 
 - **Travamento do mouse/PC ao abrir o Hub** (pior com jogo em fullscreen, ex.: Valorant): a listagem de processos do sistema virou **assíncrona** e roda num **único** processo PowerShell persistente por sessão (com cache de 5 s e uma consulta em voo) — antes cada consulta levava ~5 s **bloqueando o event loop** e um `powershell.exe` novo era criado a cada 5 s. A lista de inicialização também saiu do caminho da tela de loading, o seed do Mark LVI e o reparo de ícones passaram a rodar **depois** da janela abrir e as páginas/painéis do renderer entram por **code splitting** (chunk inicial de 1.334 KB → 649 KB)

@@ -5,25 +5,26 @@ import {
   networkKindBadge,
   parseRemoteStatus,
   summarizePorts,
-  tailscaleBadge
+  zeroTierBadge
 } from './remoteAccess'
 
 const VALID = {
-  tailscale: {
+  zerotier: {
     installed: true,
     connected: true,
-    backendState: 'Running',
-    hostname: 'desktop',
-    dnsName: 'desktop.tail.ts.net',
-    ipv4: '100.90.80.70',
-    ipv6: 'fd7a:115c::1',
-    tailnet: 'tail.ts.net',
-    onlinePeers: 2,
-    exePath: 'C:\\Program Files\\Tailscale\\tailscale.exe'
+    online: true,
+    nodeId: 'a1b2c3d4e5',
+    version: '1.16.2',
+    network: 'casa',
+    networkId: '8056c2e21c000001',
+    networkStatus: 'OK',
+    ipv4: '10.147.20.5',
+    ipv6: 'fd00::5',
+    exePath: 'C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat'
   },
   addresses: {
     lan: ['192.168.0.10', 'lixo'],
-    tailscale: ['100.90.80.70'],
+    zerotier: ['10.147.20.5'],
     ipv6: ['2001:db8::1']
   },
   kloud: { installed: true, running: true },
@@ -38,8 +39,8 @@ const VALID = {
       ]
     },
     {
-      target: 'tailscale',
-      host: '100.90.80.70',
+      target: 'zerotier',
+      host: '10.147.20.5',
       probes: [{ port: 47984, open: true }]
     }
   ],
@@ -50,18 +51,19 @@ describe('parseRemoteStatus', () => {
   it('normaliza um payload válido e descarta IPs inválidos', () => {
     const status = parseRemoteStatus(VALID)
     expect(status).not.toBeNull()
-    expect(status?.tailscale.ipv4).toBe('100.90.80.70')
+    expect(status?.zerotier.ipv4).toBe('10.147.20.5')
     expect(status?.addresses.lan).toEqual(['192.168.0.10'])
+    expect(status?.addresses.zerotier).toEqual(['10.147.20.5'])
     expect(status?.ports).toHaveLength(2)
     expect(status?.publicIp.kind).toBe('cgnat')
   })
 
-  it('rejeita payload sem o mínimo (tailscale/kloud) e entrada não-objeto', () => {
+  it('rejeita payload sem o mínimo (zerotier/kloud) e entrada não-objeto', () => {
     expect(parseRemoteStatus(null)).toBeNull()
     expect(parseRemoteStatus('texto')).toBeNull()
     expect(parseRemoteStatus({})).toBeNull()
-    expect(parseRemoteStatus({ ...VALID, tailscale: undefined })).toBeNull()
-    expect(parseRemoteStatus({ ...VALID, tailscale: { installed: 'sim' } })).toBeNull()
+    expect(parseRemoteStatus({ ...VALID, zerotier: undefined })).toBeNull()
+    expect(parseRemoteStatus({ ...VALID, zerotier: { installed: 'sim' } })).toBeNull()
     expect(parseRemoteStatus({ ...VALID, kloud: undefined })).toBeNull()
   })
 
@@ -71,51 +73,83 @@ describe('parseRemoteStatus', () => {
       addresses: 'lixo',
       ports: [{ target: 'x', host: '', probes: 'nada' }, null],
       publicIp: { address: 42, checkedAt: null, kind: 'inventado' },
-      tailscale: { ...VALID.tailscale, onlinePeers: -3, ipv4: '999.1.1.1' }
+      zerotier: { ...VALID.zerotier, online: 'sim', ipv4: '999.1.1.1' }
     })
-    expect(status?.addresses).toEqual({ lan: [], tailscale: [], ipv6: [] })
+    expect(status?.addresses).toEqual({ lan: [], zerotier: [], ipv6: [] })
     expect(status?.ports).toEqual([])
     expect(status?.publicIp).toEqual({ address: null, checkedAt: null, kind: 'unknown' })
-    expect(status?.tailscale.onlinePeers).toBe(0)
-    expect(status?.tailscale.ipv4).toBeNull()
+    expect(status?.zerotier.online).toBe(false)
+    expect(status?.zerotier.ipv4).toBeNull()
   })
 })
 
-describe('tailscaleBadge', () => {
+describe('zeroTierBadge', () => {
   const base = {
     installed: true,
     connected: false,
-    backendState: null,
-    hostname: null,
-    dnsName: null,
+    online: true,
+    nodeId: null,
+    version: null,
+    network: null,
+    networkId: null,
+    networkStatus: null,
     ipv4: null,
     ipv6: null,
-    tailnet: null,
-    onlinePeers: 0,
     exePath: null
   }
 
-  it('cobre não instalado, conectado e estados de login', () => {
-    expect(tailscaleBadge({ ...base, installed: false })).toEqual({
+  it('cobre não instalado, conectado e serviço desligado', () => {
+    expect(zeroTierBadge({ ...base, installed: false })).toEqual({
       tone: 'neutral',
       label: 'Não instalado'
     })
-    expect(tailscaleBadge({ ...base, connected: true })).toEqual({
+    expect(zeroTierBadge({ ...base, connected: true })).toEqual({
       tone: 'success',
       label: 'Conectado'
     })
-    expect(tailscaleBadge({ ...base, backendState: 'NeedsLogin' })).toEqual({
-      tone: 'warning',
-      label: 'Falta entrar'
-    })
-    expect(tailscaleBadge({ ...base, backendState: 'Stopped' })).toEqual({
+    expect(zeroTierBadge({ ...base, online: false })).toEqual({
       tone: 'neutral',
       label: 'Desligado'
     })
-    expect(tailscaleBadge({ ...base, backendState: 'algo' })).toEqual({
+  })
+
+  it('distingue instalado sem rede de rede recusada/aguardando', () => {
+    expect(zeroTierBadge(base)).toEqual({ tone: 'warning', label: 'Sem rede' })
+    expect(zeroTierBadge({ ...base, networkId: '8056c2e21c000001' })).toEqual({
       tone: 'danger',
       label: 'Desconectado'
     })
+    expect(
+      zeroTierBadge({
+        ...base,
+        networkId: '8056c2e21c000001',
+        networkStatus: 'OK'
+      })
+    ).toEqual({ tone: 'warning', label: 'Sem endereço' })
+    expect(
+      zeroTierBadge({
+        ...base,
+        networkId: '8056c2e21c000001',
+        networkStatus: 'REQUESTING_CONFIGURATION'
+      })
+    ).toEqual({ tone: 'warning', label: 'Conectando' })
+    expect(
+      zeroTierBadge({
+        ...base,
+        networkId: '8056c2e21c000001',
+        networkStatus: 'ACCESS_DENIED'
+      })
+    ).toEqual({ tone: 'warning', label: 'Acesso negado' })
+    expect(
+      zeroTierBadge({
+        ...base,
+        networkId: '8056c2e21c000001',
+        networkStatus: 'AUTHENTICATION_REQUIRED'
+      })
+    ).toEqual({ tone: 'warning', label: 'Falta autorizar' })
+    expect(
+      zeroTierBadge({ ...base, networkId: '8056c2e21c000001', networkStatus: 'NOT_FOUND' })
+    ).toEqual({ tone: 'danger', label: 'Rede não encontrada' })
   })
 })
 
@@ -135,12 +169,12 @@ describe('summarizePorts', () => {
       open: 3,
       total: 4,
       localhostOpen: 2,
-      tailscaleOpen: 1
+      zerotierOpen: 1
     })
   })
 
   it('sem alvos devolve zeros', () => {
-    expect(summarizePorts([])).toEqual({ open: 0, total: 0, localhostOpen: 0, tailscaleOpen: 0 })
+    expect(summarizePorts([])).toEqual({ open: 0, total: 0, localhostOpen: 0, zerotierOpen: 0 })
   })
 })
 
@@ -150,12 +184,10 @@ describe('closedLocalhostPorts / bestRemoteAddress', () => {
     expect(closedLocalhostPorts(status?.ports ?? [])).toEqual([47989])
   })
 
-  it('prefere o IPv4 e cai no MagicDNS quando não há IP', () => {
+  it('prefere o IPv4 e cai no IPv6 quando não há IPv4', () => {
     const status = parseRemoteStatus(VALID)
-    expect(bestRemoteAddress(status!.tailscale)).toBe('100.90.80.70')
-    expect(bestRemoteAddress({ ...status!.tailscale, ipv4: null, dnsName: 'pc.tail.ts.net' })).toBe(
-      'pc.tail.ts.net'
-    )
-    expect(bestRemoteAddress({ ...status!.tailscale, ipv4: null, dnsName: null })).toBeNull()
+    expect(bestRemoteAddress(status!.zerotier)).toBe('10.147.20.5')
+    expect(bestRemoteAddress({ ...status!.zerotier, ipv4: null, ipv6: 'fd00::5' })).toBe('fd00::5')
+    expect(bestRemoteAddress({ ...status!.zerotier, ipv4: null, ipv6: null })).toBeNull()
   })
 })

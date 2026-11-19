@@ -5,7 +5,9 @@ import {
   flattenAddresses,
   isCGNAT,
   isIPv4,
-  parseTailscaleStatus
+  isZeroTierInterfaceName,
+  parseZeroTierNetworks,
+  parseZeroTierStatus
 } from './remote'
 
 describe('isIPv4', () => {
@@ -33,16 +35,50 @@ describe('isCGNAT', () => {
   })
 })
 
+describe('isZeroTierInterfaceName', () => {
+  it('reconhece o adapter pelo nome ou pelo portDeviceName do CLI', () => {
+    expect(isZeroTierInterfaceName('ZeroTier One [8056c2e21c000001]')).toBe(true)
+    expect(isZeroTierInterfaceName('zerotier')).toBe(true)
+    expect(isZeroTierInterfaceName('VPN ZT', ['vpn zt'])).toBe(true)
+    expect(isZeroTierInterfaceName('Ethernet', ['ZeroTier One [abc]'])).toBe(false)
+    expect(isZeroTierInterfaceName('', [])).toBe(false)
+    expect(isZeroTierInterfaceName(null)).toBe(false)
+  })
+})
+
 describe('classifyLocalIPv4', () => {
-  it('separa loopback, tailnet, LAN e outros', () => {
+  it('separa loopback, LAN e outros sem contexto', () => {
     expect(classifyLocalIPv4('127.0.0.1')).toBe('loopback')
-    expect(classifyLocalIPv4('100.101.102.103')).toBe('tailscale')
     expect(classifyLocalIPv4('192.168.1.20')).toBe('lan')
     expect(classifyLocalIPv4('10.1.2.3')).toBe('lan')
     expect(classifyLocalIPv4('172.20.1.1')).toBe('lan')
     expect(classifyLocalIPv4('172.32.1.1')).toBe('other')
+    expect(classifyLocalIPv4('100.101.102.103')).toBe('other')
     expect(classifyLocalIPv4('8.8.8.8')).toBe('other')
     expect(classifyLocalIPv4('nao-e-ip')).toBe('other')
+  })
+
+  it('usa o nome da interface e os endereços do ZeroTier para separar a VPN', () => {
+    const devices = ['ZeroTier One [8056c2e21c000001]']
+    expect(
+      classifyLocalIPv4('10.147.20.5', {
+        interfaceName: 'ZeroTier One [8056c2e21c000001]',
+        zerotierDevices: devices
+      })
+    ).toBe('zerotier')
+    expect(
+      classifyLocalIPv4('10.147.20.5', {
+        interfaceName: 'Ethernet',
+        zerotierAddresses: ['10.147.20.5']
+      })
+    ).toBe('zerotier')
+    expect(
+      classifyLocalIPv4('10.147.20.6', {
+        interfaceName: 'Ethernet',
+        zerotierDevices: devices,
+        zerotierAddresses: ['10.147.20.5']
+      })
+    ).toBe('lan')
   })
 })
 
@@ -68,65 +104,143 @@ describe('comparePublicIp', () => {
   })
 })
 
-describe('parseTailscaleStatus', () => {
-  it('extrai IP, MagicDNS, tailnet e peers online', () => {
-    const info = parseTailscaleStatus({
-      BackendState: 'Running',
-      Self: {
-        HostName: 'desktop-kolnd',
-        DNSName: 'desktop-kolnd.tail1234.ts.net.',
-        TailscaleIPs: ['fd7a:115c:a1e0::5', '100.90.80.70'],
-        Online: true
-      },
-      CurrentTailnet: { Name: 'gui@example.com', MagicDNSSuffix: 'tail1234.ts.net' },
-      Peer: {
-        a: { Online: true },
-        b: { Online: false },
-        c: { Online: true },
-        d: 'lixo'
+describe('parseZeroTierNetworks', () => {
+  it('normaliza a lista do CLI e tira o prefixo CIDR dos endereços', () => {
+    const networks = parseZeroTierNetworks([
+      {
+        id: '8056C2E21C000001',
+        name: 'casa',
+        status: 'OK',
+        portDeviceName: 'ZeroTier One [8056c2e21c000001]',
+        allowManaged: true,
+        assignedAddresses: ['10.147.20.5/24', 'fd00::5/80', 'lixo', 42]
       }
-    })
+    ])
 
-    expect(info.connected).toBe(true)
-    expect(info.ipv4).toBe('100.90.80.70')
-    expect(info.ipv6).toBe('fd7a:115c:a1e0::5')
-    expect(info.dnsName).toBe('desktop-kolnd.tail1234.ts.net')
-    expect(info.hostname).toBe('desktop-kolnd')
-    expect(info.tailnet).toBe('tail1234.ts.net')
-    expect(info.onlinePeers).toBe(2)
+    expect(networks).toEqual([
+      {
+        id: '8056c2e21c000001',
+        name: 'casa',
+        status: 'OK',
+        deviceName: 'ZeroTier One [8056c2e21c000001]',
+        assigned: ['10.147.20.5', 'fd00::5'],
+        allowManaged: true
+      }
+    ])
   })
 
-  it('não considera conectado quando o backend exige login', () => {
-    const info = parseTailscaleStatus({
-      BackendState: 'NeedsLogin',
-      Self: { TailscaleIPs: ['100.90.80.70'], Online: false }
+  it('aceita objeto indexado por id (saída alternativa) e preenche o id pela chave', () => {
+    const networks = parseZeroTierNetworks({
+      aaaaaaaaaaaaaaaa: { name: 'trabalho', status: 'OK', assignedAddresses: ['172.20.0.9/16'] }
     })
-    expect(info.connected).toBe(false)
-    expect(info.backendState).toBe('NeedsLogin')
-    expect(info.dnsName).toBeNull()
-    expect(info.onlinePeers).toBe(0)
+
+    expect(networks).toHaveLength(1)
+    expect(networks[0].id).toBe('aaaaaaaaaaaaaaaa')
+    expect(networks[0].assigned).toEqual(['172.20.0.9'])
   })
 
-  it('devolve estado neutro para entrada inválida', () => {
-    for (const raw of [null, undefined, 42, 'texto', []]) {
-      expect(parseTailscaleStatus(raw)).toEqual({
-        connected: false,
-        backendState: null,
-        hostname: null,
-        dnsName: null,
-        ipv4: null,
-        ipv6: null,
-        tailnet: null,
-        onlinePeers: 0
-      })
+  it('descarta entradas e campos inválidos sem quebrar', () => {
+    expect(parseZeroTierNetworks(null)).toEqual([])
+    expect(parseZeroTierNetworks('texto')).toEqual([])
+    expect(parseZeroTierNetworks([null, 42, 'x'])).toEqual([])
+
+    const [network] = parseZeroTierNetworks([
+      { id: 'curto', name: 42, status: 7, portDeviceName: '', assignedAddresses: 'nada' }
+    ])
+    expect(network).toEqual({
+      id: null,
+      name: null,
+      status: null,
+      deviceName: null,
+      assigned: [],
+      allowManaged: false
+    })
+  })
+})
+
+describe('parseZeroTierStatus', () => {
+  const info = {
+    address: 'A1B2C3D4E5',
+    online: true,
+    version: '1.16.2',
+    tcpFallbackActive: false
+  }
+
+  it('escolhe a primeira rede OK com IPv4 e remove o prefixo', () => {
+    const status = parseZeroTierStatus(info, [
+      {
+        id: '1111111111111111',
+        name: 'pendente',
+        status: 'REQUESTING_CONFIGURATION',
+        assignedAddresses: ['10.0.0.2/24']
+      },
+      {
+        id: '8056c2e21c000001',
+        name: 'casa',
+        status: 'OK',
+        portDeviceName: 'ZeroTier One [8056c2e21c000001]',
+        assignedAddresses: ['fd00::5/80', '10.147.20.5/24']
+      }
+    ])
+
+    expect(status).toEqual({
+      connected: true,
+      online: true,
+      nodeId: 'a1b2c3d4e5',
+      version: '1.16.2',
+      network: 'casa',
+      networkId: '8056c2e21c000001',
+      networkStatus: 'OK',
+      ipv4: '10.147.20.5',
+      ipv6: 'fd00::5'
+    })
+  })
+
+  it('não considera conectado quando o serviço está off-line', () => {
+    const status = parseZeroTierStatus({ ...info, online: false }, [
+      { id: '8056c2e21c000001', name: 'casa', status: 'OK', assignedAddresses: ['10.147.20.5/24'] }
+    ])
+
+    expect(status.connected).toBe(false)
+    expect(status.online).toBe(false)
+    expect(status.ipv4).toBe('10.147.20.5')
+  })
+
+  it('expõe a rede recusada como estado distinto (sem endereço)', () => {
+    const status = parseZeroTierStatus(info, [
+      { id: '8056c2e21c000001', name: 'casa', status: 'ACCESS_DENIED', assignedAddresses: [] }
+    ])
+
+    expect(status.connected).toBe(false)
+    expect(status.networkId).toBe('8056c2e21c000001')
+    expect(status.networkStatus).toBe('ACCESS_DENIED')
+    expect(status.ipv4).toBeNull()
+  })
+
+  it('devolve estado neutro para info/redes inválidas', () => {
+    const empty = {
+      connected: false,
+      online: false,
+      nodeId: null,
+      version: null,
+      network: null,
+      networkId: null,
+      networkStatus: null,
+      ipv4: null,
+      ipv6: null
     }
+
+    for (const raw of [null, undefined, 42, 'texto', []]) {
+      expect(parseZeroTierStatus(raw, raw)).toEqual(empty)
+    }
+    expect(parseZeroTierStatus({ address: 'xyz', online: 'sim', version: 'v1' }, [])).toEqual(empty)
   })
 })
 
 describe('flattenAddresses', () => {
-  it('junta LAN, tailnet e IPv6', () => {
+  it('junta LAN, ZeroTier e IPv6', () => {
     expect(
-      flattenAddresses({ lan: ['192.168.0.2'], tailscale: ['100.64.0.2'], ipv6: ['2001:db8::2'] })
-    ).toEqual(['192.168.0.2', '100.64.0.2', '2001:db8::2'])
+      flattenAddresses({ lan: ['192.168.0.2'], zerotier: ['10.147.20.5'], ipv6: ['2001:db8::2'] })
+    ).toEqual(['192.168.0.2', '10.147.20.5', '2001:db8::2'])
   })
 })

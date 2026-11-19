@@ -84,7 +84,7 @@ const api = {
     running: boolean
   }> => ipcRenderer.invoke('kloud-games:status'),
 
-  // ── Acesso remoto (Tailscale) ───────────────────
+  // ── Acesso remoto (ZeroTier) ────────────────────
   remoteStatus: (): Promise<RemoteStatus> => ipcRenderer.invoke('remote:status'),
 
   remoteGetMode: (): Promise<boolean> => ipcRenderer.invoke('remote:get-mode'),
@@ -94,11 +94,10 @@ const api = {
 
   remotePublicIp: (): Promise<PublicIpResult> => ipcRenderer.invoke('remote:public-ip'),
 
-  remoteInstallTailscale: (): Promise<RemoteActionResult> =>
-    ipcRenderer.invoke('remote:install-tailscale'),
+  remoteInstallZeroTier: (): Promise<RemoteActionResult> =>
+    ipcRenderer.invoke('remote:install-zerotier'),
 
-  remoteOpenTailscale: (): Promise<RemoteActionResult> =>
-    ipcRenderer.invoke('remote:open-tailscale'),
+  remoteOpenZeroTier: (): Promise<RemoteActionResult> => ipcRenderer.invoke('remote:open-zerotier'),
 
   remoteOpenKloudWeb: (): Promise<RemoteActionResult> =>
     ipcRenderer.invoke('remote:open-kloud-web'),

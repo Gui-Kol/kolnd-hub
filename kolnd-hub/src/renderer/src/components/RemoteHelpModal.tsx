@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import type { RemoteModeReason, RemoteStatus } from '../../../shared/remote'
 import { KLOUD_WEB_PORT } from '../../../shared/remote'
-import { bestRemoteAddress, parseRemoteStatus, tailscaleBadge } from '../lib/remoteAccess'
+import { bestRemoteAddress, parseRemoteStatus, zeroTierBadge } from '../lib/remoteAccess'
 import { Badge, Button, Modal } from './ui'
 
 interface RemoteHelpModalProps {
@@ -28,17 +28,17 @@ interface RemoteHelpModalProps {
 }
 
 const BLOCKED_MESSAGE: Record<RemoteModeReason, string> = {
-  'tailscale-missing':
-    'O modo remoto precisa do Tailscale instalado. Instale em Configurações → Acesso remoto e tente de novo.',
-  'tailscale-disconnected':
-    'O Tailscale está instalado, mas desconectado. Abra o Tailscale, entre com sua conta e tente de novo.',
+  'zerotier-missing':
+    'O modo remoto precisa do ZeroTier instalado. Instale em Configurações → Acesso remoto e tente de novo.',
+  'zerotier-disconnected':
+    'O ZeroTier está instalado, mas o serviço está desligado ou nenhuma rede foi ingressada. Abra o ZeroTier, entre na sua rede e tente de novo.',
   'store-unavailable': 'Não foi possível salvar a preferência agora. Tente de novo.',
   invalid: 'Não foi possível alterar o modo remoto.'
 }
 
 /**
  * Ajuda do card do Kloud Games: como conectar no Moonlight na mesma rede e de
- * qualquer lugar. O conteúdo reflete o estado REAL lido do main (Tailscale,
+ * qualquer lugar. O conteúdo reflete o estado REAL lido do main (ZeroTier,
  * interfaces e Kloud Games) — nada de endereço inventado.
  */
 export function RemoteHelpModal({
@@ -51,7 +51,7 @@ export function RemoteHelpModal({
 }: RemoteHelpModalProps): JSX.Element {
   const [status, setStatus] = useState<RemoteStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<'tailscale' | 'panel' | 'copy' | null>(null)
+  const [busy, setBusy] = useState<'zerotier' | 'panel' | 'copy' | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -72,15 +72,13 @@ export function RemoteHelpModal({
     }
   }, [])
 
-  const tailscale = status?.tailscale ?? null
-  const badge = tailscale
-    ? tailscaleBadge(tailscale)
-    : { tone: 'neutral' as const, label: 'Lendo…' }
-  const remoteAddress = tailscale ? bestRemoteAddress(tailscale) : null
+  const zerotier = status?.zerotier ?? null
+  const badge = zerotier ? zeroTierBadge(zerotier) : { tone: 'neutral' as const, label: 'Lendo…' }
+  const remoteAddress = zerotier ? bestRemoteAddress(zerotier) : null
   const localAddress = status?.addresses.lan[0] ?? null
 
   const run = async (
-    kind: 'tailscale' | 'panel' | 'copy',
+    kind: 'zerotier' | 'panel' | 'copy',
     task: () => Promise<{ success: boolean; error?: string }>,
     message: string
   ): Promise<void> => {
@@ -185,18 +183,18 @@ export function RemoteHelpModal({
             (remoto)
           </h3>
           <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
-            Atravessa NAT/CGNAT sem abrir porta no roteador, via Tailscale (WireGuard).
+            Atravessa NAT/CGNAT sem abrir porta no roteador, via ZeroTier (rede privada virtual).
           </p>
           <ol className="mt-3 list-decimal space-y-2 pl-4 text-[11px] leading-relaxed text-ink-secondary">
             <li>
-              Instale o <strong className="text-ink-primary">Tailscale</strong> neste PC e no
-              aparelho, com a mesma conta.
+              Instale o <strong className="text-ink-primary">ZeroTier</strong> neste PC e no
+              aparelho e ingresse os dois na mesma rede (painel my.zerotier.com).
             </li>
-            <li>Ative a VPN do Tailscale no aparelho antes de abrir o Moonlight.</li>
+            <li>Deixe o ZeroTier conectado no aparelho antes de abrir o Moonlight.</li>
             <li>
               No Moonlight, adicione um PC com o endereço{' '}
               <code className="rounded-sm border border-[var(--border-subtle)] bg-surface-1 px-1 py-0.5 font-mono text-[10.5px] text-accent">
-                {remoteAddress ?? '100.x.y.z'}
+                {remoteAddress ?? '10.x.y.z'}
               </code>
               {remoteAddress && (
                 <Button
@@ -229,7 +227,7 @@ export function RemoteHelpModal({
       <div className="mt-4 rounded-control border border-[var(--border-subtle)] bg-surface-1 p-4">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-ink-secondary">
           <span className="flex items-center gap-2">
-            Tailscale <Badge tone={badge.tone}>{badge.label}</Badge>
+            ZeroTier <Badge tone={badge.tone}>{badge.label}</Badge>
           </span>
           <span className="flex items-center gap-2">
             Kloud Games{' '}
@@ -250,24 +248,24 @@ export function RemoteHelpModal({
               <Play size={12} aria-hidden="true" /> Iniciar Kloud Games
             </Button>
           )}
-          {tailscale?.installed ? (
+          {zerotier?.installed ? (
             <Button
               size="sm"
               variant="secondary"
               onClick={() =>
                 void run(
-                  'tailscale',
-                  () => window.api.remoteOpenTailscale(),
-                  'Tailscale aberto — entre com a sua conta.'
+                  'zerotier',
+                  () => window.api.remoteOpenZeroTier(),
+                  'ZeroTier aberto — entre na sua rede.'
                 )
               }
               disabled={busy !== null}
             >
-              <MonitorPlay size={12} aria-hidden="true" /> Abrir Tailscale
+              <MonitorPlay size={12} aria-hidden="true" /> Abrir ZeroTier
             </Button>
           ) : (
             <Button size="sm" variant="secondary" onClick={onOpenSettings}>
-              <Settings2 size={12} aria-hidden="true" /> Instalar Tailscale
+              <Settings2 size={12} aria-hidden="true" /> Instalar ZeroTier
             </Button>
           )}
           {remoteAddress && (

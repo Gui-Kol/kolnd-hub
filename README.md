@@ -19,7 +19,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 - **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
 - **OpenOffice**: escritório isométrico que trata cada sessão do OpenCode como um "funcionário" numa sala — contratar, definir função (agente/modelo/esforço), mandar prompt, acompanhar a conversa, interromper e arquivar, sem abrir o OpenCode (requer o OpenCode CLI instalado). **Ainda incompleto**: o próprio app avisa que a tela vai ganhar melhorias em updates futuros.
 - **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
-- **Acesso remoto** (Tailscale) e **atualização pelo próprio app**, descritos abaixo.
+- **Acesso remoto** (ZeroTier) e **atualização pelo próprio app**, descritos abaixo.
 - **Bandeja do sistema** com abrir/ocultar, autostart opcional e encerramento; fechar a janela (X) mantém o Hub na bandeja.
 
 ## Programas gerenciados pelo Hub
@@ -32,15 +32,15 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Acesso remoto (jogar de qualquer lugar)
 
-O Hub traz em **Configurações → Acesso remoto** o diagnóstico e o atalho para expor o Kloud Games fora de casa **sem abrir portas no roteador**. O caminho recomendado é o [Tailscale](https://tailscale.com) (rede privada WireGuard):
+O Hub traz em **Configurações → Acesso remoto** o diagnóstico e o atalho para expor o Kloud Games fora de casa **sem abrir portas no roteador**. O caminho recomendado é o [ZeroTier](https://www.zerotier.com) (rede privada virtual):
 
-- detecta se o Tailscale está instalado/conectado e mostra o IP `100.x.y.z` (com botão copiar) para digitar no Moonlight;
-- instala via `winget` (UAC) e abre o app para login — sempre por ação explícita, nunca em segundo plano;
-- checa as portas TCP do Moonlight (`47984`, `47989`, `48010`) em localhost e no IP da tailnet;
+- detecta se o ZeroTier está instalado e se o serviço está on-line, e mostra o endereço IPv4/IPv6 atribuído pela rede (com botão copiar) para digitar no Moonlight;
+- instala via `winget` (UAC) e abre o app para entrar na sua rede — sempre por ação explícita, nunca em segundo plano; ingressar na rede é feito no app/painel do ZeroTier, o Hub não pede network ID;
+- checa as portas TCP do Moonlight (`47984`, `47989`, `48010`) em localhost e no IP da VPN;
 - consulta o IP público **apenas quando você clica**, para dizer se a rede é IPv4 direta, NAT ou CGNAT;
 - explica o pareamento: o PIN que o Moonlight mostra é digitado no painel do Kloud Games (`http://localhost:47990`).
 
-Por que não Cloudflare Tunnel/ngrok: eles carregam HTTP/TCP, não UDP — e vídeo, áudio e controle do Moonlight vão por UDP (`47998`–`48002`). Proxy HTTP serve para o painel, não para jogar. O Hub não guarda credenciais do Tailscale; o `config.json` recebe apenas o último IP público consultado.
+Por que não Cloudflare Tunnel/ngrok: eles carregam HTTP/TCP, não UDP — e vídeo, áudio e controle do Moonlight vão por UDP (`47998`–`48002`). Proxy HTTP serve para o painel, não para jogar. O Hub não guarda credenciais do ZeroTier; o `config.json` recebe apenas o último IP público consultado.
 
 ## Instalação para o usuário final
 

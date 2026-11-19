@@ -2,7 +2,7 @@ import { createServer } from 'net'
 import type { AddressInfo } from 'net'
 import type { NetworkInterfaceInfo } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TailscaleInfo } from '../shared/remote'
+import type { ZeroTierInfo } from '../shared/remote'
 
 // O módulo importa Electron/estado do app no topo; os testes abaixo cobrem só
 // os helpers puros (detecção de executável, interfaces e probe TCP).
@@ -38,9 +38,11 @@ vi.mock('./kloudGames', () => ({
 
 import {
   collectLocalAddresses,
-  findTailscaleExe,
+  findZeroTierCli,
+  findZeroTierGui,
   probeTcp,
-  requestRemoteMode
+  requestRemoteMode,
+  zeroTierCliInvocation
 } from './remoteAccess'
 
 function iface(partial: Partial<NetworkInterfaceInfo> & Pick<NetworkInterfaceInfo, 'address'>) {
@@ -54,50 +56,114 @@ function iface(partial: Partial<NetworkInterfaceInfo> & Pick<NetworkInterfaceInf
   } as NetworkInterfaceInfo
 }
 
-describe('findTailscaleExe', () => {
-  it('acha em Program Files sem depender do PATH', () => {
-    const env = { ProgramFiles: 'C:\\Program Files' }
-    const exists = (path: string): boolean => path === 'C:\\Program Files\\Tailscale\\tailscale.exe'
-    expect(findTailscaleExe(env, exists)).toBe('C:\\Program Files\\Tailscale\\tailscale.exe')
+describe('findZeroTierCli', () => {
+  it('acha o .bat do instalador oficial em Program Files (x86)', () => {
+    const env = { 'ProgramFiles(x86)': 'C:\\Program Files (x86)' }
+    const exists = (path: string): boolean =>
+      path === 'C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat'
+    expect(findZeroTierCli(env, exists)).toBe(
+      'C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat'
+    )
   })
 
-  it('cai para o PATH (PATH ou Path) e devolve null quando não existe', () => {
+  it('cai para ProgramData e para o PATH (PATH ou Path)', () => {
+    const programData = { ProgramData: 'C:\\ProgramData' }
+    expect(
+      findZeroTierCli(
+        programData,
+        (path) => path === 'C:\\ProgramData\\ZeroTier\\One\\zerotier-cli.bat'
+      )
+    ).toBe('C:\\ProgramData\\ZeroTier\\One\\zerotier-cli.bat')
+
     const env = { Path: 'C:\\Windows;C:\\Tools' }
-    const exists = (path: string): boolean => path === 'C:\\Tools\\tailscale.exe'
-    expect(findTailscaleExe(env, exists)).toBe('C:\\Tools\\tailscale.exe')
+    const exists = (path: string): boolean => path === 'C:\\Tools\\zerotier-cli.exe'
+    expect(findZeroTierCli(env, exists)).toBe('C:\\Tools\\zerotier-cli.exe')
 
-    expect(findTailscaleExe({ ProgramFiles: 'C:\\Program Files' }, () => false)).toBeNull()
-    expect(findTailscaleExe({}, () => false)).toBeNull()
+    expect(findZeroTierCli({ ProgramFiles: 'C:\\Program Files' }, () => false)).toBeNull()
+    expect(findZeroTierCli({}, () => false)).toBeNull()
   })
 
-  it('respeita TAILSCALE_EXE quando definido', () => {
-    const exists = (path: string): boolean => path === 'D:\\Custom\\tailscale.exe'
-    expect(findTailscaleExe({ TAILSCALE_EXE: 'D:\\Custom\\tailscale.exe' }, exists)).toBe(
-      'D:\\Custom\\tailscale.exe'
+  it('respeita ZEROTIER_CLI quando definido', () => {
+    const exists = (path: string): boolean => path === 'D:\\Custom\\zerotier-cli.exe'
+    expect(findZeroTierCli({ ZEROTIER_CLI: 'D:\\Custom\\zerotier-cli.exe' }, exists)).toBe(
+      'D:\\Custom\\zerotier-cli.exe'
     )
   })
 })
 
-describe('collectLocalAddresses', () => {
-  it('separa LAN, tailnet e IPv6 global; ignora loopback e link-local', () => {
-    const addresses = collectLocalAddresses({
-      Ethernet: [
-        iface({ address: '192.168.0.10' }),
-        iface({ address: '127.0.0.1', internal: true }),
-        iface({ address: 'fe80::1', family: 'IPv6' }),
-        iface({ address: '2001:db8::2', family: 'IPv6' })
-      ],
-      Tailscale: [iface({ address: '100.90.80.70' })],
-      'Sem IP': undefined
+describe('zeroTierCliInvocation', () => {
+  it('executa .exe direto e manda .bat/.cmd por cmd.exe com args verbatim', () => {
+    expect(zeroTierCliInvocation('C:\\ZT\\zerotier-cli.exe', ['-j', 'info'])).toEqual({
+      command: 'C:\\ZT\\zerotier-cli.exe',
+      args: ['-j', 'info'],
+      verbatim: false
     })
 
+    const bat = zeroTierCliInvocation('C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat', [
+      '-j',
+      'info'
+    ])
+    expect(bat.command).toBe('cmd.exe')
+    expect(bat.verbatim).toBe(true)
+    expect(bat.args).toEqual([
+      '/d',
+      '/s',
+      '/c',
+      '"C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat" -j info'
+    ])
+  })
+})
+
+describe('findZeroTierGui', () => {
+  it('procura o executável da bandeja nos dois Program Files', () => {
+    const env = { ProgramFiles: 'C:\\Program Files' }
+    const gui = 'C:\\Program Files\\ZeroTier\\One\\zerotier_desktop_ui.exe'
+    expect(findZeroTierGui(env, (path) => path === gui)).toBe(gui)
+    expect(findZeroTierGui({}, () => true)).toBeNull()
+  })
+})
+
+describe('collectLocalAddresses', () => {
+  it('separa LAN, ZeroTier e IPv6 global; ignora loopback e link-local', () => {
+    const addresses = collectLocalAddresses(
+      {
+        Ethernet: [
+          iface({ address: '192.168.0.10' }),
+          iface({ address: '127.0.0.1', internal: true }),
+          iface({ address: 'fe80::1', family: 'IPv6' }),
+          iface({ address: '2001:db8::2', family: 'IPv6' })
+        ],
+        'ZeroTier One [8056c2e21c000001]': [
+          iface({ address: '10.147.20.5' }),
+          iface({ address: 'fd00::5', family: 'IPv6' })
+        ],
+        'Sem IP': undefined
+      },
+      {
+        devices: ['ZeroTier One [8056c2e21c000001]'],
+        addresses: ['10.147.20.5', 'fd00::5']
+      }
+    )
+
     expect(addresses.lan).toEqual(['192.168.0.10'])
-    expect(addresses.tailscale).toEqual(['100.90.80.70'])
+    expect(addresses.zerotier).toEqual(['10.147.20.5'])
     expect(addresses.ipv6).toEqual(['2001:db8::2'])
   })
 
+  it('usa os endereços atribuídos quando o nome da interface não ajuda', () => {
+    const addresses = collectLocalAddresses(
+      {
+        Ethernet: [iface({ address: '192.168.0.10' }), iface({ address: '10.147.20.5' })]
+      },
+      { addresses: ['10.147.20.5'] }
+    )
+
+    expect(addresses.lan).toEqual(['192.168.0.10'])
+    expect(addresses.zerotier).toEqual(['10.147.20.5'])
+  })
+
   it('devolve listas vazias quando não há interfaces', () => {
-    expect(collectLocalAddresses({})).toEqual({ lan: [], tailscale: [], ipv6: [] })
+    expect(collectLocalAddresses({})).toEqual({ lan: [], zerotier: [], ipv6: [] })
   })
 })
 
@@ -131,17 +197,18 @@ describe('probeTcp', () => {
 })
 
 describe('requestRemoteMode', () => {
-  const connected: TailscaleInfo = {
+  const connected: ZeroTierInfo = {
     installed: true,
     connected: true,
-    backendState: 'Running',
-    hostname: 'desktop',
-    dnsName: 'desktop.tail.ts.net',
-    ipv4: '100.90.80.70',
+    online: true,
+    nodeId: 'a1b2c3d4e5',
+    version: '1.16.2',
+    network: 'casa',
+    networkId: '8056c2e21c000001',
+    networkStatus: 'OK',
+    ipv4: '10.147.20.5',
     ipv6: null,
-    tailnet: 'tail.ts.net',
-    onlinePeers: 1,
-    exePath: 'C:\\Program Files\\Tailscale\\tailscale.exe'
+    exePath: 'C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat'
   }
 
   beforeEach(() => {
@@ -155,30 +222,58 @@ describe('requestRemoteMode', () => {
     expect(storeMock.setRemoteMode).not.toHaveBeenCalled()
   })
 
-  it('recusa ligar sem Tailscale instalado ou conectado', async () => {
+  it('recusa ligar sem ZeroTier instalado', async () => {
     const missing = await requestRemoteMode(true, async () => ({
       ...connected,
       installed: false,
-      connected: false
-    }))
-    expect(missing).toMatchObject({ success: false, reason: 'tailscale-missing' })
-
-    const offline = await requestRemoteMode(true, async () => ({
-      ...connected,
       connected: false,
-      backendState: 'NeedsLogin'
+      online: false
     }))
-    expect(offline).toMatchObject({ success: false, reason: 'tailscale-disconnected' })
+    expect(missing).toMatchObject({ success: false, reason: 'zerotier-missing' })
     expect(storeMock.setRemoteMode).not.toHaveBeenCalled()
   })
 
-  it('ativa com Tailscale conectado e devolve o endereço para o Moonlight', async () => {
+  it('recusa ligar com serviço desligado ou sem rede ingressada', async () => {
+    const offline = await requestRemoteMode(true, async () => ({
+      ...connected,
+      connected: false,
+      online: false,
+      ipv4: null
+    }))
+    expect(offline).toMatchObject({ success: false, reason: 'zerotier-disconnected' })
+    expect(offline.error).toMatch(/Abra o ZeroTier/)
+
+    const noNetwork = await requestRemoteMode(true, async () => ({
+      ...connected,
+      connected: false,
+      network: null,
+      networkId: null,
+      networkStatus: null,
+      ipv4: null,
+      ipv6: null
+    }))
+    expect(noNetwork).toMatchObject({ success: false, reason: 'zerotier-disconnected' })
+    expect(noNetwork.error).toMatch(/Ingresse em uma rede/)
+
+    expect(storeMock.setRemoteMode).not.toHaveBeenCalled()
+  })
+
+  it('ativa com ZeroTier conectado e devolve o endereço para o Moonlight', async () => {
     const result = await requestRemoteMode(true, async () => connected)
-    expect(result).toEqual({ success: true, enabled: true, address: '100.90.80.70' })
+    expect(result).toEqual({ success: true, enabled: true, address: '10.147.20.5' })
     expect(storeMock.setRemoteMode).toHaveBeenCalledWith(true)
   })
 
-  it('desativa sem consultar o Tailscale', async () => {
+  it('usa o IPv6 quando a rede não atribuiu IPv4', async () => {
+    const result = await requestRemoteMode(true, async () => ({
+      ...connected,
+      ipv4: null,
+      ipv6: 'fd00::5'
+    }))
+    expect(result).toEqual({ success: true, enabled: true, address: 'fd00::5' })
+  })
+
+  it('desativa sem consultar o ZeroTier', async () => {
     const getInfo = vi.fn(async () => connected)
     const result = await requestRemoteMode(false, getInfo)
     expect(result).toEqual({ success: true, enabled: false })

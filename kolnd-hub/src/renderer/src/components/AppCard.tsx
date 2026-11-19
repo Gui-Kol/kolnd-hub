@@ -11,7 +11,7 @@ export interface RemoteControls {
   loading: boolean
   /** true durante o toggle (desabilita os botões). */
   busy: boolean
-  /** IP 100.x / MagicDNS para o Moonlight; null quando não conectado. */
+  /** IP atribuído pela rede ZeroTier para o Moonlight; null quando não conectado. */
   address: string | null
   onToggle: () => void
   onHelp: () => void
@@ -185,8 +185,8 @@ export function AppCard({
                   disabled={remote.busy || remote.loading}
                   title={
                     remote.enabled
-                      ? 'Desativar o modo remoto do Hub (não desliga o Tailscale)'
-                      : 'Ativar o modo remoto (requer Tailscale conectado)'
+                      ? 'Desativar o modo remoto do Hub (não desliga o ZeroTier)'
+                      : 'Ativar o modo remoto (requer ZeroTier conectado)'
                   }
                   onClick={(e) => {
                     e.stopPropagation()
@@ -221,7 +221,7 @@ export function AppCard({
               )}
               {remote.enabled && !remote.address && !remote.loading && (
                 <p className="mb-2 text-[10px] leading-snug text-warn">
-                  Tailscale desconectado — abra o Tailscale para receber conexões.
+                  ZeroTier desconectado — abra o ZeroTier para receber conexões.
                 </p>
               )}
             </>

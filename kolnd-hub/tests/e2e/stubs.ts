@@ -3,13 +3,14 @@ import { join } from 'path'
 import { execFileSync } from 'child_process'
 
 /**
- * Stubs de `winget.exe`/`msiexec.exe` para o smoke E2E (task 04-4.1).
+ * Stubs de `winget.exe`/`msiexec.exe`/`zerotier-cli.exe` para o smoke E2E (task 04-4.1).
  *
  * O Hub invoca `winget` via `spawn('winget', args)` SEM shell; no Windows isso
  * exige um PE de verdade no PATH — um `.cmd`/`.bat`/`.exe` de texto seria
  * rejeitado pelo CreateProcess. Por isso os stubs são compilados aqui com o
  * Add-Type do PowerShell (precisa do .NET Framework, presente em todo Windows
- * suportado). Cada stub apenas anexa `<nome> <args>` a `stubs.log` e sai com 0.
+ * suportado). Cada stub apenas anexa `<nome> <args>` a `stubs.log` e sai com 0
+ * (exceto o do ZeroTier, que devolve JSON fixo).
  *
  * `stubs.log` fica ao lado dos stubs: o smoke assert que ele NÃO existe (ou
  * está vazio) — prova de que o fluxo abrir→dashboard→modal não tocou
@@ -67,26 +68,34 @@ function compileStub(name: 'winget' | 'msiexec', stubsDir: string, logPath: stri
   }
 }
 
-// Stub do CLI do Tailscale: `tailscale status --json` devolve um nó conectado
-// com IP fixo na faixa 100.64/10. Permite o E2E do "Modo remoto" sem instalar
-// VPN nenhuma — o app lê o JSON e segue o caminho real de sucesso.
-const TAILSCALE_STUB_SOURCE = `
+// Stub do CLI do ZeroTier: `-j info` e `-j listnetworks` devolvem um nó
+// on-line com uma rede OK e IP fixo. Permite o E2E do "Modo remoto" sem
+// instalar VPN nenhuma — o app lê o JSON e segue o caminho real de sucesso.
+const ZEROTIER_STUB_SOURCE = `
 using System;
-public static class TailscaleStub
+public static class ZeroTierStub
 {
     public static int Main(string[] args)
     {
-        Console.WriteLine(@"{""BackendState"":""Running"",""Self"":{""HostName"":""e2e-pc"",""DNSName"":""e2e-pc.tail.ts.net."",""TailscaleIPs"":[""100.101.102.103""],""Online"":true},""CurrentTailnet"":{""MagicDNSSuffix"":""tail.ts.net""},""Peer"":{}}");
+        string joined = string.Join(" ", args);
+        if (joined.Contains("listnetworks"))
+        {
+            Console.WriteLine(@"[{""id"":""8056c2e21c000001"",""name"":""e2e"",""status"":""OK"",""portDeviceName"":""ZeroTier One [8056c2e21c000001]"",""allowManaged"":true,""assignedAddresses"":[""10.147.20.5/24"",""fd00::5/80""]}]");
+        }
+        else
+        {
+            Console.WriteLine(@"{""address"":""a1b2c3d4e5"",""online"":true,""version"":""1.16.2"",""tcpFallbackActive"":false}");
+        }
         return 0;
     }
 }`
 
-/** Compila `tailscale.exe`; falha aqui só impede o E2E do modo remoto. */
-function compileTailscaleStub(stubsDir: string): void {
-  const sourcePath = join(stubsDir, 'tailscale.stub.cs')
-  const exePath = join(stubsDir, 'tailscale.exe')
+/** Compila `zerotier-cli.exe`; falha aqui só impede o E2E do modo remoto. */
+function compileZeroTierStub(stubsDir: string): void {
+  const sourcePath = join(stubsDir, 'zerotier-cli.stub.cs')
+  const exePath = join(stubsDir, 'zerotier-cli.exe')
   try {
-    writeFileSync(sourcePath, TAILSCALE_STUB_SOURCE, 'utf8')
+    writeFileSync(sourcePath, ZEROTIER_STUB_SOURCE, 'utf8')
     execFileSync(
       'powershell.exe',
       [
@@ -97,8 +106,10 @@ function compileTailscaleStub(stubsDir: string): void {
       { stdio: 'pipe', timeout: 60_000 }
     )
   } catch {
+    // Sem placeholder: o E2E aponta ZEROTIER_CLI para este caminho e, se ele
+    // não existir, o app trata como "não instalado" (comportamento gracioso).
     console.warn(
-      '[e2e/stubs] Falha ao compilar tailscale.exe — o E2E do modo remoto seguirá bloqueado'
+      '[e2e/stubs] Falha ao compilar zerotier-cli.exe — o E2E do modo remoto seguirá bloqueado'
     )
   }
 }
@@ -124,7 +135,7 @@ export function createStubs(rootDir: string): StubInfo {
     }
   }
 
-  compileTailscaleStub(stubsDir)
+  compileZeroTierStub(stubsDir)
 
   return { stubsDir, stubsLog }
 }

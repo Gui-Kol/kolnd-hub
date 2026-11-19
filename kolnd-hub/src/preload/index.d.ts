@@ -67,13 +67,13 @@ declare global {
         running: boolean
       }>
 
-      // ── Acesso remoto (Tailscale) ───────────────────
+      // ── Acesso remoto (ZeroTier) ────────────────────
       remoteStatus: () => Promise<RemoteStatus>
       remoteGetMode: () => Promise<boolean>
       remoteSetMode: (value: boolean) => Promise<RemoteModeResult>
       remotePublicIp: () => Promise<PublicIpResult>
-      remoteInstallTailscale: () => Promise<RemoteActionResult>
-      remoteOpenTailscale: () => Promise<RemoteActionResult>
+      remoteInstallZeroTier: () => Promise<RemoteActionResult>
+      remoteOpenZeroTier: () => Promise<RemoteActionResult>
       remoteOpenKloudWeb: () => Promise<RemoteActionResult>
       remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
 

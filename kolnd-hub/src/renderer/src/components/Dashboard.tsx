@@ -93,7 +93,7 @@ export function Dashboard({
   const kloudRunning = appStates[KLOUD_APP_ID]?.status === 'running'
 
   // Estado inicial do modo remoto (persistido). Se estiver ligado, busca o
-  // endereço da tailnet para exibir no card — sem polling.
+  // endereço da rede ZeroTier para exibir no card — sem polling.
   useEffect(() => {
     let alive = true
     window.api
@@ -104,9 +104,13 @@ export function Dashboard({
         if (!enabled) return
         try {
           const parsed = parseRemoteStatus(await window.api.remoteStatus())
-          if (alive && parsed) setRemoteAddress(bestRemoteAddress(parsed.tailscale))
+          // Só exibe um endereço utilizável: se o ZeroTier caiu/saiu da rede
+          // depois de ligar o modo, o card mostra o aviso de desconectado.
+          if (alive && parsed) {
+            setRemoteAddress(parsed.zerotier.connected ? bestRemoteAddress(parsed.zerotier) : null)
+          }
         } catch {
-          // Mantém o modo; a UI avisa que o Tailscale está desconectado.
+          // Mantém o modo; a UI avisa que o ZeroTier está desconectado.
         }
       })
       .catch(() => {
@@ -124,8 +128,8 @@ export function Dashboard({
     try {
       const result = await window.api.remoteSetMode(next)
       if (!result.success) {
-        // O main recusou (sem Tailscale/instalado): volta ao estado real e
-        // abre a ajuda já explicando o que falta.
+        // O main recusou (sem ZeroTier instalado/conectado): volta ao estado
+        // real e abre a ajuda já explicando o que falta.
         setRemoteMode(false)
         setRemoteAddress(null)
         setRemoteHelp({ blockedReason: result.reason })
@@ -138,7 +142,7 @@ export function Dashboard({
           ? result.address
             ? `Modo remoto ativado — use ${result.address} no Moonlight.`
             : 'Modo remoto ativado.'
-          : 'Modo remoto desativado (o Tailscale continua conectado).',
+          : 'Modo remoto desativado (o ZeroTier continua conectado).',
         'success'
       )
       if (result.enabled && !kloudRunning) {

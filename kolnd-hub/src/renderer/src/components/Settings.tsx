@@ -760,7 +760,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         </Card>
       </motion.div>
 
-      {/* ── Acesso remoto (Tailscale) ────────────────── */}
+      {/* ── Acesso remoto (ZeroTier) ─────────────────── */}
       <RemoteAccessSettings onToast={onToast} />
 
       {/* ── OpenOffice: plugin do OpenCode (T12) ────── */}
