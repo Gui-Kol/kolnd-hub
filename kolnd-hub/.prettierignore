@@ -5,3 +5,6 @@ resources/
 scripts/
 package-lock.json
 *.log
+# Saída gerada pelo Playwright (error-context.md/.last-run.json): não é
+# código-fonte e não deve decidir o gate de formatação.
+test-results/

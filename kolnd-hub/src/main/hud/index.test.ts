@@ -93,6 +93,9 @@ function snapshotFixture(): HwSnapshot {
     ram: { installedGb: 24, speedMhz: 3200, voltageV: 1.2, usedGb: 11, usedPercent: 47 },
     gpu: {
       model: 'GPU',
+      vendor: 'nvidia',
+      driverVersion: '621.24',
+      driverDate: '2026-11-07',
       usagePercent: 2,
       coreClockMhz: 2655,
       memClockMhz: 14001,
@@ -101,11 +104,20 @@ function snapshotFixture(): HwSnapshot {
       sharedMb: 116,
       tempC: 41,
       fanPercent: 0,
+      fanRpm: 0,
       watts: 28,
       powerLimitW: 180
     },
     specs: { cpu: null, gpu: null, ram: null, board: null },
-    sources: { driver: 'absent', cpu: 'estimated', gpu: 'measured', platform: 'estimated' },
+    sources: {
+      driver: 'absent',
+      cpu: 'estimated',
+      gpu: 'measured',
+      platform: 'estimated',
+      cpuTemp: 'unavailable',
+      gpuUsage: 'measured',
+      gpuTemp: 'measured'
+    },
     capturedAt: '2026-11-17T12:00:00.000Z'
   }
 }

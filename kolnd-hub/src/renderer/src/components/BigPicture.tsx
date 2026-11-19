@@ -10,6 +10,7 @@ import { BigPictureTransition, revealMaskStyle, REVEAL_FROM } from './BigPicture
 import {
   BigPictureFocusProvider,
   useBigPictureFocus,
+  useFocusedId,
   useFocusable,
   BP_FOCUS_RING,
   BP_FOCUSED_RING
@@ -172,6 +173,44 @@ const CornerButton = memo(function CornerButton({
   )
 })
 
+/**
+ * Anúncio de foco do leitor de tela — componente próprio que renderiza `null`.
+ *
+ * Fica FORA do `ActiveView` de propósito: se o efeito morasse lá, cada
+ * movimento do D-pad re-renderizaria o shell inteiro (rail, grade, overlays).
+ * Aqui só este componente (que não pinta nada) re-renderiza — e ele assina o
+ * id focado via `useFocusedId`.
+ *
+ * Semântica preservada (era o efeito do ActiveView):
+ * - cada mudança de foco (gamepad, teclado ou mouse) anuncia o item focado via
+ *   descritor registrado pelo componente dono do id (`describeId`);
+ * - o foco inicial é pulado na montagem — a fala de entrada ("Modo Big
+ *   Picture") já cobre o contexto e o debounce de substituição descartaria
+ *   uma das duas.
+ */
+const FocusAnnouncer = memo(function FocusAnnouncer(): null {
+  const focusedId = useFocusedId()
+  const { describeId } = useBigPictureFocus()
+  const skipInitial = useRef(true)
+
+  useEffect(() => {
+    if (!focusedId) return
+    if (skipInitial.current) {
+      skipInitial.current = false
+      return
+    }
+    const description = describeId(focusedId)
+    if (!description) return
+    // Microtask: efeitos de componentes-filho rodam ANTES dos do pai. O anúncio
+    // de seção (efeito do ActiveView) precisa ser substituído pela fala do item
+    // quando os dois caem no mesmo commit — como era quando os dois efeitos
+    // viviam no mesmo componente, na ordem seção → foco.
+    queueMicrotask(() => announce(description))
+  }, [focusedId, describeId])
+
+  return null
+})
+
 interface ActiveViewProps {
   onExit: () => void
   /** false durante a transição (T7): nenhum input de controle/teclado age na home. */
@@ -188,13 +227,12 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
   const clock = useMinuteClock()
 
   const {
-    focusedId,
+    getFocusedId,
     setFocusedId,
     moveFocus,
     activateFocused,
     setFocusScope,
-    focusFirstMatching,
-    describeId
+    focusFirstMatching
   } = useBigPictureFocus()
 
   const notify = useCallback((text: string): void => {
@@ -254,9 +292,10 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
 
   // ── Anúncios para leitor de tela ─────────────────────
   // Mudança de seção anuncia "Seção: X" — pulada na montagem (a entrada
-  // anuncia "Modo Big Picture"). Declarada ANTES do efeito de foco: quando os
-  // dois disparam no mesmo commit, o anúncio de foco (mais específico)
-  // substitui o de seção no debounce.
+  // anuncia "Modo Big Picture"). O anúncio de foco vive no <FocusAnnouncer />
+  // e, quando os dois caem no mesmo commit, roda DEPOIS deste (microtask) e
+  // substitui o de seção no debounce — mesma ordem de quando os dois efeitos
+  // viviam aqui.
   const skipInitialSectionAnnounce = useRef(true)
   useEffect(() => {
     if (skipInitialSectionAnnounce.current) {
@@ -266,20 +305,8 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
     announce(`Seção: ${SECTION_LABEL[section]}`)
   }, [section])
 
-  // Cada mudança de foco (gamepad, teclado ou mouse) anuncia o item focado
-  // via descritor registrado pelo componente dono do id. Na montagem o foco
-  // inicial é pulado — a fala de entrada ("Modo Big Picture") já cobre o
-  // contexto, e o debounce de substituição descartaria uma das duas.
-  const skipInitialFocusAnnounce = useRef(true)
-  useEffect(() => {
-    if (!focusedId) return
-    if (skipInitialFocusAnnounce.current) {
-      skipInitialFocusAnnounce.current = false
-      return
-    }
-    const description = describeId(focusedId)
-    if (description) announce(description)
-  }, [focusedId, describeId])
+  // Cada mudança de foco é anunciada pelo <FocusAnnouncer /> (componente
+  // próprio, renderiza null) — ver o comentário lá para a semântica.
 
   const goToSection = useCallback(
     (next: BigPictureSection): void => {
@@ -365,7 +392,10 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
             ? (['exit:cancel', 'exit:quit'] as const)
             : (['options:controls', 'options:quit'] as const)
         if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
-          setFocusedId(focusedId === pair[0] ? pair[1] : pair[0])
+          // Leitura pontual do foco: assinar o id aqui re-renderizaria o shell
+          // inteiro a cada movimento (é o que o store externo evita).
+          const current = getFocusedId()
+          setFocusedId(current === pair[0] ? pair[1] : pair[0])
           playSfx('move')
           return
         }
@@ -418,7 +448,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
     },
     [
       overlay,
-      focusedId,
+      getFocusedId,
       setFocusedId,
       activateFocused,
       moveFocus,
@@ -547,6 +577,9 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
 
   return (
     <div className="relative flex h-full">
+      {/* ── Anúncio de foco do leitor de tela (renderiza null) ── */}
+      <FocusAnnouncer />
+
       {/* ── Rail de navegação ─────────────────────── */}
       <BigPictureRail
         section={section}

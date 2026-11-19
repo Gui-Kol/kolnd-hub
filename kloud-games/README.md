@@ -528,12 +528,6 @@ LizardByte has the full documentation hosted on [Read the Docs](https://docs.liz
 
 Our support methods are listed in our [LizardByte Docs](https://docs.lizardbyte.dev/latest/about/support.html).
 
-## 💲 Sponsors and Supporters
-
-<p align="center">
-  <img src='https://cdn.jsdelivr.net/gh/LizardByte/contributors@dist/sponsors.svg' alt="Sponsors"/>
-</p>
-
 ## 👥 Contributors
 
 Thank you to all the contributors who have helped make KLOUD_GAMES better!

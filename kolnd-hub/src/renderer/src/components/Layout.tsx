@@ -16,6 +16,8 @@ interface LayoutProps {
   onEnterBigPicture?: () => void
   /** Abre a busca global existente (o App é dono do estado `searchOpen`). */
   onOpenSearch: () => void
+  /** Faixa de atualização (App decide quando existe e quando foi adiada). */
+  updateBanner?: ReactNode
 }
 
 /**
@@ -32,7 +34,8 @@ export function Layout({
   pcName,
   onExit,
   onEnterBigPicture,
-  onOpenSearch
+  onOpenSearch,
+  updateBanner
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
@@ -105,6 +108,9 @@ export function Layout({
         onExit={onExit}
         onEnterBigPicture={onEnterBigPicture}
       />
+
+      {/* Faixa de atualização: fica fora do <main> rolável, logo abaixo da topbar. */}
+      {updateBanner}
 
       {/* ── Main content area — largura total, único container rolável ── */}
       {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}

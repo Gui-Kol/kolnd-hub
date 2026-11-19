@@ -2,17 +2,29 @@ import { app, dialog, nativeImage } from 'electron'
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync
 } from 'fs'
+import { tmpdir } from 'os'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import { getStoredGames, StoredGame } from '../store'
+import {
+  getStoredGames,
+  setStoredGames,
+  getGameIconsVersion,
+  setGameIconsVersion,
+  StoredGame
+} from '../store'
 import { isValidId, isValidExePath, GameResult } from './naming'
 import { logger } from '../logger'
 import { lookupIconDataUrl, storeIconDataUrl, invalidateIconCache } from '../iconCache'
+import { readExeIconIco } from './exeIcon'
+import { findGameExecutable, steamGameRootFromExe } from './exeFinder'
+import { reloadMissingGameIcons, refreshAllGameIcons } from './iconReload'
+import type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
 
 /**
  * Ícones da biblioteca de jogos: extração de executáveis, cache em disco em
@@ -38,6 +50,16 @@ export interface PreviewExeIconResult extends GameResult {
 
 /** Ícones são pequenos; qualquer coisa maior que isso não é um ícone válido. */
 const ICON_MAX_BYTES = 4 * 1024 * 1024
+/**
+ * Versão do pipeline de extração de ícones. Suba este número quando a forma de
+ * extrair mudar: na próxima abertura o Hub re-extrai automaticamente os ícones
+ * genéricos que ficaram em cache (ver `repairGameIconsIfNeeded`).
+ */
+export const GAME_ICON_PIPELINE_VERSION = 2
+/** Lado usado para comparar visualmente um ícone com o genérico do Windows. */
+const GENERIC_ICON_COMPARE_SIZE = 32
+/** Diferença média de bytes (0–255) abaixo da qual o ícone é o genérico do Windows. */
+const GENERIC_ICON_MAX_DIFF = 24
 /** Formatos de imagem aceitos para capa/ícone de jogo (`.ico` NÃO decodifica de forma confiável no nativeImage). */
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 
@@ -165,10 +187,8 @@ function iconCandidates(game: StoredGame): string[] {
  */
 export async function extractIconPng(exePath: string, pngPath: string): Promise<boolean> {
   try {
-    const image = await app.getFileIcon(exePath, { size: 'large' })
-    if (image.isEmpty()) return false
-    const png = image.toPNG()
-    if (png.length === 0) return false
+    const png = await loadExeIconPng(exePath)
+    if (!png) return false
     mkdirSync(dirname(pngPath), { recursive: true })
     writeFileSync(pngPath, png)
     // Arquivo recém-escrito: derruba entradas antigas (mtime/tamanho podem repetir).
@@ -177,6 +197,56 @@ export async function extractIconPng(exePath: string, pngPath: string): Promise<
   } catch (err) {
     logger.warn('games', `Não foi possível extrair o ícone de ${exePath}:`, err)
     return false
+  }
+}
+
+/**
+ * Converte um .ico em PNG usando o decodificador do Chromium. O `nativeImage`
+ * não aceita .ico via buffer; gravar num arquivo temporário e usar
+ * `createFromPath` é o caminho suportado.
+ */
+function icoToPng(ico: Buffer): Buffer | null {
+  let tempDir: string | null = null
+  try {
+    tempDir = mkdtempSync(join(tmpdir(), 'kolnd-exe-icon-'))
+    const icoPath = join(tempDir, 'icon.ico')
+    writeFileSync(icoPath, ico)
+    const image = nativeImage.createFromPath(icoPath)
+    if (image.isEmpty()) return null
+    const png = image.toPNG()
+    return png.length > 0 ? png : null
+  } catch {
+    return null
+  } finally {
+    if (tempDir) {
+      try {
+        rmSync(tempDir, { recursive: true, force: true })
+      } catch {
+        // Temporário preso — o SO limpa depois.
+      }
+    }
+  }
+}
+
+/**
+ * PNG do ícone do executável: primeiro os recursos PE (mesmo ícone que o
+ * Windows mostra na barra de tarefas/bandeja, em qualquer DPI); se o arquivo
+ * não for um PE com ícones, cai para o `app.getFileIcon` (comportamento antigo).
+ */
+async function loadExeIconPng(exePath: string): Promise<Buffer | null> {
+  const ico = readExeIconIco(exePath)
+  if (ico) {
+    const png = icoToPng(ico)
+    if (png) return png
+  }
+  try {
+    const image = await app.getFileIcon(exePath, { size: 'large' })
+    if (image.isEmpty()) return null
+    const png = image.toPNG()
+    return png.length > 0 ? png : null
+  } catch (err) {
+    logger.warn('games', `Não foi possível extrair o ícone de ${exePath}:`, err)
+    return null
   }
 }
 
@@ -296,12 +366,8 @@ export async function previewExeIcon(exePathInput: unknown): Promise<PreviewExeI
     return { success: false, error: `Executável não encontrado: ${exePath}` }
   }
   try {
-    const image = await app.getFileIcon(exePath, { size: 'large' })
-    if (image.isEmpty()) {
-      return { success: false, error: 'O executável não tem um ícone utilizável.' }
-    }
-    const png = image.toPNG()
-    if (png.length === 0) {
+    const png = await loadExeIconPng(exePath)
+    if (!png) {
       return { success: false, error: 'O executável não tem um ícone utilizável.' }
     }
     return { success: true, dataUrl: `data:image/png;base64,${png.toString('base64')}` }
@@ -372,4 +438,205 @@ export function getGameIcon(id: unknown): string | null {
     if (dataUrl) return dataUrl
   }
   return null
+}
+
+/**
+ * Executável usado como fonte do ícone. Jogos da Steam usam o melhor exe da
+ * pasta de instalação (o `exePath` salvo pode apontar para uma ferramenta,
+ * ex.: `tools/ModUploader.exe`); os demais usam o próprio `exePath`.
+ */
+function resolveIconSourceExe(game: StoredGame): string {
+  if (game.origin === 'steam') {
+    const root = steamGameRootFromExe(game.exePath)
+    if (root) {
+      const best = findGameExecutable(root)
+      if (best && existsSync(best)) return best
+    }
+  }
+  return game.exePath
+}
+
+/** Diferença média absoluta por byte entre dois bitmaps RGBA. */
+function bitmapDiff(a: Buffer, b: Buffer): number {
+  const length = Math.min(a.length, b.length)
+  if (length === 0) return Number.POSITIVE_INFINITY
+  let total = 0
+  for (let i = 0; i < length; i++) total += Math.abs(a[i] - b[i])
+  return total / length
+}
+
+/** Bitmap 32×32 do ícone genérico de .exe do Windows (referência do reparo). */
+async function genericExeIconBitmap(): Promise<Buffer | null> {
+  let tempDir: string | null = null
+  try {
+    tempDir = mkdtempSync(join(tmpdir(), 'kolnd-generic-icon-'))
+    // Um .exe vazio faz o shell devolver exatamente o ícone genérico do SO.
+    const probe = join(tempDir, 'probe.exe')
+    writeFileSync(probe, '')
+    const image = await app.getFileIcon(probe, { size: 'large' })
+    if (image.isEmpty()) return null
+    return image
+      .resize({
+        width: GENERIC_ICON_COMPARE_SIZE,
+        height: GENERIC_ICON_COMPARE_SIZE,
+        quality: 'best'
+      })
+      .toBitmap()
+  } catch {
+    return null
+  } finally {
+    if (tempDir) {
+      try {
+        rmSync(tempDir, { recursive: true, force: true })
+      } catch {
+        // Temporário preso — o SO limpa depois.
+      }
+    }
+  }
+}
+
+/** true quando o arquivo de ícone é visualmente o genérico de .exe do Windows. */
+function isGenericIcon(iconPath: string, genericBitmap: Buffer): boolean {
+  try {
+    const image = nativeImage.createFromPath(iconPath)
+    if (image.isEmpty()) return false
+    const bitmap = image
+      .resize({
+        width: GENERIC_ICON_COMPARE_SIZE,
+        height: GENERIC_ICON_COMPARE_SIZE,
+        quality: 'best'
+      })
+      .toBitmap()
+    return bitmapDiff(bitmap, genericBitmap) < GENERIC_ICON_MAX_DIFF
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Reparo único (controlado por `GAME_ICON_PIPELINE_VERSION`) dos ícones
+ * extraídos pelo pipeline antigo. Roda antes de a janela abrir; nunca lança.
+ * Jogos da Steam têm o ícone derivado do executável re-extraído (pode ter
+ * vindo do exe errado); nos demais, só o arquivo que é o genérico do Windows
+ * é tocado — um ícone escolhido manualmente pelo usuário é preservado.
+ */
+export async function repairGameIconsIfNeeded(): Promise<number> {
+  try {
+    if (getGameIconsVersion() >= GAME_ICON_PIPELINE_VERSION) return 0
+    const games = getStoredGames()
+    if (games.length === 0) {
+      setGameIconsVersion(GAME_ICON_PIPELINE_VERSION)
+      return 0
+    }
+    const genericBitmap = await genericExeIconBitmap()
+    // Sem a referência do genérico não dá para decidir com segurança — tenta
+    // de novo na próxima abertura (a versão só é gravada ao final).
+    if (!genericBitmap) return 0
+
+    let repaired = 0
+    for (const game of games) {
+      // Jogos da Steam: o ícone é sempre derivado do executável (o arquivo
+      // `steam_<appid>.png` nunca é um ícone escolhido à mão — esse usa o
+      // nome com hífens). Re-extrai sempre para corrigir também ícones que
+      // não eram o genérico, mas vinham do executável errado (ex.: o launcher
+      // da Rockstar no lugar do GTA).
+      if (game.origin === 'steam' && game.steamAppId !== undefined) {
+        const target = join(gameIconsDir(), `steam_${game.steamAppId}.png`)
+        if (!existsSync(target)) continue
+        const exePath = resolveIconSourceExe(game)
+        if (existsSync(exePath) && (await extractIconPng(exePath, target))) repaired += 1
+        continue
+      }
+      // Jogos personalizados: só toca no arquivo quando ele é o genérico do
+      // Windows — um ícone escolhido pelo usuário é preservado.
+      const target = iconCandidates(game).find((candidate) => existsSync(candidate))
+      if (!target || !isGenericIcon(target, genericBitmap)) continue
+      const exePath = resolveIconSourceExe(game)
+      if (!existsSync(exePath)) continue
+      if (await extractIconPng(exePath, target)) repaired += 1
+    }
+    if (repaired > 0) {
+      logger.info('games', `Reparo de ícones: ${repaired} ícone(s) regravado(s)`)
+    }
+    setGameIconsVersion(GAME_ICON_PIPELINE_VERSION)
+    return repaired
+  } catch (err) {
+    logger.warn('games', 'Falha ao reparar ícones cacheados:', err)
+    return 0
+  }
+}
+
+/**
+ * Apaga sobras do ícone que o jogo tinha antes de ser atualizado (o arquivo
+ * antigo, quando diferente do novo, e os `<base-do-id>.<ext>` restantes).
+ */
+function cleanupRefreshedIcon(game: StoredGame, keptTarget: string): void {
+  const kept = resolve(keptTarget)
+  const previous = resolveIconInsideGameIcons(game.iconPath)
+  if (previous && previous !== kept) {
+    try {
+      rmSync(previous, { force: true })
+      invalidateIconCache(previous)
+    } catch (err) {
+      logger.warn('games', `Não foi possível apagar o ícone antigo ${previous}:`, err)
+    }
+  }
+  deleteStaleIcons(game.id, kept)
+}
+
+/**
+ * "Atualizar todos os ícones" da Biblioteca: re-extrai o ícone de **todos** os
+ * jogos do executável, sobrescrevendo inclusive ícones escolhidos à mão — o
+ * mesmo efeito de abrir cada modal e clicar em "Restaurar ícone". Só é chamado
+ * por ação explícita do usuário (IPC `games:refresh-icons`). Best-effort:
+ * qualquer falha vira contagem e aviso no log, nunca lança.
+ */
+export async function refreshGameIcons(): Promise<RefreshIconsResult> {
+  try {
+    const result = await refreshAllGameIcons({
+      games: getStoredGames,
+      // Mesmo destino do "Restaurar ícone" (`restoreExeIcon`).
+      targetOf: (game) => join(gameIconsDir(), `${safeIconBase(game.id)}.png`),
+      // Steam: melhor executável da pasta (mesma fonte do reparo); demais: exePath.
+      exeOf: resolveIconSourceExe,
+      extract: extractIconPng,
+      persist: (games) => setStoredGames(games).success,
+      cleanup: cleanupRefreshedIcon
+    })
+    if (result.refreshed > 0) {
+      logger.info('games', `Ícones atualizados: ${result.refreshed} de ${result.checked}`)
+    }
+    return result
+  } catch (err) {
+    logger.warn('games', 'Falha ao atualizar todos os ícones:', err)
+    return { checked: 0, refreshed: 0, failed: 0 }
+  }
+}
+
+/**
+ * Re-extrai do executável os ícones que não estão legíveis — chamado ao abrir
+ * a Biblioteca para garantir que os cards fiquem preenchidos. Só toca em
+ * ícones ausentes/corrompidos: um ícone válido (inclusive o escolhido à mão
+ * pelo usuário) nunca é sobrescrito. Best-effort: qualquer falha vira aviso
+ * no log e contagem, nunca impede a lista de carregar.
+ */
+export async function reloadGameIcons(): Promise<ReloadIconsResult> {
+  try {
+    const result = await reloadMissingGameIcons({
+      games: getStoredGames,
+      iconOf: (game) => getGameIcon(game.id),
+      // Mesmo destino de `setGameIcon`/`restoreExeIcon`: o primeiro candidato
+      // já respeita o `iconPath` quando ele está dentro de `game-icons/`.
+      targetOf: (game) => iconCandidates(game)[0],
+      exeOf: resolveIconSourceExe,
+      extract: extractIconPng
+    })
+    if (result.reloaded > 0) {
+      logger.info('games', `Ícones recarregados: ${result.reloaded} de ${result.checked}`)
+    }
+    return result
+  } catch (err) {
+    logger.warn('games', 'Falha ao recarregar os ícones dos jogos:', err)
+    return { checked: 0, reloaded: 0, failed: 0 }
+  }
 }

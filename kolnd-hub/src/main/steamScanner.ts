@@ -2,9 +2,12 @@ import { ipcMain } from 'electron'
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { basename, join } from 'path'
+import { join } from 'path'
 import { addGame, extractIconPng, gameIconsDir, getGames } from './games'
+import { findGameExecutable } from './games/exeFinder'
 import { logger } from './logger'
+
+export { findGameExecutable } from './games/exeFinder'
 
 /**
  * Importação automática de jogos Steam para a Biblioteca do Kolnd Hub.
@@ -44,8 +47,6 @@ const EMPTY_REPORT: SteamImportReport = {
 }
 
 const REG_QUERY_TIMEOUT_MS = 5000
-/** Profundidade máxima da varredura a partir da raiz do jogo (0 = só a raiz). */
-const EXE_SCAN_MAX_DEPTH = 2
 
 /** Nomes (case-insensitive, substring) que identificam ferramentas, não jogos. */
 const TOOL_NAME_PATTERNS = [
@@ -67,10 +68,6 @@ const KNOWN_TOOL_APP_IDS = new Set<number>([
   1628350, // Proton 7.0
   2180100 // Proton Hotfix
 ])
-
-/** Padrões de executável que NUNCA são o jogo em si (instaladores/crash handlers). */
-const EXE_EXCLUDE_SUBSTRINGS = ['setup', 'redist', 'crashhandler', 'prereq']
-const EXE_EXCLUDE_PREFIXES = ['unins', 'vc_redist', 'unitycrashhandler', 'ueprereq']
 
 /* ── Localização da Steam ─────────────────────────────────────────── */
 
@@ -220,85 +217,6 @@ function isToolEntry(name: string, appId: number): boolean {
   const normalized = name.toLowerCase()
   if (TOOL_NAME_PATTERNS.some((pattern) => normalized.includes(pattern))) return true
   return KNOWN_TOOL_APP_IDS.has(appId)
-}
-
-/* ── Localização do executável ────────────────────────────────────── */
-
-interface ExeCandidate {
-  path: string
-  size: number
-}
-
-function isExcludedExeName(fileName: string): boolean {
-  const name = fileName.toLowerCase()
-  if (EXE_EXCLUDE_PREFIXES.some((prefix) => name.startsWith(prefix))) return true
-  return EXE_EXCLUDE_SUBSTRINGS.some((part) => name.includes(part))
-}
-
-/** Normaliza para comparação heurística: minúsculas, só alfanumérico. */
-function normalizeForMatch(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-/**
- * Varre `<installPath>` (profundidade ≤ 2, sem seguir symlinks/reparse
- * points) coletando `*.exe` válidos. Devolve o caminho escolhido ou null.
- */
-export function findGameExecutable(installPath: string): string | null {
-  const candidates: ExeCandidate[] = []
-
-  const walk = (dir: string, depth: number): void => {
-    let entries: import('fs').Dirent[]
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return // pasta sem permissão de leitura — trata como vazia
-    }
-    for (const entry of entries) {
-      // Nunca seguir links (evita apontar para fora da pasta do jogo).
-      if (entry.isSymbolicLink()) continue
-      const fullPath = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (depth < EXE_SCAN_MAX_DEPTH) walk(fullPath, depth + 1)
-        continue
-      }
-      if (!entry.isFile()) continue
-      const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase()
-      if (ext !== '.exe') continue
-      if (isExcludedExeName(entry.name)) continue
-      try {
-        const size = statSync(fullPath).size
-        candidates.push({ path: fullPath, size })
-      } catch {
-        // Arquivo ilegível — ignora.
-      }
-    }
-  }
-
-  try {
-    if (!statSync(installPath).isDirectory()) return null
-  } catch {
-    return null
-  }
-  walk(installPath, 0)
-
-  if (candidates.length === 0) return null
-
-  // (a) exe cujo nome normalizado contém o nome da pasta de instalação normalizado
-  const folderKey = normalizeForMatch(basename(installPath))
-  if (folderKey) {
-    const folderMatch = candidates.find((candidate) =>
-      normalizeForMatch(basename(candidate.path, '.exe')).includes(folderKey)
-    )
-    if (folderMatch) return folderMatch.path
-  }
-
-  // (b) o *.exe de maior tamanho (quase sempre o binário principal)
-  const largest = [...candidates].sort((a, b) => b.size - a.size)[0]
-  if (largest) return largest.path
-
-  // (c) primeiro encontrado
-  return candidates[0].path
 }
 
 /* ── Importação ───────────────────────────────────────────────────── */

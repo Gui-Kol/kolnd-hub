@@ -1,5 +1,6 @@
 import Store from 'electron-store'
 import { ipcMain } from 'electron'
+import { isIP } from 'net'
 import { isAbsolute } from 'path'
 import { logger } from './logger'
 // Fonte única dos tipos/consts de gamepad (05-5.4). Re-exportados para não
@@ -23,6 +24,21 @@ import {
   type HudScale,
   type HudSize
 } from '../shared/hud'
+import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../shared/hwmon'
+import {
+  OFFICE_AGENT_ID_RE,
+  OFFICE_DEPARTMENTS_MAX,
+  OFFICE_DEPARTMENT_ID_RE,
+  OFFICE_DEPARTMENT_MEMBERS_MAX,
+  OFFICE_SESSION_ID_RE,
+  normalizeOfficeDepartmentName,
+  type OfficeDepartment
+} from '../shared/office'
+import {
+  OFFICE_AVATARS_MAX,
+  normalizeAvatarLook,
+  type OfficeAvatarLook
+} from '../shared/officeAvatar'
 export type {
   GamepadProfile,
   GamepadAction,
@@ -108,6 +124,23 @@ export interface HubStoreSchema {
   benchmarkHistory: BenchmarkEntry[]
   /** Sobreposição (HUD): atalho global e visibilidade persistida. */
   hud: HudConfig
+  /** Acesso remoto: último IP público consultado (só por ação explícita). */
+  remoteAccess: RemoteAccessPrefs
+  /**
+   * Versão do pipeline de extração de ícones já aplicada aos arquivos de
+   * `game-icons/` (ver `games/icons.ts`). Serve para o reparo automático rodar
+   * uma única vez por versão do pipeline.
+   */
+  gameIconsVersion: number
+  /**
+   * Intervalo do polling do monitor de hardware (aba Monitor + HUD), em ms.
+   * Sempre lido/gravado normalizado por `normalizeHwmonIntervalMs`.
+   */
+  hwmonIntervalMs: number
+  /** Salas-departamento do OpenOffice (lista normalizada, cap 30). */
+  officeDepartments: OfficeDepartment[]
+  /** Aparência editada por sessão (mapa normalizado, cap 300). */
+  officeAvatars: Record<string, OfficeAvatarLook>
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -120,6 +153,51 @@ export interface HubStoreSchema {
 /** Preferências do modo Big Picture (chave `bigPicture`). */
 export interface BigPicturePrefs {
   sounds: boolean
+}
+
+/**
+ * Preferências do acesso remoto (chave `remoteAccess`).
+ *
+ * Guarda apenas o RESULTADO da última consulta de IP público — credenciais do
+ * Tailscale nunca passam pelo Hub (ficam no serviço/app do Tailscale).
+ */
+export interface RemoteAccessPrefs {
+  /** "Modo remoto" ligado pelo card do Kloud Games (só com Tailscale conectado). */
+  mode: boolean
+  lastPublicIp: string | null
+  /** ISO da última consulta bem-sucedida. */
+  lastPublicIpCheckedAt: string | null
+}
+
+export function defaultRemoteAccessPrefs(): RemoteAccessPrefs {
+  return { mode: false, lastPublicIp: null, lastPublicIpCheckedAt: null }
+}
+
+/** IP válido (v4/v6) e limitado; qualquer outra coisa vira `null`. */
+function normalizePublicIp(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const ip = value.trim()
+  if (!ip || ip.length > 64 || isIP(ip) === 0) return null
+  return ip
+}
+
+/** Normaliza o objeto persistido; campos inválidos são descartados isoladamente. */
+export function normalizeRemoteAccessPrefs(input: unknown): RemoteAccessPrefs {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return defaultRemoteAccessPrefs()
+  }
+  const raw = input as Record<string, unknown>
+  const mode = raw.mode === true
+  const lastPublicIp = normalizePublicIp(raw.lastPublicIp)
+  const rawCheckedAt = raw.lastPublicIpCheckedAt
+  const lastPublicIpCheckedAt =
+    typeof rawCheckedAt === 'string' && rawCheckedAt.trim() && rawCheckedAt.length <= 40
+      ? rawCheckedAt.trim()
+      : null
+
+  // Sem IP válido o timestamp perde o sentido — mas o modo é independente.
+  if (!lastPublicIp) return { mode, lastPublicIp: null, lastPublicIpCheckedAt: null }
+  return { mode, lastPublicIp, lastPublicIpCheckedAt }
 }
 
 /** Nota de um teste individual do benchmark (MOps/s em cada fase). */
@@ -461,6 +539,90 @@ export function normalizeBenchmarkHistory(input: unknown): BenchmarkEntry[] {
   return out
 }
 
+// ── OpenOffice: salas-departamento e aparência ─────────────────────────────
+//
+// Duas chaves novas do OpenOffice. O conteúdo é sempre normalizado na leitura
+// e na escrita (arquivo editado à mão, versão antiga ou renderer comprometido):
+// ids/formato, nome sem controles, índices de paleta dentro da faixa, dedupe e
+// limites de quantidade.
+
+/** Nome de sala: 1–24 caracteres, espaços colapsados e sem controles. */
+export { normalizeOfficeDepartmentName }
+
+/** Departamento vindo do disco/IPC; qualquer campo inválido descarta a entrada. */
+export function normalizeOfficeDepartment(input: unknown): OfficeDepartment | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const raw = input as Record<string, unknown>
+
+  const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+  const name = normalizeOfficeDepartmentName(raw.name)
+  const agentID = typeof raw.agentID === 'string' ? raw.agentID.trim() : ''
+  if (!OFFICE_DEPARTMENT_ID_RE.test(id) || !name || !OFFICE_AGENT_ID_RE.test(agentID)) return null
+
+  const createdAt =
+    typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) && raw.createdAt > 0
+      ? Math.trunc(raw.createdAt)
+      : null
+  if (createdAt === null) return null
+
+  const sessionIDs: string[] = []
+  const seen = new Set<string>()
+  if (Array.isArray(raw.sessionIDs)) {
+    for (const entry of raw.sessionIDs) {
+      if (typeof entry !== 'string') continue
+      const sessionID = entry.trim()
+      if (!OFFICE_SESSION_ID_RE.test(sessionID) || seen.has(sessionID)) continue
+      seen.add(sessionID)
+      sessionIDs.push(sessionID)
+      if (sessionIDs.length >= OFFICE_DEPARTMENT_MEMBERS_MAX) break
+    }
+  }
+
+  return { id, name, agentID, sessionIDs, createdAt }
+}
+
+/**
+ * Lista normalizada de departamentos: descarta inválidos, deduplica por id e
+ * por sessão (a primeira sala vence) e corta em `OFFICE_DEPARTMENTS_MAX`.
+ */
+export function normalizeOfficeDepartments(input: unknown): OfficeDepartment[] {
+  if (!Array.isArray(input)) return []
+  const seenIDs = new Set<string>()
+  const seenSessions = new Set<string>()
+  const out: OfficeDepartment[] = []
+  for (const item of input) {
+    const department = normalizeOfficeDepartment(item)
+    if (!department || seenIDs.has(department.id)) continue
+    const sessionIDs = department.sessionIDs.filter((sessionID) => !seenSessions.has(sessionID))
+    for (const sessionID of sessionIDs) seenSessions.add(sessionID)
+    seenIDs.add(department.id)
+    out.push({ ...department, sessionIDs })
+    if (out.length >= OFFICE_DEPARTMENTS_MAX) break
+  }
+  return out
+}
+
+/**
+ * Mapa de looks por sessão. Chaves fora do formato de sessão e looks inválidos
+ * são descartados; o cap mantém as `OFFICE_AVATARS_MAX` entradas mais recentes
+ * (a ordem de inserção do objeto é a ordem de escrita).
+ */
+export function normalizeOfficeAvatars(input: unknown): Record<string, OfficeAvatarLook> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const entries: Array<[string, OfficeAvatarLook]> = []
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const sessionID = key.trim()
+    if (!OFFICE_SESSION_ID_RE.test(sessionID)) continue
+    const look = normalizeAvatarLook(value)
+    if (!look) continue
+    entries.push([sessionID, look])
+  }
+  const kept = entries.slice(-OFFICE_AVATARS_MAX)
+  const out: Record<string, OfficeAvatarLook> = {}
+  for (const [sessionID, look] of kept) out[sessionID] = look
+  return out
+}
+
 const schema: Store.Schema<HubStoreSchema> = {
   apps: {
     type: 'array',
@@ -573,6 +735,58 @@ const schema: Store.Schema<HubStoreSchema> = {
       scale: { type: 'string' }
     },
     additionalProperties: false
+  },
+  // Acesso remoto: só o último IP público consultado (ação explícita). O
+  // conteúdo é revalidado por normalizeRemoteAccessPrefs() na leitura/escrita.
+  remoteAccess: {
+    type: 'object',
+    default: { mode: false, lastPublicIp: null, lastPublicIpCheckedAt: null },
+    properties: {
+      mode: { type: 'boolean' },
+      lastPublicIp: { type: ['string', 'null'] },
+      lastPublicIpCheckedAt: { type: ['string', 'null'] }
+    },
+    additionalProperties: false
+  },
+  // Chave nova com default: o ajv preenche nas instalações antigas (não exige
+  // migração). Ver GAME_ICON_PIPELINE_VERSION em games/icons.ts.
+  gameIconsVersion: {
+    type: 'number',
+    default: 0,
+    minimum: 0
+  },
+  // Intervalo do polling do monitor (padrão 0,5 s). Sem `minimum`/`maximum` de
+  // propósito: o ajv valida na criação do store e um valor editado à mão fora
+  // da faixa derrubaria a criação do arquivo inteiro. A faixa é aplicada por
+  // normalizeHwmonIntervalMs() na leitura e na escrita.
+  hwmonIntervalMs: {
+    type: 'number',
+    default: HWMON_INTERVAL_DEFAULT_MS
+  },
+  // Salas-departamento do OpenOffice. O conteúdo é revalidado por
+  // normalizeOfficeDepartments() na leitura/escrita; o schema só garante a forma
+  // básica (id/nome/agente/membros), sem derrubar o arquivo inteiro.
+  officeDepartments: {
+    type: 'array',
+    default: [],
+    items: {
+      type: 'object',
+      required: ['id', 'name', 'agentID', 'sessionIDs', 'createdAt'],
+      additionalProperties: true,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1 },
+        agentID: { type: 'string', minLength: 1 },
+        sessionIDs: { type: 'array', items: { type: 'string' } },
+        createdAt: { type: 'number' }
+      }
+    }
+  },
+  // Aparência editada por sessão. O mapa é livre no schema porque o formato de
+  // cada look é validado por normalizeOfficeAvatars()/normalizeAvatarLook().
+  officeAvatars: {
+    type: 'object',
+    default: {}
   }
 }
 
@@ -606,6 +820,9 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.5.0 garante a chave `benchmarkHistory` (lista normalizada, cap 20);
       // 1.6.0 garante a chave `hud` (atalho padrão e visibilidade desligada).
       // 1.7.0 acrescenta as preferências de tamanho do HUD (`width`/`scale`).
+      // 1.8.0 garante a chave `remoteAccess` (último IP público consultado).
+      // 1.9.0 acrescenta `mode` ao `remoteAccess` (modo remoto do Kloud Games).
+      // 1.10.0 garante `officeDepartments` (cap 30) e `officeAvatars` (cap 300).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -665,6 +882,37 @@ function createStore(): Store<HubStoreSchema> | null {
             // Largura (180–560, passo 10) e escala (`compacta|normal|grande`).
             // Atalho/visibilidade existentes são preservados pela normalização.
             s.set('hud', normalizeHudConfig(s.get('hud', defaultHudConfig())))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.8.0': (s): void => {
+          try {
+            // Chave nova do acesso remoto (null/`{...}`); não toca no resto.
+            s.set(
+              'remoteAccess',
+              normalizeRemoteAccessPrefs(s.get('remoteAccess', defaultRemoteAccessPrefs()))
+            )
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.9.0': (s): void => {
+          try {
+            // `mode` novo (default false) sem perder o último IP consultado.
+            s.set(
+              'remoteAccess',
+              normalizeRemoteAccessPrefs(s.get('remoteAccess', defaultRemoteAccessPrefs()))
+            )
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.10.0': (s): void => {
+          try {
+            // Chaves novas do OpenOffice; listas/mapas corrompidos viram vazio.
+            s.set('officeDepartments', normalizeOfficeDepartments(s.get('officeDepartments', [])))
+            s.set('officeAvatars', normalizeOfficeAvatars(s.get('officeAvatars', {})))
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -792,6 +1040,37 @@ export function setStoredGames(games: unknown): { success: boolean; error?: stri
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar games:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Versão do pipeline de extração de ícones já aplicada aos arquivos em
+ * `game-icons/` (0 = nunca reparado). Ver `games/icons.ts`.
+ */
+export function getGameIconsVersion(): number {
+  if (!store) return 0
+  try {
+    const value = store.get('gameIconsVersion', 0)
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+  } catch (err) {
+    logger.error('store', 'Falha ao ler gameIconsVersion:', err)
+    return 0
+  }
+}
+
+/** Persiste a versão do pipeline de ícones já aplicada. */
+export function setGameIconsVersion(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return { success: false, error: 'Versão de ícones inválida.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('gameIconsVersion', value)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar gameIconsVersion:', message)
     return { success: false, error: message }
   }
 }
@@ -1085,6 +1364,192 @@ export function setHudSize(input: unknown): {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar hud.width/scale:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Intervalo do polling do monitor de hardware (chave `hwmonIntervalMs`).
+ *
+ * Sempre normalizado: o arquivo pode ter sido editado à mão ou vir de uma
+ * versão antiga sem a chave — nesses casos o monitor usa o default em vez de
+ * falhar. O valor é o MESMO para a aba Monitor e o HUD (timer único).
+ */
+export function getHwmonIntervalMs(): number {
+  if (!store) return HWMON_INTERVAL_DEFAULT_MS
+  try {
+    return normalizeHwmonIntervalMs(store.get('hwmonIntervalMs', HWMON_INTERVAL_DEFAULT_MS))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler hwmonIntervalMs:', err)
+    return HWMON_INTERVAL_DEFAULT_MS
+  }
+}
+
+/**
+ * Persiste o intervalo do polling do monitor.
+ *
+ * Tipo errado é ERRO (não cai em default silencioso): quem chama pelo IPC
+ * precisa saber que nada foi salvo. Um número fora da faixa é normalizado
+ * (clamp + passo) e é esse valor que volta para o renderer.
+ */
+export function setHwmonIntervalMs(input: unknown): {
+  success: boolean
+  intervalMs?: number
+  error?: string
+} {
+  if (typeof input !== 'number' || !Number.isFinite(input)) {
+    return { success: false, error: 'Intervalo inválido para o monitor de hardware.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  const intervalMs = normalizeHwmonIntervalMs(input)
+  try {
+    store.set('hwmonIntervalMs', intervalMs)
+    logger.info('store', `intervalo do monitor salvo: ${intervalMs} ms`)
+    return { success: true, intervalMs }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar hwmonIntervalMs:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Último IP público consultado (chave `remoteAccess`). Defaults seguros:
+ * nunca consulta nada ao abrir — só devolve o que foi salvo por clique.
+ */
+export function getRemoteAccessPrefs(): RemoteAccessPrefs {
+  if (!store) return defaultRemoteAccessPrefs()
+  try {
+    return normalizeRemoteAccessPrefs(store.get('remoteAccess', defaultRemoteAccessPrefs()))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler remoteAccess:', err)
+    return defaultRemoteAccessPrefs()
+  }
+}
+
+/** Persiste o resultado da consulta explícita de IP público. */
+export function setRemotePublicIp(
+  ip: unknown,
+  checkedAt: unknown
+): { success: boolean; error?: string } {
+  const address = normalizePublicIp(ip)
+  if (!address) return { success: false, error: 'IP público inválido.' }
+  const at =
+    typeof checkedAt === 'string' && checkedAt.trim() && checkedAt.length <= 40
+      ? checkedAt.trim()
+      : new Date().toISOString()
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getRemoteAccessPrefs()
+    store.set('remoteAccess', { ...current, lastPublicIp: address, lastPublicIpCheckedAt: at })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar remoteAccess:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** "Modo remoto" persistido (default false). */
+export function getRemoteMode(): boolean {
+  return getRemoteAccessPrefs().mode
+}
+
+/** Persiste o "Modo remoto" sem mexer no último IP público consultado. */
+export function setRemoteMode(value: unknown): { success: boolean; error?: string } {
+  if (typeof value !== 'boolean') {
+    return { success: false, error: 'Valor inválido para o modo remoto.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getRemoteAccessPrefs()
+    store.set('remoteAccess', { ...current, mode: value })
+    logger.info('store', `modo remoto ${value ? 'ativado' : 'desativado'}`)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar modo remoto:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lista de salas-departamento do OpenOffice (sempre normalizada; [] quando indisponível). */
+export function getOfficeDepartments(): OfficeDepartment[] {
+  if (!store) return []
+  try {
+    return normalizeOfficeDepartments(store.get('officeDepartments', []))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler officeDepartments:', err)
+    return []
+  }
+}
+
+/** Normaliza e persiste a lista de salas-departamento (cap 30). */
+export function setOfficeDepartments(input: unknown): { success: boolean; error?: string } {
+  const normalized = normalizeOfficeDepartments(input)
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('officeDepartments', normalized)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar officeDepartments:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Mapa de aparências por sessão (sempre normalizado; {} quando indisponível). */
+export function getOfficeAvatars(): Record<string, OfficeAvatarLook> {
+  if (!store) return {}
+  try {
+    return normalizeOfficeAvatars(store.get('officeAvatars', {}))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler officeAvatars:', err)
+    return {}
+  }
+}
+
+/** Normaliza e persiste o mapa inteiro de aparências (cap 300). */
+export function setOfficeAvatars(input: unknown): { success: boolean; error?: string } {
+  const normalized = normalizeOfficeAvatars(input)
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('officeAvatars', normalized)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar officeAvatars:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Grava o look de UMA sessão. A entrada vai para o fim da ordem de escrita —
+ * é assim que o cap de 300 descarta as mais antigas numa próxima leitura.
+ */
+export function setOfficeAvatar(
+  sessionID: unknown,
+  look: unknown
+): { success: boolean; error?: string } {
+  const id = typeof sessionID === 'string' ? sessionID.trim() : ''
+  if (!OFFICE_SESSION_ID_RE.test(id)) {
+    return { success: false, error: 'Sessão inválida para salvar a aparência.' }
+  }
+  const normalized = normalizeAvatarLook(look)
+  if (!normalized) {
+    return { success: false, error: 'Aparência inválida: confira sexo e cores escolhidas.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    const current = getOfficeAvatars()
+    delete current[id]
+    current[id] = normalized
+    const next = normalizeOfficeAvatars(current)
+    store.set('officeAvatars', next)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar officeAvatars:', message)
     return { success: false, error: message }
   }
 }

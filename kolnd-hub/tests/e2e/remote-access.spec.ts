@@ -1,0 +1,131 @@
+import { test, expect, _electron as electron } from '@playwright/test'
+import { readFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { delimiter, join } from 'path'
+import type { E2eContext } from './global-setup'
+
+/**
+ * Acesso remoto (Configurações): a seção renderiza com o estado REAL do main.
+ *
+ * A lista de passos só aparece depois de `remote:status` responder, então
+ * encontrá-la prova o caminho IPC → detecção de Tailscale/interfaces → probes
+ * TCP → renderer. Nenhuma ação externa é clicada aqui (nem winget, nem IP
+ * público, nem abrir navegador).
+ */
+const CONTEXT_FILE =
+  process.env.KOLDND_HUB_E2E_CONTEXT ?? join(tmpdir(), 'kolnd-hub-e2e-context.json')
+
+function loadContext(): E2eContext {
+  return JSON.parse(readFileSync(CONTEXT_FILE, 'utf8')) as E2eContext
+}
+
+test('configurações: seção de acesso remoto renderiza com status do main', async () => {
+  const ctx = loadContext()
+
+  const electronApp = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
+      PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
+    }
+  })
+
+  try {
+    const window = await electronApp.firstWindow()
+    await expect(window.getByRole('heading', { name: 'Ferramentas' })).toBeVisible({
+      timeout: 45_000
+    })
+
+    await window.getByRole('button', { name: 'Mais' }).click()
+    await window
+      .locator('#topbar-mais-menu')
+      .getByRole('button', { name: /Configurações/ })
+      .click()
+
+    await expect(window.getByRole('heading', { name: 'Configurações', exact: true })).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Acesso remoto', exact: true })).toBeVisible()
+    await expect(window.getByText('Jogar de qualquer lugar')).toBeVisible()
+
+    // Ações principais presentes e com nome acessível.
+    await expect(window.getByRole('button', { name: /Descobrir meu IP público/ })).toBeVisible()
+    await expect(window.getByRole('button', { name: /Abrir painel do Kloud Games/ })).toBeVisible()
+
+    // Prova de que o IPC respondeu: os passos só existem com `status` carregado.
+    await expect(window.getByText(/Jogue de qualquer rede/)).toBeVisible({ timeout: 30_000 })
+  } finally {
+    await electronApp.close().catch(() => {
+      try {
+        electronApp.process().kill()
+      } catch {
+        // processo já encerrado
+      }
+    })
+  }
+})
+
+test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
+  const ctx = loadContext()
+
+  const electronApp = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
+      PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
+    }
+  })
+
+  try {
+    const window = await electronApp.firstWindow()
+    await expect(window.getByRole('heading', { name: 'Ferramentas' })).toBeVisible({
+      timeout: 45_000
+    })
+
+    const kloudCard = window.locator('[data-testid="app-card"]').filter({ hasText: 'Kloud Games' })
+    await expect(kloudCard).toBeVisible()
+
+    // Começa desligado; com o `tailscale.exe` stubado (conectado, IP fixo) o
+    // modo liga de verdade, e o card mostra o endereço para o Moonlight.
+    const offButton = kloudCard.getByRole('button', { name: 'Modo remoto' })
+    await expect(offButton).toHaveAttribute('aria-pressed', 'false')
+    await offButton.click()
+
+    const onButton = kloudCard.getByRole('button', { name: 'Remoto ativo' })
+    await expect(onButton).toBeVisible()
+    await expect(onButton).toHaveAttribute('aria-pressed', 'true')
+    await expect(kloudCard.getByText('100.101.102.103')).toBeVisible()
+
+    // Desligar não derruba o Tailscale — só o modo do Hub.
+    await onButton.click()
+    await expect(kloudCard.getByRole('button', { name: 'Modo remoto' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    await expect(kloudCard.getByText('100.101.102.103')).toHaveCount(0)
+
+    // Ajuda: instruções local + remoto, com o endereço real da tailnet.
+    await kloudCard
+      .getByRole('button', { name: 'Como conectar no Moonlight (local e remoto)' })
+      .click()
+    const dialog = window.getByRole('dialog', { name: 'Como conectar no Moonlight' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Na mesma rede (local)', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('De qualquer lugar (remoto)', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('100.101.102.103').first()).toBeVisible()
+
+    // O atalho leva para a seção completa em Configurações.
+    await dialog.getByRole('button', { name: /Abrir Acesso remoto/ }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(window.getByRole('heading', { name: 'Configurações', exact: true })).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Acesso remoto', exact: true })).toBeVisible()
+  } finally {
+    await electronApp.close().catch(() => {
+      try {
+        electronApp.process().kill()
+      } catch {
+        // processo já encerrado
+      }
+    })
+  }
+})

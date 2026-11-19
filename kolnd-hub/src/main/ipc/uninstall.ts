@@ -11,8 +11,8 @@ import type { IpcContext } from './lifecycle'
 
 export function registerUninstallHubIpc(ctx: IpcContext): void {
   // ── IPC: Desinstalar o Kolnd Hub (T5) ────────────
-  // Orquestra: Kloud Games (fluxo T2) → backup (log) → wipe opcional de
-  // %APPDATA%\kolnd-hub → spawn desanexado do desinstalador NSIS → encerramento
+  // Orquestra: Kloud Games (fluxo T2) → backup (log) → spawn desanexado do
+  // desinstalador NSIS → wipe opcional de %APPDATA%\kolnd-hub → encerramento
   // do Hub. Os eventos (progress/log/complete) fluem para o renderer pelo
   // registerUninstallIpc; aqui só validamos, executamos e decidimos o fechamento.
   ipcMain.handle('uninstall:hub', async (_event, rawArgs: unknown) => {
@@ -23,7 +23,7 @@ export function registerUninstallHubIpc(ctx: IpcContext): void {
       }
     }
 
-    // Janela travada durante TODA a sequência destrutiva (kloud → wipe → spawn).
+    // Janela travada durante TODA a sequência destrutiva (kloud → spawn → wipe).
     // Só destrava na saída: spawn concluído (o app fecha em seguida), erro
     // amigável, ou paused/choice (o usuário decide o próximo passo).
     lockMainWindowForUninstall()

@@ -172,18 +172,6 @@ namespace system_tray {
     launch_ui();
   }
 
-  void tray_donate_github_cb([[maybe_unused]] struct tray_menu *item) {
-    platf::open_url("https://github.com/sponsors/LizardByte");
-  }
-
-  void tray_donate_patreon_cb([[maybe_unused]] struct tray_menu *item) {
-    platf::open_url("https://www.patreon.com/LizardByte");
-  }
-
-  void tray_donate_paypal_cb([[maybe_unused]] struct tray_menu *item) {
-    platf::open_url("https://www.paypal.com/paypalme/ReenigneArcher");
-  }
-
   #if defined(_WIN32) || defined(__APPLE__)
   void tray_virtualhid_license_cb([[maybe_unused]] struct tray_menu *item) {
     BOOST_LOG(info) << "Opening Virtual HID Broker license settings from system tray"sv;
@@ -304,15 +292,6 @@ namespace system_tray {
         {.text = "Virtual HID Broker", .submenu = virtualhid_license_menu.data()},
         {.text = "-"},
   #endif
-        {.text = "Donate",
-         .submenu =
-           (struct tray_menu[]) {
-             {.text = "GitHub Sponsors", .cb = tray_donate_github_cb},
-             {.text = "Patreon", .cb = tray_donate_patreon_cb},
-             {.text = "PayPal", .cb = tray_donate_paypal_cb},
-             {.text = nullptr}
-           }},
-        {.text = "-"},
   // Currently display device settings are only supported on Windows
   #ifdef _WIN32
         {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},

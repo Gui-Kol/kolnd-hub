@@ -22,9 +22,45 @@ import {
  * gravados no store; o localStorage é renomeado para `.bak` (não apagado).
  */
 
-export async function loadAppConfigs(): Promise<AppConfig[]> {
+type ConfigSnapshot = {
+  apps: Array<Record<string, unknown>> | null
+  startupImportance: Record<string, ImportanceLevel> | null
+}
+
+// Snapshot do store: uma leitura por processo. No dev o StrictMode monta os
+// efeitos duas vezes e, sem ele, cada chamador (apps + importance) pagaria a
+// mesma ida IPC ao main de novo.
+let configSnapshot: Promise<ConfigSnapshot> | null = null
+
+/**
+ * Lê o config do electron-store uma única vez por processo.
+ *
+ * `refresh: true` descarta o snapshot e relê — usado quando a UI força uma
+ * recarga. Falha não fica memoizada: o cache é limpo para a próxima chamada
+ * poder tentar o store de novo (o fallback de localStorage segue igual).
+ */
+function readConfigSnapshot(refresh = false): Promise<ConfigSnapshot> {
+  if (refresh) configSnapshot = null
+  if (!configSnapshot) {
+    // `Promise.resolve().then` mantém semântica do try/catch atual: erro
+    // síncrono da IPC também vira rejeição tratada pelo chamador.
+    const promise = Promise.resolve().then(() => window.api.configGet())
+    configSnapshot = promise
+    void promise.catch(() => {
+      if (configSnapshot === promise) configSnapshot = null
+    })
+  }
+  return configSnapshot
+}
+
+/** Apenas para testes: descarta o snapshot para simular um processo novo. */
+export function __resetHubConfigForTests(): void {
+  configSnapshot = null
+}
+
+export async function loadAppConfigs(refresh = false): Promise<AppConfig[]> {
   try {
-    const snap = await window.api.configGet()
+    const snap = await readConfigSnapshot(refresh)
     if (snap?.apps && Array.isArray(snap.apps) && snap.apps.length > 0) {
       return mergeAppConfigs(snap.apps as unknown as AppConfig[])
     }
@@ -65,9 +101,9 @@ export async function saveAppConfigs(apps: AppConfig[]): Promise<void> {
   }
 }
 
-export async function loadImportanceMap(): Promise<Record<string, ImportanceLevel>> {
+export async function loadImportanceMap(refresh = false): Promise<Record<string, ImportanceLevel>> {
   try {
-    const snap = await window.api.configGet()
+    const snap = await readConfigSnapshot(refresh)
     if (snap?.startupImportance && Object.keys(snap.startupImportance).length > 0) {
       return snap.startupImportance
     }

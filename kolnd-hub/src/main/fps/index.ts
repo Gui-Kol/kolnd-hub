@@ -27,7 +27,8 @@ import { selectFpsTarget } from './target'
 /**
  * Orquestração da medição de FPS/frametime por ETW.
  *
- * O helper é elevado e escreve NDJSON em `<userData>/fps/fps.ndjson`; o main
+ * O helper é elevado e escreve NDJSON em `<ProgramData>/Kolnd Hub/fps/run/fps.ndjson`
+ * (diretório protegido); o main
  * lê só os bytes novos, valida cada linha e publica `fps:update` com o alvo em
  * primeiro plano. O main também escreve o heartbeat que o helper usa para se
  * encerrar sozinho se o app morrer — assim nenhuma sessão ETW fica órfã.

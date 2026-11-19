@@ -30,9 +30,7 @@ vi.mock('./helper', () => ({
   readFpsChunk: mocks.readFpsChunk,
   parseFpsHelperLine: mocks.parseFpsHelperLine,
   takeCompleteLines: mocks.takeCompleteLines,
-  currentFpsHelperPaths: mocks.currentFpsHelperPaths,
-  resolveFpsHelperPaths: vi.fn(),
-  buildFpsLauncherScript: vi.fn()
+  currentFpsHelperPaths: mocks.currentFpsHelperPaths
 }))
 
 import {
@@ -51,12 +49,12 @@ const handlers = new Map<string, Handler>()
 
 const FAKE_PATHS: FpsHelperPaths = {
   dir: 'C:\\userData\\fps',
-  exePath: 'C:\\userData\\fps\\KolndFpsEtw.exe',
   sourcePath: 'C:\\userData\\fps\\KolndFpsEtw.cs',
-  launcherPath: 'C:\\userData\\fps\\fps-helper.ps1',
-  outputPath: 'C:\\userData\\fps\\fps.ndjson',
-  stopPath: 'C:\\userData\\fps\\fps.stop',
-  heartbeatPath: 'C:\\userData\\fps\\fps.heartbeat'
+  stagingExePath: 'C:\\userData\\fps\\KolndFpsEtw.exe',
+  runDir: 'C:\\userData\\fps\\run',
+  outputPath: 'C:\\ProgramData\\Kolnd Hub\\fps\\run\\fps.ndjson',
+  stopPath: 'C:\\userData\\fps\\run\\fps.stop',
+  heartbeatPath: 'C:\\userData\\fps\\run\\fps.heartbeat'
 }
 
 function createContext(): IpcContext {
@@ -229,6 +227,17 @@ describe('startFpsMonitor/stopFpsMonitor', () => {
     expect(result.ok).toBe(false)
     expect(getFpsStatus().state).toBe('error')
     expect(getFpsStatus().error).toBe('só Windows')
+  })
+
+  it('polling lê o NDJSON no outputPath protegido devolvido pelo helper', async () => {
+    registerFpsIpc(createContext())
+    await getHandler('fps:start')({})
+
+    await vi.waitFor(() => {
+      expect(mocks.readFpsChunk).toHaveBeenCalledWith(FAKE_PATHS.outputPath, expect.any(Number))
+    })
+    expect(FAKE_PATHS.outputPath).toContain('ProgramData')
+    stopFpsMonitor()
   })
 
   it('stop sem sessão não escreve stop no disco', () => {

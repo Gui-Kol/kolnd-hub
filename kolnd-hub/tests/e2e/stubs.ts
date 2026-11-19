@@ -67,6 +67,42 @@ function compileStub(name: 'winget' | 'msiexec', stubsDir: string, logPath: stri
   }
 }
 
+// Stub do CLI do Tailscale: `tailscale status --json` devolve um nó conectado
+// com IP fixo na faixa 100.64/10. Permite o E2E do "Modo remoto" sem instalar
+// VPN nenhuma — o app lê o JSON e segue o caminho real de sucesso.
+const TAILSCALE_STUB_SOURCE = `
+using System;
+public static class TailscaleStub
+{
+    public static int Main(string[] args)
+    {
+        Console.WriteLine(@"{""BackendState"":""Running"",""Self"":{""HostName"":""e2e-pc"",""DNSName"":""e2e-pc.tail.ts.net."",""TailscaleIPs"":[""100.101.102.103""],""Online"":true},""CurrentTailnet"":{""MagicDNSSuffix"":""tail.ts.net""},""Peer"":{}}");
+        return 0;
+    }
+}`
+
+/** Compila `tailscale.exe`; falha aqui só impede o E2E do modo remoto. */
+function compileTailscaleStub(stubsDir: string): void {
+  const sourcePath = join(stubsDir, 'tailscale.stub.cs')
+  const exePath = join(stubsDir, 'tailscale.exe')
+  try {
+    writeFileSync(sourcePath, TAILSCALE_STUB_SOURCE, 'utf8')
+    execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Add-Type -TypeDefinition (Get-Content -Raw -LiteralPath '${sourcePath}') -OutputAssembly '${exePath}'`
+      ],
+      { stdio: 'pipe', timeout: 60_000 }
+    )
+  } catch {
+    console.warn(
+      '[e2e/stubs] Falha ao compilar tailscale.exe — o E2E do modo remoto seguirá bloqueado'
+    )
+  }
+}
+
 /** Cria o diretório de stubs e os executáveis. Compilação falhando não derruba o setup: */
 export function createStubs(rootDir: string): StubInfo {
   const stubsDir = join(rootDir, 'stubs')
@@ -87,6 +123,8 @@ export function createStubs(rootDir: string): StubInfo {
       console.warn(`[e2e/stubs] Falha ao compilar stub ${name}.exe — usando placeholder`)
     }
   }
+
+  compileTailscaleStub(stubsDir)
 
   return { stubsDir, stubsLog }
 }

@@ -4,7 +4,7 @@ import { basename, dirname, extname } from 'path'
 import treeKill from 'tree-kill'
 import { getStoredGames } from '../store'
 import { isValidId } from './naming'
-import { listRunningProcesses } from '../startupManager'
+import { listRunningProcesses, type RunningProcess } from '../startupManager'
 import { logger } from '../logger'
 
 /**
@@ -53,12 +53,12 @@ export interface GameProcess {
  * processo e por baseName do caminho). Usado para detectar "já aberto",
  * focar a janela e encerrar. Em caso de falha na listagem, devolve [].
  */
-export function findGameProcesses(exePath: string): GameProcess[] {
+export async function findGameProcesses(exePath: string): Promise<GameProcess[]> {
   const exeBase = gameExeBaseName(exePath)
   if (!exeBase) return []
-  let procs: ReturnType<typeof listRunningProcesses>
+  let procs: RunningProcess[]
   try {
-    procs = listRunningProcesses()
+    procs = await listRunningProcesses()
   } catch (err) {
     logger.warn('games', 'Não foi possível listar os processos para detectar o jogo:', err)
     return []
@@ -138,35 +138,35 @@ function focusProcessWindow(pid: number): boolean {
  * Se o jogo JÁ estiver em execução, a janela é trazida para o primeiro
  * plano em vez de iniciar uma segunda instância.
  */
-export function launchGame(id: unknown): Promise<LaunchGameResult> {
+export async function launchGame(id: unknown): Promise<LaunchGameResult> {
   if (!isValidId(id)) {
-    return Promise.resolve({ ok: false, error: 'Identificador do jogo inválido.' })
+    return { ok: false, error: 'Identificador do jogo inválido.' }
   }
   const trimmedId = id.trim()
   const game = getStoredGames().find((g) => g.id === trimmedId)
   if (!game) {
-    return Promise.resolve({ ok: false, error: 'Jogo não encontrado na biblioteca.' })
+    return { ok: false, error: 'Jogo não encontrado na biblioteca.' }
   }
   if (!existsSync(game.exePath)) {
-    return Promise.resolve({
+    return {
       ok: false,
       error: `Executável não encontrado: ${game.exePath}`
-    })
+    }
   }
 
   // Já aberto? Foca a janela existente em vez de abrir outra instância.
-  const running = findGameProcesses(game.exePath)
+  const running = await findGameProcesses(game.exePath)
   if (running.length > 0) {
     for (const proc of running) {
       if (focusProcessWindow(proc.id)) {
         logger.info('games', `Jogo já em execução — janela focada: ${game.name} (PID ${proc.id})`)
-        return Promise.resolve({ ok: true, focused: true })
+        return { ok: true, focused: true }
       }
     }
     // Processo(s) existe(m), mas nenhum tem janela focável ainda (ex.: launcher
     // iniciando o jogo). Não abrir segunda instância — avisar o renderer.
     logger.info('games', `Jogo em execução sem janela focável: ${game.name}`)
-    return Promise.resolve({ ok: true, alreadyRunning: true })
+    return { ok: true, alreadyRunning: true }
   }
 
   return new Promise((resolvePromise) => {
@@ -220,18 +220,20 @@ export function launchGame(id: unknown): Promise<LaunchGameResult> {
  * Devolve `{ ok: false, error: 'O jogo não está em execução.' }` quando não
  * há processos — o botão do Hub só fica habilitado nesse estado mesmo assim.
  */
-export function stopGame(id: unknown): Promise<{ ok: boolean; error?: string; killed?: number }> {
+export async function stopGame(
+  id: unknown
+): Promise<{ ok: boolean; error?: string; killed?: number }> {
   if (!isValidId(id)) {
-    return Promise.resolve({ ok: false, error: 'Identificador do jogo inválido.' })
+    return { ok: false, error: 'Identificador do jogo inválido.' }
   }
   const trimmedId = id.trim()
   const game = getStoredGames().find((g) => g.id === trimmedId)
   if (!game) {
-    return Promise.resolve({ ok: false, error: 'Jogo não encontrado na biblioteca.' })
+    return { ok: false, error: 'Jogo não encontrado na biblioteca.' }
   }
-  const procs = findGameProcesses(game.exePath)
+  const procs = await findGameProcesses(game.exePath)
   if (procs.length === 0) {
-    return Promise.resolve({ ok: false, error: 'O jogo não está em execução.' })
+    return { ok: false, error: 'O jogo não está em execução.' }
   }
 
   return new Promise((resolveStop) => {
@@ -268,10 +270,10 @@ export function stopGame(id: unknown): Promise<{ ok: boolean; error?: string; ki
  * ao PowerShell (lista de processos) emana o resultado de todos — evite
  * uma chamada por jogo. Ids desconhecidos simplesmente não aparecem no mapa.
  */
-export function runningGamesMap(idsInput: unknown): {
+export async function runningGamesMap(idsInput: unknown): Promise<{
   ok: boolean
   running: Record<string, boolean>
-} {
+}> {
   if (!Array.isArray(idsInput)) return { ok: false, running: {} }
   const ids = new Set<string>()
   for (const entry of idsInput.slice(0, 500)) {
@@ -284,7 +286,7 @@ export function runningGamesMap(idsInput: unknown): {
 
   let bases: Set<string>
   try {
-    const procs = listRunningProcesses()
+    const procs = await listRunningProcesses()
     bases = new Set(
       procs
         .flatMap((p) => {

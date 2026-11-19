@@ -42,14 +42,20 @@ vi.mock('fs', async (importOriginal) => {
 
 const actualFs = await vi.importActual<typeof import('fs')>('fs')
 
+const spawnMock = vi.mocked(spawn)
+
 import {
   getKloudGamesStatePath,
   getKloudGamesStatus,
   invalidateKloudGamesRunningCache,
   isKloudGamesRunning,
+  launchKloudGamesElevated,
+  psStringLiteral,
   readKloudGamesState,
-  refreshKloudGamesPaths
+  refreshKloudGamesPaths,
+  stopKloudGamesElevated
 } from './kloudGames'
+import { spawn } from 'child_process'
 
 const TASKLIST_NO_TASKS = 'INFO: No tasks are running with the specified criteria.'
 const TASKLIST_WITH_TASK = '"KLOUD_GAMES.exe","1234","Console","1","50.000 K"'
@@ -263,5 +269,124 @@ describe('readKloudGamesState — migração do caminho legado (01-1.2)', () => 
     expect(state.exePath).toBe('C:\\novo\\KLOUD_GAMES.exe')
     expect(state.installedAt).toBe('2026-06-01T00:00:00.000Z')
     expect(existsSync(join(stateDir(), 'kloud-games.paths.json.migrated'))).toBe(false)
+  })
+})
+
+// ── Abertura/encerramento elevados (UAC) ─────────────────────────
+
+/**
+ * Stub do `spawn` que dispara os handlers na ordem em que são registrados —
+ * a implementação assina stdout/stderr antes de `close`, então os dados
+ * chegam ao acumulador sem depender de timers (os fake timers do arquivo
+ * continuam ativos).
+ */
+function spawnStub(exitCode: number, stdoutText = '', stderrText = ''): void {
+  const stdoutHandlers: Array<(chunk: Buffer) => void> = []
+  const stderrHandlers: Array<(chunk: Buffer) => void> = []
+
+  const child = {
+    stdout: {
+      on: (_event: string, handler: (chunk: Buffer) => void) => {
+        stdoutHandlers.push(handler)
+      }
+    },
+    stderr: {
+      on: (_event: string, handler: (chunk: Buffer) => void) => {
+        stderrHandlers.push(handler)
+      }
+    },
+    on: (event: string, handler: (code: number) => void) => {
+      if (event !== 'close') return
+      if (stdoutText) for (const fn of stdoutHandlers) fn(Buffer.from(stdoutText))
+      if (stderrText) for (const fn of stderrHandlers) fn(Buffer.from(stderrText))
+      handler(exitCode)
+    }
+  }
+
+  spawnMock.mockReturnValue(child as unknown as ReturnType<typeof spawn>)
+}
+
+function lastSpawnArgs(): { file: string; args: string[] } {
+  const call = spawnMock.mock.calls.at(-1)
+  expect(call).toBeDefined()
+  return { file: String(call?.[0]), args: (call?.[1] ?? []) as string[] }
+}
+
+describe('launchKloudGamesElevated — abre sempre elevado (UAC)', () => {
+  it('usa Start-Process -Verb RunAs com exe e diretório de trabalho', async () => {
+    spawnStub(0)
+
+    const result = await launchKloudGamesElevated('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
+
+    expect(result).toEqual({ success: true })
+    const { file, args } = lastSpawnArgs()
+    expect(file).toBe('powershell.exe')
+    const command = args.join(' ')
+    expect(command).toContain('-Verb RunAs')
+    expect(command).toContain("'C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe'")
+    expect(command).toContain("-WorkingDirectory 'C:\\Program Files\\KLOUD_GAMES'")
+  })
+
+  it('caminho vazio → erro sem chamar o PowerShell', async () => {
+    const result = await launchKloudGamesElevated('   ')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/vazio/i)
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('UAC cancelado (1223) → erro explicativo', async () => {
+    spawnStub(1223, '', 'A operação foi cancelada pelo usuário')
+
+    const result = await launchKloudGamesElevated('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/UAC/)
+  })
+
+  it('outra falha → erro com o código e os detalhes', async () => {
+    spawnStub(1, '', 'erro inesperado')
+
+    const result = await launchKloudGamesElevated('C:\\Program Files\\KLOUD_GAMES\\KLOUD_GAMES.exe')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('código 1')
+    expect(result.error).toContain('erro inesperado')
+  })
+
+  it('psStringLiteral dobra aspas simples (não interpola o caminho)', () => {
+    expect(psStringLiteral("C:\\Jogos\\D'Ávila\\app.exe")).toBe("'C:\\Jogos\\D''Ávila\\app.exe'")
+  })
+})
+
+describe('stopKloudGamesElevated — taskkill via UAC', () => {
+  it('processo parado → erro sem chamar o PowerShell', async () => {
+    execFileAsyncMock.mockResolvedValue({ stdout: TASKLIST_NO_TASKS, stderr: '' })
+
+    const result = await stopKloudGamesElevated()
+
+    expect(result).toEqual({ success: false, error: 'Processo não está em execução' })
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('processo em execução → taskkill elevado e cache invalidado', async () => {
+    execFileAsyncMock.mockResolvedValue({ stdout: TASKLIST_WITH_TASK, stderr: '' })
+    spawnStub(0)
+
+    expect(await isKloudGamesRunning()).toBe(true)
+    const result = await stopKloudGamesElevated()
+
+    expect(result).toEqual({ success: true })
+    const { file, args } = lastSpawnArgs()
+    expect(file).toBe('powershell.exe')
+    const command = args.join(' ')
+    expect(command).toContain('taskkill.exe')
+    expect(command).toContain("'/IM','KLOUD_GAMES.exe'")
+    expect(command).toContain('-Verb RunAs')
+
+    // Cache invalidado: a próxima consulta spawna o tasklist de novo.
+    execFileAsyncMock.mockClear()
+    await isKloudGamesRunning()
+    expect(execFileAsyncMock).toHaveBeenCalledTimes(1)
   })
 })

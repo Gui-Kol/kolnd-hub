@@ -33,14 +33,16 @@ extraResources:
   # fica na raiz de resources/ em produção.
   - from: resources/tray-icon.png
     to: tray-icon.png
-  # Driver opcional do monitor de hardware (WinRing0). O binário NÃO é versionado:
-  # `scripts/fetch-winring0.ps1` baixa e valida o SHA-256 antes do empacotamento.
-  # Sem o arquivo, o instalador sai sem ele e a aba Monitor mostra "—" nos
-  # sensores privilegiados (CPU temp/energia, energia total).
-  - from: resources/drivers
-    to: drivers
+  # Sensores avançados (PawnIO): instalador assinado + módulos IntelMSR e
+  # AMDFamily17. Os binários NÃO são versionados: `scripts/fetch-pawnio.ps1`
+  # baixa e valida SHA-256/tamanho/Authenticode antes do empacotamento. Sem
+  # eles, o instalador sai sem o recurso e a aba Monitor mostra "—" nos
+  # sensores privilegiados (CPU temp/energia, energia total). pins.json e a
+  # licença (COPYING) acompanham os binários.
+  - from: resources/pawnio
+    to: pawnio
     filter:
-      - '**/*.sys'
+      - '**/*'
 win:
   icon: resources/icon.ico
   # Nome explicito e estavel do artefato (NSIS respeita ${version}; o default

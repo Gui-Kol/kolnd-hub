@@ -16,11 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versao do release (ex.: 1.4.0) - deve bater com kolnd-hub/package.json'
+        description: "Versao do release (ex.: 1.4.0) - deve bater com kolnd-hub/package.json"
         required: true
         type: string
       confirm:
-        description: 'Confirmar execucao do build de release (NAO publica nada)'
+        description: "Confirmar execucao do build de release (NAO publica nada)"
         required: true
         type: boolean
         default: false
@@ -63,6 +63,22 @@ jobs:
           New-Item -ItemType Directory -Force resources/programs/MarkLVI | Out-Null
           Set-Content -Path resources/programs/MarkLVI/README.txt `
             -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
+
+      # O updater compara a tag da Release com app.getVersion() (SemVer) e exige
+      # o digest SHA-256 do asset anexado. Tag/versao divergentes do
+      # package.json gerariam um build que nunca "ve" a propria release -
+      # falhar aqui evita descobrir isso so no cliente.
+      - name: Version consistency (input == package.json)
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_VERSION -ne $packageVersion) {
+            Write-Error "Version mismatch: input '$env:RELEASE_VERSION' != kolnd-hub/package.json '$packageVersion'"
+            exit 1
+          }
+          Write-Host "OK: version $packageVersion matches package.json"
 
       - name: Package (NSIS installer)
         run: npm run package

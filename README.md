@@ -6,11 +6,21 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 | Pasta / arquivo            | O que é                                                                                                                                                          | Stack                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, configurações, bandeja, primeira execução, modo Big Picture)                                                                  | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
+| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, OpenOffice, Big Picture, configurações, bandeja, primeira execução)                              | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
 | `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                    | Python + PyQt6, empacotado com PyInstaller                         |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                    | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                  | CMD + PowerShell                                                   |
 | `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
+
+## O que tem no Hub
+
+- **Dashboard** com o status de cada programa do ecossistema (rodando/parado, PID, logs ao vivo), iniciar/parar individual e ações em lote.
+- **Biblioteca de jogos**: importa os jogos instalados da Steam ou adiciona qualquer `.exe`, extrai o ícone do executável, renomeia/troca ícone e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
+- **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
+- **OpenOffice**: escritório isométrico que trata cada sessão do OpenCode como um "funcionário" numa sala — contratar, definir função (agente/modelo/esforço), mandar prompt, acompanhar a conversa, interromper e arquivar, sem abrir o OpenCode (requer o OpenCode CLI instalado). **Ainda incompleto**: o próprio app avisa que a tela vai ganhar melhorias em updates futuros.
+- **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
+- **Acesso remoto** (Tailscale) e **atualização pelo próprio app**, descritos abaixo.
+- **Bandeja do sistema** com abrir/ocultar, autostart opcional e encerramento; fechar a janela (X) mantém o Hub na bandeja.
 
 ## Programas gerenciados pelo Hub
 
@@ -19,6 +29,18 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | **Mark LVI (JARVIS)**                                                   | Embutido no instalador do Hub em `resources/programs/MarkLVI/` (PyInstaller) | Automática na primeira execução do Hub                                                            |
 | **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
 | **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                          |
+
+## Acesso remoto (jogar de qualquer lugar)
+
+O Hub traz em **Configurações → Acesso remoto** o diagnóstico e o atalho para expor o Kloud Games fora de casa **sem abrir portas no roteador**. O caminho recomendado é o [Tailscale](https://tailscale.com) (rede privada WireGuard):
+
+- detecta se o Tailscale está instalado/conectado e mostra o IP `100.x.y.z` (com botão copiar) para digitar no Moonlight;
+- instala via `winget` (UAC) e abre o app para login — sempre por ação explícita, nunca em segundo plano;
+- checa as portas TCP do Moonlight (`47984`, `47989`, `48010`) em localhost e no IP da tailnet;
+- consulta o IP público **apenas quando você clica**, para dizer se a rede é IPv4 direta, NAT ou CGNAT;
+- explica o pareamento: o PIN que o Moonlight mostra é digitado no painel do Kloud Games (`http://localhost:47990`).
+
+Por que não Cloudflare Tunnel/ngrok: eles carregam HTTP/TCP, não UDP — e vídeo, áudio e controle do Moonlight vão por UDP (`47998`–`48002`). Proxy HTTP serve para o painel, não para jogar. O Hub não guarda credenciais do Tailscale; o `config.json` recebe apenas o último IP público consultado.
 
 ## Instalação para o usuário final
 
@@ -36,6 +58,16 @@ Durante a primeira execução o app mostra uma tela de progresso com as etapas:
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Na segunda abertura o app vai direto para o dashboard. O marcador fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
+
+### Atualização para uma versão nova
+
+O Hub consulta **a cada abertura** a release estável mais recente do GitHub e, quando a tag `vX.Y.Z` é mais nova que a versão instalada, mostra o banner **"Nova atualização disponível"**:
+
+- o download do Setup tem progresso e cancelamento;
+- o instalador só é executado se a release publicar o **digest SHA-256** do `.exe` (o hash é conferido de novo imediatamente antes de abrir) e a assinatura Authenticode não estiver quebrada (`NotSigned` é aceito — o projeto ainda não assina código, então o SmartScreen pode alertar);
+- release sem asset `.exe` anexado (ou sem digest) não habilita a atualização automática; nesse caso o banner só oferece abrir a página da release.
+
+Atualizar **por cima** é o caminho suportado e preserva `%APPDATA%\kolnd-hub` (config, biblioteca, logs, ícones). Também é possível baixar o `Kolnd Hub Setup <versao>.exe` manualmente e executá-lo.
 
 > ⚠️ O Mark LVI grava sua chave de API e a memória das conversas **junto ao executável**. Use sempre o app instalado — nunca rode diretamente o bundle de build — para não perder dados ao reconstruir o pacote.
 
@@ -142,7 +174,7 @@ O script:
 
 1. Garante o Node.js no PATH e instala pré-requisitos via `winget` (Git, MSYS2 em `C:\msys64` e .NET SDK 8, necessários para o WiX/cpack);
 2. Roda `kolnd-hub/scripts/build-kloud-games.ps1` — correções idempotentes de renomeação do snapshot, submódulos (incluindo aninhados e o fix aplicado via `scripts/patches/moonlight-stdatomic-guards.patch`), dependências ucrt64, `cmake + ninja` com gcc, `cpack -G WIX` e cópia do MSI para `kolnd-hub/resources/programs/kloud-games/`;
-3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~360 MB);
+3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~300 MB — 293 MiB na 1.1.0);
 4. Gera `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais (`KLOUD_GAMES.msi` e o `Setup.exe`) — passo best-effort: falha do hash não quebra o build.
 
 Se o Kloud Games já estiver compilado, apenas o passo 3 é necessário:
@@ -191,9 +223,37 @@ npm run build      # gera os bundles em out/
 npm run package    # gera o instalador NSIS em dist/
 npm run typecheck  # tsc --noEmit (main + renderer)
 npm test           # testes unitários (Vitest)
+npm run test:e2e   # build + Playwright/Electron
+npm run verify     # typecheck + lint + format:check + testes (gate antes de commit)
 npm run lint       # ESLint (flat config)
 npm run format     # Prettier
 ```
+
+### Testes automatizados (atalho na Área de Trabalho)
+
+O atalho **"Testes - Kolnd Hub"** na Área de Trabalho roda `scripts/run-all-tests.ps1`, que executa em sequência:
+
+1. **Kloud Hub — unitários** (`kolnd-hub`: `npm test`, Vitest);
+2. **Kloud Hub — e2e** (`kolnd-hub`: `npm run test:e2e` — build + Playwright/Electron; a suíte mais lenta);
+3. **Kloud Games — web** (`kloud-games`: `npm test`, Vitest + cobertura);
+4. **Kloud Games — scripts** (Pester, executado só se houver Pester 5+ instalado — o Windows traz o 3.4 por padrão);
+5. **Kloud Games — C++** (`kloud-games\cmake-build-windows\tests\test_KLOUD_GAMES.exe`, usando o build existente — o script **não** recompila);
+6. **Mark LVI** — ainda sem suíte automatizada (task 04-4.5 pendente), apenas reportado.
+
+A janela mostra o andamento e um resumo (OK/FALHOU/PULADO por suíte) e permanece aberta no fim. Logs em `%TEMP%\kolnd-hub-testes`: `testes-*.log` (transcript da execução) e `testes-*.saida.log` (saída completa das suítes).
+
+Rodar sem o atalho:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-all-tests.ps1
+
+# variações
+#   -SkipE2e          não roda Playwright
+#   -SkipKloudGames   não roda nenhuma suíte do Kloud Games
+#   -SkipKloudNative  não roda o binário C++ (mantém web e Pester)
+```
+
+Requisitos: `node_modules` em `kolnd-hub/` e `kloud-games/` (o script avisa e pula/falha se faltar) e MSYS2 em `C:\msys64` para as DLLs do binário C++ (o `ucrt64\bin` é adicionado ao `PATH` automaticamente).
 
 Estrutura do código do Hub:
 
@@ -204,11 +264,12 @@ kolnd-hub/src/
 │               # instaladores silenciosos, implantação dos programas e
 │               # config persistente (electron-store com schema + migração IPC)
 ├── preload/    # bridge segura (contextBridge, sandbox habilitado)
-└── renderer/   # React: Dashboard, Settings, Inicialização, FirstRunInstall,
-                # Big Picture (modo gamepad/TV)…
+└── renderer/   # React: Dashboard, Biblioteca, Meu PC (inicialização, tela,
+                # atualizações, limpeza, benchmark, monitor + HUD), OpenOffice,
+                # Configurações, FirstRunInstall e Big Picture (gamepad/TV)…
 ```
 
-Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback; a migração mais recente é a **'1.4.0'**, do modo Big Picture). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
+Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback; a migração mais recente é a **'1.10.0'**, do OpenOffice — departamentos e avatares). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
 
 O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em **Big Picture** no rodapé da barra lateral e a janela entra em tela cheia com uma transição cinematográfica. A interface é navegável 100% por controle (D-Pad/stick + botões; LB/RB alternam Jogos · Ferramentas · Controle; B/Esc sai de volta ao Hub) — sem controle configurado, o primeiro acesso abre a configuração (detecção automática do modelo via "pressione qualquer botão", ajuste manual em **Configurações → Big Picture**). Mouse e teclado funcionam em paralelo, e a configuração do controle sobrevive a reinícios (`electron-store`, chaves `gamepad`/`bigPicture`).
 

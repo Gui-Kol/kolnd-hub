@@ -25,9 +25,11 @@ export interface IpcContext {
 export async function shutdownHub(ctx: IpcContext): Promise<void> {
   markQuitting()
   try {
-    ctx.processManager.killAll()
+    // Aguarda a saída real dos filhos (com deadline) antes de fechar a janela
+    // e o Electron: sem isso o app.quit() atropelava processos ainda vivos.
+    await ctx.processManager.killAll()
   } catch {
-    // Ignora erros ao matar processos; ainda assim queremos sair.
+    // killAll nunca rejeita, mas a saída do Hub não pode depender disso.
   }
   const mainWindow = ctx.getMainWindow()
   if (mainWindow) {

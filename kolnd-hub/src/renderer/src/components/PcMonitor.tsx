@@ -28,6 +28,8 @@ import type {
   FpsUpdate,
   HudScale,
   HudStatus,
+  HwCpuTempSource,
+  HwGpuVendor,
   HwPowerSourceCpu,
   HwPowerSourceGpu,
   HwSnapshot,
@@ -44,6 +46,12 @@ import {
   HUD_WIDTH_MIN,
   HUD_WIDTH_STEP
 } from '../../../shared/hud'
+import {
+  HWMON_INTERVAL_DEFAULT_MS,
+  HWMON_INTERVAL_MAX_MS,
+  HWMON_INTERVAL_MIN_MS,
+  HWMON_INTERVAL_STEP_MS
+} from '../../../shared/hwmon'
 import { Badge, Button, Card, Select, Switch } from './ui'
 import type { BadgeTone } from './ui'
 
@@ -61,15 +69,72 @@ const HUD_SCALE_LABEL: Record<HudScale, string> = {
   grande: 'Grande'
 }
 
+/**
+ * Opções do intervalo de atualização do monitor (0,1 s a 2,0 s, passo 0,1 s).
+ * O renderer não impõe limites além destas opções: o main normaliza de novo e
+ * devolve o valor efetivo — a resposta do main é a fonte da verdade.
+ */
+const HWMON_INTERVAL_OPTIONS = Array.from(
+  { length: (HWMON_INTERVAL_MAX_MS - HWMON_INTERVAL_MIN_MS) / HWMON_INTERVAL_STEP_MS + 1 },
+  (_, index) => HWMON_INTERVAL_MIN_MS + index * HWMON_INTERVAL_STEP_MS
+)
+
+/** Rótulo em pt-BR com vírgula decimal: 500 → "0,5 s". */
+function formatIntervalLabel(ms: number): string {
+  return `${(ms / 1000).toFixed(1).replace('.', ',')} s`
+}
+
+/**
+ * Motivo de cada "—". Sensores variam por fabricante: em AMD/Intel não existe
+ * `nvidia-smi` para temperatura/potência, e temperatura de CPU em desktop só é
+ * exata com o driver de sensores. A UI explica em vez de deixar um traço mudo.
+ */
 const DASH_TITLE = {
-  cpuTemp: 'Requer o driver de sensores avançados (WinRing0) instalado.',
-  cpuPower: 'Requer o driver de sensores avançados (WinRing0) instalado.',
+  cpuTemp:
+    'Sem zona térmica ACPI nesta placa. Para temperatura exata da CPU, instale e ative os sensores avançados (PawnIO).',
+  cpuPower: 'Requer a leitura elevada dos sensores avançados (PawnIO) ativa.',
+  cpuVoltage:
+    'Vcore medido pela telemetria SVI2 (AMD) ou IA32_PERF_STATUS (Intel) — não é estimado. Se continuar "—" depois de atualizar o Hub, reative os sensores avançados no Monitor (uma vez).',
   total: 'Requer a potência medida da CPU (driver) e da GPU (nvidia-smi).',
   platform: 'Sem fonte mensurável sem driver; o consumo da plataforma é estimado.',
   vrm: 'VRM exige leitura do Super I/O da placa; não suportado nesta fase.',
-  rpm: 'O nvidia-smi expõe apenas percentual; RPM exigiria o Super I/O da placa.',
-  gpu: 'A GPU não respondeu ao nvidia-smi nesta leitura.'
+  rpm: 'RPM da ventoinha só existe com a NVML do driver NVIDIA; AMD/Intel exigem o Super I/O da placa.',
+  gpu: 'Nenhum adaptador de vídeo respondeu ao Windows nesta leitura.',
+  gpuUsage: 'O contador de uso da GPU (CIM) não respondeu nesta leitura.',
+  gpuTemp:
+    'Temperatura da GPU só é exposta pelo nvidia-smi (NVIDIA). AMD/Intel exigem um driver de sensores que esta versão ainda não tem.',
+  gpuClock: 'Clocks da GPU só são expostos pelo nvidia-smi (NVIDIA) nesta versão.',
+  gpuDriver: 'O registro do driver de vídeo não informou a versão.',
+  gpuPower: 'Potência e ventoinha da GPU só são expostas pelo nvidia-smi (NVIDIA).',
+  gpuVramUsed: 'Uso de VRAM vem do nvidia-smi ou do contador de memória dedicada do CIM.',
+  gpuVramTotal:
+    'VRAM real vem do registro do driver. Sem ela, o AdapterRAM do Windows satura em ~4 GiB e não é exibido.',
+  gpuShared: 'O contador de memória compartilhada da GPU não respondeu.',
+  cpuClock: 'Requer a identificação da CPU.',
+  ramSpeed: 'A velocidade não foi informada pelo SMBIOS.',
+  ramVoltage: 'A tensão não foi informada pelo SMBIOS.',
+  ramModules: 'O CIM não listou os módulos instalados.',
+  spec: 'Ainda não identificado nesta sessão.'
 } as const
+
+/**
+ * O botão que resolve o "—" de temperatura/potência da CPU fica no topo da aba,
+ * então o tooltip diz onde clicar em vez de só explicar o motivo do traço.
+ */
+const INSTALL_HINT = 'Clique em "Instalar sensores avançados", no topo desta aba.'
+
+const GPU_VENDOR_LABEL: Record<HwGpuVendor, string> = {
+  nvidia: 'NVIDIA',
+  amd: 'AMD',
+  intel: 'Intel',
+  other: 'Outro'
+}
+
+const CPU_TEMP_SOURCE_LABEL: Record<HwCpuTempSource, string> = {
+  measured: 'driver',
+  acpi: 'ACPI (aprox.)',
+  unavailable: 'sem leitura'
+}
 
 const FPS_REASON_TEXT: Record<FpsInactiveReason, string> = {
   'not-started': 'Ative a medição para ver o FPS da janela em primeiro plano.',
@@ -94,7 +159,7 @@ const POWER_SOURCE_TONE: Record<HwPowerSourceCpu, BadgeTone> = {
 
 const DRIVER_LABEL: Record<DriverStatus, string> = {
   absent: 'não instalado',
-  present: 'instalado (device indisponível)',
+  present: 'instalado (leitura inativa)',
   ready: 'ativo'
 }
 
@@ -111,20 +176,77 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Validação estrutural do que chega do main (o renderer não confia no IPC). */
 function isHwSnapshot(value: unknown): value is HwSnapshot {
   if (!isRecord(value)) return false
-  return (
-    typeof value.capturedAt === 'string' &&
-    isRecord(value.power) &&
-    isRecord(value.cpu) &&
-    isRecord(value.ram) &&
-    isRecord(value.gpu) &&
-    isRecord(value.specs) &&
-    isRecord(value.sources)
-  )
+  if (
+    typeof value.capturedAt !== 'string' ||
+    !isRecord(value.power) ||
+    !isRecord(value.cpu) ||
+    !isRecord(value.ram) ||
+    !isRecord(value.gpu) ||
+    !isRecord(value.specs) ||
+    !isRecord(value.sources)
+  ) {
+    return false
+  }
+
+  // Campos aditivos (fabricante/driver/VRAM e origens de temperatura/uso) são
+  // OPCIONAIS: um payload de versão anterior continua válido. Tipo errado,
+  // porém, descarta o snapshot inteiro — nunca renderizamos valor suspeito.
+  const gpu = value.gpu
+  if (
+    gpu.vendor !== undefined &&
+    gpu.vendor !== null &&
+    gpu.vendor !== 'nvidia' &&
+    gpu.vendor !== 'amd' &&
+    gpu.vendor !== 'intel' &&
+    gpu.vendor !== 'other'
+  ) {
+    return false
+  }
+  const optionalText = (candidate: unknown): boolean =>
+    candidate === undefined || candidate === null || typeof candidate === 'string'
+  const optionalNumber = (candidate: unknown): boolean =>
+    candidate === undefined ||
+    candidate === null ||
+    (typeof candidate === 'number' && Number.isFinite(candidate))
+  if (!optionalText(gpu.driverVersion) || !optionalText(gpu.driverDate)) return false
+  if (!optionalNumber(gpu.vramTotalMb) || !optionalNumber(gpu.usagePercent)) return false
+  if (!optionalNumber(gpu.fanRpm)) return false
+  // Tensão de CPU é aditiva: ausente/`null` vale, mas valor não numérico
+  // descarta o snapshot inteiro — a UI nunca renderiza número suspeito.
+  if (!optionalNumber(value.cpu.voltageV)) return false
+
+  const sources = value.sources
+  const isAbsent = (candidate: unknown): boolean => candidate === undefined || candidate === null
+  if (
+    !isAbsent(sources.cpuTemp) &&
+    sources.cpuTemp !== 'measured' &&
+    sources.cpuTemp !== 'acpi' &&
+    sources.cpuTemp !== 'unavailable'
+  ) {
+    return false
+  }
+  if (
+    !isAbsent(sources.gpuUsage) &&
+    sources.gpuUsage !== 'measured' &&
+    sources.gpuUsage !== 'unavailable'
+  ) {
+    return false
+  }
+  if (
+    !isAbsent(sources.gpuTemp) &&
+    sources.gpuTemp !== 'measured' &&
+    sources.gpuTemp !== 'unavailable'
+  ) {
+    return false
+  }
+  return true
 }
 
 function isDriverStatusInfo(value: unknown): value is DriverStatusInfo {
   if (!isRecord(value)) return false
   const state = value.state
+  // `outdated` é aditivo: payload de versão anterior (ausente) continua válido.
+  if (value.outdated !== undefined && typeof value.outdated !== 'boolean') return false
   return (
     (state === 'absent' || state === 'present' || state === 'ready') &&
     typeof value.filePresent === 'boolean' &&
@@ -234,6 +356,12 @@ function formatTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return DASH
   return date.toLocaleTimeString('pt-BR')
+}
+
+/** `YYYY-MM-DD` do CIM → `DD/MM/AAAA` (a data do driver é só informativa). */
+function formatDriverDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : iso
 }
 
 /** O renderer não confia no IPC: qualquer coisa fora de número finito vira "sem leitura". */
@@ -360,6 +488,9 @@ export function PcMonitor(): JSX.Element {
   const [hudNotice, setHudNotice] = useState<string | null>(null)
   const [hudError, setHudError] = useState<string | null>(null)
   const [hudSizeBusy, setHudSizeBusy] = useState(false)
+  // Intervalo de atualização do monitor (aba + HUD usam o MESMO timer no main).
+  const [hwIntervalMs, setHwIntervalMs] = useState(HWMON_INTERVAL_DEFAULT_MS)
+  const [hwIntervalBusy, setHwIntervalBusy] = useState(false)
   // FPS automático (tarefa agendada no logon): status passivo + instalar/remover.
   const [autoFps, setAutoFps] = useState<FpsAutoStatus | null>(null)
   const [autoBusy, setAutoBusy] = useState(false)
@@ -386,6 +517,16 @@ export function PcMonitor(): JSX.Element {
       .hwmonDriverStatus()
       .then((info) => {
         if (mountedRef.current && isDriverStatusInfo(info)) setDriver(info)
+      })
+      .catch(() => undefined)
+    // Intervalo persistido: o seletor mostra o que o main realmente usa.
+    void window.api
+      .hwmonGetInterval()
+      .then((info) => {
+        if (!mountedRef.current) return
+        if (typeof info?.intervalMs === 'number' && Number.isFinite(info.intervalMs)) {
+          setHwIntervalMs(info.intervalMs)
+        }
       })
       .catch(() => undefined)
     void window.api
@@ -630,6 +771,29 @@ export function PcMonitor(): JSX.Element {
     await applyHudSize({ width: HUD_DEFAULT_WIDTH, scale: HUD_DEFAULT_SCALE })
   }
 
+  // Intervalo do monitor: o main normaliza, persiste e devolve o valor efetivo.
+  // O estado só anda com a resposta — nada de "meio caminho" na UI.
+  const applyHwInterval = async (next: number): Promise<void> => {
+    if (hwIntervalBusy) return
+    setHwIntervalBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.hwmonSetInterval(next)
+      if (!mountedRef.current) return
+      if (result?.success && Number.isFinite(result.intervalMs)) {
+        setHwIntervalMs(result.intervalMs)
+        return
+      }
+      setError('Não foi possível salvar o intervalo de atualização do monitor.')
+    } catch {
+      if (mountedRef.current) {
+        setError('Não foi possível salvar o intervalo de atualização do monitor. Tente novamente.')
+      }
+    } finally {
+      if (mountedRef.current) setHwIntervalBusy(false)
+    }
+  }
+
   // FPS automático: instalar/remover sempre pede confirmação do Windows (UAC).
   const installAutoFps = async (): Promise<void> => {
     if (autoBusy) return
@@ -720,12 +884,43 @@ export function PcMonitor(): JSX.Element {
 
   const driverState: DriverStatus = driver?.state ?? snapshot?.sources.driver ?? 'absent'
   const driverReady = driverState === 'ready'
+  // Agente ativo, mas com script antigo (sem os registradores novos, ex.: SVI2):
+  // o botão precisa reaparecer como "atualizar", mesmo com `state = ready`.
+  const sensorsOutdated = driver?.outdated === true
 
   const power = snapshot?.power ?? null
   const cpu = snapshot?.cpu ?? null
   const ram = snapshot?.ram ?? null
   const gpu = snapshot?.gpu ?? null
   const specs = snapshot?.specs ?? null
+
+  // Fabricante/origem vêm do snapshot; ausentes em payload antigo = desconhecido.
+  const gpuVendor = gpu?.vendor ?? null
+  const cpuTempSource: HwCpuTempSource = snapshot?.sources.cpuTemp ?? 'unavailable'
+  const gpuUsageSource = snapshot?.sources.gpuUsage ?? 'unavailable'
+  const gpuVendorLabel = gpuVendor ? GPU_VENDOR_LABEL[gpuVendor] : null
+  const cpuTempTitle =
+    cpuTempSource === 'acpi'
+      ? 'Leitura ACPI do firmware — aproximada. O driver de sensores entrega a temperatura real do pacote.'
+      : driverReady
+        ? 'O driver de sensores não devolveu temperatura nesta leitura.'
+        : `${DASH_TITLE.cpuTemp} ${INSTALL_HINT}`
+  const cpuPowerTitle = driverReady
+    ? 'O driver de sensores não devolveu potência nesta leitura.'
+    : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
+  const gpuTempTitle =
+    gpuVendor === null
+      ? DASH_TITLE.gpu
+      : gpuVendor === 'nvidia'
+        ? 'O nvidia-smi não respondeu nesta leitura.'
+        : `GPU ${GPU_VENDOR_LABEL[gpuVendor]}: temperatura não é exposta sem um driver de sensores.`
+  const gpuModelTitle = gpu?.model ?? DASH_TITLE.gpu
+  const gpuFanRpmTitle =
+    gpuVendor === null
+      ? DASH_TITLE.rpm
+      : gpuVendor === 'nvidia'
+        ? 'O NVML não devolveu RPM nesta leitura (driver antigo ou GPU sem ventoinha controlada).'
+        : `GPU ${GPU_VENDOR_LABEL[gpuVendor]}: RPM não é exposto sem o Super I/O da placa.`
 
   const totalTitle = driverReady
     ? 'Aguardando uma leitura completa de CPU e GPU.'
@@ -810,6 +1005,18 @@ export function PcMonitor(): JSX.Element {
             ? 'warning'
             : 'neutral'
   const autoErrorText = autoError ?? autoFps?.error ?? null
+  // Motivo real do "—" no card automático: instalado sem amostra fresca é
+  // "agent parado" ou "nenhum jogo em primeiro plano" — nunca um traço mudo.
+  const autoReasonText =
+    autoFps === null || !autoInstalled
+      ? null
+      : autoFps.state === 'stale'
+        ? 'A tarefa está instalada, mas o agent não publica amostra há mais de 3 s. Ele inicia no logon: se você acabou de ativar, reinicie a sessão ou o PC.'
+        : autoFps.state === 'running' && autoFps.sample === null
+          ? 'Nenhum jogo em primeiro plano agora: o agent só publica FPS quando um app apresenta quadros.'
+          : null
+  // Intervalo vigente no texto do cabeçalho (a fonte da verdade é o main).
+  const intervalLabel = formatIntervalLabel(hwIntervalMs)
 
   return (
     <div className="space-y-4" data-testid="hw-monitor">
@@ -825,8 +1032,15 @@ export function PcMonitor(): JSX.Element {
                 Monitor de hardware
               </h3>
               <p className="max-w-xl text-[12px] leading-relaxed text-ink-secondary">
-                Leitura ao vivo dos sensores desta máquina a cada segundo. Tudo é lido localmente —
-                nada sai daqui.
+                Leitura ao vivo dos sensores desta máquina a cada {intervalLabel}. Tudo é lido
+                localmente — nada sai daqui.
+              </p>
+              <p
+                className="max-w-xl text-[10px] leading-relaxed text-ink-tertiary"
+                data-testid="hw-interval-hint"
+              >
+                Intervalos curtos usam mais CPU. A coleta completa leva ~0,6 s; abaixo disso o Hub
+                atualiza o mais rápido que consegue.
               </p>
             </div>
           </div>
@@ -837,9 +1051,109 @@ export function PcMonitor(): JSX.Element {
             <span className="text-[10px] text-ink-tertiary" data-testid="hw-last-updated">
               {snapshot ? `Última leitura: ${formatTime(snapshot.capturedAt)}` : 'Lendo sensores…'}
             </span>
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="hw-interval"
+                className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary"
+              >
+                Atualização
+              </label>
+              <div className="w-24 shrink-0">
+                <Select
+                  id="hw-interval"
+                  aria-label="Intervalo de atualização do monitor"
+                  value={String(hwIntervalMs)}
+                  onChange={(event) => void applyHwInterval(Number(event.target.value))}
+                  disabled={hwIntervalBusy}
+                  data-testid="hw-interval-select"
+                >
+                  {HWMON_INTERVAL_OPTIONS.map((ms) => (
+                    <option key={ms} value={ms}>
+                      {formatIntervalLabel(ms)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
           </div>
         </Card>
       </motion.div>
+
+      {/* ── Sensores avançados (driver opcional) ───────────
+          Fica no topo de propósito: sem driver, a CPU mostra "—" em temperatura e
+          potência — a ação que resolve o traço precisa estar à vista, sem rolar a
+          página. O estado do driver continua no badge do cabeçalho, sem duplicar. */}
+      <motion.div {...entranceProps(reduced, { y: 10 })} data-testid="hw-advanced-sensors">
+        <Card className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:gap-6 md:p-5">
+          <div className="flex items-start gap-3">
+            <ShieldAlert size={18} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
+            <div className="min-w-0 space-y-1">
+              <h3 className="text-sm font-semibold tracking-tight text-ink-primary">
+                Sensores avançados para temperatura e potência da CPU
+              </h3>
+              <p
+                className={`max-w-xl text-[11px] leading-relaxed ${
+                  driverState === 'present' || sensorsOutdated ? 'text-warn' : 'text-ink-secondary'
+                }`}
+              >
+                {driverState === 'absent'
+                  ? 'Sem eles, temperatura e potência da CPU ficam em “—”. A instalação é opcional e pede 1 confirmação do Windows.'
+                  : driverState === 'present'
+                    ? 'Instalado, mas a leitura não está ativa — clique para ativar.'
+                    : sensorsOutdated
+                      ? 'Sensores ativos, mas sem os registradores novos — clique para atualizar.'
+                      : 'Sensores avançados ativos — leitura elevada em segundo plano.'}
+              </p>
+              {driver?.error && !driverReady && (
+                <p className="text-[11px] text-warn">{driver.error}</p>
+              )}
+            </div>
+          </div>
+          {(!driverReady || sensorsOutdated) && (
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void installSensors()}
+              disabled={installing}
+              data-testid="hw-install-driver"
+              className="shrink-0"
+            >
+              {installing ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <ShieldCheck size={14} aria-hidden="true" />
+              )}
+              {sensorsOutdated
+                ? 'Atualizar leitura elevada (1 confirmação do Windows)'
+                : driverState === 'present'
+                  ? 'Ativar leitura elevada (1 confirmação do Windows)'
+                  : 'Instalar sensores avançados (1 confirmação do Windows)'}
+            </Button>
+          )}
+        </Card>
+      </motion.div>
+
+      {/* Feedback da instalação fica junto do botão (agora no topo): erro e aviso
+          de cancelamento não podem nascer no fim de uma página longa. */}
+      {error && (
+        <motion.div
+          {...entranceProps(reduced, { y: 10 })}
+          role="alert"
+          className="flex items-start gap-3 rounded-card border border-danger-border bg-danger-bg p-5"
+        >
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
+          <div className="space-y-1">
+            <p className="text-[13px] font-semibold text-danger">Algo não saiu como esperado</p>
+            <p className="text-[11px] leading-relaxed text-ink-secondary">{error}</p>
+          </div>
+        </motion.div>
+      )}
+
+      {notice && (
+        <p role="status" className="text-[11px] text-ink-tertiary">
+          {notice}
+        </p>
+      )}
 
       {/* ── Energia (centralizada: total + peças) ────────── */}
       <motion.div {...entranceProps(reduced, { y: 10 })}>
@@ -874,7 +1188,7 @@ export function PcMonitor(): JSX.Element {
               watts={cpuPowerW}
               source={cpuSource}
               maxW={barMaxW}
-              title={DASH_TITLE.cpuPower}
+              title={cpuPowerTitle}
             />
             <PowerRow
               testId="hw-power-gpu"
@@ -895,9 +1209,10 @@ export function PcMonitor(): JSX.Element {
           </div>
 
           <p className="text-[10px] leading-relaxed text-ink-tertiary">
-            GPU medida pelo nvidia-smi. CPU e plataforma são <strong>estimadas</strong> pelo modelo
-            fixo: classe térmica de 35 W + 4,5 W por núcleo (limitada a 45–150 W), proporcional ao
-            uso da CPU
+            GPU medida pelo nvidia-smi (NVIDIA); em AMD/Intel o uso vem do contador do Windows, mas
+            a potência não é exposta sem driver. CPU e plataforma são <strong>estimadas</strong>{' '}
+            pelo modelo fixo: classe térmica de 35 W + 4,5 W por núcleo (limitada a 45–150 W),
+            proporcional ao uso da CPU
             {platformW !== null
               ? `, mais ${formatDecimal(platformW, 0)} W fixos de plataforma`
               : ''}
@@ -937,17 +1252,30 @@ export function PcMonitor(): JSX.Element {
                 value={cpu?.clockMhz ?? null}
                 format={formatGhz}
                 unit="GHz"
-                title="Requer a identificação da CPU."
+                title={DASH_TITLE.cpuClock}
               />
             </Stat>
             <Stat label="Temperatura (Tctl)">
-              <span data-testid="hw-cpu-temp">
+              <span data-testid="hw-cpu-temp" className="inline-flex items-center gap-2">
                 <Value
                   value={cpu?.tempC ?? null}
                   format={(value) => formatDecimal(value, 1)}
                   unit="°C"
-                  title={DASH_TITLE.cpuTemp}
+                  title={cpuTempTitle}
                 />
+                {cpu?.tempC !== null && cpu?.tempC !== undefined ? (
+                  <span
+                    className="text-[10px] font-normal text-ink-tertiary"
+                    data-testid="hw-cpu-temp-source"
+                    title={
+                      cpuTempSource === 'acpi'
+                        ? 'Temperatura aproximada lida do firmware (ACPI); não é o pacote da CPU.'
+                        : 'Temperatura lida pelo driver de sensores.'
+                    }
+                  >
+                    {CPU_TEMP_SOURCE_LABEL[cpuTempSource]}
+                  </span>
+                ) : null}
               </span>
             </Stat>
             <Stat label="Potência">
@@ -956,7 +1284,17 @@ export function PcMonitor(): JSX.Element {
                   value={cpu?.watts ?? null}
                   format={(value) => formatDecimal(value, 1)}
                   unit="W"
-                  title={DASH_TITLE.cpuPower}
+                  title={cpuPowerTitle}
+                />
+              </span>
+            </Stat>
+            <Stat label="Tensão (Vcore)">
+              <span data-testid="hw-cpu-voltage">
+                <Value
+                  value={cpu?.voltageV ?? null}
+                  format={(value) => formatDecimal(value, 3)}
+                  unit="V"
+                  title={DASH_TITLE.cpuVoltage}
                 />
               </span>
             </Stat>
@@ -1001,17 +1339,22 @@ export function PcMonitor(): JSX.Element {
               <UsageBar percent={ram?.usedPercent ?? null} />
             </div>
             <Stat label="Velocidade">
-              <Value value={ram?.speedMhz ?? null} unit="MHz" />
+              <Value value={ram?.speedMhz ?? null} unit="MHz" title={DASH_TITLE.ramSpeed} />
             </Stat>
             <Stat label="Tensão">
               <Value
                 value={ram?.voltageV ?? null}
                 format={(value) => formatDecimal(value, 2)}
                 unit="V"
+                title={DASH_TITLE.ramVoltage}
               />
             </Stat>
             <Stat label="Módulos">
-              {specs?.ram ?? <span className="text-ink-tertiary">{DASH}</span>}
+              {specs?.ram ?? (
+                <span className="text-ink-tertiary" title={DASH_TITLE.ramModules}>
+                  {DASH}
+                </span>
+              )}
             </Stat>
           </Card>
         </motion.div>
@@ -1019,13 +1362,20 @@ export function PcMonitor(): JSX.Element {
         <motion.div {...entranceProps(reduced, { y: 10 })}>
           <Card className="space-y-3 p-5">
             <CardTitle icon={Gauge} title="GPU" />
-            <p
-              className="truncate text-[12px] font-semibold text-ink-primary"
-              title={gpu?.model ?? 'Nenhuma GPU NVIDIA respondeu'}
-              data-testid="hw-gpu-model"
-            >
-              {gpu?.model ?? 'GPU não detectada'}
-            </p>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {gpuVendorLabel ? (
+                <Badge tone="neutral" data-testid="hw-gpu-vendor">
+                  {gpuVendorLabel}
+                </Badge>
+              ) : null}
+              <p
+                className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink-primary"
+                title={gpuModelTitle}
+                data-testid="hw-gpu-model"
+              >
+                {gpu?.model ?? 'GPU não detectada'}
+              </p>
+            </div>
             <div className="space-y-1.5">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
@@ -1035,29 +1385,52 @@ export function PcMonitor(): JSX.Element {
                   value={gpu?.usagePercent ?? null}
                   format={(value) => formatInt(value)}
                   unit="%"
-                  title={DASH_TITLE.gpu}
+                  title={gpuUsageSource === 'measured' ? undefined : DASH_TITLE.gpuUsage}
                 />
               </div>
               <UsageBar percent={gpu?.usagePercent ?? null} />
             </div>
             <Stat label="Clock do núcleo">
-              <Value value={gpu?.coreClockMhz ?? null} unit="MHz" title={DASH_TITLE.gpu} />
+              <Value value={gpu?.coreClockMhz ?? null} unit="MHz" title={DASH_TITLE.gpuClock} />
             </Stat>
             <Stat label="Clock da memória">
-              <Value value={gpu?.memClockMhz ?? null} unit="MHz" title={DASH_TITLE.gpu} />
+              <Value value={gpu?.memClockMhz ?? null} unit="MHz" title={DASH_TITLE.gpuClock} />
             </Stat>
-            <Stat label="VRAM">
+            <Stat label="VRAM (usada / total)">
               <span className="font-mono text-[12px] text-ink-primary">
-                <Value value={gpu?.vramUsedMb ?? null} title={DASH_TITLE.gpu} />
+                <Value value={gpu?.vramUsedMb ?? null} title={DASH_TITLE.gpuVramUsed} />
                 <span className="mx-1 text-ink-tertiary">/</span>
-                <Value value={gpu?.vramTotalMb ?? null} unit="MB" title={DASH_TITLE.gpu} />
+                <Value
+                  value={gpu?.vramTotalMb ?? null}
+                  unit="MiB"
+                  title={DASH_TITLE.gpuVramTotal}
+                />
+              </span>
+            </Stat>
+            <Stat label="Driver">
+              <span data-testid="hw-gpu-driver">
+                {gpu?.driverVersion ? (
+                  <>
+                    {gpu.driverVersion}
+                    {gpu.driverDate ? (
+                      <span className="ml-1 text-[10px] font-normal text-ink-tertiary">
+                        · {formatDriverDate(gpu.driverDate)}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-ink-tertiary" title={DASH_TITLE.gpuDriver}>
+                    {DASH}
+                  </span>
+                )}
               </span>
             </Stat>
             <Stat label="Memória compartilhada">
               <Value
                 value={gpu?.sharedMb ?? null}
                 format={(value) => formatDecimal(value, 0)}
-                unit="MB"
+                unit="MiB"
+                title={DASH_TITLE.gpuShared}
               />
             </Stat>
             <Stat label="Temperatura">
@@ -1065,7 +1438,7 @@ export function PcMonitor(): JSX.Element {
                 value={gpu?.tempC ?? null}
                 format={(value) => formatDecimal(value, 1)}
                 unit="°C"
-                title={DASH_TITLE.gpu}
+                title={gpuTempTitle}
               />
             </Stat>
             <Stat label="Ventoinha (%)">
@@ -1073,12 +1446,17 @@ export function PcMonitor(): JSX.Element {
                 value={gpu?.fanPercent ?? null}
                 format={(value) => formatInt(value)}
                 unit="%"
-                title={DASH_TITLE.gpu}
+                title={DASH_TITLE.gpuPower}
               />
             </Stat>
             <Stat label="Ventoinha (RPM)">
-              <span title={DASH_TITLE.rpm} className="text-ink-tertiary">
-                {DASH}
+              <span data-testid="hw-gpu-fan-rpm">
+                <Value
+                  value={gpu?.fanRpm ?? null}
+                  format={(value) => formatInt(value)}
+                  unit="RPM"
+                  title={gpuFanRpmTitle}
+                />
               </span>
             </Stat>
             <Stat label="Potência">
@@ -1087,7 +1465,7 @@ export function PcMonitor(): JSX.Element {
                   value={gpu?.watts ?? null}
                   format={(value) => formatDecimal(value, 1)}
                   unit="W"
-                  title={DASH_TITLE.gpu}
+                  title={DASH_TITLE.gpuPower}
                 />
                 {gpu?.powerLimitW !== null && gpu?.powerLimitW !== undefined ? (
                   <span className="text-[10px] text-ink-tertiary">
@@ -1118,7 +1496,9 @@ export function PcMonitor(): JSX.Element {
                 data-testid="fps-value"
               >
                 {fpsValue === null ? (
-                  <span className="text-ink-tertiary">{DASH}</span>
+                  <span className="text-ink-tertiary" title={fpsReasonText}>
+                    {DASH}
+                  </span>
                 ) : (
                   formatInt(fpsValue)
                 )}
@@ -1131,7 +1511,9 @@ export function PcMonitor(): JSX.Element {
               </p>
               <p className="font-mono text-[16px] text-ink-primary" data-testid="fps-frametime">
                 {fpsFrametime === null ? (
-                  <span className="text-ink-tertiary">{DASH}</span>
+                  <span className="text-ink-tertiary" title={fpsReasonText}>
+                    {DASH}
+                  </span>
                 ) : (
                   <>
                     {formatDecimal(fpsFrametime, 1)}
@@ -1261,6 +1643,14 @@ export function PcMonitor(): JSX.Element {
               </span>
             </div>
 
+            {autoReasonText && (
+              <p
+                className="text-[11px] leading-relaxed text-ink-tertiary"
+                data-testid="fps-auto-reason"
+              >
+                {autoReasonText}
+              </p>
+            )}
             {autoActive && autoFps?.sample && (
               <p className="text-[11px] text-ink-secondary" data-testid="fps-auto-sample">
                 Agora: {formatInt(autoFps.sample.fps)} FPS ·{' '}
@@ -1476,85 +1866,15 @@ export function PcMonitor(): JSX.Element {
                   {row.label}
                 </dt>
                 <dd className="mt-1 text-ink-primary">
-                  {row.value ?? <span className="text-ink-tertiary">{DASH}</span>}
+                  {row.value ?? (
+                    <span className="text-ink-tertiary" title={DASH_TITLE.spec}>
+                      {DASH}
+                    </span>
+                  )}
                 </dd>
               </div>
             ))}
           </dl>
-        </Card>
-      </motion.div>
-
-      {/* ── Erro amigável ────────────────────────────────── */}
-      {error && (
-        <motion.div
-          {...entranceProps(reduced, { y: 10 })}
-          role="alert"
-          className="flex items-start gap-3 rounded-card border border-danger-border bg-danger-bg p-5"
-        >
-          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
-          <div className="space-y-1">
-            <p className="text-[13px] font-semibold text-danger">Algo não saiu como esperado</p>
-            <p className="text-[11px] leading-relaxed text-ink-secondary">{error}</p>
-          </div>
-        </motion.div>
-      )}
-
-      {notice && (
-        <p role="status" className="text-[11px] text-ink-tertiary">
-          {notice}
-        </p>
-      )}
-
-      {/* ── Sensores avançados (driver opcional) ─────────── */}
-      <motion.div {...entranceProps(reduced, { y: 10 })}>
-        <Card className="space-y-4 p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-warn-border bg-warn-bg">
-              <ShieldAlert size={20} className="text-warn" aria-hidden="true" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold tracking-tight text-ink-primary">
-                Sensores avançados (opcional)
-              </h3>
-              <p className="max-w-2xl text-[12px] leading-relaxed text-ink-secondary">
-                Habilita temperatura e potência da CPU e a energia total medida. Isso requer
-                instalar um driver de terceiro (WinRing0) com permissão de administrador.
-              </p>
-              <p className="max-w-2xl text-[11px] leading-relaxed text-warn">
-                Risco: driver de terceiro, pode ser sinalizado por antivírus e exige a Memória
-                Integrity (HVCI) desligada. Instale apenas se quiser esses campos.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {!driverReady && (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => void installSensors()}
-                disabled={installing}
-                data-testid="hw-install-driver"
-              >
-                {installing ? (
-                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <ShieldCheck size={14} aria-hidden="true" />
-                )}
-                Instalar sensores avançados (pede permissão de administrador)
-              </Button>
-            )}
-            <Badge tone={DRIVER_TONE[driverState]}>Driver: {DRIVER_LABEL[driverState]}</Badge>
-            {driver?.deviceAccessible && <Badge tone="success">Device acessível</Badge>}
-          </div>
-
-          {driver?.error && <p className="text-[11px] text-warn">{driver.error}</p>}
-          {driverReady && (
-            <p className="text-[11px] text-ink-tertiary">
-              Sensores avançados ativos. Temperatura e potência da CPU são lidas localmente pelo
-              driver.
-            </p>
-          )}
         </Card>
       </motion.div>
     </div>

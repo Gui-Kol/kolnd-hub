@@ -1,19 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Activity, Cpu, Gamepad2, Wifi, Code, Clock, LayoutGrid, AppWindow } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
+import { RemoteHelpModal } from './RemoteHelpModal'
+import { OpenOfficeCard } from './office/OpenOfficeCard'
 import { Badge, EmptyState } from './ui'
 import { AppConfig, AppState } from '../types'
+import type { RemoteModeReason } from '../../../shared/remote'
+import { bestRemoteAddress, parseRemoteStatus } from '../lib/remoteAccess'
 
 interface DashboardProps {
   apps: AppConfig[]
   appStates: Record<string, AppState>
   onLaunch: (app: AppConfig) => void
   onStop: (appId: string) => void
+  onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
+  /** Navega para Configurações (seção Acesso remoto) a partir da ajuda. */
+  onOpenSettings: () => void
+  /** Navega para a página OpenOffice (card do grupo Inteligência Artificial). */
+  onOpenOffice: () => void
 }
+
+const KLOUD_APP_ID = 'kloud-games'
 
 // Grupos diferenciam-se por ÍCONE, não por cor saturada (13.9): ai→acento,
 // demais→neutro. Todos os blocos são surface-2 com borda hairline — sem glow.
@@ -60,10 +71,85 @@ function hexWithAlpha(hex: string | undefined, alpha: number): string | null {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps): JSX.Element {
+export function Dashboard({
+  apps,
+  appStates,
+  onLaunch,
+  onStop,
+  onToast,
+  onOpenSettings,
+  onOpenOffice
+}: DashboardProps): JSX.Element {
   const [selectedApp, setSelectedApp] = useState<AppConfig | null>(null)
   // Entradas decorativas (header, grupos em cascata, cards) viram fade curto com reduce.
   const reduced = useReducedMotion()
+  // Modo remoto do Kloud Games: lido do store (null = carregando).
+  const [remoteMode, setRemoteMode] = useState<boolean | null>(null)
+  const [remoteAddress, setRemoteAddress] = useState<string | null>(null)
+  const [remoteBusy, setRemoteBusy] = useState(false)
+  const [remoteHelp, setRemoteHelp] = useState<{ blockedReason?: RemoteModeReason } | null>(null)
+
+  const kloudApp = apps.find((app) => app.id === KLOUD_APP_ID) ?? null
+  const kloudRunning = appStates[KLOUD_APP_ID]?.status === 'running'
+
+  // Estado inicial do modo remoto (persistido). Se estiver ligado, busca o
+  // endereço da tailnet para exibir no card — sem polling.
+  useEffect(() => {
+    let alive = true
+    window.api
+      .remoteGetMode()
+      .then(async (enabled) => {
+        if (!alive) return
+        setRemoteMode(enabled)
+        if (!enabled) return
+        try {
+          const parsed = parseRemoteStatus(await window.api.remoteStatus())
+          if (alive && parsed) setRemoteAddress(bestRemoteAddress(parsed.tailscale))
+        } catch {
+          // Mantém o modo; a UI avisa que o Tailscale está desconectado.
+        }
+      })
+      .catch(() => {
+        if (alive) setRemoteMode(false)
+      })
+    return (): void => {
+      alive = false
+    }
+  }, [])
+
+  const handleToggleRemote = async (): Promise<void> => {
+    if (remoteMode === null || remoteBusy) return
+    const next = !remoteMode
+    setRemoteBusy(true)
+    try {
+      const result = await window.api.remoteSetMode(next)
+      if (!result.success) {
+        // O main recusou (sem Tailscale/instalado): volta ao estado real e
+        // abre a ajuda já explicando o que falta.
+        setRemoteMode(false)
+        setRemoteAddress(null)
+        setRemoteHelp({ blockedReason: result.reason })
+        return
+      }
+      setRemoteMode(result.enabled)
+      setRemoteAddress(result.address ?? null)
+      onToast?.(
+        result.enabled
+          ? result.address
+            ? `Modo remoto ativado — use ${result.address} no Moonlight.`
+            : 'Modo remoto ativado.'
+          : 'Modo remoto desativado (o Tailscale continua conectado).',
+        'success'
+      )
+      if (result.enabled && !kloudRunning) {
+        onToast?.('Inicie o Kloud Games para receber conexões remotas.', 'info')
+      }
+    } catch {
+      onToast?.('Não foi possível alterar o modo remoto.', 'error')
+    } finally {
+      setRemoteBusy(false)
+    }
+  }
 
   const runningCount = Object.values(appStates).filter((s) => s.status === 'running').length
   const stoppedCount = apps.length - runningCount
@@ -85,7 +171,8 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
       ...categoryMeta[cat],
       apps: apps.filter((a) => a.category === cat)
     }))
-    .filter((g) => g.apps.length > 0)
+    // IA nunca some: o card do OpenOffice mora nesse grupo mesmo sem apps de IA.
+    .filter((g) => g.category === 'ai' || g.apps.length > 0)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -189,13 +276,16 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
                 {group.label}
               </h3>
               <span className="tnum rounded-pill border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] text-ink-tertiary">
-                {group.apps.length}
+                {group.apps.length + (group.category === 'ai' ? 1 : 0)}
               </span>
               <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
             </div>
 
             {/* Cards em grade */}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {group.category === 'ai' && (
+                <OpenOfficeCard onOpen={onOpenOffice} delay={0.15 + gi * 0.05} />
+              )}
               {group.apps.map((app, i) => (
                 <AppCard
                   key={app.id}
@@ -205,6 +295,18 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
                   onStop={() => onStop(app.id)}
                   onClick={() => setSelectedApp(app)}
                   delay={0.15 + gi * 0.05 + i * 0.03}
+                  remote={
+                    app.id === KLOUD_APP_ID
+                      ? {
+                          enabled: remoteMode === true,
+                          loading: remoteMode === null,
+                          busy: remoteBusy,
+                          address: remoteAddress,
+                          onToggle: () => void handleToggleRemote(),
+                          onHelp: () => setRemoteHelp({})
+                        }
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -224,6 +326,23 @@ export function Dashboard({ apps, appStates, onLaunch, onStop }: DashboardProps)
           />
         )}
       </AnimatePresence>
+
+      {/* ── Ajuda: conectar no Moonlight (local/remoto) ── */}
+      {remoteHelp && (
+        <RemoteHelpModal
+          blockedReason={remoteHelp.blockedReason}
+          kloudRunning={kloudRunning}
+          onStartKloud={() => {
+            if (kloudApp) onLaunch(kloudApp)
+          }}
+          onOpenSettings={() => {
+            setRemoteHelp(null)
+            onOpenSettings()
+          }}
+          onClose={() => setRemoteHelp(null)}
+          onToast={onToast}
+        />
+      )}
     </div>
   )
 }

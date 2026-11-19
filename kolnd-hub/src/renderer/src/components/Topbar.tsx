@@ -16,11 +16,12 @@ export interface TopbarProps {
   onEnterBigPicture?: () => void
 }
 
-// Ordem da topbar (plano 3.1): Ferramentas · Biblioteca · Meu PC · Configurações.
+// Ordem da topbar (plano 3.1): Ferramentas · Biblioteca · OpenOffice · Meu PC · Configurações.
 // O nome real do PC fica na titlebar e no mega menu — aqui o rótulo é estável.
 const NAV_ITEMS: { id: Page; label: string }[] = [
   { id: 'dashboard', label: 'Ferramentas' },
   { id: 'biblioteca', label: 'Biblioteca' },
+  { id: 'openoffice', label: 'OpenOffice' },
   { id: 'inicializacao', label: 'Meu PC' },
   { id: 'settings', label: 'Configurações' }
 ]

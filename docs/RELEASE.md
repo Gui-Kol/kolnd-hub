@@ -41,6 +41,8 @@ Por que **não** publica automaticamente: o repositório é público e o formato
 
 Enquanto a publicação não é habilitada, o passo de anexar a release é o manual descrito no **Passo 7** deste guia: baixar o artefato do workflow (ou usar o build local), conferir o hash contra o `SHA256SUMS.txt` e anexar `.exe` + `SHA256SUMS.txt` à release com `gh release create`.
 
+Assim que a release pública estiver no ar, o Kolnd Hub instalado a detecta na próxima abertura: ele consulta `GET /repos/Gui-Kol/kolnd-hub/releases/latest` (drafts e pré-releases ficam de fora) e mostra o banner **"Nova atualização disponível"** quando a tag `vX.Y.Z` é maior que `app.getVersion()` (comparação **SemVer**; a tag deve ser idêntica ao `version` de `kolnd-hub/package.json`). É preciso haver um asset `.exe` de instalação **com `digest` SHA-256 publicado pelo GitHub** (o zip portable é ignorado) — sem asset anexado à Release (por exemplo, release montada a partir de artifact do workflow), não há digest e o banner só oferece abrir a página. O download é conferido contra o digest e contra a assinatura Authenticode antes de executar (`NotSigned` é aceito porque o projeto não assina; assinatura quebrada ou ilegível é recusada), e o hash é recalculado imediatamente antes do `spawn`. O `SHA256SUMS.txt` anexado continua servindo à conferência manual.
+
 ## Pré-release técnico
 
 Gate zero. **Nada** de release começa com este gate vermelho.
@@ -300,6 +302,8 @@ Checklist do passo (pós-decisão — executar só quando o usuário decidir):
 
 Formato assumido (padrão de fato do projeto, pendente de confirmação do usuário): **GitHub Release com tag `vX.Y.Z` + arquivo de checksums SHA-256 anexado**.
 
+> **Convenção exigida pelo updater:** a tag do release **deve** ser `vX.Y.Z`, idêntica ao campo `version` de `kolnd-hub/package.json` — o workflow `.github/workflows/release.yml` falha se `inputs.version` não bater. O app compara a tag com `app.getVersion()` por SemVer; tag fora de `vX.Y.Z` não gera banner. O `digest` SHA-256 que o updater exige vem da API do GitHub **somente para asset anexado à Release** (um artifact do workflow não tem digest), então release sem o `.exe` anexado não habilita atualização automática; o `SHA256SUMS.txt` continua servindo à conferência manual.
+
 > **Decisões do usuário em aberto:** (a) formato público de release — GitHub Release + checksums vs. outro (decisão nº 15 do relatório); distribuição pública vs. privada; (b) branch de origem da tag (`main` após merge da `Dev` — provável — vs. tag direto na `Dev`); (c) desenho completo de publicação/checksums é coberto em parte pelo item **2.7** do relatório — **referenciar, não duplicar nem decidir**; este passo assume o cenário mais simples.
 
 ### 7.1 Pré-requisitos
@@ -349,6 +353,7 @@ gh release create vX.Y.Z `
   --title "Kolnd Hub vX.Y.Z" --notes-file release-notes.md
 ```
 
+- [ ] Tag `vX.Y.Z` idêntica ao `version` de `kolnd-hub/package.json` (mesmo valor passado como `inputs.version` no workflow Release).
 - [ ] Release criada em `https://github.com/Gui-Kol/kolnd-hub/releases/tag/vX.Y.Z` com os três anexos.
 - [ ] Conferência pós-publicação: baixar o `.exe` pela página da release em outra máquina/VM e conferir o hash contra `SHA256SUMS.txt` (`Get-FileHash -Algorithm SHA256 <arquivo-baixado>`). Hash divergente = **no-go/rollback imediato**.
 - [ ] `SHA256SUMS.txt` e `release-notes.md` são arquivos de trabalho — não commitar (ou apagá-los do diretório de trabalho depois).
@@ -405,17 +410,18 @@ Artefatos do CI (`kolnd-hub-setup`) ficam disponíveis por **7 dias** após o ru
 
 **Com base em quê** — tabela de decisão:
 
-| Critério                                                                   | Obrigatório?                          | Fonte                       |
-| -------------------------------------------------------------------------- | ------------------------------------- | --------------------------- |
-| Pré-release técnico verde (`verify:build` + CI na `Dev`)                   | Sim — sem exceção                     | Passo "Pré-release técnico" |
-| Bump completo e consistente (sem versão antiga vazando)                    | Sim                                   | Passo 1                     |
-| Máquina limpa executada **ou** risco aceito por escrito pelo usuário (2.2) | Sim (execução ou aceitação explícita) | Passo 2                     |
-| MSI do Kloud Games e instalador NSIS com versão correta                    | Sim                                   | Passos 3–4                  |
-| Desinstalação verificada preservando `%APPDATA%\kolnd-hub`                 | Sim                                   | Passo 5                     |
-| Assinatura (2.4) **ou** risco SmartScreen aceito por escrito pelo usuário  | Sim (uma das duas)                    | Passo 6                     |
-| Checksums SHA-256 publicados e conferidos pós-download                     | Sim                                   | Passo 7                     |
-| Release notes publicadas (com pendências e riscos declarados)              | Sim                                   | Passo 8                     |
-| Rollback entendido e aplicável                                             | Sim (ciência do aprovador)            | Seção Rollback              |
+| Critério                                                                                   | Obrigatório?                          | Fonte                       |
+| ------------------------------------------------------------------------------------------ | ------------------------------------- | --------------------------- |
+| Pré-release técnico verde (`verify:build` + CI na `Dev`)                                   | Sim — sem exceção                     | Passo "Pré-release técnico" |
+| Bump completo e consistente (sem versão antiga vazando)                                    | Sim                                   | Passo 1                     |
+| Máquina limpa executada **ou** risco aceito por escrito pelo usuário (2.2)                 | Sim (execução ou aceitação explícita) | Passo 2                     |
+| MSI do Kloud Games e instalador NSIS com versão correta                                    | Sim                                   | Passos 3–4                  |
+| Desinstalação verificada preservando `%APPDATA%\kolnd-hub`                                 | Sim                                   | Passo 5                     |
+| Assinatura (2.4) **ou** risco SmartScreen aceito por escrito pelo usuário                  | Sim (uma das duas)                    | Passo 6                     |
+| Checksums SHA-256 publicados e conferidos pós-download                                     | Sim                                   | Passo 7                     |
+| Tag `vX.Y.Z` = `version` do `package.json` e `.exe` anexado à Release (com digest SHA-256) | Sim                                   | Passo 7                     |
+| Release notes publicadas (com pendências e riscos declarados)                              | Sim                                   | Passo 8                     |
+| Rollback entendido e aplicável                                                             | Sim (ciência do aprovador)            | Seção Rollback              |
 
 **Regras:**
 
@@ -429,20 +435,20 @@ Artefatos do CI (`kolnd-hub-setup`) ficam disponíveis por **7 dias** após o ru
 
 Este guia **não decide** por nenhum destes itens — apenas os referencia:
 
-| Item        | O quê                                                         | Dono                         | Estado                                                            |
-| ----------- | ------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------- |
-| 2.1         | Auto-update do app                                            | Usuário                      | Fora de escopo (tarefa própria)                                   |
-| 2.2         | Validação em máquina limpa (roteiro no Passo 2)               | Usuário/execução             | **Pendente — nunca executada**                                    |
-| 2.4         | Assinatura de código (OV/EV vs. Azure Trusted Signing)        | **Usuário — decisão**        | Pendente; release sai com risco SmartScreen se aceito por escrito |
-| 2.5         | Versionamento/rodapé "Gamer Edition" (rodapé agora dinâmico via `__APP_VERSION__`) | Feito (02-2.5, 15/11/2026)  | Versão unificada no `package.json`; sufixo "Gamer Edition" permanece (decisão do usuário)     |
-| 2.6         | Desinstalação preserva `%APPDATA%\kolnd-hub`                  | Feito                        | Documentado nos READMEs e na `electron-builder.yml`               |
-| 2.7         | Checksums / formato de publicação                             | Usuário — decisão (em parte) | Passo 7 assume GitHub Release + SHA-256                           |
-| 2.7 / nº 15 | Formato de release público                                    | **Usuário — decisão**        | Passo 7 assume GitHub Release; confirmar                          |
-| 03-3.x      | CI (audit/CodeQL informativos)                                | Feito (runs verdes)          | Docs-only também dispara CI                                       |
-| 11-11.3     | `build-installer.bat` lê versão do `package.json`             | Feito (`e7e9bf3b`)           | Passo 1.3                                                         |
-| 11-11.4     | `CHANGELOG.md`                                                | Criado (15/11/2026); **revisão do usuário (T4) pendente** | Passo 8 referencia a seção da versão a copiar           |
-| 11-11.5     | NOTICE no instalador (conformidade de licenças)               | Pendente                     | Candidato a entrar no release que o incluir                       |
-| 01-1.9      | Rebuild Mark LVI com `MARK_LVI_HOME`                          | Pendente                     | Enquanto não sai, vale a regra da build atual no Passo 5          |
+| Item        | O quê                                                                              | Dono                                                      | Estado                                                                                              |
+| ----------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 2.1         | Auto-update do app                                                                 | Implementação                                             | **Feito** — consulta a última release estável do GitHub e baixa o Setup (`updates:*`, ver docs/architecture.md) |
+| 2.2         | Validação em máquina limpa (roteiro no Passo 2)                                    | Usuário/execução                                          | **Pendente — nunca executada**                                                                      |
+| 2.4         | Assinatura de código (OV/EV vs. Azure Trusted Signing)                             | **Usuário — decisão**                                     | Pendente; release sai com risco SmartScreen se aceito por escrito                                   |
+| 2.5         | Versionamento/rodapé "Gamer Edition" (rodapé agora dinâmico via `__APP_VERSION__`) | Feito (02-2.5, 15/11/2026)                                | Versão unificada no `package.json`; sufixo "Gamer Edition" permanece (decisão do usuário)           |
+| 2.6         | Desinstalação preserva `%APPDATA%\kolnd-hub`                                       | Feito                                                     | Documentado nos READMEs e na `electron-builder.yml`                                                 |
+| 2.7         | Checksums / formato de publicação                                                  | Usuário — decisão (em parte)                              | Passo 7 assume GitHub Release + SHA-256                                                             |
+| 2.7 / nº 15 | Formato de release público                                                         | **Usuário — decisão**                                     | Passo 7 assume GitHub Release; confirmar                                                            |
+| 03-3.x      | CI (audit/CodeQL informativos)                                                     | Feito (runs verdes)                                       | Docs-only também dispara CI                                                                         |
+| 11-11.3     | `build-installer.bat` lê versão do `package.json`                                  | Feito (`e7e9bf3b`)                                        | Passo 1.3                                                                                           |
+| 11-11.4     | `CHANGELOG.md`                                                                     | Criado (15/11/2026); **revisão do usuário (T4) pendente** | Passo 8 referencia a seção da versão a copiar                                                       |
+| 11-11.5     | NOTICE no instalador (conformidade de licenças)                                    | Pendente                                                  | Candidato a entrar no release que o incluir                                                         |
+| 01-1.9      | Rebuild Mark LVI com `MARK_LVI_HOME`                                               | Pendente                                                  | Enquanto não sai, vale a regra da build atual no Passo 5                                            |
 
 Itens exigem decisão/ação do **usuário**; nada aqui substitui essa decisão.
 

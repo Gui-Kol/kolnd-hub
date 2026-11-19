@@ -1,0 +1,33 @@
+{
+    "comment":  "Gerado por scripts/fetch-pawnio.ps1. Nao editar a mao.",
+    "installer":  {
+                      "url":  "https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe",
+                      "version":  "2.2.0.0",
+                      "sha256":  "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032",
+                      "size":  3410960,
+                      "signer":  "CN=namazso.eu"
+                  },
+    "modules":  {
+                    "version":  "0.2.12",
+                    "url":  "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.12/release_0_2_12.zip",
+                    "sha256":  "09698897CE19B92F1043A2E322CFCF0B1FE823E0B576971B178A65244FB0AF9D",
+                    "size":  83556,
+                    "files":  [
+                                  {
+                                      "name":  "IntelMSR.bin",
+                                      "sha256":  "30A5A302283DE1E080DFEE99E686ECA91D7E53E911095CB91A320FB961F1CE12",
+                                      "size":  5452
+                                  },
+                                  {
+                                      "name":  "AMDFamily17.bin",
+                                      "sha256":  "DAE74615761B78BDF064DFB3E136252DDCC6FC727D88F14738D0E5800D427A91",
+                                      "size":  10652
+                                  },
+                                  {
+                                      "name":  "COPYING",
+                                      "sha256":  "1E7E6BAE5A5BDE32F1AE5A7C37A082D1AB03CF89354F7F936AC40BE9E39A6531",
+                                      "size":  27032
+                                  }
+                              ]
+                }
+}

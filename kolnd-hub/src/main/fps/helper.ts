@@ -1,7 +1,8 @@
 import { app } from 'electron'
+import { createHash } from 'crypto'
 import { existsSync, statSync, writeFileSync } from 'fs'
 import { promises as fs } from 'fs'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { isUacCancelled } from '../hwmon/driver'
 import { runPowerShell, runPowerShellCommand } from '../hwmon/powershell'
 import { logger } from '../logger'
@@ -32,7 +33,7 @@ import { logger } from '../logger'
  * (`StartTrace` com `EVENT_TRACE_REAL_TIME_MODE`) retorna "Acesso negado" em
  * integridade média; é o mesmo requisito do `logman create trace -ets`. Por
  * isso o helper só roda por clique e via `Start-Process -Verb RunAs` (UAC),
- * igual ao instalador do WinRing0.
+ * igual ao instalador do PawnIO.
  *
  * Limites conhecidos e assumidos na UI: só provedores DXGI/DxgKrnl são
  * habilitados (D3D11/12 e a maioria dos jogos Vulkan via WSI); D3D9 puro não
@@ -1007,12 +1008,14 @@ public static class KolndFpsEtw
 `
 
 const HELPER_DIR = 'fps'
+const RUN_DIR = 'run'
 const HELPER_EXE = 'KolndFpsEtw.exe'
 const HELPER_SOURCE = 'KolndFpsEtw.cs'
-const HELPER_LAUNCHER = 'fps-helper.ps1'
 const OUTPUT_FILE = 'fps.ndjson'
 const STOP_FILE = 'fps.stop'
 const HEARTBEAT_FILE = 'fps.heartbeat'
+const PROTECTED_DIR = 'Kolnd Hub'
+const PROTECTED_BIN_DIR = 'bin'
 const SESSION_NAME = 'KolndHubFps'
 const HELPER_MAX_MINUTES = 240
 const HEARTBEAT_TIMEOUT_SECONDS = 20
@@ -1021,32 +1024,100 @@ const UAC_TIMEOUT_MS = 60_000
 const MAX_READ_BYTES = 256 * 1024
 const PS_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
 
-export interface FpsHelperPaths {
+/** Staging gravável (userData): onde o main escreve o `.cs` e compila o `.exe`. */
+export interface FpsStagingPaths {
   dir: string
-  exePath: string
   sourcePath: string
-  launcherPath: string
-  outputPath: string
+  stagingExePath: string
+}
+
+/**
+ * Arquivos de controle da execução interativa em userData. Só o main (não
+ * elevado) escreve stop/heartbeat; o NDJSON não fica aqui.
+ */
+export interface FpsRunPaths {
+  runDir: string
   stopPath: string
   heartbeatPath: string
 }
 
+/** Cópia elevada e protegida (ProgramData), a única que a tarefa/execução usa. */
+export interface FpsProtectedPaths {
+  root: string
+  binDir: string
+  /** `<root>\run` — NDJSON do helper elevado. Opcional só para fixtures antigas. */
+  runDir?: string
+  exePath: string
+}
+
+export interface FpsHelperPaths extends FpsStagingPaths, FpsRunPaths {
+  /** NDJSON escrito pelo helper ELEVADO — sempre sob `FpsProtectedPaths.runDir`. */
+  outputPath: string
+}
+
 /** Caminhos puros (recebem a base para não depender de Electron nos testes). */
-export function resolveFpsHelperPaths(userDataDir: string): FpsHelperPaths {
+export function resolveFpsStagingPaths(userDataDir: string): FpsStagingPaths {
   const dir = join(userDataDir, HELPER_DIR)
   return {
     dir,
-    exePath: join(dir, HELPER_EXE),
     sourcePath: join(dir, HELPER_SOURCE),
-    launcherPath: join(dir, HELPER_LAUNCHER),
-    outputPath: join(dir, OUTPUT_FILE),
-    stopPath: join(dir, STOP_FILE),
-    heartbeatPath: join(dir, HEARTBEAT_FILE)
+    stagingExePath: join(dir, HELPER_EXE)
+  }
+}
+
+export function resolveFpsRunPaths(userDataDir: string): FpsRunPaths {
+  const runDir = join(userDataDir, HELPER_DIR, RUN_DIR)
+  return {
+    runDir,
+    stopPath: join(runDir, STOP_FILE),
+    heartbeatPath: join(runDir, HEARTBEAT_FILE)
+  }
+}
+
+/**
+ * Caminhos do artefato elevado. Vive em `%ProgramData%` porque nenhum processo
+ * do usuário pode substituir o `.exe` que a tarefa `HIGHEST` executa no logon
+ * (era uma escalação de privilégio quando morava em `%APPDATA%`) nem apontar
+ * `run\fps.ndjson` para um link criado pelo usuário.
+ */
+export function resolveFpsProtectedPaths(programDataDir: string): FpsProtectedPaths {
+  const root = join(programDataDir, PROTECTED_DIR, HELPER_DIR)
+  const binDir = join(root, PROTECTED_BIN_DIR)
+  return {
+    root,
+    binDir,
+    runDir: join(root, RUN_DIR),
+    exePath: join(binDir, HELPER_EXE)
+  }
+}
+
+/**
+ * `run` sob o root protegido. Deriva do root quando o chamador não informou
+ * (fixtures antigas do agent passam só root/bin/exe); o resolvedor real sempre
+ * devolve `protectedPaths.runDir`.
+ */
+function protectedRunDir(paths: FpsProtectedPaths): string {
+  return paths.runDir ?? join(paths.root, RUN_DIR)
+}
+
+/**
+ * Staging/controle em userData + o NDJSON no diretório protegido: o helper
+ * elevado nunca escreve em caminho gravável pelo usuário.
+ */
+export function resolveFpsHelperPaths(userDataDir: string, programDataDir: string): FpsHelperPaths {
+  const protectedPaths = resolveFpsProtectedPaths(programDataDir)
+  return {
+    ...resolveFpsStagingPaths(userDataDir),
+    ...resolveFpsRunPaths(userDataDir),
+    outputPath: join(protectedRunDir(protectedPaths), OUTPUT_FILE)
   }
 }
 
 export function currentFpsHelperPaths(): FpsHelperPaths {
-  return resolveFpsHelperPaths(app.getPath('userData'))
+  return resolveFpsHelperPaths(
+    app.getPath('userData'),
+    process.env.ProgramData ?? 'C:\\ProgramData'
+  )
 }
 
 export interface FpsHelperPidEntry {
@@ -1258,6 +1329,103 @@ function psQuote(value: string): string {
   return value.replace(/'/g, "''")
 }
 
+/** `true` quando há aspas duplas, quebra de linha ou caractere de controle. */
+function hasUnsafePathChars(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code < 32 || code === 127) return true
+    if (value[index] === '"') return true
+  }
+  return false
+}
+
+/**
+ * Caminho que pode entrar num script elevado: absoluto, curto e sem aspas
+ * duplas/controle. Aspa simples é escapada por `psQuote`.
+ */
+function isSafeScriptPath(value: string): boolean {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 1024 &&
+    isAbsolute(value) &&
+    !hasUnsafePathChars(value)
+  )
+}
+
+function assertSafeScriptPath(value: string, message: string): void {
+  if (!isSafeScriptPath(value)) throw new Error(message)
+}
+
+/** SHA-256 binário do arquivo (usado para amarrar a cópia elevada ao staging). */
+export async function sha256File(path: string): Promise<string> {
+  const data = await fs.readFile(path)
+  return createHash('sha256').update(data).digest('hex')
+}
+
+/**
+ * Script pronto para `powershell.exe -EncodedCommand`: UTF-16LE em base64. É o
+ * substituto do `.ps1` gravado em `%APPDATA%` e executado com UAC (o arquivo
+ * podia ser trocado entre a gravação e o clique no UAC).
+ */
+export function encodePowerShell(script: string): string {
+  return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+export interface EnsureProtectedHelperOptions {
+  stagingExePath: string
+  expectedSha256: string
+  protectedPaths: FpsProtectedPaths
+}
+
+/**
+ * Script que roda ELEVADO. A ordem importa: cria `root`/`bin`/`run`, TRANCA a
+ * ACL (`/inheritance:r`, sem Creator Owner; SYSTEM/Administradores `F`,
+ * Usuários `RX`) e só então copia o helper — a cópia nasce num diretório onde
+ * nenhum processo do usuário consegue escrever, fechando a janela em que o
+ * binário recém-copiado ainda herdava escrita. O `run` é criado antes da ACL
+ * para herdar a mesma trava: o helper elevado escreve o NDJSON ali. Por fim
+ * confere o SHA-256 do DESTINO (abortando e apagando a cópia se divergir). O
+ * caminho de userData aparece só como origem do `Copy-Item`.
+ */
+export function buildEnsureProtectedHelperScript(options: EnsureProtectedHelperOptions): string {
+  const { stagingExePath, protectedPaths } = options
+  const runDir = protectedRunDir(protectedPaths)
+  assertSafeScriptPath(stagingExePath, 'Caminho do helper compilado inválido.')
+  assertSafeScriptPath(protectedPaths.root, 'Caminho protegido do helper inválido.')
+  assertSafeScriptPath(protectedPaths.binDir, 'Caminho protegido do helper inválido.')
+  assertSafeScriptPath(runDir, 'Caminho protegido do helper inválido.')
+  assertSafeScriptPath(protectedPaths.exePath, 'Caminho protegido do helper inválido.')
+
+  const expected = typeof options.expectedSha256 === 'string' ? options.expectedSha256.trim() : ''
+  if (!/^[a-f0-9]{64}$/.test(expected)) {
+    throw new Error('Hash SHA-256 do helper inválido.')
+  }
+
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `New-Item -ItemType Directory -Force -Path '${psQuote(protectedPaths.root)}' | Out-Null`,
+    `New-Item -ItemType Directory -Force -Path '${psQuote(protectedPaths.binDir)}' | Out-Null`,
+    `New-Item -ItemType Directory -Force -Path '${psQuote(runDir)}' | Out-Null`,
+    `& icacls.exe '${psQuote(protectedPaths.root)}' /inheritance:r ` +
+      `/grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' ` +
+      '/T /C | Out-Null',
+    'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+    `Copy-Item -LiteralPath '${psQuote(stagingExePath)}' -Destination '${psQuote(
+      protectedPaths.exePath
+    )}' -Force`,
+    `$hash = (Get-FileHash -LiteralPath '${psQuote(
+      protectedPaths.exePath
+    )}' -Algorithm SHA256).Hash.ToLowerInvariant()`,
+    `if ($hash -ne '${expected}') {`,
+    `  Remove-Item -LiteralPath '${psQuote(
+      protectedPaths.exePath
+    )}' -Force -ErrorAction SilentlyContinue`,
+    "  throw 'O helper de FPS não confere com o hash esperado.'",
+    '}'
+  ].join('\r\n')
+}
+
 async function writeIfChanged(path: string, content: string): Promise<void> {
   try {
     const current = await fs.readFile(path, 'utf8')
@@ -1277,16 +1445,51 @@ function needsCompile(sourcePath: string, exePath: string): boolean {
   }
 }
 
-/** Script que roda ELEVADO: só executa o helper com os caminhos já validados. */
-export function buildFpsLauncherScript(paths: FpsHelperPaths): string {
+/** Script que roda ELEVADO: garante a cópia protegida e executa o helper. */
+export interface FpsHelperStartScriptOptions {
+  paths: FpsHelperPaths
+  protectedPaths: FpsProtectedPaths
+  expectedSha256: string
+}
+
+export function buildFpsHelperStartScript(options: FpsHelperStartScriptOptions): string {
+  const { paths, protectedPaths } = options
+  // O NDJSON é escrito pelo helper ELEVADO: sempre sob o diretório protegido.
+  const outputPath = join(protectedRunDir(protectedPaths), OUTPUT_FILE)
+  assertSafeScriptPath(outputPath, 'Caminho de saída do helper inválido.')
+  assertSafeScriptPath(paths.stopPath, 'Caminho de parada do helper inválido.')
+  assertSafeScriptPath(paths.heartbeatPath, 'Caminho de heartbeat do helper inválido.')
+
   return [
-    "$ErrorActionPreference = 'Stop'",
-    `& '${psQuote(paths.exePath)}' --out '${psQuote(paths.outputPath)}' --stop '${psQuote(
-      paths.stopPath
-    )}' --heartbeat '${psQuote(paths.heartbeatPath)}' ` +
+    buildEnsureProtectedHelperScript({
+      stagingExePath: paths.stagingExePath,
+      expectedSha256: options.expectedSha256,
+      protectedPaths
+    }),
+    // O main não pode apagar no diretório protegido: limpar aqui evita que o
+    // polling leia a amostra da execução anterior antes do UAC terminar.
+    `Remove-Item -Force -ErrorAction SilentlyContinue '${psQuote(outputPath)}'`,
+    `& '${psQuote(protectedPaths.exePath)}' --out '${psQuote(outputPath)}' ` +
+      `--stop '${psQuote(paths.stopPath)}' --heartbeat '${psQuote(paths.heartbeatPath)}' ` +
       `--heartbeat-timeout ${HEARTBEAT_TIMEOUT_SECONDS} --minutes ${HELPER_MAX_MINUTES} --session '${SESSION_NAME}'`,
     'exit $LASTEXITCODE'
   ].join('\r\n')
+}
+
+/**
+ * Comando externo que pede o UAC e roda o script elevado por
+ * `-EncodedCommand`. Sem `-Wait`: o helper segue vivo depois que o PowerShell
+ * externo retorna; o acompanhamento é feito pelo NDJSON/heartbeat.
+ */
+export function buildFpsHelperElevationCommand(script: string): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `Start-Process -FilePath 'powershell.exe' ` +
+      `-ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encodePowerShell(
+        script
+      )}') -Verb RunAs | Out-Null`,
+    'exit 0'
+  ].join('; ')
 }
 
 let assetsPromise: Promise<FpsHelperPaths> | null = null
@@ -1294,21 +1497,21 @@ let assetsPromise: Promise<FpsHelperPaths> | null = null
 async function ensureAssets(): Promise<FpsHelperPaths> {
   const paths = currentFpsHelperPaths()
   await fs.mkdir(paths.dir, { recursive: true })
+  await fs.mkdir(paths.runDir, { recursive: true })
 
   await writeIfChanged(paths.sourcePath, CSHARP_SOURCE)
-  await writeIfChanged(paths.launcherPath, '\uFEFF' + buildFpsLauncherScript(paths))
 
-  if (needsCompile(paths.sourcePath, paths.exePath)) {
+  if (needsCompile(paths.sourcePath, paths.stagingExePath)) {
     const command = [
       `Add-Type -Path '${psQuote(paths.sourcePath)}'`,
-      `-OutputAssembly '${psQuote(paths.exePath)}'`,
+      `-OutputAssembly '${psQuote(paths.stagingExePath)}'`,
       '-OutputType ConsoleApplication'
     ].join(' ')
     const result = await runPowerShell([...PS_ARGS, command], COMPILE_TIMEOUT_MS)
     if (result.timedOut) {
       throw new Error('A compilação do helper de FPS excedeu o tempo limite.')
     }
-    if (!existsSync(paths.exePath)) {
+    if (!existsSync(paths.stagingExePath)) {
       const detail = result.stderr.trim() || `código ${result.code ?? 'desconhecido'}`
       throw new Error(`Não foi possível compilar o helper de FPS: ${detail}`)
     }
@@ -1328,10 +1531,10 @@ function getAssets(): Promise<FpsHelperPaths> {
 }
 
 /**
- * Garante o `.cs`/`.exe`/launcher no disco e devolve os caminhos. O agent de
- * FPS automático precisa do `.exe` antes de montar a tarefa agendada.
+ * Garante o `.cs` compilado (staging em userData) e devolve os caminhos. O agent
+ * de FPS automático precisa do `.exe` para copiar ao diretório protegido.
  */
-export function ensureFpsHelperAssets(): Promise<FpsHelperPaths> {
+export function ensureStagedHelper(): Promise<FpsHelperPaths> {
   return getAssets()
 }
 
@@ -1343,18 +1546,6 @@ export async function touchFpsHeartbeat(paths?: FpsHelperPaths): Promise<void> {
   } catch {
     // Sem heartbeat o helper se encerra sozinho; o stop explícito continua valendo.
   }
-}
-
-/** Comando que pede UAC e destaca o helper; separado para teste (sem Electron). */
-export function buildFpsElevationCommand(launcherPath: string): string {
-  return [
-    "$ErrorActionPreference = 'Stop'",
-    `Start-Process -FilePath 'powershell.exe' ` +
-      `-ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','${psQuote(
-        launcherPath
-      )}') -Verb RunAs | Out-Null`,
-    'exit 0'
-  ].join('; ')
 }
 
 /**
@@ -1370,13 +1561,21 @@ export async function startFpsHelper(): Promise<FpsHelperStartResult> {
   try {
     const paths = await getAssets()
 
-    await fs.rm(paths.outputPath, { force: true })
+    // O helper trunca o NDJSON ao abrir; o main não apaga no diretório protegido.
     await fs.rm(paths.stopPath, { force: true })
     await touchFpsHeartbeat(paths)
 
-    const wrapper = buildFpsElevationCommand(paths.launcherPath)
+    const protectedPaths = resolveFpsProtectedPaths(process.env.ProgramData ?? 'C:\\ProgramData')
+    const script = buildFpsHelperStartScript({
+      paths,
+      protectedPaths,
+      expectedSha256: await sha256File(paths.stagingExePath)
+    })
 
-    const result = await runPowerShellCommand(wrapper, UAC_TIMEOUT_MS)
+    const result = await runPowerShellCommand(
+      buildFpsHelperElevationCommand(script),
+      UAC_TIMEOUT_MS
+    )
     const combined = `${result.stdout}\n${result.stderr}`
 
     if (isUacCancelled(combined)) {

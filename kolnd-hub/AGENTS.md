@@ -57,6 +57,10 @@ arquivo de código alterado quando a tarefa é docs-only.
 - **Nunca enviar nada para fora da máquina.** O crashReporter é local
   (`uploadToServer: false`) e o diagnóstico (`diagnostic:export`) é copiado para a
   área de transferência. Qualquer telemetria/envio remoto exige decisão explícita.
+- **Nunca colocar um artefato elevado em diretório gravável pelo usuário.** O que roda
+  como Administrador (ex.: helper de FPS da tarefa `HIGHEST`) vive em `%ProgramData%` com
+  ACL explícita (Usuários só `RX`), tem o **SHA-256 conferido** na cópia e a elevação vai
+  por `-EncodedCommand` — nunca um `.ps1` em `%APPDATA%` esperando o clique no UAC.
 - **Nunca `console.*` no main** — use `logger` de `src/main/logger.ts`.
 
 ## Armadilhas conhecidas do Hub

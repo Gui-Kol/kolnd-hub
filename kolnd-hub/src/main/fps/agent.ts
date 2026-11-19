@@ -12,7 +12,14 @@ import type {
   FpsAutoStatus,
   FpsUpdate
 } from '../../shared/fps'
-import { ensureFpsHelperAssets } from './helper'
+import {
+  buildEnsureProtectedHelperScript,
+  encodePowerShell,
+  ensureStagedHelper,
+  resolveFpsProtectedPaths,
+  sha256File,
+  type FpsProtectedPaths
+} from './helper'
 import { isIgnoredProcess } from './target'
 
 /**
@@ -130,19 +137,45 @@ function psArgList(values: string[]): string {
   return values.map((value) => `'${psQuote(value)}'`).join(' ')
 }
 
+export interface FpsAgentInstallOptions {
+  stagingExePath: string
+  sha256: string
+  protectedPaths: FpsProtectedPaths
+  sinkDir: string
+  taskName?: string
+}
+
 /**
- * Script que roda ELEVADO (UAC único): cria o sink, garante leitura para
- * `Usuários` (S-1-5-32-545) e registra a tarefa no logon com `HIGHEST`.
+ * Script que roda ELEVADO (UAC único): encerra a instância antiga, copia o
+ * helper para `%ProgramData%` com hash conferido e ACL explícita, garante
+ * leitura do sink para `Usuários` (S-1-5-32-545) e registra a tarefa no logon
+ * com `HIGHEST` — apontando SÓ para a cópia protegida.
  */
-export function buildFpsAgentInstallScript(options: FpsAgentTaskOptions): string {
+export function buildFpsAgentInstallScript(options: FpsAgentInstallOptions): string {
   if (!isSafeCommandPath(options.sinkDir)) {
     throw new Error('Diretório do agent inválido.')
   }
+  const taskName = options.taskName ?? FPS_AUTO_TASK_NAME
+  const ensureScript = buildEnsureProtectedHelperScript({
+    stagingExePath: options.stagingExePath,
+    expectedSha256: options.sha256,
+    protectedPaths: options.protectedPaths
+  })
   return [
     "$ErrorActionPreference = 'Stop'",
+    // Best-effort: encerra a instância antiga antes de trocar o binário.
+    `& schtasks.exe /End /TN '${psQuote(taskName)}' 2>$null | Out-Null`,
+    ensureScript,
     `New-Item -ItemType Directory -Force -Path '${psQuote(options.sinkDir)}' | Out-Null`,
     `& icacls.exe '${psQuote(options.sinkDir)}' /grant '*S-1-5-32-545:(OI)(CI)RX' /T /C | Out-Null`,
-    `& schtasks.exe ${psArgList(buildFpsAgentCreateArgs(options))}`,
+    'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+    `& schtasks.exe ${psArgList(
+      buildFpsAgentCreateArgs({
+        exePath: options.protectedPaths.exePath,
+        sinkDir: options.sinkDir,
+        taskName
+      })
+    )}`,
     'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
     'exit 0'
   ].join('\r\n')
@@ -167,15 +200,18 @@ export function buildFpsAgentRemoveScript(
 }
 
 /**
- * Comando que PEDE O UAC e executa o script elevado. O PowerShell externo
- * espera o processo elevado (`-Wait`) para o main saber o código real.
+ * Comando que PEDE O UAC e executa o script elevado. O script vai por
+ * `-EncodedCommand` (UTF-16LE/base64) — nada é gravado em disco antes do UAC,
+ * então não existe `.ps1` em `%APPDATA%` para ser trocado entre a gravação e o
+ * clique. O PowerShell externo espera o processo elevado (`-Wait`) para o main
+ * saber o código real.
  */
-export function buildFpsAgentElevationCommand(scriptPath: string): string {
+export function buildFpsAgentElevationCommand(script: string): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     `$p = Start-Process -FilePath 'powershell.exe' ` +
-      `-ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','${psQuote(
-        scriptPath
+      `-ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encodePowerShell(
+        script
       )}') -Verb RunAs -Wait -PassThru`,
     'exit $p.ExitCode'
   ].join('; ')
@@ -355,13 +391,22 @@ async function queryTask(force = false): Promise<void> {
   const now = Date.now()
   if (!force && now - lastQueryAt < FPS_AUTO_QUERY_MS) return
   lastQueryAt = now
+  installed = await isFpsAutoInstalled()
+}
+
+/**
+ * Consulta a tarefa no Windows sem elevação. `null` = não deu para saber
+ * (timeout/saída inesperada) — quem chama decide; nunca inventamos "instalado".
+ */
+export async function isFpsAutoInstalled(): Promise<boolean | null> {
+  if (process.platform !== 'win32') return false
   const result = await runProcess(
     join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'schtasks.exe'),
     ['/Query', '/TN', FPS_AUTO_TASK_NAME, '/FO', 'LIST'],
     null,
     8_000
   )
-  installed = interpretFpsAgentQuery(result)
+  return interpretFpsAgentQuery(result)
 }
 
 async function refresh(force = false): Promise<void> {
@@ -422,9 +467,8 @@ export function getFpsAutoStatus(): FpsAutoStatus {
   return currentStatus()
 }
 
-async function runElevated(script: string, scriptPath: string): Promise<ProcessResult> {
-  await fs.writeFile(scriptPath, `\uFEFF${script}`, 'utf8')
-  return runPowerShellCommand(buildFpsAgentElevationCommand(scriptPath), FPS_AUTO_UAC_TIMEOUT_MS)
+async function runElevated(script: string): Promise<ProcessResult> {
+  return runPowerShellCommand(buildFpsAgentElevationCommand(script), FPS_AUTO_UAC_TIMEOUT_MS)
 }
 
 /** Instala a tarefa (UAC único explícito). Nunca lança. */
@@ -444,11 +488,17 @@ export async function installFpsAuto(): Promise<FpsAutoActionResult> {
   lastError = undefined
   sendStatus(true)
   try {
-    const paths = await ensureFpsHelperAssets()
+    const staging = await ensureStagedHelper()
+    const protectedPaths = resolveFpsProtectedPaths(process.env.ProgramData ?? 'C:\\ProgramData')
+    const sha256 = await sha256File(staging.stagingExePath)
     const sinkDir = currentSinkDir()
-    const script = buildFpsAgentInstallScript({ exePath: paths.exePath, sinkDir })
-    const scriptPath = join(paths.dir, 'fps-agent-install.ps1')
-    const result = await runElevated(script, scriptPath)
+    const script = buildFpsAgentInstallScript({
+      stagingExePath: staging.stagingExePath,
+      sha256,
+      protectedPaths,
+      sinkDir
+    })
+    const result = await runElevated(script)
     const combined = `${result.stdout}\n${result.stderr}`
 
     if (isUacCancelled(combined)) {
@@ -508,11 +558,9 @@ export async function removeFpsAuto(): Promise<FpsAutoActionResult> {
   lastError = undefined
   sendStatus(true)
   try {
-    const paths = await ensureFpsHelperAssets()
     const sinkDir = currentSinkDir()
     const script = buildFpsAgentRemoveScript(sinkDir)
-    const scriptPath = join(paths.dir, 'fps-agent-remove.ps1')
-    const result = await runElevated(script, scriptPath)
+    const result = await runElevated(script)
     const combined = `${result.stdout}\n${result.stderr}`
 
     if (isUacCancelled(combined)) {

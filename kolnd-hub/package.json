@@ -1,6 +1,6 @@
 {
   "name": "kolnd-hub",
-  "version": "1.4.0",
+  "version": "1.1.0",
   "description": "Kolnd Hub - Central de controle para seus programas",
   "main": "./out/main/index.js",
   "author": "Kolnd",

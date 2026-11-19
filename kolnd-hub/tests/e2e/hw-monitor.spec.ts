@@ -63,6 +63,15 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     const monitor = window.getByTestId('hw-monitor')
     await expect(monitor).toBeVisible()
 
+    // A ação que instala os sensores avançados precisa estar visível no topo,
+    // antes dos cards: o "—" de temperatura/potência da CPU não pode aparecer
+    // antes do botão que o resolve (sem rolar a página).
+    const advancedSensors = window.getByTestId('hw-advanced-sensors')
+    await expect(advancedSensors).toBeInViewport()
+    const advancedBox = await advancedSensors.boundingBox()
+    const cpuModelBox = await window.getByTestId('hw-cpu-model').boundingBox()
+    expect(advancedBox && cpuModelBox && advancedBox.y < cpuModelBox.y).toBe(true)
+
     // Desempenho/FPS: o card existe desde o primeiro render e, sem clique em
     // "Ativar", tudo fica em "—". O teste NUNCA clica no botão de FPS — ele
     // pede UAC e elevaria privilégio no CI.
@@ -91,6 +100,11 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     await expect(monitor.getByText(/NVIDIA GeForce RTX 5060 Ti · 8151 MiB/)).toBeVisible()
     await expect(monitor.getByText(/24 GB · DDR4-3200 · 3 módulos/).first()).toBeVisible()
     await expect(monitor.getByText(/B550M PRO-VDH WIFI/)).toBeVisible()
+
+    // Ventoinha: o RPM vem da NVML (esta GPU é NVIDIA), então a linha mostra um
+    // número com unidade — em repouso pode ser "0 RPM" (modo zero-fan), que é
+    // leitura válida e não "—".
+    await expect(window.getByTestId('hw-gpu-fan-rpm')).toHaveText(/^\d+\s*RPM$/)
 
     const driverBadge = window.getByTestId('hw-driver-badge')
     const driverText = (await driverBadge.innerText()).toLowerCase()
@@ -145,7 +159,7 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
       const installButton = window.getByTestId('hw-install-driver')
       await expect(installButton).toBeVisible()
       await expect(installButton).toContainText('Instalar sensores avançados')
-      await expect(installButton).toContainText('permissão de administrador')
+      await expect(installButton).toContainText('1 confirmação do Windows')
     }
 
     // Polling vivo: a última leitura muda sozinha (1 Hz limitado pelos sensores).

@@ -1,6 +1,6 @@
 /**
  * Domínio Hub da desinstalação (T4 do split de uninstaller.ts):
- * sequência "Desinstalar Kolnd Hub" (kloud → backup → wipe → spawn),
+ * sequência "Desinstalar Kolnd Hub" (kloud → backup → spawn → wipe),
  * wipe de %APPDATA%\kolnd-hub, spawn desanexado do desinstalador NSIS
  * e filtros/guards dos eventos do fluxo.
  *
@@ -33,7 +33,7 @@ export interface HubUninstallArgs {
 }
 
 /** Steps do fluxo do Hub reemitidos em `uninstall:progress`. */
-export const HUB_UNINSTALL_STEPS = ['kloud', 'backup', 'wipe', 'spawn', 'done'] as const
+export const HUB_UNINSTALL_STEPS = ['kloud', 'backup', 'spawn', 'wipe', 'done'] as const
 
 /** Resultado retornado pelo `uninstall:hub` ao main (que decide o encerramento). */
 export interface HubUninstallResult {
@@ -203,9 +203,12 @@ const HUB_UNINSTALLER_NOT_FOUND =
  *               `uninstall:complete` { paused: true, stage: 'kloud' } e PARA;
  *   2. backup — apenas loga "backup já feito em <caminho>" (o backup é voluntário
  *               e feito pela UI antes da confirmação, via `uninstall:backup-data`);
- *   3. wipe   — só se `wipeUserData === true`; apagar a pasta inteira
- *               %APPDATA%\kolnd-hub item a item, tolerando falhas;
- *   4. spawn  — inicia o desinstalador NSIS desanexado;
+ *   3. spawn  — inicia o desinstalador NSIS desanexado; falha ⇒ emite
+ *               `uninstall:complete` { success: false, stage: 'spawn' } e PARA,
+ *               sem apagar nada (é por isso que o spawn vem antes do wipe);
+ *   4. wipe   — só se `wipeUserData === true`; apagar a pasta inteira
+ *               %APPDATA%\kolnd-hub item a item, tolerando falhas — apenas
+ *               depois do spawn confirmado (falha de spawn não destrói dados);
  *   5. quem chamou encerra o Hub (killAll + destroy + app.quit) se spawned.
  *
  * Nunca apaga nada fora de %APPDATA%\kolnd-hub. O guard de reentrância impede
@@ -296,10 +299,29 @@ export async function runHubUninstallSteps(
       progress('backup', 'done', 78, 'Sem backup (opcional)')
     }
 
+    // ── Etapa spawn — inicia o desinstalador NSIS antes de qualquer wipe ──
+    // A ordem importa: se o spawn falhar, nada em %APPDATA%\kolnd-hub foi
+    // apagado ainda — o wipe só roda depois do spawn confirmado.
+    progress('spawn', 'running', 80, 'Iniciando o desinstalador do Kolnd Hub…')
+    log('[spawn] Iniciando o desinstalador (per-user, sem exigir admin)…\n')
+    try {
+      await spawnHubUninstaller(hubUninstaller.uninstallerPath)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const error = `Não foi possível iniciar o desinstalador do Kolnd Hub: ${message}. Desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub.`
+      log(`[spawn] ${error}\n`)
+      // Nenhum dado foi apagado: o wipe só roda depois do spawn confirmado.
+      // A UI mostra o erro com a instrução manual de desinstalação.
+      complete({ success: false, error, stage: 'spawn' })
+      return { ok: false, error }
+    }
+    log('[spawn] Desinstalador iniciado. O Kolnd Hub será encerrado para ele assumir.\n')
+    progress('spawn', 'done', 88, 'Desinstalador iniciado')
+
     // ── Etapa wipe — só se o usuário escolheu apagar os dados ────────────
     let wipeErrors: string[] | undefined
     if (args.wipeUserData) {
-      progress('wipe', 'running', 80, 'Apagando seus dados em %APPDATA%\\kolnd-hub…')
+      progress('wipe', 'running', 90, 'Apagando seus dados em %APPDATA%\\kolnd-hub…')
       const rootDir = join(app.getPath('appData'), 'kolnd-hub')
       let wipeTotal = 1
       let wipeDone = 0
@@ -309,8 +331,8 @@ export async function runHubUninstallSteps(
         (_item, ok) => {
           wipeDone += 1
           if (ok) {
-            // Faixa do wipe: 80 → 92 (12 pontos distribuídos pelos itens).
-            progress('wipe', 'running', 80 + (wipeDone * 12) / wipeTotal)
+            // Faixa do wipe: 90 → 98 (8 pontos distribuídos pelos itens).
+            progress('wipe', 'running', 90 + (wipeDone * 8) / wipeTotal)
           }
         },
         (count) => {
@@ -325,33 +347,17 @@ export async function runHubUninstallSteps(
         progress(
           'wipe',
           'done',
-          92,
+          98,
           `Dados apagados com ${wipe.errors.length} falha(s) — detalhes no log`
         )
       } else {
-        progress('wipe', 'done', 92, 'Seus dados foram apagados')
+        progress('wipe', 'done', 98, 'Seus dados foram apagados')
       }
     } else {
       log('[wipe] wipeUserData=false — nada será apagado (dados e configurações preservados).\n')
-      progress('wipe', 'done', 92, 'Seus dados foram mantidos')
+      progress('wipe', 'done', 98, 'Seus dados foram mantidos')
     }
 
-    // ── Etapa spawn — inicia o desinstalador NSIS ────────────────────────
-    progress('spawn', 'running', 96, 'Iniciando o desinstalador do Kolnd Hub…')
-    log('[spawn] Iniciando o desinstalador (per-user, sem exigir admin)…\n')
-    try {
-      await spawnHubUninstaller(hubUninstaller.uninstallerPath)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      const error = `Não foi possível iniciar o desinstalador do Kolnd Hub: ${message}. Desinstale pelo aplicativo Configurações do Windows → Aplicativos → Kolnd Hub.`
-      log(`[spawn] ${error}\n`)
-      // O wipe (se houve) já aconteceu e não é desfeito — a UI mostra o erro
-      // com a lista de itens que falharam e a instrução manual de desinstalação.
-      complete({ success: false, error, stage: 'spawn', wipeErrors })
-      return { ok: false, error, wipeErrors }
-    }
-    log('[spawn] Desinstalador iniciado. O Kolnd Hub será encerrado para ele assumir.\n')
-    progress('spawn', 'done', 100, 'Desinstalador iniciado')
     progress('done', 'done', 100, 'Concluído')
     log('[done] Kolnd Hub sendo encerrado — o desinstalador do Windows conclui o resto.\n')
     complete({ success: true, stage: 'spawn', wipeErrors })

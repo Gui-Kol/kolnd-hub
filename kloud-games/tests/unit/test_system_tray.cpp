@@ -150,41 +150,27 @@ namespace {
     EXPECT_EQ(tray_data.menu[2].submenu[4].text, nullptr);
     #endif
     EXPECT_STREQ(tray_data.menu[3].text, "-");
-    EXPECT_STREQ(tray_data.menu[4].text, "Donate");
-    ASSERT_NE(tray_data.menu[4].submenu, nullptr);
-    EXPECT_STREQ(tray_data.menu[4].submenu[0].text, "GitHub Sponsors");
-    EXPECT_STREQ(tray_data.menu[4].submenu[1].text, "Patreon");
-    EXPECT_STREQ(tray_data.menu[4].submenu[2].text, "PayPal");
-    EXPECT_EQ(tray_data.menu[4].submenu[3].text, nullptr);
-    EXPECT_STREQ(tray_data.menu[5].text, "-");
     #ifdef _WIN32
-    EXPECT_STREQ(tray_data.menu[6].text, "Reset Display Device Config");
+    EXPECT_STREQ(tray_data.menu[4].text, "Reset Display Device Config");
+    EXPECT_NE(tray_data.menu[4].cb, nullptr);
+    EXPECT_STREQ(tray_data.menu[5].text, "Restart");
+    EXPECT_NE(tray_data.menu[5].cb, nullptr);
+    EXPECT_STREQ(tray_data.menu[6].text, "Quit");
     EXPECT_NE(tray_data.menu[6].cb, nullptr);
-    EXPECT_STREQ(tray_data.menu[7].text, "Restart");
-    EXPECT_NE(tray_data.menu[7].cb, nullptr);
-    EXPECT_STREQ(tray_data.menu[8].text, "Quit");
-    EXPECT_NE(tray_data.menu[8].cb, nullptr);
-    EXPECT_EQ(tray_data.menu[9].text, nullptr);
+    EXPECT_EQ(tray_data.menu[7].text, nullptr);
     #else
-    EXPECT_STREQ(tray_data.menu[6].text, "Restart");
-    EXPECT_NE(tray_data.menu[6].cb, nullptr);
-    EXPECT_STREQ(tray_data.menu[7].text, "Quit");
-    EXPECT_NE(tray_data.menu[7].cb, nullptr);
-    EXPECT_EQ(tray_data.menu[8].text, nullptr);
-    #endif
-  #else
-    EXPECT_STREQ(tray_data.menu[2].text, "Donate");
-    ASSERT_NE(tray_data.menu[2].submenu, nullptr);
-    EXPECT_STREQ(tray_data.menu[2].submenu[0].text, "GitHub Sponsors");
-    EXPECT_STREQ(tray_data.menu[2].submenu[1].text, "Patreon");
-    EXPECT_STREQ(tray_data.menu[2].submenu[2].text, "PayPal");
-    EXPECT_EQ(tray_data.menu[2].submenu[3].text, nullptr);
-    EXPECT_STREQ(tray_data.menu[3].text, "-");
     EXPECT_STREQ(tray_data.menu[4].text, "Restart");
     EXPECT_NE(tray_data.menu[4].cb, nullptr);
     EXPECT_STREQ(tray_data.menu[5].text, "Quit");
     EXPECT_NE(tray_data.menu[5].cb, nullptr);
     EXPECT_EQ(tray_data.menu[6].text, nullptr);
+    #endif
+  #else
+    EXPECT_STREQ(tray_data.menu[2].text, "Restart");
+    EXPECT_NE(tray_data.menu[2].cb, nullptr);
+    EXPECT_STREQ(tray_data.menu[3].text, "Quit");
+    EXPECT_NE(tray_data.menu[3].cb, nullptr);
+    EXPECT_EQ(tray_data.menu[4].text, nullptr);
   #endif
   }
 

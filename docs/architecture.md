@@ -81,6 +81,27 @@ Processo Node completo. Responsabilidades principais:
   uma nova, se não houver nenhuma.
 - **Pré-requisito de caminho**: `setBaseDir(is.dev ? process.cwd() : dirname(app.getPath('exe')))`
   — caminhos relativos da config resolvem a partir do diretório do Hub, nunca do cwd herdado.
+- **Atualização do app** (`appUpdates.ts`): a cada abertura o renderer chama
+  `updates:check`, que faz **um** GET na API pública do GitHub
+  (`/repos/Gui-Kol/kolnd-hub/releases/latest`). O banner "Nova atualização disponível"
+  compara a tag `vX.Y.Z` da release com `app.getVersion()` por **SemVer** (prerelease
+  ordena antes da release correspondente; tag fora do formato não vira banner). O
+  banner some só para a sessão em "Depois".
+  `updates:install` reconsulta a release pelo ID, exige `.exe` de instalação **e**
+  `digest` SHA-256 publicado (release sem hash só oferece a página), baixa o `.exe` para
+  `%TEMP%\kolnd-hub-updates` com allowlist de host + SHA-256 do download, verifica a
+  assinatura Authenticode (aceita `NotSigned` porque o projeto não assina; recusa
+  `HashMismatch`, `NotTrusted` e saída ilegível) e revalida o hash do arquivo em disco
+  imediatamente antes de abrir o NSIS, encerrando o Hub para liberar os arquivos.
+  `updates:cancel` interrompe o download. Falha de rede é silenciosa; nenhum dado sai
+  da máquina além do GET.
+- **Kloud Games sempre elevado** (`kloudGames.ts`): `kloud-games:launch` usa
+  `launchKloudGamesElevated()` (PowerShell `Start-Process -Verb RunAs`) em vez do
+  `processManager`, em qualquer conta do Windows. O estado do app vive em
+  `C:\Program Files\KLOUD_GAMES\config` (log, `apps.json`, certificados em
+  `config\credentials`), que usuários comuns não conseguem escrever nem ler; sem UAC o
+  app morre com `use_certificate_chain_file: Acesso negado`. Como o processo elevado não
+  é filho do Hub, o status vem do `tasklist` e o `app:stop` também eleva (`taskkill`).
 
 ### Preload (`src/preload/`)
 
@@ -116,18 +137,20 @@ Todo canal é `ipcMain.handle` (request/response) ou `ipcMain.on` via eventos
 Os canais são registrados por funções `register*Ipc()` chamadas em `app.whenReady()`,
 mais handlers inline em `index.ts`:
 
-| Registro                                 | Arquivo                | Canais (exemplos)                                                                                                                                                                                                                     |
-| ---------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerConfigIpc` / `registerPrefsIpc` | `store.ts`             | `config:get`, `config:setApps`, `config:migrate`, `prefs:get`/`prefs:set`                                                                                                                                                             |
-| `registerGamepadIpc`                     | `gamepad.ts`           | `gamepad:get`/`set`/`reset`, `bigpicture:get-prefs`/`set-prefs`                                                                                                                                                                       |
-| `registerFirstRunIpc`                    | `firstRunInstaller.ts` | `firstRun:start`/`cancel`/`retry-kloud-games` + eventos `firstRun:*`                                                                                                                                                                  |
-| `registerWingetIpc`                      | `wingetUpdater.ts`     | `winget:list-upgrades`, `winget:upgrade-one`, `winget:kill-upgrade`                                                                                                                                                                   |
-| `registerTempCleanerIpc`                 | `tempCleaner.ts`       | `system:clean-temp`                                                                                                                                                                                                                   |
-| `registerDisplayIpc`                     | `displaySettings.ts`   | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                      |
-| `registerGamesIpc`                       | `games.ts`             | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
-| `registerSteamIpc`                       | `steamScanner.ts`      | `steam:import`                                                                                                                                                                                                                        |
-| `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`) | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`       |
-| inline em `index.ts`                     | —                      | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
+| Registro                                 | Arquivo                                                                 | Canais (exemplos)                                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerConfigIpc` / `registerPrefsIpc` | `store.ts`                                                              | `config:get`, `config:setApps`, `config:migrate`, `prefs:get`/`prefs:set`                                                                                                                                                             |
+| `registerGamepadIpc`                     | `gamepad.ts`                                                            | `gamepad:get`/`set`/`reset`, `bigpicture:get-prefs`/`set-prefs`                                                                                                                                                                       |
+| `registerFirstRunIpc`                    | `firstRunInstaller.ts`                                                  | `firstRun:start`/`cancel`/`retry-kloud-games` + eventos `firstRun:*`                                                                                                                                                                  |
+| `registerWingetIpc`                      | `wingetUpdater.ts`                                                      | `winget:list-upgrades`, `winget:upgrade-one`, `winget:kill-upgrade`                                                                                                                                                                   |
+| `registerTempCleanerIpc`                 | `tempCleaner.ts`                                                        | `system:clean-temp`                                                                                                                                                                                                                   |
+| `registerDisplayIpc`                     | `displaySettings.ts`                                                    | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
+| `registerGamesIpc`                       | `games.ts`                                                              | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
+| `registerSteamIpc`                       | `steamScanner.ts`                                                       | `steam:import`                                                                                                                                                                                                                        |
+| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                   | `remote:status`/`public-ip`/`install-tailscale`/`open-tailscale`/`open-kloud-web`/`copy`                                                                                                                                              |
+| `registerUpdatesIpc`                     | `ipc/updates.ts`                                                        | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
+| `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`) | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
+| inline em `index.ts`                     | —                                                                       | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
 **Regra de ouro: o main nunca confia no que chega por IPC, e o renderer também não confia
 no main sem checagem.** Os handlers recebem os argumentos como `unknown` (ou validam de
@@ -171,19 +194,21 @@ Chaves do schema (`HubStoreSchema`):
 | `gamepad`            | `GamepadConfig \| null` (null = não configurado)                       |
 | `bigPicture`         | `{ sounds: boolean }`, default `{ sounds: true }`                      |
 
-Migrações lançadas (`migrations` em `store.ts`) — a mais recente é **`'1.4.0'`**:
+Migrações lançadas (`migrations` em `store.ts`) — a mais recente é **`'1.9.0'`**:
 
 - `1.0.0` — baseline (nada a fazer; defaults vêm do schema)
 - `1.1.0` — normaliza `apps` (campos faltantes/`useShell`) e `startupImportance`
 - `1.2.0` — garante a chave `games`
 - `1.3.0` — garante o default de `launchKloudOnStart`
 - `1.4.0` — garante `gamepad` (null se ausente/inválido) e `bigPicture` (`{ sounds: true }`)
+- `1.5.0`/`1.6.0`/`1.7.0` — `benchmarkHistory` e `hud` (atalho/tamanho)
+- `1.8.0`/`1.9.0` — `remoteAccess` (IP público e "Modo remoto")
 
 Regras para quem mexer no store:
 
 1. **Nunca editar uma migração já lançada.** Adicione uma nova com chave maior que
-   `'1.4.0'` (e faça o bump de versão correspondente) — clientes antigos aplicam as
-   migrações pendentes em ordem na primeira abertura da versão nova.
+   `'1.9.0'` — clientes antigos aplicam as migrações pendentes em ordem na primeira
+   abertura da versão nova.
 2. Toda chave nova entra no schema **e** na migração que a introduz (com default seguro).
 3. Toda leitura passa pelos `normalize*` — entrada inválida nunca derruba a leitura;
    cai no default (`store.ts` inteira segue esse padrão).
@@ -267,11 +292,12 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
    1. resolve o desinstalador NSIS (se não achar, nada é apagado e o erro aparece na hora);
    2. roda o fluxo do Kloud Games (UAC) — se falhar/UAC negado, pausa:
       "Desinstalar só o Hub?" ou "Cancelar";
-   3. **wipe opcional** (irreversível, só se escolhido): apaga `%APPDATA%\kolnd-hub`
-      item a item, tolerando falhas individuais (listadas no final);
-   4. dispara o desinstalador NSIS **desanexado** e o Hub se encerra
-      (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada se perde e o erro
-      aparece com a instrução de desinstalar pelo Windows.
+   3. dispara o desinstalador NSIS **desanexado** e o Hub se encerra
+      (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada é apagado e o erro
+      aparece com a instrução de desinstalar pelo Windows;
+   4. **wipe opcional** (irreversível, só se escolhido), depois do spawn confirmado:
+      apaga `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (listadas
+      no final).
 
 O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`
@@ -308,37 +334,49 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   `redactSecrets`). Nada é enviado a lugar nenhum.
 - **Processos filhos**: `app:launch` roda por padrão via **shell (cmd.exe)** —
   `shell: true` é o default intencional (preserva aspas/argumentos); `shell: false`
-  separa argv e executa sem interpretação. `execFileSync` no main (ex.:
-  `startupManager.ts` com `reg query`) bloqueia o event loop — evite em código novo.
+  separa argv e executa sem interpretação. `execFileSync` no main (ex.: as mutações de
+  inicialização em `startupManager.ts`) bloqueia o event loop — evite em código novo.
+- **Listagem de processos do sistema** (`startupManager.ts`): um único `powershell.exe`
+  persistente por sessão (stdin/stdout com prefixo `KOLND-RESULT`, 1 consulta em voo,
+  timeout de 15 s com kill/respawn, morre quando o stdin fecha) roda
+  `Get-CimInstance Win32_Process` — com anti-cheat ativo o antigo `Get-Process … Path`
+  levava ~5 s abrindo handle em cada processo. `listRunningProcesses()` é assíncrona,
+  tem cache de 5 s e o renderer consulta a cada 10 s (60 s com a janela na bandeja);
+  **nenhum spawn periódico**. `listStartupItems()` é assíncrona (2 `execFile` em
+  paralelo) e não segura a tela de loading.
 - **Shell externo**: `shell:openExternal` com allowlist de esquemas; `shell:openPath`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
+- **Artefato elevado**: nunca em diretório gravável pelo usuário. O helper de FPS que
+  roda `HIGHEST` no logon fica em `%ProgramData%\Kolnd Hub\fps\bin` (ACL: Usuários só
+  `RX`, sem herança) e só é copiado após conferir o **SHA-256**; a elevação vai por
+  `-EncodedCommand` — nada de `.ps1` em `%APPDATA%` esperando o UAC.
 
 ## 9. Mapa de arquivos
 
-| Assunto                                | Arquivo                                                                            |
-| -------------------------------------- | ---------------------------------------------------------------------------------- |
-| Bootstrap / janela / tray / IPC inline | `kolnd-hub/src/main/index.ts`                                                      |
-| Crash reporting                        | `kolnd-hub/src/main/crashReporting.ts`                                             |
-| Store + migrações                      | `kolnd-hub/src/main/store.ts`                                                      |
-| Logger                                 | `kolnd-hub/src/main/logger.ts`                                                     |
-| First-run (flag/fluxo)                 | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                           |
-| Dependências (python/pip)              | `kolnd-hub/src/main/dependencyChecker.ts`                                          |
-| Instalação silenciosa                  | `kolnd-hub/src/main/silentInstaller.ts`                                            |
-| Implantação de programas               | `kolnd-hub/src/main/programsDeployer.ts`                                           |
-| Gerenciamento de processos             | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`       |
-| Jogos / Steam                          | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`                                   |
-| Kloud Games (estado)                   | `kolnd-hub/src/main/kloudGames.ts`                                                 |
-| Startup do PC                          | `kolnd-hub/src/main/startupManager.ts`                                             |
-| Desinstalação                          | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
-| Diagnóstico                            | `kolnd-hub/src/main/diagnostic.ts`                                                 |
-| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                    |
-| Preload (`window.api`)                 | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                  |
-| Big Picture (nav. espacial)            | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                     |
-| Gamepad (perfis/detecção)              | `kolnd-hub/src/renderer/src/lib/gamepad/`                                          |
-| Tipos compartilhados (gamepad)         | `kolnd-hub/src/shared/gamepad.ts`                                                  |
-| Fallback de config                     | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                      |
-| Build                                  | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                        |
-| Testes                                 | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)               |
+| Assunto                                 | Arquivo                                                                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bootstrap / janela / tray / IPC inline  | `kolnd-hub/src/main/index.ts`                                                                                                                                |
+| Crash reporting                         | `kolnd-hub/src/main/crashReporting.ts`                                                                                                                       |
+| Store + migrações                       | `kolnd-hub/src/main/store.ts`                                                                                                                                |
+| Logger                                  | `kolnd-hub/src/main/logger.ts`                                                                                                                               |
+| First-run (flag/fluxo)                  | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                                                                                                     |
+| Dependências (python/pip)               | `kolnd-hub/src/main/dependencyChecker.ts`                                                                                                                    |
+| Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                      |
+| Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                     |
+| Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                 |
+| Jogos / Steam                           | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`                                                                                                             |
+| Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                           |
+| Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                       |
+| Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
+| Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
+| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
+| Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
+| Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
+| Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |
+| Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                            |
+| Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                |
+| Build                                   | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                                                                                                  |
+| Testes                                  | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)                                                                                         |
 
 Documentos relacionados: [`kolnd-hub/README.md`](../kolnd-hub/README.md) (comandos,
 qualidade/CI, primeira execução, desinstalação), [`kolnd-hub/AGENTS.md`](../kolnd-hub/AGENTS.md)

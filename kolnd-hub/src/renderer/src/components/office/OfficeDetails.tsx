@@ -1,0 +1,1129 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode, Ref } from 'react'
+import {
+  Bot,
+  Check,
+  CircleAlert,
+  Clock3,
+  Coins,
+  Cpu,
+  FolderOpen,
+  Hash,
+  Info,
+  Loader2,
+  MousePointerClick,
+  Palette,
+  ShieldCheck,
+  Timer,
+  UserCog,
+  X
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import type {
+  OfficeAgent,
+  OfficeAgentOption,
+  OfficeModelOption,
+  OfficePermissionRequest,
+  OfficeRoom,
+  OfficeRosterOptions
+} from '../../../../shared/office'
+import { truncateLabel } from '../../../../shared/office'
+import type { OfficeAvatarLook } from '../../../../shared/officeAvatar'
+import {
+  HAIR_COLORS,
+  PANTS_COLORS,
+  SHIRT_COLORS,
+  SKIN_TONES
+} from '../../../../shared/officeAvatar'
+import { Badge, Button, Select } from '../ui'
+import { OfficeTranscript } from './OfficeTranscript'
+import { PromptComposer } from './PromptComposer'
+import {
+  ACTIVITY_META,
+  STATUS_META,
+  activityLabel,
+  effortLabel,
+  formatClock,
+  formatCost,
+  formatDuration,
+  formatTokens
+} from './format'
+
+/**
+ * Detalhes do agente selecionado — agora com as AÇÕES da Fase 3.
+ *
+ * Fronteira de segurança: esta tela só monta pedidos (`sessionID` +
+ * `requestID` + decisão). O main valida tudo de novo (AGENTS.md) e o modo
+ * somente leitura é decidido lá; aqui a chave é apenas o portão visual. O texto
+ * da mensagem nunca é persistido nem logado — ao ser entregue, ele sai também
+ * do estado do componente.
+ */
+
+/** Teto do prompt (mesmo `ACTION_TEXT_MAX` do main — validado dos dois lados). */
+const MESSAGE_MAX = 2000
+/** Motivo da negação (mesmo `ACTION_MESSAGE_MAX` do main). */
+const DENY_REASON_MAX = 500
+/** A ponte descarta a ação em 30 s; a UI reflete o mesmo prazo. */
+const REQUEST_EXPIRY_MS = 30_000
+/** Recorte visual do recurso: o pedido já chega mascarado/truncado em 200. */
+const RESOURCE_DISPLAY_MAX = 80
+
+type RequestStatus = 'enviando' | 'ok' | 'erro' | 'expirado' | 'dispensado'
+type PermissionDecision = 'once' | 'always' | 'reject'
+
+interface RequestUiState {
+  status: RequestStatus
+  decision?: PermissionDecision
+  actionID?: string
+  error?: string
+}
+
+export interface OfficeDetailsProps {
+  agent: OfficeAgent | null
+  room: OfficeRoom | null
+  /** Epoch de referência (padrão: `lastSeenAt` do próprio agente — puro). */
+  now?: number
+  /** Pedidos pendentes da sessão selecionada (já filtrados pelo pai). */
+  requests?: readonly OfficePermissionRequest[]
+  /** Chave de ações do cabeçalho, já combinada com `pluginConnected`. */
+  actionsEnabled?: boolean
+  /** O plugin de tempo real está falando com a ponte. */
+  pluginConnected?: boolean
+  /** Avisa o pai para reler o snapshot após mudar a função. */
+  onRoleSaved?: () => void
+  /** Salas-departamento disponíveis no seletor "Sala". */
+  rooms?: readonly OfficeRoom[]
+  /** Aparência efetiva do personagem selecionado. */
+  look?: OfficeAvatarLook | null
+  /** Abre o editor de aparência. */
+  onEditAppearance?: () => void
+  /** Designa a sessão para uma sala (`null` = "Sem sala"). */
+  onRoomChange?: (roomID: string | null) => void
+}
+
+function Field({
+  icon: Icon,
+  label,
+  children
+}: {
+  icon: LucideIcon
+  label: string
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <div className="min-w-0">
+      <span className="flex items-center gap-1 text-[9.5px] uppercase tracking-[0.1em] text-ink-tertiary">
+        <Icon size={10} aria-hidden="true" />
+        {label}
+      </span>
+      <div className="mt-0.5 min-w-0 text-[12px] text-ink-primary">{children}</div>
+    </div>
+  )
+}
+
+/** Nome da ação em pt-BR (o OpenCode manda o nome cru da ferramenta). */
+function permissionActionLabel(action: string): string {
+  const key = action.trim().toLowerCase()
+  switch (key) {
+    case 'shell':
+    case 'bash':
+    case 'command':
+      return 'Executar comando'
+    case 'edit':
+    case 'write':
+    case 'apply_patch':
+      return 'Editar arquivo'
+    case 'read':
+    case 'glob':
+      return 'Ler arquivo'
+    case 'grep':
+    case 'search':
+      return 'Buscar no projeto'
+    case 'webfetch':
+    case 'websearch':
+    case 'http':
+      return 'Acessar a web'
+    default:
+      return action.trim() ? `Permissão: ${action.trim()}` : 'Permissão'
+  }
+}
+
+/** Motivo de recusa do main em pt-BR (nunca vaza payload). */
+function refusalLabel(reason: string): string {
+  switch (reason) {
+    case 'somente-leitura':
+      return 'Ações estão em somente leitura — ligue a chave no topo.'
+    case 'limite':
+      return 'Muitas ações nesta sessão — espere um minuto.'
+    case 'texto-longo':
+      return `Texto longo demais (máx. ${MESSAGE_MAX.toLocaleString('pt-BR')}).`
+    case 'fila-cheia':
+      return 'A fila de ações do Escritório está cheia.'
+    case 'invalido':
+      return 'O pedido não é mais válido — responda no terminal.'
+    default:
+      return 'Não consegui enviar a ação.'
+  }
+}
+
+function resourceText(resource: string): string {
+  return truncateLabel(resource, RESOURCE_DISPLAY_MAX)
+}
+
+/** Chave estável de um modelo para os selects. */
+function modelKey(model: Pick<OfficeModelOption, 'providerID' | 'id'>): string {
+  return `${model.providerID}/${model.id}`
+}
+
+interface RoleCardProps {
+  agent: OfficeAgent
+  room: OfficeRoom | null
+  onSaved: () => void
+}
+
+/**
+ * Card "Função": troca o agente e/ou o modelo da sessão.
+ *
+ * `working` bloqueia a troca — o OpenCode mudaria o agente no meio da tarefa.
+ * O main revalida o estado da sessão, então o bloqueio aqui é só a explicação
+ * visual; a regra de verdade está no IPC.
+ */
+function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
+  const directory = (agent.directory ?? room?.path ?? '').trim()
+  const currentModelKey = modelKey(agent.model)
+  const working = agent.status === 'working'
+
+  const [options, setOptions] = useState<OfficeRosterOptions | null>(null)
+  const [loading, setLoading] = useState(directory.length > 0)
+  const [agentID, setAgentID] = useState(agent.agent)
+  const [modelKeyValue, setModelKeyValue] = useState(currentModelKey)
+  const [variantValue, setVariantValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!directory) return
+
+    let alive = true
+    window.api
+      .officeRosterOptions({ directory })
+      .then((result) => {
+        if (!alive) return
+        if (!result.ok) {
+          setOptions(null)
+          setError(result.error ?? 'Não consegui consultar as funções desta sala.')
+          return
+        }
+        setError(null)
+        setOptions({ agents: result.agents, models: result.models })
+      })
+      .catch(() => {
+        if (!alive) return
+        setOptions(null)
+        setError('Não consegui falar com o processo principal.')
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [directory])
+
+  const agentOptions: OfficeAgentOption[] = options?.agents ?? []
+  const modelOptions = (options?.models ?? []).filter((model) => model.enabled)
+  const hasCurrentAgent = agentOptions.some((option) => option.id === agent.agent)
+  const hasCurrentModel = modelOptions.some((model) => modelKey(model) === currentModelKey)
+  const selectedModel = modelOptions.find((model) => modelKey(model) === modelKeyValue) ?? null
+  const effortSource =
+    selectedModel ?? modelOptions.find((model) => modelKey(model) === currentModelKey) ?? null
+  const effortOptions = effortSource?.variants ?? []
+  const blocked = working || !directory
+  const canSave = !blocked && !loading && !saving && options !== null
+
+  function save(): void {
+    if (!canSave) return
+    let chosenModel: OfficeModelOption | null = selectedModel
+    if (!chosenModel && variantValue && agent.model.id !== 'desconhecido') {
+      chosenModel = {
+        providerID: agent.model.providerID,
+        id: agent.model.id,
+        name: agent.model.id,
+        enabled: true,
+        variants: effortOptions,
+        variant: variantValue
+      }
+    } else if (chosenModel && variantValue) {
+      chosenModel = { ...chosenModel, variant: variantValue }
+    }
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+
+    void window.api
+      .officeSetRole({ sessionID: agent.sessionID, agentID, model: chosenModel })
+      .then((result) => {
+        if (!result.ok) {
+          setError(result.error ?? 'Não consegui mudar a função desta sessão.')
+          return
+        }
+        setSaved(true)
+        onSaved()
+      })
+      .catch(() => setError('Não consegui falar com o processo principal.'))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <section
+      aria-label="Função"
+      data-testid="office-role"
+      className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
+          <UserCog size={11} aria-hidden="true" />
+          Função
+        </span>
+        {working && <Badge tone="warning">trabalhando</Badge>}
+        {saved && <Badge tone="success">atualizada</Badge>}
+      </div>
+
+      {working && (
+        <p
+          data-testid="office-role-working"
+          className="mt-1.5 text-[10.5px] leading-snug text-warn"
+        >
+          Sessão trabalhando — espere a tarefa terminar para trocar a função.
+        </p>
+      )}
+      {!working && !directory && (
+        <p className="mt-1.5 text-[10.5px] leading-snug text-ink-tertiary">
+          Esta sala não tem uma pasta válida para consultar as funções.
+        </p>
+      )}
+
+      <div className="mt-2 space-y-2">
+        <div>
+          <label
+            htmlFor="office-role-agent"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Agente
+          </label>
+          <Select
+            id="office-role-agent"
+            data-testid="office-role-agent"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={agentID}
+            disabled={blocked || loading}
+            onChange={(event) => {
+              setSaved(false)
+              setAgentID(event.target.value)
+            }}
+          >
+            {!hasCurrentAgent && <option value={agent.agent}>{agent.agent} (atual)</option>}
+            {agentOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="office-role-model"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Modelo
+          </label>
+          <Select
+            id="office-role-model"
+            data-testid="office-role-model"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={modelKeyValue}
+            disabled={blocked || loading}
+            onChange={(event) => {
+              setSaved(false)
+              setModelKeyValue(event.target.value)
+              // Esforço pertence ao modelo: troca de modelo zera a escolha.
+              setVariantValue('')
+            }}
+          >
+            <option value="">Manter modelo atual</option>
+            {!hasCurrentModel && <option value={currentModelKey}>{agent.model.id} (atual)</option>}
+            {modelOptions.map((model) => (
+              <option key={modelKey(model)} value={modelKey(model)}>
+                {model.name} ({model.providerID})
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="office-role-effort"
+            className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Esforço
+          </label>
+          <Select
+            id="office-role-effort"
+            data-testid="office-role-effort"
+            className="mt-1 !py-1.5 text-[12px]"
+            value={variantValue}
+            disabled={blocked || loading || effortOptions.length === 0}
+            onChange={(event) => {
+              setSaved(false)
+              setVariantValue(event.target.value)
+            }}
+          >
+            <option value="">Padrão</option>
+            {effortOptions.map((variant) => (
+              <option key={variant} value={variant}>
+                {effortLabel(variant)}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[9.5px] text-ink-tertiary">
+            Atual: {agent.model.variant ? effortLabel(agent.model.variant) : 'padrão'}
+            {effortOptions.length === 0 ? ' · este modelo não oferece esforço' : ''}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div aria-live="polite" className="min-w-0 flex-1">
+          {loading && (
+            <span className="flex items-center gap-1.5 text-[10px] text-ink-tertiary">
+              <Loader2 size={11} className="animate-spin" aria-hidden="true" />
+              carregando…
+            </span>
+          )}
+          {!loading && error && (
+            <span
+              data-testid="office-role-error"
+              className="flex items-start gap-1.5 text-[10px] leading-snug text-danger"
+            >
+              <CircleAlert size={11} className="mt-px shrink-0" aria-hidden="true" />
+              {error}
+            </span>
+          )}
+          {!loading && !error && saved && (
+            <span className="flex items-center gap-1.5 text-[10px] text-success">
+              <Check size={11} aria-hidden="true" />
+              Função atualizada.
+            </span>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={save}
+          disabled={!canSave}
+          data-testid="office-role-save"
+        >
+          {saving ? (
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Check size={12} aria-hidden="true" />
+          )}
+          Salvar
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+interface PermissionCardProps {
+  request: OfficePermissionRequest
+  state?: RequestUiState
+  actionsEnabled: boolean
+  pluginConnected: boolean
+  cardRef?: Ref<HTMLDivElement>
+  onApprove: (request: OfficePermissionRequest, decision: 'once' | 'always') => void
+  onDeny: (request: OfficePermissionRequest, reason?: string) => void
+  onDismiss: (request: OfficePermissionRequest) => void
+}
+
+/** Card "Precisa de você" de UM pedido: aprovar, aprovar sempre, negar, dispensar. */
+function PermissionCard({
+  request,
+  state,
+  actionsEnabled,
+  pluginConnected,
+  cardRef,
+  onApprove,
+  onDeny,
+  onDismiss
+}: PermissionCardProps): JSX.Element {
+  const [confirmAlways, setConfirmAlways] = useState(false)
+  const [denyOpen, setDenyOpen] = useState(false)
+  const [denyReason, setDenyReason] = useState('')
+
+  const status = state?.status
+  const busy = status === 'enviando'
+  const resolved = status === 'ok' || status === 'dispensado'
+  const expired = status === 'expirado'
+  const canAct = actionsEnabled && pluginConnected && !busy && !resolved && !expired
+
+  const rules = request.save.slice(0, 2)
+  const extraRules = request.save.length - rules.length
+
+  function handleApproveAlways(): void {
+    if (!confirmAlways) {
+      setConfirmAlways(true)
+      return
+    }
+    setConfirmAlways(false)
+    onApprove(request, 'always')
+  }
+
+  function handleDeny(): void {
+    if (!denyOpen) {
+      setDenyOpen(true)
+      return
+    }
+    onDeny(request, denyReason.trim() || undefined)
+    setDenyOpen(false)
+    setDenyReason('')
+  }
+
+  return (
+    // Esc dispensa o pedido: atalho do card focável (tabIndex -1) do painel.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <div
+      ref={cardRef}
+      tabIndex={-1}
+      role="group"
+      aria-label={`Pedido: ${permissionActionLabel(request.action)}`}
+      data-testid="office-request"
+      data-request-id={request.id}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          onDismiss(request)
+        }
+      }}
+      className="rounded-control border border-warn-border bg-warn-bg p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+    >
+      <div className="flex items-start gap-2">
+        <span
+          aria-hidden="true"
+          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-warn-bg text-warn"
+        >
+          <ShieldCheck size={12} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold text-warn">Precisa de você</p>
+          <p className="truncate text-[12px] font-medium text-ink-primary">
+            {permissionActionLabel(request.action)}
+          </p>
+        </div>
+        <span className="tnum shrink-0 text-[10px] text-ink-tertiary">
+          {formatClock(request.at)}
+        </span>
+      </div>
+
+      {request.resources.length > 0 && (
+        <ul className="mt-2 space-y-1" aria-label="Recursos do pedido">
+          {request.resources.map((resource, index) => (
+            <li key={`${request.id}-${index}`}>
+              <code className="block rounded-sm bg-surface-sunken px-2 py-1 font-mono text-[10.5px] leading-snug text-ink-secondary">
+                {resourceText(resource)}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {request.message && (
+        <p className="mt-2 line-clamp-3 text-[10.5px] leading-snug text-ink-secondary">
+          {request.message}
+        </p>
+      )}
+
+      <div aria-live="polite" className="mt-2">
+        {status === 'enviando' && (
+          <p className="flex items-center gap-1.5 text-[10.5px] text-ink-secondary">
+            <Loader2 size={11} className="animate-spin" aria-hidden="true" />
+            enviando…
+          </p>
+        )}
+        {status === 'ok' && (
+          <p className="flex items-center gap-1.5 text-[10.5px] font-medium text-success">
+            <Check size={12} aria-hidden="true" />
+            {state?.decision === 'reject' ? 'Negado' : 'Aprovado'}
+          </p>
+        )}
+        {status === 'erro' && (
+          <p className="flex items-start gap-1.5 text-[10.5px] leading-snug text-danger">
+            <CircleAlert size={12} className="mt-px shrink-0" aria-hidden="true" />
+            {state?.error ?? 'A ação falhou no OpenCode.'}
+          </p>
+        )}
+        {status === 'expirado' && (
+          <p className="flex items-start gap-1.5 text-[10.5px] leading-snug text-warn">
+            <Timer size={12} className="mt-px shrink-0" aria-hidden="true" />
+            expirou — responda no terminal
+          </p>
+        )}
+        {status === 'dispensado' && (
+          <p className="flex items-start gap-1.5 text-[10.5px] leading-snug text-ink-secondary">
+            <TerminalNote />
+            Pedido dispensado — responda no terminal do OpenCode.
+          </p>
+        )}
+      </div>
+
+      {confirmAlways && canAct && request.save.length > 0 && (
+        <div className="mt-2 rounded-control border border-warn-border bg-surface-1 px-2 py-1.5">
+          <p className="text-[10.5px] leading-snug text-ink-secondary">
+            Isso grava a regra <code className="font-mono text-ink-primary">{rules[0]}</code>
+            {extraRules > 0 ? ` (+${extraRules})` : ''} no projeto.
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              variant="primary"
+              data-testid="office-request-approve-always-confirm"
+              onClick={handleApproveAlways}
+            >
+              Confirmar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmAlways(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {denyOpen && canAct && (
+        <div className="mt-2">
+          <label
+            htmlFor={`office-deny-${request.id}`}
+            className="block text-[10px] uppercase tracking-[0.08em] text-ink-tertiary"
+          >
+            Motivo da negação (opcional)
+          </label>
+          <textarea
+            id={`office-deny-${request.id}`}
+            value={denyReason}
+            onChange={(event) => setDenyReason(event.target.value.slice(0, DENY_REASON_MAX))}
+            rows={2}
+            maxLength={DENY_REASON_MAX}
+            placeholder="Explique ao agente por que não pode…"
+            className="mt-1 w-full rounded-control border border-[var(--border-subtle)] bg-surface-sunken px-2 py-1.5 font-mono text-[11px] text-ink-primary placeholder:text-ink-tertiary focus-visible:border-accent focus-visible:outline-none"
+          />
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <span className="tnum text-[9.5px] text-ink-tertiary">
+              {denyReason.length}/{DENY_REASON_MAX}
+            </span>
+            <Button
+              size="sm"
+              variant="danger"
+              data-testid="office-request-deny-confirm"
+              onClick={handleDeny}
+            >
+              Negar pedido
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Button
+          size="sm"
+          variant="primary"
+          data-testid="office-request-approve"
+          disabled={!canAct}
+          onClick={() => onApprove(request, 'once')}
+        >
+          <Check size={12} aria-hidden="true" />
+          Aprovar
+        </Button>
+
+        {request.save.length > 0 && (
+          <Button
+            size="sm"
+            variant="secondary"
+            data-testid="office-request-approve-always"
+            disabled={!canAct}
+            onClick={handleApproveAlways}
+          >
+            Aprovar sempre
+          </Button>
+        )}
+
+        <Button
+          size="sm"
+          variant="subtle-danger"
+          data-testid="office-request-deny"
+          disabled={!canAct}
+          onClick={handleDeny}
+        >
+          <X size={12} aria-hidden="true" />
+          Negar
+        </Button>
+
+        {status !== 'ok' && status !== 'dispensado' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            data-testid="office-request-dismiss"
+            onClick={() => onDismiss(request)}
+          >
+            Responder no OpenCode
+          </Button>
+        )}
+      </div>
+
+      {status === 'expirado' && (
+        <div className="mt-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onDismiss(request)}
+            data-testid="office-request-dismiss"
+          >
+            Dispensar
+          </Button>
+        </div>
+      )}
+
+      {!pluginConnected && (
+        <p className="mt-2 text-[10px] leading-snug text-ink-tertiary">
+          Instale o plugin em Configurações → OpenOffice para responder por aqui.
+        </p>
+      )}
+      {pluginConnected && !actionsEnabled && (
+        <p className="mt-2 text-[10px] leading-snug text-ink-tertiary">
+          Ações em somente leitura — ligue a chave no topo para responder.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Ícone textual usado no aviso "responda no terminal" (sem emoji). */
+function TerminalNote(): JSX.Element {
+  return <Info size={12} className="mt-px shrink-0" aria-hidden="true" />
+}
+
+export function OfficeDetails({
+  agent,
+  room,
+  now,
+  requests = [],
+  actionsEnabled = false,
+  pluginConnected = false,
+  onRoleSaved,
+  rooms = [],
+  look = null,
+  onEditAppearance,
+  onRoomChange
+}: OfficeDetailsProps): JSX.Element {
+  const [requestStates, setRequestStates] = useState<Record<string, RequestUiState>>({})
+  /** Cada envio/parada força a releitura da conversa. */
+  const [transcriptKey, setTranscriptKey] = useState(0)
+
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const firstCardRef = useRef<HTMLDivElement | null>(null)
+  const seenRequests = useRef(new Set<string>())
+
+  const clearExpiry = useCallback((requestID: string) => {
+    const timer = timers.current.get(requestID)
+    if (timer) {
+      clearTimeout(timer)
+      timers.current.delete(requestID)
+    }
+  }, [])
+
+  const startExpiry = useCallback(
+    (requestID: string) => {
+      clearExpiry(requestID)
+      const timer = setTimeout(() => {
+        timers.current.delete(requestID)
+        setRequestStates((current) => {
+          const entry = current[requestID]
+          if (!entry || entry.status !== 'enviando') return current
+          return { ...current, [requestID]: { ...entry, status: 'expirado' } }
+        })
+      }, REQUEST_EXPIRY_MS)
+      timers.current.set(requestID, timer)
+    },
+    [clearExpiry]
+  )
+
+  // Resultado vindo do main (`office:action-result`): casa pelo id da fila.
+  useEffect(() => {
+    const active = timers.current
+    const cleanup = window.api.onOfficeActionResult((result) => {
+      setRequestStates((current) => {
+        let changed = false
+        const next = { ...current }
+        for (const [requestID, entry] of Object.entries(current)) {
+          if (entry.actionID !== result.id) continue
+          clearExpiry(requestID)
+          next[requestID] = {
+            ...entry,
+            status: result.ok ? 'ok' : 'erro',
+            ...(result.ok ? {} : { error: result.error ?? 'A ação falhou no OpenCode.' })
+          }
+          changed = true
+        }
+        return changed ? next : current
+      })
+    })
+
+    return () => {
+      cleanup()
+      for (const timer of active.values()) clearTimeout(timer)
+      active.clear()
+    }
+  }, [clearExpiry])
+
+  // Novo pedido: leva o foco ao card mais recente (o `aria-live` abaixo anuncia).
+  useEffect(() => {
+    const newest = requests[0]
+    if (!newest || seenRequests.current.has(newest.id)) return
+    seenRequests.current.add(newest.id)
+    firstCardRef.current?.focus()
+  }, [requests])
+
+  function submitPermission(
+    request: OfficePermissionRequest,
+    decision: 'once' | 'always' | 'reject',
+    reason?: string
+  ): void {
+    setRequestStates((current) => ({
+      ...current,
+      [request.id]: { status: 'enviando', decision }
+    }))
+    startExpiry(request.id)
+
+    const call =
+      decision === 'reject'
+        ? window.api.officeDenyPermission({
+            sessionID: request.sessionID,
+            requestID: request.id,
+            ...(reason ? { message: reason } : {})
+          })
+        : window.api.officeApprovePermission({
+            sessionID: request.sessionID,
+            requestID: request.id,
+            decision,
+            ...(reason ? { message: reason } : {})
+          })
+
+    void call
+      .then((result) => {
+        if (!result.ok) {
+          clearExpiry(request.id)
+          setRequestStates((current) => ({
+            ...current,
+            [request.id]: {
+              status: 'erro',
+              decision,
+              error: refusalLabel(result.reason)
+            }
+          }))
+          return
+        }
+        setRequestStates((current) => {
+          const entry = current[request.id]
+          if (!entry || entry.status !== 'enviando') return current
+          return { ...current, [request.id]: { ...entry, actionID: result.id } }
+        })
+      })
+      .catch(() => {
+        clearExpiry(request.id)
+        setRequestStates((current) => ({
+          ...current,
+          [request.id]: {
+            status: 'erro',
+            decision,
+            error: 'Não consegui falar com o processo principal.'
+          }
+        }))
+      })
+  }
+
+  function dismissRequest(request: OfficePermissionRequest): void {
+    clearExpiry(request.id)
+    setRequestStates((current) => ({
+      ...current,
+      [request.id]: { status: 'dispensado' }
+    }))
+  }
+
+  if (!agent) {
+    return (
+      <section
+        aria-label="Detalhes do agente"
+        className="rounded-card border border-[var(--border-subtle)] bg-surface-1"
+        data-testid="office-details"
+      >
+        <header className="border-b border-[var(--border-subtle)] bg-surface-2 px-3 py-2">
+          <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-tertiary">
+            Detalhes
+          </h3>
+        </header>
+        <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+          <MousePointerClick size={20} className="text-ink-tertiary" aria-hidden="true" />
+          <p className="text-[12px] text-ink-secondary">
+            Selecione um personagem no escritório ou na lista de salas.
+          </p>
+          <p className="text-[10.5px] text-ink-tertiary">
+            Os detalhes mostram sessão, modelo, atividade, custo e tokens.
+          </p>
+        </div>
+      </section>
+    )
+  }
+
+  const status = STATUS_META[agent.status]
+  const activity = ACTIVITY_META[agent.activity?.kind ?? 'other']
+  // Sem relógio no render: usa o snapshot (ou o último contato) como referência.
+  const reference = now ?? agent.lastSeenAt
+  const announcement = requests[0]
+    ? `${requests.length} ${requests.length === 1 ? 'pedido' : 'pedidos'} aguardando você: ${permissionActionLabel(requests[0].action)}.`
+    : ''
+
+  return (
+    <section
+      aria-label={`Detalhes de ${agent.name}`}
+      className="overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-1"
+      data-testid="office-details"
+    >
+      <header className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-surface-2 px-3 py-2">
+        <h3 className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-tertiary">
+          Detalhes
+        </h3>
+        <span className={`flex items-center gap-1.5 text-[10px] font-medium ${status.text}`}>
+          <span aria-hidden="true" className={`h-2 w-2 rounded-pill ${status.dot}`} />
+          {status.label}
+        </span>
+        {agent.rolePending && (
+          <Badge tone="warning" data-testid="office-details-pending">
+            pendente: {agent.rolePending}
+          </Badge>
+        )}
+      </header>
+
+      <div className="space-y-3 p-3">
+        <p className="sr-only" role="status" aria-live="polite">
+          {announcement}
+        </p>
+
+        <div className="min-w-0">
+          <h4 className="truncate text-[15px] font-semibold text-ink-primary">{agent.name}</h4>
+          <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-ink-secondary">
+            {agent.title}
+          </p>
+          {agent.parentID && (
+            <p className="mt-1 truncate text-[10px] text-ink-tertiary" title={agent.parentID}>
+              Subagente de {agent.parentID}
+            </p>
+          )}
+        </div>
+
+        {requests.length > 0 && (
+          <section aria-label="Precisa de você" className="space-y-2">
+            <div className="flex items-center gap-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-tertiary">
+                Precisa de você
+              </h4>
+              <Badge tone="warning">{requests.length}</Badge>
+            </div>
+            {requests.map((request, index) => (
+              <PermissionCard
+                key={request.id}
+                request={request}
+                state={requestStates[request.id]}
+                actionsEnabled={actionsEnabled}
+                pluginConnected={pluginConnected}
+                cardRef={index === 0 ? firstCardRef : undefined}
+                onApprove={(target, decision) => submitPermission(target, decision)}
+                onDeny={(target, reason) => submitPermission(target, 'reject', reason)}
+                onDismiss={dismissRequest}
+              />
+            ))}
+          </section>
+        )}
+
+        <div className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`rounded-sm px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] ${activity.className}`}
+            >
+              {activity.label}
+            </span>
+            {agent.activity && (
+              <span className="tnum text-[10px] text-ink-tertiary">
+                {formatClock(agent.activity.at)}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 line-clamp-2 text-[11.5px] leading-snug text-ink-secondary">
+            {activityLabel(agent)}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+          <Field icon={Bot} label="Agente">
+            <span className="block truncate">{agent.agent}</span>
+          </Field>
+          <Field icon={FolderOpen} label="Sala">
+            <span className="block truncate" title={room?.id ?? agent.roomID}>
+              {room?.name ?? 'Sem sala'}
+            </span>
+          </Field>
+          {agent.directory && (
+            <Field icon={FolderOpen} label="Pasta">
+              <span className="block truncate text-[11px]" title={agent.directory}>
+                {agent.directory}
+              </span>
+            </Field>
+          )}
+          <Field icon={Cpu} label="Modelo">
+            <span className="block truncate" title={`${agent.model.providerID}/${agent.model.id}`}>
+              {agent.model.id}
+            </span>
+            <span className="block truncate text-[10px] text-ink-tertiary">
+              {agent.model.providerID}
+            </span>
+          </Field>
+          <Field icon={Clock3} label="Desde o início">
+            <span className="tnum block">{formatDuration(reference - agent.startedAt)}</span>
+            <span className="tnum block text-[10px] text-ink-tertiary">
+              {formatClock(agent.startedAt)}
+            </span>
+          </Field>
+          <Field icon={Coins} label="Custo">
+            <span className="tnum block">{formatCost(agent.cost)}</span>
+          </Field>
+          <Field icon={Hash} label="Tokens">
+            <span className="tnum block">{formatTokens(agent.tokens.total)}</span>
+            <span className="tnum block text-[10px] text-ink-tertiary">
+              {formatTokens(agent.tokens.input)} in · {formatTokens(agent.tokens.output)} out
+            </span>
+          </Field>
+        </div>
+
+        <section
+          aria-label="Aparência"
+          data-testid="office-appearance"
+          className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
+              <Palette size={11} aria-hidden="true" />
+              Aparência
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onEditAppearance}
+              disabled={!onEditAppearance}
+              data-testid="office-appearance-edit"
+            >
+              Editar aparência
+            </Button>
+          </div>
+          {look && (
+            <div className="mt-1.5 flex items-center gap-1.5" aria-hidden="true">
+              {[
+                HAIR_COLORS[look.hairColor]?.c,
+                SKIN_TONES[look.skin]?.c,
+                SHIRT_COLORS[look.shirt]?.c,
+                PANTS_COLORS[look.pants]?.c
+              ].map((color, index) =>
+                color ? (
+                  <span
+                    key={`${color}-${index}`}
+                    className="h-3.5 w-3.5 rounded-sm border border-[var(--border-strong)]"
+                    style={{ backgroundColor: color }}
+                  />
+                ) : null
+              )}
+              <span className="ml-1 text-[10.5px] text-ink-tertiary">
+                {HAIR_COLORS[look.hairColor]?.name ?? '—'} · {SKIN_TONES[look.skin]?.name ?? '—'} ·{' '}
+                {SHIRT_COLORS[look.shirt]?.name ?? '—'}
+              </span>
+            </div>
+          )}
+        </section>
+
+        {onRoomChange && (
+          <section aria-label="Sala do funcionário" data-testid="office-room-select">
+            <label
+              htmlFor="office-assign-room"
+              className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+            >
+              Sala
+            </label>
+            <Select
+              id="office-assign-room"
+              data-testid="office-room-select-input"
+              className="mt-1 !py-1.5 text-[12px]"
+              value={room && !room.unassigned ? room.id : ''}
+              onChange={(event) => onRoomChange(event.target.value || null)}
+            >
+              <option value="">Fora das salas (sai do escritório)</option>
+              {rooms.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                  {option.agent ? ` — ${option.agent}` : ''}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[10px] leading-snug text-ink-tertiary">
+              Designar não aplica a função sozinho; use o painel da sala para aplicar.
+            </p>
+          </section>
+        )}
+
+        <RoleCard agent={agent} room={room} onSaved={onRoleSaved ?? (() => {})} />
+
+        <section
+          aria-label="Operar funcionário"
+          data-testid="office-message-box"
+          className="space-y-3 rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+        >
+          <PromptComposer
+            agent={agent}
+            compact
+            onActivity={() => {
+              setTranscriptKey((current) => current + 1)
+              onRoleSaved?.()
+            }}
+          />
+          <div className="border-t border-[var(--border-subtle)] pt-2.5">
+            <OfficeTranscript sessionID={agent.sessionID} refreshKey={transcriptKey} compact />
+          </div>
+        </section>
+
+        {!pluginConnected && (
+          <p
+            data-testid="office-actions-unavailable"
+            className="flex items-start gap-1.5 rounded-control border border-[var(--border-subtle)] px-2.5 py-2 text-[10.5px] leading-snug text-ink-tertiary"
+          >
+            <Info size={12} className="mt-px shrink-0" aria-hidden="true" />
+            Prompt, modelo, esforço e Parar funcionam sem o plugin. Instale o plugin em
+            Configurações → OpenOffice apenas para responder pedidos de permissão.
+          </p>
+        )}
+
+        {pluginConnected && !actionsEnabled && !requests.length && (
+          <p className="text-[10.5px] leading-snug text-ink-tertiary">
+            Ações em somente leitura — ligue a chave no topo para responder pedidos de permissão.
+          </p>
+        )}
+      </div>
+    </section>
+  )
+}

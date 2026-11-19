@@ -57,13 +57,32 @@ export function startCrashReporting(): void {
 }
 
 /**
- * Exceção não capturada no processo main: loga [CRASH] com o stack completo e
- * ENCERRA o processo com código 1 — o Hub nunca continua rodando em estado
- * indeterminado. (appendFileSync do logger é síncrono, o rastro vai a disco
- * antes da saída.)
+ * Hook registrável de limpeza dos processos filhos. Fica aqui (e não importando
+ * o processManager) porque este módulo é o PRIMEIRO import do index.ts: evitar
+ * dependência pesada/ciclo mantém o crashReporter iniciando antes de tudo.
+ */
+let childProcessCleanup: (() => void) | null = null
+
+/** Registra a limpeza síncrona dos filhos (index.ts injeta processManager.killAllSync). */
+export function registerChildProcessCleanup(fn: () => void): void {
+  childProcessCleanup = fn
+}
+
+/**
+ * Exceção não capturada no processo main: loga [CRASH] com o stack completo,
+ * mata os processos filhos (senão eles ficam órfãos e o relançamento cria uma
+ * segunda instância fora do rastreamento do Hub) e ENCERRA com código 1 — o Hub
+ * nunca continua rodando em estado indeterminado. (appendFileSync do logger é
+ * síncrono, o rastro vai a disco antes da saída.)
  */
 export function handleUncaughtException(err: unknown): void {
   logger.error('crash', '[CRASH] Exceção não capturada — encerrando o processo com código 1', err)
+  try {
+    // Falha na limpeza não pode impedir a saída: só registra e segue para exit(1).
+    childProcessCleanup?.()
+  } catch (cleanupErr) {
+    logger.error('crash', 'Falha ao matar processos filhos antes da saída', cleanupErr)
+  }
   app.exit(1)
 }
 

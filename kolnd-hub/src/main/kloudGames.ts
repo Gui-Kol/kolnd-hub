@@ -677,3 +677,122 @@ export async function ensureKloudGamesInstalled(): Promise<KloudGamesEnsureResul
     error
   }
 }
+
+/** Saída de uma ação elevada (abrir/parar) sobre o Kloud Games. */
+export interface ElevatedKloudGamesOutcome {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Monta um literal de string do PowerShell. Aspas simples são escapadas por
+ * duplicação — é o único escape que um literal `'...'` aceita, e ele evita que
+ * um caminho com `$`/crases seja interpolado pelo PowerShell.
+ */
+export function psStringLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+/**
+ * Roda um comando do PowerShell que dispara a elevação (UAC) e espera o shell
+ * terminar. O processo elevado NÃO vira filho do Hub — por isso o estado do
+ * Kloud Games é acompanhado por `tasklist` (ver `isKloudGamesRunning`).
+ */
+function runElevatedPowerShell(command: string): Promise<ElevatedKloudGamesOutcome> {
+  return new Promise((resolve) => {
+    let output = ''
+
+    const child = spawn('powershell.exe', ['-NoProfile', '-Command', command], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      output += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      output += chunk.toString()
+    })
+
+    child.on('error', (err) => {
+      resolve({
+        success: false,
+        error: `Não foi possível chamar o PowerShell para elevar o Kloud Games: ${err.message}`
+      })
+    })
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ success: true })
+        return
+      }
+
+      if (code === 1223 || looksLikeUacDenied(output)) {
+        resolve({
+          success: false,
+          error:
+            'Permissão negada (UAC). O Kloud Games precisa ser aberto como administrador — aceite o pedido do Windows e tente de novo.'
+        })
+        return
+      }
+
+      const detail = output.trim()
+      resolve({
+        success: false,
+        error: `A elevação do Kloud Games falhou (código ${code ?? 'desconhecido'}).${
+          detail ? ` Detalhes: ${detail}` : ''
+        }`
+      })
+    })
+  })
+}
+
+/**
+ * Abre o KLOUD_GAMES **sempre elevado** (UAC), para qualquer conta do Windows.
+ *
+ * Motivo: o MSI instala em `C:\Program Files\KLOUD_GAMES` e o app guarda todo o
+ * estado em `config\` lá dentro (log, `apps.json`, certificados em
+ * `config\credentials`). O `migrate-config.bat` protege `credentials` de modo
+ * que usuários comuns não conseguem nem ler os `.pem`; sem elevação o app morre
+ * em `use_certificate_chain_file: Acesso negado` ao subir o HTTPS. Elevar em
+ * toda abertura mantém o comportamento idêntico para usuários novos.
+ */
+export function launchKloudGamesElevated(exePath: string): Promise<ElevatedKloudGamesOutcome> {
+  const exe = exePath.trim()
+  if (!exe) {
+    return Promise.resolve({ success: false, error: 'Caminho do Kloud Games vazio.' })
+  }
+
+  // `-ErrorAction Stop` faz o cancelamento do UAC virar exceção; o catch sai
+  // com 1223 (ERROR_CANCELLED) para o Hub reconhecer o cancelamento.
+  const command =
+    `try { Start-Process -FilePath ${psStringLiteral(exe)} ` +
+    `-WorkingDirectory ${psStringLiteral(dirname(exe))} -Verb RunAs -ErrorAction Stop } ` +
+    `catch { Write-Error $_.Exception.Message; exit 1223 }`
+
+  return runElevatedPowerShell(command)
+}
+
+/**
+ * Encerra o KLOUD_GAMES elevado. O Hub não é elevado e não pode matar um
+ * processo de alta integridade; o `taskkill` roda via UAC. Só é chamado quando
+ * `processManager.stop()` não conseguiu (processo não rastreado pelo Hub).
+ */
+export async function stopKloudGamesElevated(): Promise<ElevatedKloudGamesOutcome> {
+  if (!(await isKloudGamesRunning())) {
+    return { success: false, error: 'Processo não está em execução' }
+  }
+
+  // taskkill /F /T derruba também os filhos (encoders, mDNS, tray).
+  const command =
+    `try { $p = Start-Process -FilePath 'taskkill.exe' ` +
+    `-ArgumentList '/F','/T','/IM',${psStringLiteral(RUNNING_PROCESS_NAME)} ` +
+    `-Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode } ` +
+    `catch { Write-Error $_.Exception.Message; exit 1223 }`
+
+  const outcome = await runElevatedPowerShell(command)
+  if (outcome.success) {
+    invalidateKloudGamesRunningCache()
+  }
+  return outcome
+}
