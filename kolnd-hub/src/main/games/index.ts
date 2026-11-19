@@ -2,8 +2,16 @@ import { ipcMain } from 'electron'
 import { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
 import type { Game, AddCustomGameResult } from './store'
 import type { GameResult } from './naming'
-import { pickGameIcon, setGameIcon, previewExeIcon, restoreExeIcon, getGameIcon } from './icons'
+import {
+  pickGameIcon,
+  setGameIcon,
+  previewExeIcon,
+  restoreExeIcon,
+  getGameIcon,
+  reloadGameIcons
+} from './icons'
 import type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+import type { ReloadIconsResult } from './iconReload'
 import { launchGame, stopGame, runningGamesMap } from './launch'
 import type { LaunchGameResult } from './launch'
 
@@ -34,10 +42,12 @@ export {
   previewExeIcon,
   restoreExeIcon,
   getGameIcon,
+  reloadGameIcons,
   repairGameIconsIfNeeded,
   GAME_ICON_PIPELINE_VERSION
 } from './icons'
 export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+export type { ReloadIconsResult } from './iconReload'
 export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './launch'
 export type { LaunchGameResult, GameProcess } from './launch'
 export { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
@@ -87,4 +97,7 @@ export function registerGamesIpc(): void {
   ipcMain.handle('games:running-map', (_event, ids: unknown) => runningGamesMap(ids))
 
   ipcMain.handle('games:get-icon', (_event, id: unknown): string | null => getGameIcon(id))
+
+  // Sem argumentos: o main resolve a lista e re-extrai só os ícones ilegíveis.
+  ipcMain.handle('games:reload-icons', (): Promise<ReloadIconsResult> => reloadGameIcons())
 }

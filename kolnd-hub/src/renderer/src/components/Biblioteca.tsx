@@ -61,9 +61,29 @@ export function Biblioteca(): JSX.Element {
     }
   }, [])
 
+  // Best-effort, uma vez por montagem: antes de listar, o main re-extrai só
+  // os ícones ilegíveis. A ref sobrevive ao duplo-mount do StrictMode (mas é
+  // recriada ao entrar de novo na aba), evitando duas varreduras seguidas.
+  const iconReloadDone = useRef(false)
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadGames()
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      if (!iconReloadDone.current) {
+        iconReloadDone.current = true
+        try {
+          await window.api.reloadGameIcons()
+        } catch {
+          // Recarregar ícones é opcional — a lista deve abrir de qualquer jeito.
+        }
+      }
+      if (cancelled) return
+      await loadGames()
+    }
+    void run()
+    return (): void => {
+      cancelled = true
+    }
   }, [loadGames])
 
   // T9 — verifica quais executáveis da biblioteca existem no disco e marca

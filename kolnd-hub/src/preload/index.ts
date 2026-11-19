@@ -642,6 +642,9 @@ const api = {
   checkGameExes: (exePaths: string[]): Promise<boolean[]> =>
     ipcRenderer.invoke('games:check-exes', exePaths),
 
+  reloadGameIcons: (): Promise<{ checked: number; reloaded: number; failed: number }> =>
+    ipcRenderer.invoke('games:reload-icons'),
+
   launchGame: (
     id: string
   ): Promise<{

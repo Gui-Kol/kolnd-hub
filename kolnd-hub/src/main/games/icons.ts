@@ -17,6 +17,8 @@ import { logger } from '../logger'
 import { lookupIconDataUrl, storeIconDataUrl, invalidateIconCache } from '../iconCache'
 import { readExeIconIco } from './exeIcon'
 import { findGameExecutable, steamGameRootFromExe } from './exeFinder'
+import { reloadMissingGameIcons } from './iconReload'
+import type { ReloadIconsResult } from './iconReload'
 
 /**
  * Ícones da biblioteca de jogos: extração de executáveis, cache em disco em
@@ -555,5 +557,33 @@ export async function repairGameIconsIfNeeded(): Promise<number> {
   } catch (err) {
     logger.warn('games', 'Falha ao reparar ícones cacheados:', err)
     return 0
+  }
+}
+
+/**
+ * Re-extrai do executável os ícones que não estão legíveis — chamado ao abrir
+ * a Biblioteca para garantir que os cards fiquem preenchidos. Só toca em
+ * ícones ausentes/corrompidos: um ícone válido (inclusive o escolhido à mão
+ * pelo usuário) nunca é sobrescrito. Best-effort: qualquer falha vira aviso
+ * no log e contagem, nunca impede a lista de carregar.
+ */
+export async function reloadGameIcons(): Promise<ReloadIconsResult> {
+  try {
+    const result = await reloadMissingGameIcons({
+      games: getStoredGames,
+      iconOf: (game) => getGameIcon(game.id),
+      // Mesmo destino de `setGameIcon`/`restoreExeIcon`: o primeiro candidato
+      // já respeita o `iconPath` quando ele está dentro de `game-icons/`.
+      targetOf: (game) => iconCandidates(game)[0],
+      exeOf: resolveIconSourceExe,
+      extract: extractIconPng
+    })
+    if (result.reloaded > 0) {
+      logger.info('games', `Ícones recarregados: ${result.reloaded} de ${result.checked}`)
+    }
+    return result
+  } catch (err) {
+    logger.warn('games', 'Falha ao recarregar os ícones dos jogos:', err)
+    return { checked: 0, reloaded: 0, failed: 0 }
   }
 }
