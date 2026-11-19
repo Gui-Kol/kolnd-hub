@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
+import { Building2, Loader2, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react'
 import type {
   OfficeActivity,
   OfficeAgent,
@@ -310,6 +310,28 @@ export function OfficeView(): JSX.Element {
 
   return (
     <div className="mx-auto max-w-[1520px] space-y-4" data-testid="openoffice-page">
+      {/* Aviso permanente (por isso sem botão de fechar): o OpenOffice ainda está
+          incompleto e vai evoluir; o usuário precisa saber antes de confiar na tela. */}
+      <div
+        role="status"
+        aria-label="Aviso: o OpenOffice ainda está incompleto e receberá melhorias em updates futuros"
+        data-testid="openoffice-notice"
+        className="flex flex-wrap items-start gap-3 rounded-card border border-warn-border bg-warn-bg px-4 py-3"
+      >
+        <Sparkles size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-warn" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[13px] font-semibold text-ink-primary">
+              Melhorias em updates futuros
+            </p>
+            <Badge tone="warning">ainda incompleto</Badge>
+          </div>
+          <p className="text-[12px] leading-5 text-ink-secondary">
+            O OpenOffice ainda está incompleto e vai ganhar melhorias nas próximas atualizações.
+          </p>
+        </div>
+      </div>
+
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
