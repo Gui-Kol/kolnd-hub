@@ -14,6 +14,7 @@ import {
   type OfficePermissionRequest,
   type OfficeSessionInput
 } from './office'
+import { defaultLookFor } from './officeAvatar'
 
 const NOW = 1_800_000_000_000
 
@@ -153,40 +154,118 @@ describe('deriveOfficeSnapshot — status', () => {
 })
 
 describe('deriveOfficeSnapshot — salas e subagentes', () => {
-  it('agrupa o mesmo diretório com caixa e separadores mistos numa sala só', () => {
+  it('cada departamento vira uma sala com a função e os membros designados', () => {
     const snapshot = deriveOfficeSnapshot({
       now: NOW,
+      departments: [
+        {
+          id: 'dep_0000beef',
+          name: 'Gerentes',
+          agentID: 'general',
+          sessionIDs: ['ses_1', 'ses_2'],
+          createdAt: NOW - 10_000
+        },
+        {
+          id: 'dep_0000cafe',
+          name: 'Build',
+          agentID: 'build',
+          sessionIDs: ['ses_3'],
+          createdAt: NOW - 5_000
+        }
+      ],
       sessions: [
         session({
           id: 'ses_1',
+          agent: 'general',
           location: { directory: 'C:\\Users\\TiffoDi\\desenv\\Kolnd Hub' }
         }),
         session({
           id: 'ses_2',
+          agent: 'general',
           location: { directory: 'c:/Users/TiffoDi/desenv/Kolnd Hub/' }
         }),
         session({
           id: 'ses_3',
+          agent: 'general',
           location: { directory: 'C:\\Users\\TiffoDi\\desenv\\outro-projeto' }
         })
       ]
     })
-    expect(snapshot.rooms).toHaveLength(2)
-    const kolnd = snapshot.rooms.find((room) => room.id === 'c:/users/tiffodi/desenv/kolnd hub')
-    expect(kolnd?.name).toBe('Kolnd Hub')
-    // O caminho original (primeira sessão da sala) é o que contrata de verdade.
-    expect(kolnd?.path).toBe('C:\\Users\\TiffoDi\\desenv\\Kolnd Hub')
-    expect(kolnd?.agentIDs).toEqual(['ses_1', 'ses_2'])
+
+    expect(snapshot.rooms.map((room) => room.name)).toEqual(['Build', 'Gerentes'])
+    const gerentes = snapshot.rooms.find((room) => room.id === 'dep_0000beef')
+    expect(gerentes?.agent).toBe('general')
+    expect(gerentes?.agentIDs).toEqual(['ses_1', 'ses_2'])
+    // Todos os membros vêm da MESMA pasta (caixa/separadores diferentes): é a etiqueta.
+    expect(gerentes?.path).toBe('C:\\Users\\TiffoDi\\desenv\\Kolnd Hub')
+    expect(gerentes?.unassigned).toBeUndefined()
+
+    // A função da sala ainda não chegou na sessão 3 (agente real `general`).
+    const build = snapshot.agents.find((agent) => agent.sessionID === 'ses_3')
+    expect(build?.rolePending).toBe('build')
+    const member = snapshot.agents.find((agent) => agent.sessionID === 'ses_2')
+    expect(member?.rolePending).toBeUndefined()
+    expect(member?.roomID).toBe('dep_0000beef')
   })
 
-  it('sessão sem diretório cai na sala "Sem projeto"', () => {
+  it('sessão sem departamento cai na sala sintética "Sem sala" (sempre no fim)', () => {
     const snapshot = deriveOfficeSnapshot({
       now: NOW,
-      sessions: [session({ id: 'ses_sem', location: null })]
+      departments: [
+        {
+          id: 'dep_0000face',
+          name: 'Build',
+          agentID: 'build',
+          sessionIDs: ['ses_dentro'],
+          createdAt: NOW
+        }
+      ],
+      sessions: [
+        session({ id: 'ses_dentro', location: { directory: 'C:\\proj' } }),
+        session({ id: 'ses_fora', location: { directory: 'C:\\outro' } }),
+        session({ id: 'ses_sem_pasta', location: null })
+      ]
     })
-    expect(snapshot.rooms).toEqual([
-      { id: 'sem-projeto', name: 'Sem projeto', path: '', agentIDs: ['ses_sem'] }
+
+    expect(snapshot.rooms.map((room) => room.id)).toEqual(['dep_0000face', 'sem-sala'])
+    const unassigned = snapshot.rooms.at(-1)
+    expect(unassigned?.name).toBe('Sem sala')
+    expect(unassigned?.unassigned).toBe(true)
+    expect(unassigned?.agentIDs).toEqual(['ses_fora', 'ses_sem_pasta'])
+    // Só quem tem pasta entra na etiqueta; com uma pasta única ela vira o path.
+    expect(unassigned?.path).toBe('C:\\outro')
+    expect(snapshot.agents.find((agent) => agent.sessionID === 'ses_fora')?.roomID).toBe('sem-sala')
+  })
+
+  it('departamento vazio continua visível e sessão designada a id inexistente cai em "Sem sala"', () => {
+    const snapshot = deriveOfficeSnapshot({
+      now: NOW,
+      departments: [
+        {
+          id: 'dep_0000dead',
+          name: 'Vazia',
+          agentID: 'plan',
+          sessionIDs: [],
+          createdAt: NOW
+        },
+        {
+          id: 'dep_0000f00d',
+          name: 'Outra',
+          agentID: 'build',
+          sessionIDs: ['ses_nao_existe'],
+          createdAt: NOW + 1
+        }
+      ],
+      sessions: [session({ id: 'ses_1' })]
+    })
+
+    expect(snapshot.rooms.map((room) => room.id)).toEqual([
+      'dep_0000f00d',
+      'dep_0000dead',
+      'sem-sala'
     ])
+    expect(snapshot.rooms[0].agentIDs).toEqual([])
+    expect(snapshot.agents[0].roomID).toBe('sem-sala')
   })
 
   it('parentID marca subagente e conta em totals.subagents', () => {
@@ -229,6 +308,7 @@ describe('deriveOfficeSnapshot — salas e subagentes', () => {
     expect(snapshot.source).toBe('poller')
     expect(snapshot.agents).toEqual([])
     expect(snapshot.rooms).toEqual([])
+    expect(snapshot.avatars).toEqual({})
     expect(snapshot.feed).toEqual([])
     expect(snapshot.totals).toEqual({
       working: 0,
@@ -443,6 +523,71 @@ describe('deriveOfficeSnapshot — pedidos de permissão', () => {
     })
     expect(explicitlyEmpty.requests).toEqual([])
     expect(explicitlyEmpty.agents[0].status).toBe('working')
+  })
+})
+
+describe('deriveOfficeSnapshot — aparência', () => {
+  it('sessão sem look salvo recebe o padrão determinístico da seed', () => {
+    const sessions = [session({ id: 'ses_look_a' }), session({ id: 'ses_look_b' })]
+    const first = deriveOfficeSnapshot({ now: NOW, sessions })
+    const second = deriveOfficeSnapshot({ now: NOW + 1000, sessions })
+
+    expect(first.avatars).toEqual(second.avatars)
+    expect(Object.keys(first.avatars)).toEqual(['ses_look_a', 'ses_look_b'])
+    const agent = first.agents.find((entry) => entry.sessionID === 'ses_look_a')
+    expect(first.avatars.ses_look_a).toEqual(defaultLookFor(agent?.seed ?? 0))
+  })
+
+  it('look persistido vence o padrão e um look inválido cai no padrão', () => {
+    const saved = {
+      sex: 'masculino' as const,
+      hairStyle: 0,
+      hairColor: 3,
+      skin: 6,
+      shirt: 9,
+      pants: 7
+    }
+    const snapshot = deriveOfficeSnapshot({
+      now: NOW,
+      sessions: [session({ id: 'ses_salvo' }), session({ id: 'ses_invalido' })],
+      avatars: {
+        ses_salvo: saved,
+        ses_invalido: { ...saved, hairStyle: 99 } as never
+      }
+    })
+
+    expect(snapshot.avatars.ses_salvo).toEqual(saved)
+    const invalid = snapshot.agents.find((agent) => agent.sessionID === 'ses_invalido')
+    expect(snapshot.avatars.ses_invalido).toEqual(defaultLookFor(invalid?.seed ?? 0))
+  })
+
+  it('departamentos duplicados ou inválidos não quebram a derivação', () => {
+    const snapshot = deriveOfficeSnapshot({
+      now: NOW,
+      departments: [
+        {
+          id: 'dep_0000aaaa',
+          name: 'Build',
+          agentID: 'build',
+          sessionIDs: ['ses_1', 'ses_1', '  '],
+          createdAt: NOW
+        },
+        // Mesmo id: a segunda cópia é ignorada (primeira vence).
+        {
+          id: 'dep_0000aaaa',
+          name: 'Outra',
+          agentID: 'plan',
+          sessionIDs: ['ses_1'],
+          createdAt: NOW + 1
+        },
+        { id: '', name: '', agentID: '', sessionIDs: [], createdAt: 0 } as never
+      ],
+      sessions: [session({ id: 'ses_1' })]
+    })
+
+    expect(snapshot.rooms).toHaveLength(1)
+    expect(snapshot.rooms[0].name).toBe('Build')
+    expect(snapshot.rooms[0].agentIDs).toEqual(['ses_1'])
   })
 })
 

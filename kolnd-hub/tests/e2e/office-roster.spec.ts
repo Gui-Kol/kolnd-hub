@@ -90,6 +90,44 @@ function baseEnv(ctx: E2eContext): NodeJS.ProcessEnv {
   }
 }
 
+interface DepartmentFile {
+  id: string
+  name: string
+  agentID: string
+  sessionIDs: string[]
+  createdAt: number
+}
+
+/** Semeia as salas-departamento no config.json isolado antes de abrir o app. */
+function seedDepartments(ctx: E2eContext, departments: DepartmentFile[]): void {
+  const file = join(ctx.userDataDir, 'config.json')
+  let current: Record<string, unknown>
+  try {
+    current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    current = {}
+  }
+  current.officeDepartments = departments
+  writeFileSync(file, JSON.stringify(current, null, 2), 'utf8')
+}
+
+const DEPARTMENTS: DepartmentFile[] = [
+  {
+    id: 'dep_0003a001',
+    name: 'kolnd-hub',
+    agentID: 'general',
+    sessionIDs: ['ses_e2e_office_main', 'ses_e2e_office_sub'],
+    createdAt: 1
+  },
+  {
+    id: 'dep_0003a002',
+    name: 'api-core',
+    agentID: 'plan',
+    sessionIDs: ['ses_e2e_office_idle'],
+    createdAt: 2
+  }
+]
+
 async function launchApp(env: NodeJS.ProcessEnv): Promise<ElectronApplication> {
   return electron.launch({ args: ['.'], env })
 }
@@ -136,6 +174,7 @@ test('funcionários: contratar cria a sessão com a função e o modelo escolhid
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeRosterFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)
@@ -181,6 +220,7 @@ test('funcionários: apagar todos arquiva, pula quem trabalha e permite restaura
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeRosterFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)
@@ -229,6 +269,7 @@ test('funcionários: dar função troca agente/modelo e working bloqueia a troca
   const ctx = loadContext()
   const env = baseEnv(ctx)
   env.KOLDND_HUB_OFFICE_FIXTURE = materializeRosterFixture(ctx)
+  seedDepartments(ctx, DEPARTMENTS)
   delete env.KOLDND_HUB_OPENCODE_CLI
 
   const app = await launchApp(env)

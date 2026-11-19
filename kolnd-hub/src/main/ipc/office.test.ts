@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   appHandlers: new Map<string, (...args: unknown[]) => unknown>(),
   createBridge: vi.fn(),
   createService: vi.fn(),
-  createClient: vi.fn()
+  createClient: vi.fn(),
+  storeDepartments: [] as unknown[],
+  storeAvatars: {} as Record<string, unknown>
 }))
 
 vi.mock('electron', () => ({
@@ -31,6 +33,18 @@ vi.mock('../logger', () => ({
 vi.mock('../office/client', () => ({ createOfficeClient: mocks.createClient }))
 vi.mock('../office/service', () => ({ createOfficeService: mocks.createService }))
 vi.mock('../office/bridge', () => ({ createOfficeBridge: mocks.createBridge }))
+vi.mock('../store', () => ({
+  getOfficeDepartments: () => mocks.storeDepartments,
+  getOfficeAvatars: () => mocks.storeAvatars,
+  setOfficeDepartments: (next: unknown) => {
+    mocks.storeDepartments = next as unknown[]
+    return { success: true }
+  },
+  setOfficeAvatar: (sessionID: string, look: unknown) => {
+    mocks.storeAvatars[sessionID] = look
+    return { success: true }
+  }
+}))
 
 function snapshot(title = 'Sessão do poller'): OfficeSnapshot {
   return deriveOfficeSnapshot({
@@ -63,6 +77,7 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
   let bridgeStop: ReturnType<typeof vi.fn>
   let bridgeStart: ReturnType<typeof vi.fn>
   let serviceStop: ReturnType<typeof vi.fn>
+  let serviceRefresh: ReturnType<typeof vi.fn>
   let bridgeResult: ((result: unknown, meta: unknown) => void) | null
   let enqueueAction: ReturnType<typeof vi.fn>
   let actionCounter: number
@@ -103,6 +118,9 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
     serviceStop = vi.fn(() => {
       if (subscribers > 0) subscribers -= 1
     })
+    serviceRefresh = vi.fn()
+    mocks.storeDepartments = []
+    mocks.storeAvatars = {}
 
     mocks.createClient.mockReset()
     clientFns = {
@@ -156,7 +174,7 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
         },
         getSnapshot: () => null,
         subscribers: () => subscribers,
-        refresh: vi.fn()
+        refresh: serviceRefresh
       }
     })
   })
@@ -540,6 +558,190 @@ describe('registerOfficeIpc (ciclo de vida)', () => {
       await expect(callHandler('office:restore', { sessionID: 'sessao' })).rejects.toThrow(
         'Requisição inválida.'
       )
+    })
+  })
+
+  describe('aparência e salas-departamento', () => {
+    const LOOK = {
+      sex: 'feminino',
+      hairStyle: 1,
+      hairColor: 6,
+      skin: 1,
+      shirt: 0,
+      pants: 0
+    }
+    const DEPARTMENT = {
+      id: 'dep_1a2b3c4d',
+      name: 'Gerentes',
+      agentID: 'plan',
+      sessionIDs: ['ses_idle'],
+      createdAt: 1000
+    }
+
+    it('office:avatar-get devolve o salvo ou o padrão determinístico', async () => {
+      await register()
+      const first = callHandler('office:avatar-get', { sessionID: 'ses_sem_look' }) as {
+        ok: boolean
+        look: unknown
+      }
+      const second = callHandler('office:avatar-get', { sessionID: 'ses_sem_look' }) as {
+        ok: boolean
+        look: unknown
+      }
+      expect(first.ok).toBe(true)
+      expect(first.look).toEqual(second.look)
+
+      mocks.storeAvatars = { ses_1: LOOK }
+      expect(callHandler('office:avatar-get', { sessionID: 'ses_1' })).toEqual({
+        ok: true,
+        look: LOOK
+      })
+      expect(() => callHandler('office:avatar-get', { sessionID: 'x' })).toThrow(
+        'Requisição inválida.'
+      )
+    })
+
+    it('office:avatar-save valida os índices e persiste no store', async () => {
+      await register()
+      callHandler('office:subscribe')
+      expect(await callHandler('office:avatar-save', { sessionID: 'ses_1', look: LOOK })).toEqual({
+        ok: true
+      })
+      expect(mocks.storeAvatars.ses_1).toEqual(LOOK)
+      expect(serviceRefresh).toHaveBeenCalled()
+
+      expect(() =>
+        callHandler('office:avatar-save', { sessionID: 'ses_1', look: { ...LOOK, shirt: 99 } })
+      ).toThrow('Requisição inválida.')
+    })
+
+    it('office:department-create gera id dep_…, recusa duplicado e limite', async () => {
+      await register()
+      const created = (await callHandler('office:department-create', {
+        name: 'Gerentes',
+        agentID: 'plan'
+      })) as { ok: boolean; department: { id: string; name: string; agentID: string } }
+      expect(created.ok).toBe(true)
+      expect(created.department.id).toMatch(/^dep_[0-9a-f]{8}$/)
+      expect(created.department).toMatchObject({ name: 'Gerentes', agentID: 'plan' })
+
+      expect(
+        await callHandler('office:department-create', { name: 'gerentes', agentID: 'build' })
+      ).toMatchObject({ ok: false })
+
+      mocks.storeDepartments = Array.from({ length: 30 }, (_, index) => ({
+        ...DEPARTMENT,
+        id: `dep_0000${index.toString(16).padStart(4, '0')}`,
+        name: `Sala ${index}`,
+        sessionIDs: []
+      }))
+      expect(
+        await callHandler('office:department-create', { name: 'Nova', agentID: 'plan' })
+      ).toMatchObject({ ok: false })
+    })
+
+    it('office:department-assign aplica no idle e deixa o working pendente', async () => {
+      mocks.storeDepartments = [{ ...DEPARTMENT, sessionIDs: [] }]
+      await register()
+      callHandler('office:subscribe')
+      const now = Date.now()
+      clientFns.listSessions.mockResolvedValue([
+        {
+          id: 'ses_idle',
+          agent: 'general',
+          location: { directory: 'C:\\repo' },
+          time: { busy: now - 5000, idle: now - 1000 }
+        }
+      ])
+
+      expect(
+        await callHandler('office:department-assign', {
+          sessionID: 'ses_idle',
+          departmentID: DEPARTMENT.id,
+          applyRole: true
+        })
+      ).toEqual({ ok: true, applied: 1, pending: 0 })
+      expect(clientFns.setSessionAgent).toHaveBeenCalledWith('ses_idle', 'plan')
+
+      clientFns.listSessions.mockResolvedValue([
+        {
+          id: 'ses_work',
+          agent: 'general',
+          location: { directory: 'C:\\repo' },
+          time: { busy: now - 1000 }
+        }
+      ])
+      expect(
+        await callHandler('office:department-assign', {
+          sessionID: 'ses_work',
+          departmentID: DEPARTMENT.id,
+          applyRole: true
+        })
+      ).toEqual({ ok: true, applied: 0, pending: 1 })
+      expect(clientFns.setSessionAgent).not.toHaveBeenCalledWith('ses_work', 'plan')
+      expect(serviceRefresh).toHaveBeenCalled()
+    })
+
+    it('office:department-apply-role aplica só em quem não está trabalhando', async () => {
+      mocks.storeDepartments = [{ ...DEPARTMENT, sessionIDs: ['ses_idle', 'ses_work'] }]
+      await register()
+      const now = Date.now()
+      clientFns.listSessions.mockResolvedValue([
+        {
+          id: 'ses_idle',
+          agent: 'general',
+          time: { busy: now - 5000, idle: now - 1000 }
+        },
+        { id: 'ses_work', agent: 'general', time: { busy: now - 500 } }
+      ])
+
+      expect(await callHandler('office:department-apply-role', { id: DEPARTMENT.id })).toEqual({
+        ok: true,
+        applied: 1,
+        pending: 1
+      })
+      expect(clientFns.setSessionAgent).toHaveBeenCalledTimes(1)
+      expect(clientFns.setSessionAgent).toHaveBeenCalledWith('ses_idle', 'plan')
+    })
+
+    it('office:department-delete libera membros; update não aplica função sozinho', async () => {
+      mocks.storeDepartments = [{ ...DEPARTMENT }]
+      await register()
+
+      expect(
+        await callHandler('office:department-update', { id: DEPARTMENT.id, agentID: 'build' })
+      ).toMatchObject({ ok: true, department: { agentID: 'build' } })
+      expect(mocks.storeDepartments[0]).toMatchObject({ agentID: 'build' })
+      expect(clientFns.setSessionAgent).not.toHaveBeenCalled()
+
+      expect(await callHandler('office:department-delete', { id: DEPARTMENT.id })).toEqual({
+        ok: true,
+        released: 1
+      })
+      expect(mocks.storeDepartments).toEqual([])
+      expect(await callHandler('office:department-delete', { id: DEPARTMENT.id })).toMatchObject({
+        ok: false
+      })
+    })
+
+    it('office:department-unassign e payloads inválidos', async () => {
+      mocks.storeDepartments = [{ ...DEPARTMENT }]
+      await register()
+      expect(await callHandler('office:department-unassign', { sessionID: 'ses_idle' })).toEqual({
+        ok: true
+      })
+      expect((mocks.storeDepartments[0] as { sessionIDs: string[] }).sessionIDs).toEqual([])
+
+      await expect(
+        callHandler('office:department-assign', {
+          sessionID: 'ses_1',
+          departmentID: 'dep_xyz',
+          applyRole: true
+        })
+      ).rejects.toThrow('Requisição inválida.')
+      await expect(
+        callHandler('office:department-create', { name: 'ok', agentID: 'plan', extra: 1 })
+      ).rejects.toThrow('Requisição inválida.')
     })
   })
 })

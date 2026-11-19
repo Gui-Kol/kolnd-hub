@@ -4,6 +4,8 @@ import {
   REQUEST_MAX,
   type OfficeActivity,
   type OfficeAgent,
+  type OfficeAvatarLook,
+  type OfficeDepartment,
   type OfficePermissionRequest,
   type OfficeSessionInput,
   type OfficeSnapshot
@@ -112,7 +114,7 @@ function agentToSession(agent: OfficeAgent): OfficeSessionInput {
     tokens: { input: agent.tokens.input, output: agent.tokens.output },
     ...(agent.status === 'ended' ? { outcome: 'succeeded' } : {}),
     time,
-    location: { directory: agent.roomID }
+    ...(agent.directory ? { location: { directory: agent.directory } } : {})
   }
 }
 
@@ -189,7 +191,15 @@ function requestToContract(
   }
 }
 
-export function createOfficeAggregator(deps: { now?: () => number } = {}): OfficeAggregator {
+export function createOfficeAggregator(
+  deps: {
+    now?: () => number
+    /** Salas-departamento persistidas (lidas a cada derivação). */
+    getDepartments?: () => readonly OfficeDepartment[]
+    /** Aparência editada por sessão (lida a cada derivação). */
+    getAvatars?: () => Readonly<Record<string, OfficeAvatarLook | undefined>>
+  } = {}
+): OfficeAggregator {
   const now = deps.now ?? Date.now
   let pollerSnapshot: OfficeSnapshot | null = null
   let plugin = emptyPluginState()
@@ -313,6 +323,8 @@ export function createOfficeAggregator(deps: { now?: () => number } = {}): Offic
       requests: requests.slice(0, REQUEST_MAX),
       now: at,
       source: poller && fresh ? 'both' : fresh ? 'plugin' : 'poller',
+      departments: deps.getDepartments?.() ?? [],
+      avatars: deps.getAvatars?.() ?? {},
       health: {
         cliFound: poller?.health.cliFound ?? true,
         ...(poller?.health.cliPath ? { cliPath: poller.health.cliPath } : {}),
@@ -320,15 +332,6 @@ export function createOfficeAggregator(deps: { now?: () => number } = {}): Offic
         pluginConnected: fresh
       }
     })
-
-    // O poller conhece o diretório com a caixa original; o derive só vê o id
-    // canônico. Preserva o nome legível da sala.
-    if (poller) {
-      for (const room of snapshot.rooms) {
-        const known = poller.rooms.find((candidate) => candidate.id === room.id)
-        if (known) room.name = known.name
-      }
-    }
 
     lastSnapshot = snapshot
     return snapshot

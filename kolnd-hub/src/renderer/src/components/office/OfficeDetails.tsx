@@ -13,6 +13,7 @@ import {
   Loader2,
   MessageSquare,
   MousePointerClick,
+  Palette,
   Send,
   ShieldCheck,
   Timer,
@@ -29,6 +30,13 @@ import type {
   OfficeRosterOptions
 } from '../../../../shared/office'
 import { truncateLabel } from '../../../../shared/office'
+import type { OfficeAvatarLook } from '../../../../shared/officeAvatar'
+import {
+  HAIR_COLORS,
+  PANTS_COLORS,
+  SHIRT_COLORS,
+  SKIN_TONES
+} from '../../../../shared/officeAvatar'
 import { Badge, Button, Select } from '../ui'
 import {
   ACTIVITY_META,
@@ -90,6 +98,14 @@ export interface OfficeDetailsProps {
   pluginConnected?: boolean
   /** Avisa o pai para reler o snapshot após mudar a função. */
   onRoleSaved?: () => void
+  /** Salas-departamento disponíveis no seletor "Sala". */
+  rooms?: readonly OfficeRoom[]
+  /** Aparência efetiva do personagem selecionado. */
+  look?: OfficeAvatarLook | null
+  /** Abre o editor de aparência. */
+  onEditAppearance?: () => void
+  /** Designa a sessão para uma sala (`null` = "Sem sala"). */
+  onRoomChange?: (roomID: string | null) => void
 }
 
 function Field({
@@ -180,7 +196,7 @@ interface RoleCardProps {
  * visual; a regra de verdade está no IPC.
  */
 function RoleCard({ agent, room, onSaved }: RoleCardProps): JSX.Element {
-  const directory = room?.path.trim() ?? ''
+  const directory = (agent.directory ?? room?.path ?? '').trim()
   const currentModelKey = modelKey(agent.model)
   const working = agent.status === 'working'
 
@@ -661,7 +677,11 @@ export function OfficeDetails({
   requests = [],
   actionsEnabled = false,
   pluginConnected = false,
-  onRoleSaved
+  onRoleSaved,
+  rooms = [],
+  look = null,
+  onEditAppearance,
+  onRoomChange
 }: OfficeDetailsProps): JSX.Element {
   const [requestStates, setRequestStates] = useState<Record<string, RequestUiState>>({})
   const [sendState, setSendState] = useState<SendUiState>({ status: 'idle' })
@@ -890,6 +910,11 @@ export function OfficeDetails({
           <span aria-hidden="true" className={`h-2 w-2 rounded-pill ${status.dot}`} />
           {status.label}
         </span>
+        {agent.rolePending && (
+          <Badge tone="warning" data-testid="office-details-pending">
+            pendente: {agent.rolePending}
+          </Badge>
+        )}
       </header>
 
       <div className="space-y-3 p-3">
@@ -957,9 +982,16 @@ export function OfficeDetails({
           </Field>
           <Field icon={FolderOpen} label="Sala">
             <span className="block truncate" title={room?.id ?? agent.roomID}>
-              {room?.name ?? 'Sem projeto'}
+              {room?.name ?? 'Sem sala'}
             </span>
           </Field>
+          {agent.directory && (
+            <Field icon={FolderOpen} label="Pasta">
+              <span className="block truncate text-[11px]" title={agent.directory}>
+                {agent.directory}
+              </span>
+            </Field>
+          )}
           <Field icon={Cpu} label="Modelo">
             <span className="block truncate" title={`${agent.model.providerID}/${agent.model.id}`}>
               {agent.model.id}
@@ -984,6 +1016,79 @@ export function OfficeDetails({
             </span>
           </Field>
         </div>
+
+        <section
+          aria-label="Aparência"
+          data-testid="office-appearance"
+          className="rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-2.5"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-tertiary">
+              <Palette size={11} aria-hidden="true" />
+              Aparência
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onEditAppearance}
+              disabled={!onEditAppearance}
+              data-testid="office-appearance-edit"
+            >
+              Editar aparência
+            </Button>
+          </div>
+          {look && (
+            <div className="mt-1.5 flex items-center gap-1.5" aria-hidden="true">
+              {[
+                HAIR_COLORS[look.hairColor]?.c,
+                SKIN_TONES[look.skin]?.c,
+                SHIRT_COLORS[look.shirt]?.c,
+                PANTS_COLORS[look.pants]?.c
+              ].map((color, index) =>
+                color ? (
+                  <span
+                    key={`${color}-${index}`}
+                    className="h-3.5 w-3.5 rounded-sm border border-[var(--border-strong)]"
+                    style={{ backgroundColor: color }}
+                  />
+                ) : null
+              )}
+              <span className="ml-1 text-[10.5px] text-ink-tertiary">
+                {HAIR_COLORS[look.hairColor]?.name ?? '—'} · {SKIN_TONES[look.skin]?.name ?? '—'} ·{' '}
+                {SHIRT_COLORS[look.shirt]?.name ?? '—'}
+              </span>
+            </div>
+          )}
+        </section>
+
+        {onRoomChange && (
+          <section aria-label="Sala do funcionário" data-testid="office-room-select">
+            <label
+              htmlFor="office-assign-room"
+              className="block text-[9.5px] uppercase tracking-[0.08em] text-ink-tertiary"
+            >
+              Sala
+            </label>
+            <Select
+              id="office-assign-room"
+              data-testid="office-room-select-input"
+              className="mt-1 !py-1.5 text-[12px]"
+              value={room && !room.unassigned ? room.id : ''}
+              onChange={(event) => onRoomChange(event.target.value || null)}
+            >
+              <option value="">Sem sala</option>
+              {rooms.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                  {option.agent ? ` — ${option.agent}` : ''}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[10px] leading-snug text-ink-tertiary">
+              Designar não aplica a função sozinho; use o painel da sala para aplicar.
+            </p>
+          </section>
+        )}
 
         <RoleCard agent={agent} room={room} onSaved={onRoleSaved ?? (() => {})} />
 

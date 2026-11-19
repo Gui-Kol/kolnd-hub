@@ -21,6 +21,11 @@ import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type {
   OfficeArchiveAllResult,
   OfficeArchivedListResult,
+  OfficeAvatarLook,
+  OfficeAvatarResult,
+  OfficeDepartmentApplyResult,
+  OfficeDepartmentDeleteResult,
+  OfficeDepartmentResult,
   OfficeHealth,
   OfficeHireInput,
   OfficeManageResult,
@@ -386,6 +391,30 @@ declare global {
       officeArchiveAll: (input: Record<string, never>) => Promise<OfficeArchiveAllResult>
       officeArchivedList: (input: Record<string, never>) => Promise<OfficeArchivedListResult>
       officeRestore: (input: { sessionID: string }) => Promise<OfficeManageResult>
+      // Aparência e salas-departamento (OpenOffice isométrico). O main valida
+      // sessão, ids `dep_…`, nome e índices de paleta.
+      officeAvatarGet: (input: { sessionID: string }) => Promise<OfficeAvatarResult>
+      officeAvatarSave: (input: {
+        sessionID: string
+        look: OfficeAvatarLook
+      }) => Promise<OfficeManageResult>
+      officeDepartmentCreate: (input: {
+        name: string
+        agentID: string
+      }) => Promise<OfficeDepartmentResult>
+      officeDepartmentUpdate: (input: {
+        id: string
+        name?: string
+        agentID?: string
+      }) => Promise<OfficeDepartmentResult>
+      officeDepartmentDelete: (input: { id: string }) => Promise<OfficeDepartmentDeleteResult>
+      officeDepartmentAssign: (input: {
+        sessionID: string
+        departmentID: string
+        applyRole: boolean
+      }) => Promise<OfficeDepartmentApplyResult>
+      officeDepartmentUnassign: (input: { sessionID: string }) => Promise<OfficeManageResult>
+      officeDepartmentApplyRole: (input: { id: string }) => Promise<OfficeDepartmentApplyResult>
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

@@ -199,20 +199,33 @@ describe('createOfficeAggregator', () => {
     const snapshot = aggregator.getSnapshot()
     expect(snapshot?.source).toBe('plugin')
     expect(snapshot?.health.pluginConnected).toBe(true)
+    // Sem departamento, o personagem do plugin cai na sala sintética.
     expect(snapshot?.rooms).toEqual([
       {
-        id: 'c:/repo/beta',
-        name: 'beta',
+        id: 'sem-sala',
+        name: 'Sem sala',
         path: 'C:\\repo\\beta',
-        agentIDs: ['ses_so_plugin']
+        agentIDs: ['ses_so_plugin'],
+        unassigned: true
       }
     ])
     expect(snapshot?.agents[0]).toMatchObject({ sessionID: 'ses_so_plugin', status: 'working' })
   })
 
-  it('snapshot do poller preserva o nome legível da sala', () => {
+  it('nome da sala vem do departamento persistido', () => {
     const clock = clocked()
-    const aggregator = createOfficeAggregator({ now: clock.now })
+    const aggregator = createOfficeAggregator({
+      now: clock.now,
+      getDepartments: () => [
+        {
+          id: 'dep_1a2b3c4d',
+          name: 'Kolnd Hub',
+          agentID: 'general',
+          sessionIDs: ['ses_1'],
+          createdAt: 1
+        }
+      ]
+    })
     aggregator.setPoller(
       pollerSnapshot([session('ses_1', { location: { directory: 'C:\\Repo\\Kolnd Hub' } })], 1000)
     )
@@ -221,6 +234,7 @@ describe('createOfficeAggregator', () => {
     const snapshot = aggregator.getSnapshot()
     expect(snapshot?.source).toBe('both')
     expect(snapshot?.rooms[0].name).toBe('Kolnd Hub')
+    expect(snapshot?.rooms[0].agent).toBe('general')
     expect(snapshot?.health.pluginConnected).toBe(true)
   })
 

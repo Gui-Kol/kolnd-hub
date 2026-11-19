@@ -23,6 +23,11 @@ import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type {
   OfficeArchiveAllResult,
   OfficeArchivedListResult,
+  OfficeAvatarLook,
+  OfficeAvatarResult,
+  OfficeDepartmentApplyResult,
+  OfficeDepartmentDeleteResult,
+  OfficeDepartmentResult,
   OfficeHealth,
   OfficeHireInput,
   OfficeManageResult,
@@ -535,6 +540,42 @@ const api = {
 
   officeRestore: (input: { sessionID: string }): Promise<OfficeManageResult> =>
     ipcRenderer.invoke('office:restore', input),
+
+  // Aparência e salas-departamento (OpenOffice isométrico). O main valida
+  // sessão, ids `dep_…`, nome e índices de paleta; aqui é só transporte.
+  officeAvatarGet: (input: { sessionID: string }): Promise<OfficeAvatarResult> =>
+    ipcRenderer.invoke('office:avatar-get', input),
+
+  officeAvatarSave: (input: {
+    sessionID: string
+    look: OfficeAvatarLook
+  }): Promise<OfficeManageResult> => ipcRenderer.invoke('office:avatar-save', input),
+
+  officeDepartmentCreate: (input: {
+    name: string
+    agentID: string
+  }): Promise<OfficeDepartmentResult> => ipcRenderer.invoke('office:department-create', input),
+
+  officeDepartmentUpdate: (input: {
+    id: string
+    name?: string
+    agentID?: string
+  }): Promise<OfficeDepartmentResult> => ipcRenderer.invoke('office:department-update', input),
+
+  officeDepartmentDelete: (input: { id: string }): Promise<OfficeDepartmentDeleteResult> =>
+    ipcRenderer.invoke('office:department-delete', input),
+
+  officeDepartmentAssign: (input: {
+    sessionID: string
+    departmentID: string
+    applyRole: boolean
+  }): Promise<OfficeDepartmentApplyResult> => ipcRenderer.invoke('office:department-assign', input),
+
+  officeDepartmentUnassign: (input: { sessionID: string }): Promise<OfficeManageResult> =>
+    ipcRenderer.invoke('office:department-unassign', input),
+
+  officeDepartmentApplyRole: (input: { id: string }): Promise<OfficeDepartmentApplyResult> =>
+    ipcRenderer.invoke('office:department-apply-role', input),
 
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<

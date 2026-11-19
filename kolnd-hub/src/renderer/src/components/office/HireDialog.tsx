@@ -24,7 +24,7 @@ export interface HireDialogProps {
 }
 
 export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.Element {
-  const hireableRooms = rooms.filter((room) => room.path.trim().length > 0)
+  const hireableRooms = rooms.filter((room) => (room.path ?? '').trim().length > 0)
   const [roomID, setRoomID] = useState(() => hireableRooms[0]?.id ?? '')
   const [title, setTitle] = useState('')
   const [agentID, setAgentID] = useState('')
@@ -37,7 +37,7 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const room = hireableRooms.find((item) => item.id === roomID) ?? null
-  const roomPath = room?.path.trim() ?? ''
+  const roomPath = (room?.path ?? '').trim()
   const optionsError = room
     ? fetchError
     : hireableRooms.length === 0
@@ -110,7 +110,7 @@ export function HireDialog({ rooms, onClose, onHired }: HireDialogProps): JSX.El
         title: title.trim(),
         agentID,
         model: chosenModel,
-        directory: room.path.trim()
+        directory: (room.path ?? '').trim()
       })
       .then((result) => {
         if (!result.ok) {

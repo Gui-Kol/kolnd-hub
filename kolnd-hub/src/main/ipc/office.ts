@@ -1,5 +1,6 @@
 import { app, ipcMain } from 'electron'
 import type { WebContents } from 'electron'
+import { randomBytes } from 'crypto'
 import { statSync } from 'fs'
 import type { IpcContext } from './lifecycle'
 import { createOfficeClient, type OfficeClient } from '../office/client'
@@ -32,11 +33,43 @@ import {
   normalizeSetRoleInput,
   pickArchiveTargets
 } from '../office/roster'
+import {
+  buildDepartment,
+  canAddDepartment,
+  departmentIDFromBytes,
+  deleteDepartment as removeDepartment,
+  findDepartment,
+  isDepartmentNameTaken,
+  normalizeAvatarGetInput,
+  normalizeAvatarSaveInput,
+  normalizeDepartmentAssignInput,
+  normalizeDepartmentCreateInput,
+  normalizeDepartmentIdInput,
+  normalizeDepartmentUnassignInput,
+  normalizeDepartmentUpdateInput,
+  pickApplyTargets,
+  assignSession,
+  unassignSession,
+  updateDepartment
+} from '../office/departments'
+import {
+  getOfficeAvatars,
+  getOfficeDepartments,
+  setOfficeAvatar,
+  setOfficeDepartments
+} from '../store'
 import { logger } from '../logger'
-import { deriveOfficeSnapshot } from '../../shared/office'
+import { agentSeedFor, deriveOfficeSnapshot } from '../../shared/office'
+import { defaultLookFor, type OfficeAvatarLook } from '../../shared/officeAvatar'
 import type {
   OfficeArchiveAllResult,
   OfficeArchivedListResult,
+  OfficeAvatarResult,
+  OfficeAgentStatus,
+  OfficeDepartment,
+  OfficeDepartmentApplyResult,
+  OfficeDepartmentDeleteResult,
+  OfficeDepartmentResult,
   OfficeHealth,
   OfficeManageResult,
   OfficeRosterResult,
@@ -162,7 +195,12 @@ function emitActionResult(result: OfficeActionOutcome): void {
 }
 
 function ensureAggregator(): OfficeAggregator {
-  if (!aggregator) aggregator = createOfficeAggregator()
+  if (!aggregator) {
+    aggregator = createOfficeAggregator({
+      getDepartments: getOfficeDepartments,
+      getAvatars: getOfficeAvatars
+    })
+  }
   return aggregator
 }
 
@@ -231,6 +269,8 @@ function ensureService(): OfficeService | null {
   const merged = ensureAggregator()
   service = createOfficeService({
     client: activeClient,
+    getDepartments: getOfficeDepartments,
+    getAvatars: getOfficeAvatars,
     emit: (snapshot) => {
       const next = merged.setPoller(snapshot) ?? null
       if (next) emit(next)
@@ -318,6 +358,59 @@ async function withManage<T>(busyValue: T, run: () => Promise<T>): Promise<T> {
 /** Após criar/arquivar/restaurar, o poller relê já — a UI reflete em < 3 s. */
 function refreshOffice(): void {
   service?.refresh()
+}
+
+const DEPARTMENT_LIMIT_MESSAGE =
+  'Limite de 30 salas atingido. Exclua uma sala antes de criar outra.'
+const DEPARTMENT_MISSING_MESSAGE = 'Sala não encontrada. Atualize a página e tente de novo.'
+const DEPARTMENT_FULL_MESSAGE = 'Esta sala já tem 60 funcionários.'
+const DEPARTMENT_DUPLICATE_MESSAGE = 'Já existe uma sala com esse nome.'
+const SESSION_MISSING_MESSAGE = 'A sessão não está disponível no OpenCode agora.'
+
+/** Grava a lista normalizada; devolve a mensagem de erro (ou `null` no sucesso). */
+function persistDepartments(next: readonly OfficeDepartment[]): string | null {
+  const result = setOfficeDepartments(next)
+  return result.success ? null : (result.error ?? 'Não consegui salvar as salas.')
+}
+
+/** Status fresco das sessões (o snapshot pode estar alguns segundos atrasado). */
+async function freshAgents(
+  client: OfficeClient
+): Promise<Array<{ sessionID: string; status: OfficeAgentStatus }>> {
+  const sessions = await client.listSessions({ limit: 200 })
+  return deriveOfficeSnapshot({ sessions, now: Date.now() }).agents
+}
+
+/**
+ * Aplica a função de uma sessão respeitando `working`: nesse caso nada é
+ * enviado ao OpenCode e a sessão fica pendente (badge + "Aplicar agora").
+ */
+async function applyRoleToOne(
+  client: OfficeClient,
+  sessionID: string,
+  agentID: string,
+  agents: readonly { sessionID: string; status: OfficeAgentStatus }[]
+): Promise<'applied' | 'pending'> {
+  const status = agents.find((agent) => agent.sessionID === sessionID)?.status
+  if (!status) throw new Error(SESSION_MISSING_MESSAGE)
+  if (status === 'working') return 'pending'
+  await client.setSessionAgent(sessionID, agentID)
+  return 'applied'
+}
+
+/** `4` bytes aleatórios do main; tenta de novo em caso de colisão (improvável). */
+function newDepartmentID(existing: readonly OfficeDepartment[]): string {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = departmentIDFromBytes([...randomBytes(4)])
+    if (!findDepartment(existing, candidate)) return candidate
+  }
+  // Fallback determinístico por tempo: continua no formato `dep_<8 hex>`.
+  return departmentIDFromBytes([
+    Date.now() & 0xff,
+    (Date.now() >>> 8) & 0xff,
+    (Date.now() >>> 16) & 0xff,
+    (Date.now() >>> 24) & 0xff
+  ])
 }
 
 /**
@@ -681,6 +774,239 @@ export function registerOfficeIpc(ipcContext: IpcContext): void {
         return { ok: false, error: managementError(err) }
       }
     })
+  })
+
+  // ── Aparência dos personagens ─────────────────────────────────────
+  ipcMain.handle('office:avatar-get', (_event, ...args: unknown[]) => {
+    const input = normalizeAvatarGetInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+    const saved = getOfficeAvatars()[input.sessionID]
+    const look: OfficeAvatarLook = saved ?? defaultLookFor(agentSeedFor(input.sessionID))
+    return { ok: true, look } satisfies OfficeAvatarResult
+  })
+
+  ipcMain.handle('office:avatar-save', (_event, ...args: unknown[]) => {
+    const input = normalizeAvatarSaveInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    const result = setOfficeAvatar(input.sessionID, input.look)
+    if (!result.success) {
+      return {
+        ok: false,
+        error: result.error ?? 'Não consegui salvar a aparência.'
+      } satisfies OfficeManageResult
+    }
+    logger.info('office', `Aparência da sessão ${input.sessionID} salva.`)
+    refreshOffice()
+    return { ok: true } satisfies OfficeManageResult
+  })
+
+  // ── Salas-departamento ────────────────────────────────────────────
+  ipcMain.handle('office:department-create', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentCreateInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeDepartmentResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const current = getOfficeDepartments()
+      if (!canAddDepartment(current)) return { ok: false, error: DEPARTMENT_LIMIT_MESSAGE }
+      if (isDepartmentNameTaken(current, input.name)) {
+        return { ok: false, error: DEPARTMENT_DUPLICATE_MESSAGE }
+      }
+
+      const department = buildDepartment(
+        newDepartmentID(current),
+        input.name,
+        input.agentID,
+        Date.now()
+      )
+      if (!department) return { ok: false, error: 'Sala inválida.' }
+
+      const error = persistDepartments([...current, department])
+      if (error) return { ok: false, error }
+      logger.info('office', `Sala criada: ${department.name} (função ${department.agentID}).`)
+      refreshOffice()
+      return { ok: true, department } satisfies OfficeDepartmentResult
+    })
+  })
+
+  ipcMain.handle('office:department-update', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentUpdateInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeDepartmentResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const current = getOfficeDepartments()
+      if (!findDepartment(current, input.id)) {
+        return { ok: false, error: DEPARTMENT_MISSING_MESSAGE }
+      }
+      if (input.name && isDepartmentNameTaken(current, input.name, input.id)) {
+        return { ok: false, error: DEPARTMENT_DUPLICATE_MESSAGE }
+      }
+
+      const next = updateDepartment(current, input)
+      if (!next) return { ok: false, error: DEPARTMENT_MISSING_MESSAGE }
+      const error = persistDepartments(next)
+      if (error) return { ok: false, error }
+
+      const department = findDepartment(next, input.id) ?? undefined
+      // Trocar a função NÃO aplica sozinho: quem aplica é a ação explícita.
+      logger.info(
+        'office',
+        `Sala ${input.id} atualizada${input.agentID ? ` (função ${input.agentID})` : ''}.`
+      )
+      refreshOffice()
+      return { ok: true, department } satisfies OfficeDepartmentResult
+    })
+  })
+
+  ipcMain.handle('office:department-delete', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentIdInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeDepartmentDeleteResult>(
+      { ok: false, released: 0, error: BUSY_MESSAGE },
+      async () => {
+        const current = getOfficeDepartments()
+        const removed = removeDepartment(current, input.id)
+        if (!removed) return { ok: false, released: 0, error: DEPARTMENT_MISSING_MESSAGE }
+
+        const error = persistDepartments(removed.departments)
+        if (error) return { ok: false, released: 0, error }
+        logger.info(
+          'office',
+          `Sala ${input.id} excluída; ${removed.released.length} funcionário(s) voltaram para "Sem sala".`
+        )
+        refreshOffice()
+        return {
+          ok: true,
+          released: removed.released.length
+        } satisfies OfficeDepartmentDeleteResult
+      }
+    )
+  })
+
+  ipcMain.handle('office:department-assign', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentAssignInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeDepartmentApplyResult>(
+      { ok: false, applied: 0, pending: 0, error: BUSY_MESSAGE },
+      async () => {
+        const current = getOfficeDepartments()
+        const target = findDepartment(current, input.departmentID)
+        if (!target) return { ok: false, applied: 0, pending: 0, error: DEPARTMENT_MISSING_MESSAGE }
+        if (!target.sessionIDs.includes(input.sessionID) && target.sessionIDs.length >= 60) {
+          return { ok: false, applied: 0, pending: 0, error: DEPARTMENT_FULL_MESSAGE }
+        }
+
+        const next = assignSession(current, input.sessionID, input.departmentID)
+        if (!next) return { ok: false, applied: 0, pending: 0, error: DEPARTMENT_FULL_MESSAGE }
+        const persistError = persistDepartments(next)
+        if (persistError) return { ok: false, applied: 0, pending: 0, error: persistError }
+
+        if (!input.applyRole) {
+          logger.info(
+            'office',
+            `Sessão ${input.sessionID} designada para a sala ${input.departmentID} (sem aplicar função).`
+          )
+          refreshOffice()
+          return { ok: true, applied: 0, pending: 0 }
+        }
+
+        const active = await resolveManagementClient()
+        if (typeof active === 'string') {
+          refreshOffice()
+          return { ok: false, applied: 0, pending: 0, error: active }
+        }
+
+        try {
+          const agents = await freshAgents(active)
+          const outcome = await applyRoleToOne(active, input.sessionID, target.agentID, agents)
+          logger.info(
+            'office',
+            `Sessão ${input.sessionID} designada para a sala ${input.departmentID}; função ${
+              outcome === 'applied' ? 'aplicada' : 'pendente (trabalhando)'
+            }.`
+          )
+          refreshOffice()
+          return outcome === 'applied'
+            ? { ok: true, applied: 1, pending: 0 }
+            : { ok: true, applied: 0, pending: 1 }
+        } catch (err) {
+          logger.warn(
+            'office',
+            `Falha ao aplicar a função da sala ${input.departmentID} na sessão ${input.sessionID}.`
+          )
+          refreshOffice()
+          return { ok: false, applied: 0, pending: 0, error: managementError(err) }
+        }
+      }
+    )
+  })
+
+  ipcMain.handle('office:department-unassign', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentUnassignInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeManageResult>({ ok: false, error: BUSY_MESSAGE }, async () => {
+      const current = getOfficeDepartments()
+      const error = persistDepartments(unassignSession(current, input.sessionID))
+      if (error) return { ok: false, error }
+      logger.info('office', `Sessão ${input.sessionID} devolvida para "Sem sala".`)
+      refreshOffice()
+      return { ok: true }
+    })
+  })
+
+  ipcMain.handle('office:department-apply-role', async (_event, ...args: unknown[]) => {
+    const input = normalizeDepartmentIdInput(singleArgument(args))
+    if (!input) throw new Error('Requisição inválida.')
+
+    return withManage<OfficeDepartmentApplyResult>(
+      { ok: false, applied: 0, pending: 0, error: BUSY_MESSAGE },
+      async () => {
+        const department = findDepartment(getOfficeDepartments(), input.id)
+        if (!department) {
+          return { ok: false, applied: 0, pending: 0, error: DEPARTMENT_MISSING_MESSAGE }
+        }
+
+        const active = await resolveManagementClient()
+        if (typeof active === 'string') {
+          return { ok: false, applied: 0, pending: 0, error: active }
+        }
+
+        try {
+          const agents = await freshAgents(active)
+          const { targetIDs, pendingIDs } = pickApplyTargets(department, agents)
+          let applied = 0
+          let error: string | undefined
+          for (const sessionID of targetIDs) {
+            try {
+              await active.setSessionAgent(sessionID, department.agentID)
+              applied += 1
+            } catch (err) {
+              // Para no primeiro erro: insistir nos seguintes só pioraria a fila.
+              error = managementError(err)
+              break
+            }
+          }
+
+          logger.info(
+            'office',
+            `Função ${department.agentID} aplicada na sala ${department.id}: ${applied} aplicada(s), ${pendingIDs.length} pendente(s).`
+          )
+          refreshOffice()
+          return {
+            ok: !error,
+            applied,
+            pending: pendingIDs.length,
+            ...(error ? { error } : {})
+          } satisfies OfficeDepartmentApplyResult
+        } catch (err) {
+          logger.warn('office', `Falha ao aplicar a função da sala ${department.id}.`)
+          return { ok: false, applied: 0, pending: 0, error: managementError(err) }
+        }
+      }
+    )
   })
 
   logger.info('office', 'IPC do escritório registrado.')

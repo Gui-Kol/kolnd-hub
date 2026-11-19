@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Building2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import type {
   OfficeActivity,
@@ -6,8 +6,12 @@ import type {
   OfficeRoom,
   OfficeSnapshot
 } from '../../../../shared/office'
+import { defaultLookFor } from '../../../../shared/officeAvatar'
 import { Badge, Button, Switch } from '../ui'
-import { OfficeCanvas } from './OfficeCanvas'
+import { AgentPopover } from './AgentPopover'
+import { AvatarEditor } from './AvatarEditor'
+import { OfficeCanvas, type OfficeAgentAnchor } from './OfficeCanvas'
+import { OfficeDepartments, RoomDialog } from './OfficeDepartments'
 import { OfficeDetails } from './OfficeDetails'
 import { OfficeEmpty } from './OfficeEmpty'
 import { OfficeRoster } from './OfficeRoster'
@@ -118,6 +122,14 @@ export function OfficeView(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedID, setSelectedID] = useState<string | null>(null)
+  const [selectedRoomID, setSelectedRoomID] = useState<string | null>(null)
+  const [popover, setPopover] = useState<{ sessionID: string; anchor: OfficeAgentAnchor } | null>(
+    null
+  )
+  const [avatarID, setAvatarID] = useState<string | null>(null)
+  const [roomDialogID, setRoomDialogID] = useState<string | null>(null)
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
+  const anchorsRef = useRef(new Map<string, OfficeAgentAnchor>())
   const [attempt, setAttempt] = useState(0)
   // Chave de ações: nasce DESLIGADA (o IPC também abre em somente leitura).
   const [actionsEnabled, setActionsEnabled] = useState(false)
@@ -201,6 +213,96 @@ export function OfficeView(): JSX.Element {
     )
   }, [snapshot, selectedAgent])
 
+  const handleLayout = useCallback(
+    (anchors: ReadonlyMap<string, OfficeAgentAnchor>, size: { width: number; height: number }) => {
+      anchorsRef.current = new Map(anchors)
+      setCanvasSize((current) =>
+        current.width === size.width && current.height === size.height ? current : size
+      )
+    },
+    []
+  )
+
+  const openAgent = useCallback((sessionID: string, anchor: OfficeAgentAnchor) => {
+    setSelectedRoomID(null)
+    setSelectedID(sessionID)
+    setPopover({ sessionID, anchor })
+  }, [])
+
+  const openAgentFromList = useCallback(
+    (sessionID: string) => {
+      const anchor = anchorsRef.current.get(sessionID) ?? {
+        x: canvasSize.width / 2,
+        y: canvasSize.height / 2
+      }
+      openAgent(sessionID, anchor)
+    },
+    [canvasSize.height, canvasSize.width, openAgent]
+  )
+
+  const openRoom = useCallback((roomID: string) => {
+    setSelectedID(null)
+    setPopover(null)
+    setSelectedRoomID(roomID)
+    setRoomDialogID(roomID)
+  }, [])
+
+  const closeRoom = useCallback(() => {
+    setRoomDialogID(null)
+    setSelectedRoomID(null)
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedID(null)
+    setSelectedRoomID(null)
+    setPopover(null)
+  }, [])
+
+  const assignRoom = useCallback(
+    (sessionID: string, roomID: string | null) => {
+      const call = roomID
+        ? window.api.officeDepartmentAssign({ sessionID, departmentID: roomID, applyRole: false })
+        : window.api.officeDepartmentUnassign({ sessionID })
+      void call
+        .then(() => refreshSnapshot())
+        .catch(() => {
+          // O erro aparece no painel da sala; aqui só evitamos estado travado.
+        })
+    },
+    [refreshSnapshot]
+  )
+
+  const popoverAgent = useMemo(() => {
+    if (!snapshot || !popover) return null
+    return snapshot.agents.find((agent) => agent.sessionID === popover.sessionID) ?? null
+  }, [snapshot, popover])
+
+  const popoverRoom = useMemo(() => {
+    if (!snapshot || !popoverAgent) return null
+    return snapshot.rooms.find((room) => room.id === popoverAgent.roomID) ?? null
+  }, [snapshot, popoverAgent])
+
+  const roomDialogRoom = useMemo(() => {
+    if (!snapshot || !roomDialogID) return null
+    return snapshot.rooms.find((room) => room.id === roomDialogID) ?? null
+  }, [snapshot, roomDialogID])
+
+  const avatarAgent = useMemo(() => {
+    if (!snapshot || !avatarID) return null
+    return snapshot.agents.find((agent) => agent.sessionID === avatarID) ?? null
+  }, [snapshot, avatarID])
+
+  const avatarLook = useMemo(() => {
+    if (!avatarAgent) return null
+    return snapshot?.avatars[avatarAgent.sessionID] ?? defaultLookFor(avatarAgent.seed)
+  }, [avatarAgent, snapshot])
+
+  // Sessão/sala que sumiu do snapshot simplesmente deixa de renderizar; o
+  // estado antigo é sobrescrito na próxima seleção (sem efeitos de "limpeza").
+  const selectedLook = selectedAgent
+    ? (snapshot?.avatars[selectedAgent.sessionID] ?? defaultLookFor(selectedAgent.seed))
+    : null
+
   const totals = snapshot?.totals
   const live = snapshot?.health.pluginConnected ?? false
   const hasOffice = Boolean(snapshot && snapshot.health.cliFound && snapshot.agents.length > 0)
@@ -216,7 +318,8 @@ export function OfficeView(): JSX.Element {
             OpenOffice
           </h2>
           <p className="mt-1 max-w-2xl text-[13px] leading-5 text-ink-secondary">
-            Cada sessão do OpenCode é um personagem; cada pasta de projeto é uma sala.
+            Cada sessão do OpenCode é um personagem. Crie salas-departamento com uma função e clique
+            em um personagem (ou na lista) para trocar função, designar sala ou editar a aparência.
           </p>
         </div>
 
@@ -348,8 +451,26 @@ export function OfficeView(): JSX.Element {
                 <OfficeCanvas
                   snapshot={snapshot}
                   selectedID={selectedID}
-                  onSelect={setSelectedID}
+                  selectedRoomID={selectedRoomID}
+                  onLayout={handleLayout}
+                  onSelectAgent={openAgent}
+                  onSelectRoom={openRoom}
+                  onSelectEmpty={clearSelection}
                 />
+                {popover && popoverAgent && (
+                  <AgentPopover
+                    agent={popoverAgent}
+                    room={popoverRoom}
+                    bounds={canvasSize}
+                    anchor={popover.anchor}
+                    onClose={() => setPopover(null)}
+                    onAppearance={() => {
+                      setAvatarID(popoverAgent.sessionID)
+                      setPopover(null)
+                    }}
+                    onSaved={refreshSnapshot}
+                  />
+                )}
               </div>
             </div>
 
@@ -357,6 +478,11 @@ export function OfficeView(): JSX.Element {
           </div>
 
           <aside aria-label="Painel do escritório" className="min-w-0 space-y-3">
+            <OfficeDepartments
+              snapshot={snapshot}
+              onChanged={refreshSnapshot}
+              onOpenRoom={openRoom}
+            />
             <OfficeDetails
               key={selectedID ?? 'sem-selecao'}
               agent={selectedAgent}
@@ -366,15 +492,43 @@ export function OfficeView(): JSX.Element {
               actionsEnabled={actionsEnabled && live}
               pluginConnected={live}
               onRoleSaved={refreshSnapshot}
+              rooms={snapshot.rooms.filter((room) => !room.unassigned)}
+              look={selectedLook}
+              onEditAppearance={() => setAvatarID(selectedAgent?.sessionID ?? null)}
+              onRoomChange={(roomID) => {
+                if (selectedAgent) assignRoom(selectedAgent.sessionID, roomID)
+              }}
             />
             <OfficeSidebar
               snapshot={snapshot}
               selectedID={selectedID}
-              onSelect={setSelectedID}
+              onSelect={openAgentFromList}
               onRetry={retry}
+              onOpenRoom={openRoom}
             />
           </aside>
         </div>
+      )}
+
+      {roomDialogRoom && snapshot && (
+        <RoomDialog
+          room={roomDialogRoom}
+          agents={snapshot.agents}
+          onClose={closeRoom}
+          onChanged={refreshSnapshot}
+        />
+      )}
+
+      {avatarAgent && avatarLook && (
+        <AvatarEditor
+          agent={avatarAgent}
+          look={avatarLook}
+          onClose={() => setAvatarID(null)}
+          onSaved={() => {
+            setAvatarID(null)
+            refreshSnapshot()
+          }}
+        />
       )}
     </div>
   )

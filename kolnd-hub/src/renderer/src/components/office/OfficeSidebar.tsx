@@ -19,6 +19,8 @@ export interface OfficeSidebarProps {
   onSelect: (sessionID: string) => void
   /** Repete a assinatura do snapshot (usado no aviso de plugin ausente). */
   onRetry: () => void
+  /** Abre as configurações da sala (mesmo modal do canvas). */
+  onOpenRoom?: (roomID: string) => void
 }
 
 function Panel({
@@ -64,7 +66,8 @@ export function OfficeSidebar({
   snapshot,
   selectedID,
   onSelect,
-  onRetry
+  onRetry,
+  onOpenRoom
 }: OfficeSidebarProps): JSX.Element {
   const [query, setQuery] = useState('')
   const normalized = query.trim().toLowerCase()
@@ -149,6 +152,17 @@ export function OfficeSidebar({
                   <span className="tnum rounded-pill bg-surface-3 px-1.5 py-0.5 text-[10px] text-ink-tertiary">
                     {room.agentIDs.length}
                   </span>
+                  {onOpenRoom && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenRoom(room.id)}
+                      aria-label={`Abrir sala ${room.name}`}
+                      data-testid="office-room-open"
+                      className="rounded-control px-1.5 py-0.5 text-[10px] font-medium text-ink-tertiary hover:bg-surface-3 hover:text-ink-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      Abrir
+                    </button>
+                  )}
                 </div>
 
                 {agents.length === 0 ? (
@@ -184,6 +198,14 @@ export function OfficeSidebar({
                                 {agent.agent} · {status.label}
                               </span>
                             </span>
+                            {agent.rolePending && (
+                              <span
+                                data-testid="office-agent-pending"
+                                className="shrink-0 rounded-pill border border-warn-border bg-warn-bg px-1.5 py-0.5 text-[9px] font-semibold text-warn"
+                              >
+                                pendente
+                              </span>
+                            )}
                             <span className="max-w-[88px] shrink-0 truncate text-[10px] text-ink-tertiary">
                               {agent.model.id}
                             </span>

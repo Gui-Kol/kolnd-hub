@@ -1,29 +1,49 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { OfficeAgent, OfficeAgentStatus, OfficeSnapshot } from '../../../../shared/office'
+import type { OfficeAvatarLook } from '../../../../shared/officeAvatar'
+import type { Point } from '../../office/iso'
 import {
-  AGENT_HEIGHT,
-  AGENT_WIDTH,
-  FURNITURE,
-  agentFrames,
-  agentPalette,
-  officePalette,
-  type Palette,
-  type PixelSprite
-} from '../../office/art'
-import { findAgentAt, spaceLayout, type OfficeLayout, type Rect } from '../../office/layout'
+  characterShadow,
+  chairShapes,
+  composeCharacter,
+  deskShapes,
+  floorShapes,
+  frameShapes,
+  plantSprite,
+  rugShapes,
+  scenePalette,
+  wallShapes,
+  type IsoArtOrigin,
+  type IsoShape,
+  type IsoSprite,
+  type ScenePalette
+} from '../../office/isoArt'
+import {
+  findAgentAt,
+  findRoomAt,
+  ISLAND_DEPTH,
+  ISLAND_WIDTH,
+  layoutOffice,
+  type IsoOfficeLayout,
+  type IsoSeatPlacement
+} from '../../office/layout'
 
 /**
- * Canvas do escritório: 2D puro, pixel art desenhada a partir de `art.ts` e
- * posicionada por `layout.ts`.
+ * Canvas do escritório isométrico.
  *
- * - Um único `requestAnimationFrame`; pausa quando `document.hidden`.
- * - `devicePixelRatio` respeitado (limitado a 2 para não estourar memória).
- * - Clique faz hit test pelos retângulos do layout e seleciona o personagem.
- * - A acessibilidade real é a lista da sidebar; aqui o canvas é `role="img"`.
+ * - Um único `requestAnimationFrame`, pausado quando `document.hidden`.
+ * - Cena estática (piso/paredes/móveis/chips) pré-renderizada num canvas
+ *   offscreen; cada quadro só redesenha os personagens animados e as bolhas.
+ * - `devicePixelRatio` respeitado (limitado a 2).
+ * - Clique no boneco → popover; na sala (piso/chip/parede) → configurações;
+ *   no vazio → desmarca. A lista da sidebar continua sendo a via acessível.
+ * - Marcadores invisíveis (`pointer-events-none`) expõem os alvos do canvas
+ *   para o e2e/inspeção — o canvas em si é decorativo (`aria-hidden`).
  */
 
 const FRAME_MS = 320
 const PIXEL_FONT = 'Inter, system-ui, -apple-system, sans-serif'
+const MAX_SPRITE_CACHE = 240
 
 const STATUS_COLORS: Record<OfficeAgentStatus, string> = {
   working: '#47c476',
@@ -41,11 +61,26 @@ const STATUS_HINTS: Record<OfficeAgentStatus, string> = {
   unknown: 'Sem dados'
 }
 
+export interface OfficeAgentAnchor {
+  x: number
+  y: number
+}
+
 export interface OfficeCanvasProps {
   snapshot: OfficeSnapshot
   selectedID: string | null
-  /** Recebe `null` quando o clique cai no vazio (deseleciona). */
-  onSelect: (sessionID: string | null) => void
+  selectedRoomID?: string | null
+  /** Abre o popover do personagem ancorado no boneco. */
+  onSelectAgent: (sessionID: string, anchor: OfficeAgentAnchor) => void
+  /** Abre as configurações da sala clicada. */
+  onSelectRoom: (roomID: string) => void
+  /** Clique em piso vazio/corredor: fecha popover e desmarca. */
+  onSelectEmpty: () => void
+  /** Mapa `sessionID → anchor` e tamanho do canvas para a sidebar/popover. */
+  onLayout?: (
+    anchors: ReadonlyMap<string, OfficeAgentAnchor>,
+    size: { width: number; height: number }
+  ) => void
 }
 
 function roundRect(
@@ -56,39 +91,8 @@ function roundRect(
   height: number,
   radius: number
 ): void {
-  const r = Math.max(0, Math.min(radius, width / 2, height / 2))
   ctx.beginPath()
-  ctx.roundRect(x, y, width, height, r)
-}
-
-/** Desenha um sprite de grade dentro do retângulo (escala independente X/Y). */
-function drawSprite(
-  ctx: CanvasRenderingContext2D,
-  sprite: PixelSprite | { width: number; height: number; rows: string[] },
-  palette: Palette,
-  rect: Rect,
-  alpha = 1
-): void {
-  if (rect.width <= 0 || rect.height <= 0) return
-  const scaleX = rect.width / sprite.width
-  const scaleY = rect.height / sprite.height
-  ctx.save()
-  ctx.globalAlpha = alpha
-  for (let row = 0; row < sprite.rows.length; row++) {
-    const line = sprite.rows[row]
-    for (let col = 0; col < line.length; col++) {
-      const color = palette[line[col]]
-      if (!color) continue
-      ctx.fillStyle = color
-      ctx.fillRect(
-        rect.x + col * scaleX,
-        rect.y + row * scaleY,
-        Math.ceil(scaleX),
-        Math.ceil(scaleY)
-      )
-    }
-  }
-  ctx.restore()
+  ctx.roundRect(x, y, width, height, Math.max(0, Math.min(radius, width / 2, height / 2)))
 }
 
 function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
@@ -101,259 +105,315 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number):
   return `${out}…`
 }
 
-function drawHeader(ctx: CanvasRenderingContext2D, room: OfficeLayout['rooms'][number]): void {
-  const { header } = room
-  // A pasta âmbar identifica a sala sem depender de cor de marca.
-  ctx.fillStyle = '#c98d2f'
-  ctx.fillRect(header.x + 9, header.y + Math.max(5, header.height / 2 - 5), 6, 4)
-  ctx.fillStyle = '#e2a33f'
-  ctx.fillRect(header.x + 9, header.y + Math.max(7, header.height / 2 - 2), 10, 7)
+function drawShape(ctx: CanvasRenderingContext2D, shape: IsoShape): void {
+  if (shape.kind === 'poly') {
+    if (shape.points.length < 3) return
+    ctx.beginPath()
+    ctx.moveTo(shape.points[0].x, shape.points[0].y)
+    for (let index = 1; index < shape.points.length; index++) {
+      ctx.lineTo(shape.points[index].x, shape.points[index].y)
+    }
+    ctx.closePath()
+    ctx.fillStyle = shape.fill
+    ctx.fill()
+    if (shape.stroke) {
+      ctx.strokeStyle = shape.stroke
+      ctx.lineWidth = shape.lineWidth ?? 1
+      ctx.stroke()
+    }
+    return
+  }
 
-  ctx.font = `600 11px ${PIXEL_FONT}`
+  if (shape.radius && shape.radius > 0) {
+    roundRect(ctx, shape.x, shape.y, shape.width, shape.height, shape.radius)
+    ctx.fillStyle = shape.fill
+    ctx.fill()
+  } else {
+    ctx.fillStyle = shape.fill
+    ctx.fillRect(shape.x, shape.y, shape.width, shape.height)
+  }
+  if (shape.stroke) {
+    ctx.strokeStyle = shape.stroke
+    ctx.lineWidth = shape.lineWidth ?? 1
+    if (shape.radius && shape.radius > 0) {
+      roundRect(ctx, shape.x, shape.y, shape.width, shape.height, shape.radius)
+      ctx.stroke()
+    } else {
+      ctx.strokeRect(shape.x, shape.y, shape.width, shape.height)
+    }
+  }
+}
+
+function drawSprite(ctx: CanvasRenderingContext2D, sprite: IsoSprite): void {
+  if (sprite.width <= 0 || sprite.height <= 0) return
+  const scaleX = sprite.width / (sprite.rows[0]?.length || 1)
+  const scaleY = sprite.height / sprite.rows.length
+  ctx.save()
+  if (sprite.alpha !== undefined) ctx.globalAlpha = sprite.alpha
+  for (let row = 0; row < sprite.rows.length; row++) {
+    const line = sprite.rows[row]
+    for (let column = 0; column < line.length; column++) {
+      const color = sprite.palette[line[column]]
+      if (!color) continue
+      ctx.fillStyle = color
+      ctx.fillRect(
+        sprite.x + column * scaleX,
+        sprite.y + row * scaleY,
+        Math.ceil(scaleX),
+        Math.ceil(scaleY)
+      )
+    }
+  }
+  ctx.restore()
+}
+
+function drawRoomChip(
+  ctx: CanvasRenderingContext2D,
+  chip: { x: number; y: number; width: number; height: number },
+  label: string,
+  count: number,
+  more: number,
+  selected: boolean
+): void {
+  roundRect(ctx, chip.x, chip.y, chip.width, chip.height, 5)
+  ctx.fillStyle = selected ? '#2b3644' : '#1b2430'
+  ctx.fill()
+  ctx.strokeStyle = selected ? '#e2a33f' : 'rgba(255, 255, 255, 0.12)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // Pasta âmbar: identifica a sala sem depender de cor de marca.
+  ctx.fillStyle = '#c98d2f'
+  ctx.fillRect(chip.x + 6, chip.y + 8, 5, 3)
+  ctx.fillStyle = '#e2a33f'
+  ctx.fillRect(chip.x + 6, chip.y + 10, 8, 5)
+
+  ctx.font = `600 10.5px ${PIXEL_FONT}`
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   ctx.fillStyle = '#e8eaed'
-  const labelWidth = Math.max(0, header.width - 62)
-  ctx.fillText(fitText(ctx, room.label, labelWidth), header.x + 24, header.y + header.height / 2)
-
-  ctx.font = `10px ${PIXEL_FONT}`
+  const moreLabel = more > 0 ? ` +${more}` : ''
+  const counter = `${count}${moreLabel}`
+  ctx.font = `9px ${PIXEL_FONT}`
+  const counterWidth = ctx.measureText(counter).width + 6
+  ctx.font = `600 10.5px ${PIXEL_FONT}`
+  ctx.fillText(
+    fitText(ctx, label, chip.width - 30 - counterWidth),
+    chip.x + 18,
+    chip.y + chip.height / 2
+  )
+  ctx.font = `9px ${PIXEL_FONT}`
   ctx.textAlign = 'right'
-  ctx.fillStyle = '#7d8894'
-  ctx.fillText(`${room.seats.length}`, header.x + header.width - 10, header.y + header.height / 2)
+  ctx.fillStyle = more > 0 ? '#f5d76e' : '#7d8894'
+  ctx.fillText(counter, chip.x + chip.width - 6, chip.y + chip.height / 2)
   ctx.textAlign = 'left'
 }
 
-function drawSeat(
+/** Cena estática: chão, paredes, móveis, plantas, quadros e chips. */
+function paintStaticScene(
+  scene: HTMLCanvasElement,
+  layout: IsoOfficeLayout,
+  snapshot: OfficeSnapshot,
+  selectedRoomID: string | null | undefined,
+  dpr: number
+): void {
+  const width = Math.max(1, layout.width)
+  const height = Math.max(1, layout.height)
+  scene.width = Math.round(width * dpr)
+  scene.height = Math.round(height * dpr)
+  const ctx = scene.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+
+  // Fundo com vinheta suave (a cena nunca fica "chapada").
+  const background = ctx.createLinearGradient(0, 0, 0, height)
+  background.addColorStop(0, '#111a23')
+  background.addColorStop(1, '#0b1117')
+  ctx.fillStyle = background
+  ctx.fillRect(0, 0, width, height)
+
+  const palette = scenePalette()
+  const byID = new Map(snapshot.agents.map((agent) => [agent.sessionID, agent]))
+  const orderedRooms = [...layout.rooms].sort((left, right) => left.depth - right.depth)
+
+  for (const room of orderedRooms) {
+    const origin: IsoArtOrigin = room.artOrigin
+    const floor = floorShapes(origin, ISLAND_WIDTH, ISLAND_DEPTH, palette)
+    for (const shape of floor) drawShape(ctx, shape)
+
+    const rug = rugShapes(origin, ISLAND_WIDTH, ISLAND_DEPTH, palette)
+    for (const shape of rug) drawShape(ctx, shape)
+
+    const walls = wallShapes(origin, ISLAND_WIDTH, ISLAND_DEPTH, palette)
+    for (const shape of walls) drawShape(ctx, shape)
+
+    const frames = frameShapes(origin, 1.6, 18, palette)
+    for (const shape of frames) drawShape(ctx, shape)
+
+    // Cadeiras atrás e mesas na frente; depois a planta, sempre à frente.
+    // A arte usa coordenadas LOCAIS da ilha; `deskWorld` é a posição global.
+    for (const seat of room.seats) {
+      const deskX = seat.deskWorld.x - room.world.x
+      const deskY = seat.deskWorld.y - room.world.y
+      for (const shape of chairShapes(origin, deskX, deskY, palette)) {
+        drawShape(ctx, shape)
+      }
+    }
+    for (const seat of room.seats) {
+      const deskX = seat.deskWorld.x - room.world.x
+      const deskY = seat.deskWorld.y - room.world.y
+      for (const shape of deskShapes(origin, deskX, deskY, palette)) {
+        drawShape(ctx, shape)
+      }
+    }
+
+    // Vaso pequeno no canto (sem asset de imagem).
+    const plant = plantSprite(origin, ISLAND_WIDTH - 1.05, ISLAND_DEPTH - 0.85, palette)
+    drawSprite(ctx, plant)
+
+    const agentIDs = room.room.agentIDs.filter((sessionID) => byID.has(sessionID))
+    drawRoomChip(
+      ctx,
+      room.chip,
+      room.label,
+      agentIDs.length,
+      room.more,
+      selectedRoomID === room.room.id
+    )
+  }
+}
+
+function drawCharacter(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLCanvasElement,
+  seat: IsoSeatPlacement,
+  scale: number
+): void {
+  const width = 16 * scale
+  const height = 24 * scale
+  ctx.drawImage(image, seat.anchor.x - width / 2, seat.anchor.y - height, width, height)
+}
+
+function drawAgentDetails(
   ctx: CanvasRenderingContext2D,
   agent: OfficeAgent,
-  seat: OfficeLayout['seats'][number],
-  palette: Palette,
+  seat: IsoSeatPlacement,
+  scale: number,
   selected: boolean,
-  time: number
+  palette: ScenePalette
 ): void {
-  const status = agent.status
+  const shadow = characterShadow(seat.anchor, scale, palette)
+  drawShape(ctx, shadow)
 
   if (selected) {
-    roundRect(ctx, seat.cell.x, seat.cell.y, seat.cell.width, seat.cell.height, 8)
-    ctx.fillStyle = 'rgba(226, 163, 63, 0.08)'
+    roundRect(ctx, seat.hit.x, seat.hit.y, seat.hit.width, seat.hit.height, 6)
+    ctx.fillStyle = 'rgba(226, 163, 63, 0.10)'
     ctx.fill()
     ctx.strokeStyle = '#e2a33f'
     ctx.lineWidth = 1.5
     ctx.stroke()
   }
 
-  const frames = agentFrames(status)
-  const frame = frames[frames.length > 1 ? Math.floor(time / FRAME_MS) % frames.length : 0]
-  drawSprite(
-    ctx,
-    { width: AGENT_WIDTH, height: AGENT_HEIGHT, rows: frame },
-    agentPalette(agent.seed, status),
-    seat.sprite,
-    status === 'ended' ? 0.55 : 1
-  )
+  if (scale < 0.5) return
 
-  // Monitor apoiado no tampo, antes da mesa (a mesa cobre a base do suporte).
-  const monitorWidth = Math.max(8, Math.min(30, seat.desk.width * 0.5))
-  const monitorHeight = monitorWidth * (FURNITURE.monitor.height / FURNITURE.monitor.width)
-  drawSprite(ctx, FURNITURE.monitor, palette, {
-    x: seat.desk.x + (seat.desk.width - monitorWidth) / 2,
-    y: seat.desk.y - monitorHeight + 2,
-    width: monitorWidth,
-    height: monitorHeight
-  })
-
-  drawSprite(ctx, FURNITURE.desk, palette, seat.desk)
-
-  // Bolha de atividade: só quando há altura suficiente para ler.
-  if (seat.bubble.height >= 9 && seat.bubble.width >= 24) {
-    const needs = status === 'needsYou'
-    roundRect(ctx, seat.bubble.x, seat.bubble.y, seat.bubble.width, seat.bubble.height, 5)
-    ctx.fillStyle = '#222d3a'
-    ctx.fill()
-    ctx.strokeStyle = needs ? 'rgba(245, 215, 110, 0.55)' : 'rgba(255, 255, 255, 0.08)'
-    ctx.lineWidth = 1
-    ctx.stroke()
-
-    ctx.fillStyle = STATUS_COLORS[status]
-    ctx.fillRect(seat.bubble.x + 4, seat.bubble.y + seat.bubble.height / 2 - 1.5, 3, 3)
-
-    ctx.font = `9px ${PIXEL_FONT}`
-    ctx.textBaseline = 'middle'
-    ctx.textAlign = 'left'
-    ctx.fillStyle = needs ? '#f5d76e' : '#a8b3bd'
-    const text = agent.activity?.label ?? STATUS_HINTS[status]
-    ctx.fillText(
-      fitText(ctx, text, seat.bubble.width - 12),
-      seat.bubble.x + 10,
-      seat.bubble.y + seat.bubble.height / 2
-    )
-  }
-
-  // Plaquinha com o nome sobre a mesa (não vaza da célula).
-  const plaqueWidth = Math.max(18, Math.min(seat.cell.width - 2, seat.desk.width * 0.9))
-  const plaqueHeight = Math.min(11, Math.max(8, seat.desk.height - 1))
-  const plaqueX = seat.cell.x + (seat.cell.width - plaqueWidth) / 2
-  const plaqueY = seat.desk.y + 1
-  ctx.font = `9px ${PIXEL_FONT}`
+  // Plaquinha com o nome (abaixo dos pés, para não cobrir o sprite).
   const name = agent.parentID ? `${agent.name} · sub` : agent.name
-  const label = fitText(ctx, name, plaqueWidth - 6)
-  roundRect(ctx, plaqueX, plaqueY, plaqueWidth, plaqueHeight, 3)
-  ctx.fillStyle = 'rgba(14, 20, 27, 0.78)'
-  ctx.fill()
-
-  ctx.textBaseline = 'middle'
+  ctx.font = `500 9px ${PIXEL_FONT}`
   ctx.textAlign = 'center'
-  ctx.fillStyle = '#e8eaed'
-  ctx.fillText(label, plaqueX + plaqueWidth / 2, plaqueY + plaqueHeight / 2)
-  ctx.textAlign = 'left'
-}
-
-function drawScene(
-  ctx: CanvasRenderingContext2D,
-  layout: OfficeLayout,
-  snapshot: OfficeSnapshot,
-  selectedID: string | null,
-  time: number
-): void {
-  const { width, height, corridor } = layout
-  const palette = officePalette()
-
-  ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = '#0e141b'
-  ctx.fillRect(0, 0, width, height)
-
-  const agentByID = new Map<string, OfficeAgent>()
-  for (const agent of snapshot.agents) agentByID.set(agent.sessionID, agent)
-
-  // Corredor no rodapé: mesma linguagem da grade, com portas nas pontas.
-  roundRect(ctx, corridor.x, corridor.y, corridor.width, corridor.height, 10)
-  ctx.fillStyle = '#121a23'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = 'rgba(9, 14, 19, 0.72)'
+  const nameWidth = Math.min(96, ctx.measureText(name).width + 10)
+  roundRect(ctx, seat.anchor.x - nameWidth / 2, seat.anchor.y + 2, nameWidth, 11, 3)
   ctx.fill()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)'
+  ctx.fillStyle = agent.rolePending ? '#f5d76e' : '#e8eaed'
+  ctx.fillText(fitText(ctx, name, nameWidth - 6), seat.anchor.x, seat.anchor.y + 8)
+
+  const pending = agent.rolePending
+  const hint = pending
+    ? `Função ${pending} pendente`
+    : (agent.activity?.label ?? STATUS_HINTS[agent.status])
+  const bubbleWidth = Math.min(150, Math.max(84, hint.length * 5.2 + 22))
+  const bubbleHeight = 16
+  const bubbleX = seat.anchor.x - bubbleWidth / 2
+  const bubbleY = seat.popover.y - bubbleHeight - 4
+  if (bubbleY < 2) return
+
+  roundRect(ctx, bubbleX, bubbleY, bubbleWidth, bubbleHeight, 5)
+  ctx.fillStyle = '#121b24'
+  ctx.fill()
+  ctx.strokeStyle =
+    agent.status === 'needsYou' || pending
+      ? 'rgba(245, 215, 110, 0.55)'
+      : 'rgba(255, 255, 255, 0.10)'
   ctx.lineWidth = 1
   ctx.stroke()
 
-  ctx.save()
-  roundRect(ctx, corridor.x, corridor.y, corridor.width, corridor.height, 10)
-  ctx.clip()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.045)'
-  for (let x = corridor.x + 26; x < corridor.x + corridor.width; x += 26) {
-    ctx.beginPath()
-    ctx.moveTo(x + 0.5, corridor.y)
-    ctx.lineTo(x + 0.5, corridor.y + corridor.height)
-    ctx.stroke()
-  }
-  const doorHeight = Math.max(0, corridor.height - 12)
-  const doorWidth = doorHeight * (FURNITURE.door.width / FURNITURE.door.height)
-  if (doorHeight > 4) {
-    const doorY = corridor.y + (corridor.height - doorHeight) / 2
-    drawSprite(ctx, FURNITURE.door, palette, {
-      x: corridor.x + 10,
-      y: doorY,
-      width: doorWidth,
-      height: doorHeight
-    })
-    drawSprite(ctx, FURNITURE.door, palette, {
-      x: corridor.x + corridor.width - doorWidth - 10,
-      y: doorY,
-      width: doorWidth,
-      height: doorHeight
-    })
-  }
-  ctx.restore()
+  ctx.fillStyle = pending ? '#f5d76e' : STATUS_COLORS[agent.status]
+  ctx.fillRect(bubbleX + 5, bubbleY + bubbleHeight / 2 - 1.5, 3, 3)
 
-  ctx.font = `10px ${PIXEL_FONT}`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle = '#7d8894'
-  ctx.fillText('CORREDOR', corridor.x + corridor.width / 2, corridor.y + corridor.height / 2)
+  ctx.font = `9px ${PIXEL_FONT}`
   ctx.textAlign = 'left'
-
-  for (const room of layout.rooms) {
-    // Casca arredondada da sala.
-    roundRect(ctx, room.bounds.x, room.bounds.y, room.bounds.width, room.bounds.height, 12)
-    ctx.fillStyle = '#151d26'
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)'
-    ctx.lineWidth = 1
-    ctx.stroke()
-
-    // Cabeçalho com superfície levemente mais clara.
-    ctx.save()
-    roundRect(ctx, room.bounds.x, room.bounds.y, room.bounds.width, room.bounds.height, 12)
-    ctx.clip()
-    ctx.fillStyle = '#1b2430'
-    ctx.fillRect(room.header.x, room.header.y, room.header.width, room.header.height)
-    ctx.restore()
-
-    // Piso + grade sutil, recortados no retângulo da sala.
-    ctx.save()
-    roundRect(ctx, room.bounds.x, room.bounds.y, room.bounds.width, room.bounds.height, 12)
-    ctx.clip()
-    ctx.fillStyle = '#111923'
-    ctx.fillRect(room.floor.x, room.floor.y, room.floor.width, room.floor.height)
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)'
-    ctx.lineWidth = 1
-    for (let x = room.floor.x + 24; x < room.floor.x + room.floor.width; x += 24) {
-      ctx.beginPath()
-      ctx.moveTo(x + 0.5, room.floor.y)
-      ctx.lineTo(x + 0.5, room.floor.y + room.floor.height)
-      ctx.stroke()
-    }
-    for (let y = room.floor.y + 24; y < room.floor.y + room.floor.height; y += 24) {
-      ctx.beginPath()
-      ctx.moveTo(room.floor.x, y + 0.5)
-      ctx.lineTo(room.floor.x + room.floor.width, y + 0.5)
-      ctx.stroke()
-    }
-
-    // Planta decorativa no canto inferior direito (atrás dos assentos).
-    const plantHeight = Math.min(18, Math.max(0, room.floor.height * 0.35))
-    const plantWidth = plantHeight * (FURNITURE.plant.width / FURNITURE.plant.height)
-    if (plantHeight >= 8 && room.floor.width > plantWidth + 12) {
-      drawSprite(ctx, FURNITURE.plant, palette, {
-        x: room.floor.x + room.floor.width - plantWidth - 6,
-        y: room.floor.y + room.floor.height - plantHeight,
-        width: plantWidth,
-        height: plantHeight
-      })
-    }
-
-    if (room.seats.length === 0) {
-      ctx.font = `10px ${PIXEL_FONT}`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = '#7d8894'
-      ctx.fillText(
-        'mesa livre',
-        room.floor.x + room.floor.width / 2,
-        room.floor.y + room.floor.height / 2
-      )
-      ctx.textAlign = 'left'
-    }
-
-    for (const seat of room.seats) {
-      const agent = agentByID.get(seat.sessionID)
-      if (!agent) continue
-      drawSeat(ctx, agent, seat, palette, selectedID === seat.sessionID, time)
-    }
-    ctx.restore()
-
-    drawHeader(ctx, room)
-  }
+  ctx.fillStyle = agent.status === 'needsYou' || pending ? '#f5d76e' : '#a8b3bd'
+  ctx.fillText(fitText(ctx, hint, bubbleWidth - 14), bubbleX + 12, bubbleY + bubbleHeight / 2)
+  ctx.textAlign = 'left'
 }
 
-export function OfficeCanvas({ snapshot, selectedID, onSelect }: OfficeCanvasProps): JSX.Element {
+export function OfficeCanvas({
+  snapshot,
+  selectedID,
+  selectedRoomID,
+  onSelectAgent,
+  onSelectRoom,
+  onSelectEmpty,
+  onLayout
+}: OfficeCanvasProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const layoutRef = useRef<OfficeLayout | null>(null)
-  const onSelectRef = useRef(onSelect)
+  const sceneRef = useRef<HTMLCanvasElement | null>(null)
+  const layoutRef = useRef<IsoOfficeLayout | null>(null)
+  const spritesRef = useRef(new Map<string, HTMLCanvasElement>())
+  const [layout, setLayout] = useState<IsoOfficeLayout | null>(null)
 
+  const callbacks = useRef({ onSelectAgent, onSelectRoom, onSelectEmpty, onLayout })
   useEffect(() => {
-    onSelectRef.current = onSelect
-  }, [onSelect])
+    callbacks.current = { onSelectAgent, onSelectRoom, onSelectEmpty, onLayout }
+  }, [onSelectAgent, onSelectRoom, onSelectEmpty, onLayout])
 
-  // Desenho: um único rAF, pausado enquanto a aba/janela está oculta.
+  // Mede o container e recalcula o layout quando o snapshot ou o tamanho muda.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const parent = canvas?.parentElement
+    if (!canvas || !parent) return
+
+    const update = (): void => {
+      const width = Math.max(1, Math.floor(parent.clientWidth))
+      const height = Math.max(1, Math.floor(parent.clientHeight))
+      const next = layoutOffice(snapshot, { width, height })
+      layoutRef.current = next
+      setLayout(next)
+      const anchors = new Map<string, OfficeAgentAnchor>()
+      for (const seat of next.seats) anchors.set(seat.sessionID, seat.popover)
+      callbacks.current.onLayout?.(anchors, { width, height })
+    }
+
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [snapshot])
+
+  // Cena estática em canvas offscreen (recriada só quando layout/sala ativa muda).
+  useEffect(() => {
+    if (!layout) return
+    const scene = sceneRef.current ?? document.createElement('canvas')
+    sceneRef.current = scene
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    paintStaticScene(scene, layout, snapshot, selectedRoomID, dpr)
+    spritesRef.current.clear()
+  }, [layout, snapshot, selectedRoomID])
+
+  // Loop único de desenho: personagens, seleção e bolhas sobre a cena estática.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -363,12 +423,62 @@ export function OfficeCanvas({ snapshot, selectedID, onSelect }: OfficeCanvasPro
     let frame = 0
     let stopped = false
 
+    const ensureSprite = (
+      agent: OfficeAgent,
+      look: OfficeAvatarLook,
+      frameIndex: number,
+      scale: number,
+      dpr: number
+    ): HTMLCanvasElement => {
+      const key = [
+        agent.sessionID,
+        look.sex,
+        look.hairStyle,
+        look.hairColor,
+        look.skin,
+        look.shirt,
+        look.pants,
+        agent.status,
+        frameIndex,
+        scale.toFixed(3),
+        dpr
+      ].join('|')
+      const cached = spritesRef.current.get(key)
+      if (cached) return cached
+
+      const art = composeCharacter(look, agent.status, frameIndex)
+      const pixel = Math.max(1, Math.round(scale * dpr))
+      const sprite = document.createElement('canvas')
+      sprite.width = art.width * pixel
+      sprite.height = art.height * pixel
+      const spriteCtx = sprite.getContext('2d')
+      if (spriteCtx) {
+        spriteCtx.imageSmoothingEnabled = false
+        for (let row = 0; row < art.rows.length; row++) {
+          const line = art.rows[row]
+          for (let column = 0; column < line.length; column++) {
+            const color = art.palette[line[column]]
+            if (!color) continue
+            spriteCtx.fillStyle = color
+            spriteCtx.fillRect(column * pixel, row * pixel, pixel, pixel)
+          }
+        }
+      }
+      spritesRef.current.set(key, sprite)
+      if (spritesRef.current.size > MAX_SPRITE_CACHE) {
+        const first = spritesRef.current.keys().next()
+        if (!first.done) spritesRef.current.delete(first.value)
+      }
+      return sprite
+    }
+
     const render = (time: number): void => {
       if (stopped) return
+      const current = layoutRef.current
       const parent = canvas.parentElement
-      if (parent) {
-        const cssWidth = Math.max(1, Math.floor(parent.clientWidth))
-        const cssHeight = Math.max(1, Math.floor(parent.clientHeight))
+      if (current && parent) {
+        const cssWidth = Math.max(1, parent.clientWidth)
+        const cssHeight = Math.max(1, parent.clientHeight)
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
         const pixelWidth = Math.round(cssWidth * dpr)
         const pixelHeight = Math.round(cssHeight * dpr)
@@ -379,9 +489,34 @@ export function OfficeCanvas({ snapshot, selectedID, onSelect }: OfficeCanvasPro
           canvas.style.height = `${cssHeight}px`
         }
         context.setTransform(dpr, 0, 0, dpr, 0, 0)
-        const layout = spaceLayout(snapshot, { width: cssWidth, height: cssHeight })
-        layoutRef.current = layout
-        drawScene(context, layout, snapshot, selectedID, time)
+        context.clearRect(0, 0, cssWidth, cssHeight)
+
+        const scene = sceneRef.current
+        if (scene && scene.width > 0) {
+          context.drawImage(scene, 0, 0, scene.width, scene.height, 0, 0, cssWidth, cssHeight)
+        }
+
+        const palette = scenePalette()
+        const agentByID = new Map(snapshot.agents.map((agent) => [agent.sessionID, agent]))
+        const ordered = [...current.seats].sort((left, right) => left.depth - right.depth)
+        for (const seat of ordered) {
+          const agent = agentByID.get(seat.sessionID)
+          if (!agent) continue
+          const look = snapshot.avatars[seat.sessionID]
+          if (!look) continue
+          drawAgentDetails(
+            context,
+            agent,
+            seat,
+            current.camera.scale,
+            selectedID === seat.sessionID,
+            palette
+          )
+          const frames = agent.status === 'working' ? 3 : 1
+          const frameIndex = frames > 1 ? Math.floor(time / FRAME_MS) % frames : 0
+          const sprite = ensureSprite(agent, look, frameIndex, current.camera.scale, dpr)
+          drawCharacter(context, sprite, seat, current.camera.scale)
+        }
       }
       frame = window.requestAnimationFrame(render)
     }
@@ -410,35 +545,48 @@ export function OfficeCanvas({ snapshot, selectedID, onSelect }: OfficeCanvasPro
     }
   }, [snapshot, selectedID])
 
-  // Clique/hover imperativos: o canvas é decorativo para leitores de tela,
-  // então não vira um elemento interativo no JSX (a lista da sidebar é a via
-  // acessível). O main não recebe evento nenhum — só muda a seleção local.
+  // Clique/hover: boneco → popover; sala → configurações; vazio → desmarca.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const locate = (event: MouseEvent): { x: number; y: number } | null => {
-      const layout = layoutRef.current
-      if (!layout) return null
+    const locate = (event: MouseEvent): Point | null => {
+      const current = layoutRef.current
+      if (!current) return null
       const rect = canvas.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return null
       return {
-        x: ((event.clientX - rect.left) / rect.width) * layout.width,
-        y: ((event.clientY - rect.top) / rect.height) * layout.height
+        x: ((event.clientX - rect.left) / rect.width) * current.width,
+        y: ((event.clientY - rect.top) / rect.height) * current.height
       }
     }
 
     const onClick = (event: MouseEvent): void => {
-      const layout = layoutRef.current
+      const current = layoutRef.current
       const point = locate(event)
-      if (!layout || !point) return
-      onSelectRef.current(findAgentAt(layout, point.x, point.y))
+      if (!current || !point) return
+      const sessionID = findAgentAt(current, point.x, point.y)
+      if (sessionID) {
+        const seat = current.seats.find((entry) => entry.sessionID === sessionID)
+        callbacks.current.onSelectAgent(sessionID, seat?.popover ?? point)
+        return
+      }
+      const roomID = findRoomAt(current, point.x, point.y)
+      if (roomID) {
+        callbacks.current.onSelectRoom(roomID)
+        return
+      }
+      callbacks.current.onSelectEmpty()
     }
     const onMove = (event: MouseEvent): void => {
-      const layout = layoutRef.current
+      const current = layoutRef.current
       const point = locate(event)
       canvas.style.cursor =
-        layout && point && findAgentAt(layout, point.x, point.y) ? 'pointer' : 'default'
+        current &&
+        point &&
+        (findAgentAt(current, point.x, point.y) || findRoomAt(current, point.x, point.y))
+          ? 'pointer'
+          : 'default'
     }
 
     canvas.addEventListener('click', onClick)
@@ -452,16 +600,52 @@ export function OfficeCanvas({ snapshot, selectedID, onSelect }: OfficeCanvasPro
   const summary =
     snapshot.rooms.length === 0
       ? 'Escritório vazio.'
-      : `Escritório com ${snapshot.rooms.length} ${
+      : `Escritório isométrico com ${snapshot.rooms.length} ${
           snapshot.rooms.length === 1 ? 'sala' : 'salas'
         } e ${snapshot.agents.length} ${snapshot.agents.length === 1 ? 'sessão' : 'sessões'}.`
 
   return (
-    <canvas
-      ref={canvasRef}
-      role="img"
-      aria-label={`${summary} Selecione uma sessão na lista ao lado para ver os detalhes.`}
-      className="block h-full w-full"
-    />
+    <div className="relative h-full w-full" data-testid="office-canvas-wrap">
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        data-testid="office-canvas"
+        data-iso="true"
+        className="block h-full w-full"
+      />
+      <p className="sr-only">{summary}</p>
+      {layout && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          {layout.rooms.map((room) => (
+            <span
+              key={`room-${room.room.id}`}
+              data-testid="office-room-hit"
+              data-room-id={room.room.id}
+              className="absolute"
+              style={{
+                left: room.chip.x,
+                top: room.chip.y,
+                width: room.chip.width,
+                height: room.chip.height
+              }}
+            />
+          ))}
+          {layout.seats.map((seat) => (
+            <span
+              key={`seat-${seat.sessionID}`}
+              data-testid="office-seat"
+              data-session-id={seat.sessionID}
+              className="absolute"
+              style={{
+                left: seat.hit.x,
+                top: seat.hit.y,
+                width: seat.hit.width,
+                height: seat.hit.height
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

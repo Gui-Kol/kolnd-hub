@@ -8,6 +8,10 @@
 // O renderer NUNCA fala com a API do OpenCode: o main traduz `Session.Info`
 // para este contrato e a UI só conhece o que está aqui.
 
+import { defaultLookFor, isValidAvatarLook, type OfficeAvatarLook } from './officeAvatar'
+
+export type { OfficeAvatarLook } from './officeAvatar'
+
 /** Origem do snapshot: poller do CLI, plugin de tempo real, ou o merge dos dois. */
 export type OfficeSource = 'poller' | 'plugin' | 'both'
 
@@ -52,26 +56,54 @@ export interface OfficeAgent {
   startedAt: number
   /** Epoch ms da última atualização conhecida. */
   lastSeenAt: number
-  /** `OfficeRoom.id` da sala em que o personagem senta. */
+  /** `OfficeRoom.id` da sala (departamento) em que o personagem senta. */
   roomID: string
+  /** Diretório ORIGINAL do projeto (etiqueta no detalhe, não define mais sala). */
+  directory?: string
+  /** Função esperada pela sala e ainda não aplicada (badge "pendente"). */
+  rolePending?: string
   /** Nome determinístico derivado do `sessionID`. */
   name: string
   /** Seed determinística do "look" (mesmo id ⇒ mesmo personagem). */
   seed: number
 }
 
-export interface OfficeRoom {
-  /** Diretório canônico da sessão (minúsculas, `/`, sem barra final). */
+/**
+ * Departamento criado pelo usuário (persistido em `officeDepartments`).
+ *
+ * A "sala" do escritório É o departamento: nome + função (agente do OpenCode)
+ * + funcionários designados. Sessões sem departamento caem na sala sintética
+ * "Sem sala" (nunca persistida).
+ */
+export interface OfficeDepartment {
+  /** `dep_<8 hex>`, gerado no main. */
   id: string
-  /** Basename legível da pasta do projeto. */
+  /** 1–24 caracteres, sem controles. */
   name: string
+  /** Função da sala: agente do OpenCode. */
+  agentID: string
+  /** Funcionários designados (máx. `OFFICE_DEPARTMENT_MEMBERS_MAX`). */
+  sessionIDs: string[]
+  /** Epoch ms de criação (ordem estável de leitura). */
+  createdAt: number
+}
+
+export interface OfficeRoom {
+  /** `dep_…` do departamento ou `sem-sala` na sala sintética. */
+  id: string
+  /** Nome do departamento ("Sem sala" na sintética). */
+  name: string
+  /** Função da sala (agente). Ausente na sala sintética. */
+  agent?: string
   /**
-   * Diretório ORIGINAL da primeira sessão da sala (caixa e separadores
-   * preservados). O `id` é canônico e não serve para criar sessão no OpenCode;
-   * contratar um funcionário usa este caminho.
+   * Diretório ORIGINAL comum a todos os membros (caixa/separadores
+   * preservados). Só existe quando todos vêm da mesma pasta; é a etiqueta do
+   * projeto e o caminho usado para contratar.
    */
-  path: string
+  path?: string
   agentIDs: string[]
+  /** Sala sintética "Sem sala" (criada na derivação, nunca persistida). */
+  unassigned?: boolean
 }
 
 export interface OfficeTotals {
@@ -123,6 +155,8 @@ export interface OfficeSnapshot {
   source: OfficeSource
   rooms: OfficeRoom[]
   agents: OfficeAgent[]
+  /** Aparência efetiva por sessão (store → padrão determinístico da seed). */
+  avatars: Record<string, OfficeAvatarLook>
   feed: OfficeActivity[]
   /** Pedidos de permissão pendentes, mais recentes primeiro (≤ `REQUEST_MAX`). */
   requests: OfficePermissionRequest[]
@@ -199,6 +233,38 @@ export interface OfficeManageResult {
   error?: string
 }
 
+/** Aparência efetiva de uma sessão (resposta de `office:avatar-get`). */
+export interface OfficeAvatarResult {
+  ok: boolean
+  look?: OfficeAvatarLook
+  error?: string
+}
+
+/** Desfecho de criar/editar uma sala-departamento. */
+export interface OfficeDepartmentResult {
+  ok: boolean
+  department?: OfficeDepartment
+  error?: string
+}
+
+/** Desfecho de excluir uma sala: membros voltam para "Sem sala". */
+export interface OfficeDepartmentDeleteResult {
+  ok: boolean
+  released: number
+  error?: string
+}
+
+/**
+ * Desfecho de aplicar a função de uma sala. `pending` são as sessões que
+ * estavam `working` e recebem quando o usuário aplicar de novo (badge).
+ */
+export interface OfficeDepartmentApplyResult {
+  ok: boolean
+  applied: number
+  pending: number
+  error?: string
+}
+
 /** Desfecho de "apagar todos" — que na verdade ARQUIVA as sessões ociosas. */
 export interface OfficeArchiveAllResult {
   ok: boolean
@@ -257,6 +323,46 @@ export interface OfficeDeriveInput {
    * não quebrar quem só tem a lista antiga.
    */
   requests?: readonly OfficePermissionRequest[]
+  /** Departamentos criados pelo usuário (ordem de leitura do store). */
+  departments?: readonly OfficeDepartment[]
+  /** Looks persistidos por sessão; ausente/inválido cai no padrão da seed. */
+  avatars?: Readonly<Record<string, OfficeAvatarLook | undefined>>
+}
+
+/** Teto de departamentos persistidos (store e IPC aplicam o mesmo limite). */
+export const OFFICE_DEPARTMENTS_MAX = 30
+
+/** Teto de funcionários designados por departamento. */
+export const OFFICE_DEPARTMENT_MEMBERS_MAX = 60
+
+/** Id sintético da sala de quem ainda não foi designado. */
+export const UNASSIGNED_ROOM_ID = 'sem-sala'
+
+/** Nome da sala sintética (nunca persistida). */
+export const UNASSIGNED_ROOM_NAME = 'Sem sala'
+
+/** Formato do id de departamento gerado no main (`dep_` + 8 hex). */
+export const OFFICE_DEPARTMENT_ID_RE = /^dep_[0-9a-f]{8}$/
+
+/** Id de sessão do OpenCode (o mesmo formato aceito pela gestão de funcionários). */
+export const OFFICE_SESSION_ID_RE = /^ses_[A-Za-z0-9_-]{1,116}$/
+
+/** Id de agente/função do OpenCode (whitelist de caracteres). */
+export const OFFICE_AGENT_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
+
+/** Teto do nome de um departamento. */
+export const OFFICE_DEPARTMENT_NAME_MAX = 24
+
+// eslint-disable-next-line no-control-regex -- validar controles é o objetivo
+const OFFICE_CONTROL_CHARS = /[\u0000-\u001F\u007F]/
+
+/** Nome de sala: 1–24 caracteres, espaços colapsados e sem controles. */
+export function normalizeOfficeDepartmentName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const flat = value.replace(/\s+/g, ' ').trim()
+  if (!flat || flat.length > OFFICE_DEPARTMENT_NAME_MAX) return null
+  if (OFFICE_CONTROL_CHARS.test(flat)) return null
+  return flat
 }
 
 /** Teto do rótulo de atividade exibido na bolha. */
@@ -637,10 +743,11 @@ function normalizeRequests(
  *
  * Regras fechadas: status pelos `time.*` da sessão (com a janela
  * `IDLE_VISIBLE_MS` para o ocioso não virar personagem eterno); sala pelo
- * diretório normalizado; subagente por `parentID`; ordem working → needsYou →
- * idle → ended (empate por `sessionID`) e feed com as 40 atividades mais
- * recentes. A fila de permissões (`requests`) entra mascarada, ordenada do mais
- * recente para o mais antigo e limitada a `REQUEST_MAX`.
+ * departamento em que a sessão foi designada — quem não está em nenhum cai na
+ * sala sintética "Sem sala"; subagente por `parentID`; ordem working → needsYou
+ * → idle → ended (empate por `sessionID`) e feed com as 40 atividades mais
+ * recentes. `rolePending` sai da diferença entre a função da sala e a função
+ * real da sessão (é o badge "pendente" de quem ainda não recebeu a troca).
  */
 export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
   const requests = normalizeRequests(input.requests, input.now)
@@ -648,20 +755,57 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     ...(input.needsYouSessionIDs ?? []),
     ...requests.map((request) => request.sessionID)
   ])
-  const rooms = new Map<string, OfficeRoom>()
   const agents: OfficeAgent[] = []
+  const avatars: Record<string, OfficeAvatarLook> = {}
   const seen = new Set<string>()
+
+  // 1) Departamentos viram salas (mesmo vazios); ids/sessões inválidas caem fora.
+  const roomByID = new Map<string, OfficeRoom>()
+  const roomIDBySession = new Map<string, string>()
+  for (const department of input.departments ?? []) {
+    if (!department || typeof department.id !== 'string') continue
+    const id = department.id.trim()
+    const name = typeof department.name === 'string' ? department.name.trim() : ''
+    const agentID = typeof department.agentID === 'string' ? department.agentID.trim() : ''
+    if (!id || !name || !agentID || roomByID.has(id)) continue
+    roomByID.set(id, { id, name, agent: agentID, agentIDs: [] })
+  }
+  for (const department of input.departments ?? []) {
+    if (!department || typeof department.id !== 'string') continue
+    if (!roomByID.has(department.id)) continue
+    for (const raw of department.sessionIDs ?? []) {
+      const sessionID = typeof raw === 'string' ? raw.trim() : ''
+      if (!sessionID || roomIDBySession.has(sessionID)) continue
+      roomIDBySession.set(sessionID, department.id)
+    }
+  }
+
+  let unassignedRoom: OfficeRoom | null = null
+  /** Diretório normalizado → original, por sala (path só quando comum). */
+  const directoriesByRoom = new Map<string, Map<string, string>>()
 
   for (const session of input.sessions) {
     if (!session || typeof session.id !== 'string' || !session.id || seen.has(session.id)) continue
     seen.add(session.id)
 
-    const directory = session.location?.directory ?? null
-    const roomID = normalizeDirectory(directory)
+    const departmentID = roomIDBySession.get(session.id)
+    let room = departmentID ? roomByID.get(departmentID) : undefined
+    if (!room) {
+      unassignedRoom ??= {
+        id: UNASSIGNED_ROOM_ID,
+        name: UNASSIGNED_ROOM_NAME,
+        agentIDs: [],
+        unassigned: true
+      }
+      room = unassignedRoom
+    }
+
+    const directory = (session.location?.directory ?? '').trim()
     const startedAt = session.time?.created ?? input.now
     const tokensInput = toNumber(session.tokens?.input)
     const tokensOutput = toNumber(session.tokens?.output)
     const activity = readActivity(input.activityBySession, session.id)
+    const seed = agentSeedFor(session.id)
 
     const agent: OfficeAgent = {
       sessionID: session.id,
@@ -676,28 +820,31 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
       tokens: { input: tokensInput, output: tokensOutput, total: tokensInput + tokensOutput },
       startedAt,
       lastSeenAt: session.time?.updated ?? session.time?.idle ?? session.time?.busy ?? startedAt,
-      roomID,
+      roomID: room.id,
       name: agentNameFor(session.id),
-      seed: agentSeedFor(session.id)
+      seed
     }
+    if (directory) agent.directory = directory
+    // A função da sala ainda não chegou nesta sessão (normalmente `working`).
+    if (room.agent && room.agent !== agent.agent) agent.rolePending = room.agent
     if (activity) {
       agent.activity = { ...activity, label: truncateLabel(maskSecrets(activity.label)) }
     }
     if (session.parentID) agent.parentID = session.parentID
     agents.push(agent)
 
-    const existing = rooms.get(roomID)
-    if (existing) {
-      existing.agentIDs.push(session.id)
-    } else {
-      rooms.set(roomID, {
-        id: roomID,
-        name: roomNameFor(directory),
-        // Primeira sessão define o caminho original: contratar usa este valor
-        // (o `id` canônico não é aceito pelo OpenCode como diretório).
-        path: (directory ?? '').trim(),
-        agentIDs: [session.id]
-      })
+    const stored = input.avatars?.[session.id]
+    avatars[session.id] = isValidAvatarLook(stored) ? { ...stored } : defaultLookFor(seed)
+
+    room.agentIDs.push(session.id)
+    if (directory) {
+      const key = normalizeDirectory(directory)
+      let known = directoriesByRoom.get(room.id)
+      if (!known) {
+        known = new Map()
+        directoriesByRoom.set(room.id, known)
+      }
+      if (!known.has(key)) known.set(key, directory)
     }
   }
 
@@ -706,16 +853,18 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     return delta !== 0 ? delta : a.sessionID.localeCompare(b.sessionID)
   })
 
-  const sortedRooms = [...rooms.values()].sort((a, b) => {
+  const departmentRooms = [...roomByID.values()].sort((a, b) => {
     const byName = a.name.localeCompare(b.name, 'pt-BR')
     return byName !== 0 ? byName : a.id.localeCompare(b.id)
   })
+  const sortedRooms = unassignedRoom ? [...departmentRooms, unassignedRoom] : departmentRooms
+
+  const position = new Map<string, number>()
+  agents.forEach((agent, index) => position.set(agent.sessionID, index))
   for (const room of sortedRooms) {
-    room.agentIDs.sort((a, b) => {
-      const left = agents.findIndex((agent) => agent.sessionID === a)
-      const right = agents.findIndex((agent) => agent.sessionID === b)
-      return left - right
-    })
+    room.agentIDs.sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0))
+    const directories = directoriesByRoom.get(room.id)
+    if (directories && directories.size === 1) room.path = [...directories.values()][0]
   }
 
   const feed: OfficeActivity[] = []
@@ -746,6 +895,7 @@ export function deriveOfficeSnapshot(input: OfficeDeriveInput): OfficeSnapshot {
     source: input.source ?? 'poller',
     rooms: sortedRooms,
     agents,
+    avatars,
     feed: recentFeed,
     requests,
     totals,

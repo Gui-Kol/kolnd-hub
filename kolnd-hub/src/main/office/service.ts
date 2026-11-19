@@ -1,6 +1,8 @@
 import {
   deriveOfficeSnapshot,
   type OfficeActivity,
+  type OfficeAvatarLook,
+  type OfficeDepartment,
   type OfficeSnapshot,
   type OfficeSessionInput
 } from '../../shared/office'
@@ -31,6 +33,10 @@ export interface OfficeServiceDeps {
   emit: (snapshot: OfficeSnapshot) => void
   /** Relógio injetável (testes); padrão `Date.now`. */
   now?: () => number
+  /** Salas-departamento persistidas (lidas a cada snapshot). */
+  getDepartments?: () => readonly OfficeDepartment[]
+  /** Aparência editada por sessão (lida a cada snapshot). */
+  getAvatars?: () => Readonly<Record<string, OfficeAvatarLook | undefined>>
 }
 
 export interface OfficeService {
@@ -87,6 +93,8 @@ export function createOfficeService(deps: OfficeServiceDeps): OfficeService {
       activityBySession,
       now: now(),
       source: 'poller',
+      departments: deps.getDepartments?.() ?? [],
+      avatars: deps.getAvatars?.() ?? {},
       health: { cliFound, cliPath, pluginConnected, lastError }
     })
   }
