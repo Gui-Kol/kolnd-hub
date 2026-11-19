@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { StoredGame } from '../store'
-import { reloadMissingGameIcons } from './iconReload'
+import { refreshAllGameIcons, reloadMissingGameIcons } from './iconReload'
 
 /** Jogo mínimo para os testes — só os campos usados pela varredura importam. */
 function game(id: string): StoredGame {
@@ -101,5 +101,115 @@ describe('reloadMissingGameIcons', () => {
 
     expect(extract).toHaveBeenCalledTimes(2)
     expect(result).toEqual({ checked: 3, reloaded: 1, failed: 1 })
+  })
+})
+
+describe('refreshAllGameIcons', () => {
+  it('re-extrai TODOS os ícones e persiste uma única vez', async () => {
+    const extract = vi.fn(async () => true)
+    const persist = vi.fn((_games: StoredGame[]) => true)
+    const cleanup = vi.fn()
+    const result = await refreshAllGameIcons({
+      games: () => [game('a'), game('b')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract,
+      persist,
+      cleanup
+    })
+
+    expect(extract).toHaveBeenCalledTimes(2)
+    expect(persist).toHaveBeenCalledTimes(1)
+    const saved = persist.mock.calls[0][0] as StoredGame[]
+    expect(saved.map((g) => g.iconPath)).toEqual(['icons/a.png', 'icons/b.png'])
+    expect(cleanup).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ checked: 2, refreshed: 2, failed: 0 })
+  })
+
+  it('mantém o ícone antigo do jogo que falhou e persiste os demais', async () => {
+    const extract = vi.fn(async (exePath: string) => !exePath.includes('\\b\\'))
+    const persist = vi.fn((_games: StoredGame[]) => true)
+    const cleanup = vi.fn()
+    const result = await refreshAllGameIcons({
+      games: () => [game('a'), game('b')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract,
+      persist,
+      cleanup
+    })
+
+    const saved = persist.mock.calls[0][0] as StoredGame[]
+    expect(saved[0].iconPath).toBe('icons/a.png')
+    expect(saved[1].iconPath).toBeNull()
+    expect(cleanup).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ checked: 2, refreshed: 1, failed: 1 })
+  })
+
+  it('conta exceção da extração como falha e continua o laço', async () => {
+    const extract = vi.fn(async (exePath: string) => {
+      if (exePath.includes('\\a\\')) throw new Error('exe sumiu')
+      return true
+    })
+    const result = await refreshAllGameIcons({
+      games: () => [game('a'), game('b')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract,
+      persist: () => true,
+      cleanup: vi.fn()
+    })
+
+    expect(extract).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ checked: 2, refreshed: 1, failed: 1 })
+  })
+
+  it('persistência falhando = falha total e nenhum ícone antigo é apagado', async () => {
+    const cleanup = vi.fn()
+    const result = await refreshAllGameIcons({
+      games: () => [game('a')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract: async () => true,
+      persist: () => false,
+      cleanup
+    })
+
+    expect(cleanup).not.toHaveBeenCalled()
+    expect(result).toEqual({ checked: 1, refreshed: 0, failed: 1 })
+  })
+
+  it('persistência lançando também vira falha total, sem lançar', async () => {
+    const cleanup = vi.fn()
+    const result = await refreshAllGameIcons({
+      games: () => [game('a')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract: async () => true,
+      persist: () => {
+        throw new Error('disco cheio')
+      },
+      cleanup
+    })
+
+    expect(cleanup).not.toHaveBeenCalled()
+    expect(result).toEqual({ checked: 1, refreshed: 0, failed: 1 })
+  })
+
+  it('biblioteca vazia devolve zeros sem tocar no store', async () => {
+    const persist = vi.fn(() => true)
+    const cleanup = vi.fn()
+    const result = await refreshAllGameIcons({
+      games: () => [],
+      targetOf: () => 'icons/x.png',
+      exeOf: () => 'C:\\x.exe',
+      extract: vi.fn(async () => true),
+      persist,
+      cleanup
+    })
+
+    expect(persist).not.toHaveBeenCalled()
+    expect(cleanup).not.toHaveBeenCalled()
+    expect(result).toEqual({ checked: 0, refreshed: 0, failed: 0 })
   })
 })

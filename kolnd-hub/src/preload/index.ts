@@ -664,6 +664,9 @@ const api = {
   reloadGameIcons: (): Promise<{ checked: number; reloaded: number; failed: number }> =>
     ipcRenderer.invoke('games:reload-icons'),
 
+  refreshGameIcons: (): Promise<{ checked: number; refreshed: number; failed: number }> =>
+    ipcRenderer.invoke('games:refresh-icons'),
+
   launchGame: (
     id: string
   ): Promise<{

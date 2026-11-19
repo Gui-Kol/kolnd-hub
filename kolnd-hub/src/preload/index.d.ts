@@ -479,6 +479,7 @@ declare global {
       ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>
       checkGameExes: (exePaths: string[]) => Promise<boolean[]>
       reloadGameIcons: () => Promise<{ checked: number; reloaded: number; failed: number }>
+      refreshGameIcons: () => Promise<{ checked: number; refreshed: number; failed: number }>
       launchGame: (id: string) => Promise<{
         ok: boolean
         error?: string

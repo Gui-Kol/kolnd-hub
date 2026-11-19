@@ -11,14 +11,20 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import { getStoredGames, getGameIconsVersion, setGameIconsVersion, StoredGame } from '../store'
+import {
+  getStoredGames,
+  setStoredGames,
+  getGameIconsVersion,
+  setGameIconsVersion,
+  StoredGame
+} from '../store'
 import { isValidId, isValidExePath, GameResult } from './naming'
 import { logger } from '../logger'
 import { lookupIconDataUrl, storeIconDataUrl, invalidateIconCache } from '../iconCache'
 import { readExeIconIco } from './exeIcon'
 import { findGameExecutable, steamGameRootFromExe } from './exeFinder'
-import { reloadMissingGameIcons } from './iconReload'
-import type { ReloadIconsResult } from './iconReload'
+import { reloadMissingGameIcons, refreshAllGameIcons } from './iconReload'
+import type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
 
 /**
  * Ícones da biblioteca de jogos: extração de executáveis, cache em disco em
@@ -557,6 +563,53 @@ export async function repairGameIconsIfNeeded(): Promise<number> {
   } catch (err) {
     logger.warn('games', 'Falha ao reparar ícones cacheados:', err)
     return 0
+  }
+}
+
+/**
+ * Apaga sobras do ícone que o jogo tinha antes de ser atualizado (o arquivo
+ * antigo, quando diferente do novo, e os `<base-do-id>.<ext>` restantes).
+ */
+function cleanupRefreshedIcon(game: StoredGame, keptTarget: string): void {
+  const kept = resolve(keptTarget)
+  const previous = resolveIconInsideGameIcons(game.iconPath)
+  if (previous && previous !== kept) {
+    try {
+      rmSync(previous, { force: true })
+      invalidateIconCache(previous)
+    } catch (err) {
+      logger.warn('games', `Não foi possível apagar o ícone antigo ${previous}:`, err)
+    }
+  }
+  deleteStaleIcons(game.id, kept)
+}
+
+/**
+ * "Atualizar todos os ícones" da Biblioteca: re-extrai o ícone de **todos** os
+ * jogos do executável, sobrescrevendo inclusive ícones escolhidos à mão — o
+ * mesmo efeito de abrir cada modal e clicar em "Restaurar ícone". Só é chamado
+ * por ação explícita do usuário (IPC `games:refresh-icons`). Best-effort:
+ * qualquer falha vira contagem e aviso no log, nunca lança.
+ */
+export async function refreshGameIcons(): Promise<RefreshIconsResult> {
+  try {
+    const result = await refreshAllGameIcons({
+      games: getStoredGames,
+      // Mesmo destino do "Restaurar ícone" (`restoreExeIcon`).
+      targetOf: (game) => join(gameIconsDir(), `${safeIconBase(game.id)}.png`),
+      // Steam: melhor executável da pasta (mesma fonte do reparo); demais: exePath.
+      exeOf: resolveIconSourceExe,
+      extract: extractIconPng,
+      persist: (games) => setStoredGames(games).success,
+      cleanup: cleanupRefreshedIcon
+    })
+    if (result.refreshed > 0) {
+      logger.info('games', `Ícones atualizados: ${result.refreshed} de ${result.checked}`)
+    }
+    return result
+  } catch (err) {
+    logger.warn('games', 'Falha ao atualizar todos os ícones:', err)
+    return { checked: 0, refreshed: 0, failed: 0 }
   }
 }
 

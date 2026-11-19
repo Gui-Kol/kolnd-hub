@@ -8,10 +8,11 @@ import {
   previewExeIcon,
   restoreExeIcon,
   getGameIcon,
-  reloadGameIcons
+  reloadGameIcons,
+  refreshGameIcons
 } from './icons'
 import type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
-import type { ReloadIconsResult } from './iconReload'
+import type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
 import { launchGame, stopGame, runningGamesMap } from './launch'
 import type { LaunchGameResult } from './launch'
 
@@ -43,11 +44,12 @@ export {
   restoreExeIcon,
   getGameIcon,
   reloadGameIcons,
+  refreshGameIcons,
   repairGameIconsIfNeeded,
   GAME_ICON_PIPELINE_VERSION
 } from './icons'
 export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
-export type { ReloadIconsResult } from './iconReload'
+export type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
 export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './launch'
 export type { LaunchGameResult, GameProcess } from './launch'
 export { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
@@ -100,4 +102,8 @@ export function registerGamesIpc(): void {
 
   // Sem argumentos: o main resolve a lista e re-extrai só os ícones ilegíveis.
   ipcMain.handle('games:reload-icons', (): Promise<ReloadIconsResult> => reloadGameIcons())
+
+  // Sem argumentos: ação explícita do usuário ("Atualizar todos os ícones") —
+  // re-extrai o ícone de TODOS os jogos, sobrescrevendo os escolhidos à mão.
+  ipcMain.handle('games:refresh-icons', (): Promise<RefreshIconsResult> => refreshGameIcons())
 }

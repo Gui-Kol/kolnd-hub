@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Download, FilePlus2 } from 'lucide-react'
+import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, Loader2, RefreshCw } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
@@ -42,6 +42,8 @@ export function Biblioteca(): JSX.Element {
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
+  // "Atualizar ícones": re-extrai de todos os executáveis de uma vez.
+  const [refreshingIcons, setRefreshingIcons] = useState(false)
 
   // 6 s de auto-dismiss — o primitivo Toast cuida do timer e do fechar manual.
   const showToast = useCallback((text: string): void => {
@@ -204,6 +206,35 @@ export function Biblioteca(): JSX.Element {
     [showToast, refreshRunning]
   )
 
+  // "Atualizar ícones": o mesmo efeito de abrir cada jogo e clicar em
+  // "Restaurar ícone" — o main re-extrai TODOS os ícones dos executáveis
+  // (inclusive por cima de um ícone escolhido à mão) e persiste os caminhos.
+  // Depois limpamos o cache do renderer e a grade busca as imagens novas.
+  const handleRefreshIcons = useCallback(async (): Promise<void> => {
+    if (refreshingIcons) return
+    setRefreshingIcons(true)
+    try {
+      const result = await window.api.refreshGameIcons()
+      iconRequests.current.clear()
+      setIcons({})
+      if (result.checked === 0) {
+        showToast('Sua biblioteca está vazia — nada para atualizar.')
+      } else if (result.refreshed === 0) {
+        showToast('Não foi possível atualizar os ícones dos jogos.')
+      } else if (result.failed > 0) {
+        showToast(
+          `Ícones atualizados: ${result.refreshed} de ${result.checked}. ${result.failed} sem ícone utilizável.`
+        )
+      } else {
+        showToast(`Ícones atualizados: ${result.refreshed} de ${result.checked}.`)
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Não foi possível atualizar os ícones.')
+    } finally {
+      setRefreshingIcons(false)
+    }
+  }, [refreshingIcons, showToast])
+
   // "Jogo Personalizado" (T8): abre o seletor nativo filtrado para .exe,
   // o main deriva o nome/extrai o ícone/persiste via `games:add-custom`,
   // a grade recarrega e um toast confirma. Cancelar o seletor não tem efeito.
@@ -282,13 +313,28 @@ export function Biblioteca(): JSX.Element {
             Seus jogos instalados, num só lugar
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Badge tone="neutral" className="px-3 py-1 text-[11px]">
             <Gamepad2 size={12} aria-hidden="true" />
             <span className="tnum">
               {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
             </span>
           </Badge>
+
+          {/* "Atualizar ícones": re-extrai o ícone de todos os executáveis. */}
+          <Button
+            variant="secondary"
+            onClick={() => void handleRefreshIcons()}
+            disabled={loading || refreshingIcons || games.length === 0}
+            title="Re-extrai o ícone de todos os jogos a partir dos executáveis (substitui ícones personalizados)"
+          >
+            {refreshingIcons ? (
+              <Loader2 size={16} aria-hidden="true" className="animate-spin" />
+            ) : (
+              <RefreshCw size={16} aria-hidden="true" />
+            )}
+            {refreshingIcons ? 'Atualizando…' : 'Atualizar ícones'}
+          </Button>
 
           {/* ── Botão "Adicionar Games" + menu ───────── */}
           <div className="relative">

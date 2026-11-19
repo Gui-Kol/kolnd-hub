@@ -11,6 +11,7 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 ### Adicionado
 
 - **Ícones da Biblioteca recarregados ao abrir a aba**: o main revisa todos os jogos e re-extrai do executável apenas os ícones que não estão legíveis (arquivo ausente, vazio ou corrompido), garantindo que os cards fiquem preenchidos; ícones válidos — inclusive os escolhidos à mão no modal de edição — nunca são sobrescritos (IPC `games:reload-icons`)
+- **Botão "Atualizar ícones" na Biblioteca**: no cabeçalho da página, re-extrai o ícone de **todos** os jogos a partir dos executáveis — o mesmo efeito de abrir cada jogo e clicar em "Restaurar ícone". Por ser ação explícita, sobrescreve também ícones escolhidos à mão; o main grava os arquivos, persiste os caminhos novos numa única escrita do store, apaga as sobras dos ícones antigos e o renderer descarta o cache para buscar as imagens novas; o toast resume atualizados/total e quantos ficaram sem ícone utilizável (IPC `games:refresh-icons`)
 
 ### Corrigido
 
