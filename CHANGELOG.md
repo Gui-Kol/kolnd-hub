@@ -15,6 +15,7 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ### Alterado
 
+- **Suíte unitária elevada a toda a lógica testável**: Vitest passou a cobrir `src/main` (incl. os 16 módulos de `ipc/`), `src/shared`, o contrato de `src/preload`, `renderer/src/lib` e `renderer/src/hooks` — 1.893 testes passando, com `src/main` em 93,8% de linhas, `src/shared` 98,1%, `preload` 100%, `renderer/lib` 99,0% e `renderer/hooks` 99,6%; `jsdom` entrou como devDependency só para os hooks de DOM e os limiares do `vitest.config.ts` subiram para os números reais (≥90% no main, ≥95% em shared/preload/lib, ≥96% em hooks)
 - **Acesso remoto passou a usar ZeroTier no lugar do Tailscale**: a seção **Configurações → Acesso remoto** e o **Modo remoto** do card do Kloud Games detectam o CLI oficial (`zerotier-cli -j info`/`-j listnetworks`), mostram o endereço atribuído pela rede, separam os IPs da VPN dos da LAN pelo adapter/`assignedAddresses` e instalam/abrem o ZeroTier por ação explícita (`winget` e GUI oficial); ingressar na rede continua sendo feito no app/painel do ZeroTier (IPCs `remote:install-zerotier`/`remote:open-zerotier`, motivos `zerotier-missing`/`zerotier-disconnected`)
 
 ### Corrigido
