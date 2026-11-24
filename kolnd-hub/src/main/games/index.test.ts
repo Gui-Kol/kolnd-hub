@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   updateGame: vi.fn(),
   checkExePaths: vi.fn(),
   removeGame: vi.fn(),
+  getGameCollections: vi.fn(),
+  createGameCollection: vi.fn(),
   pickGameIcon: vi.fn(),
   setGameIcon: vi.fn(),
   previewExeIcon: vi.fn(),
@@ -15,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   getGameIcon: vi.fn(),
   reloadGameIcons: vi.fn(),
   refreshGameIcons: vi.fn(),
+  pickGameCover: vi.fn(),
+  setGameCover: vi.fn(),
+  getGameCover: vi.fn(),
   launchGame: vi.fn(),
   stopGame: vi.fn(),
   runningGamesMap: vi.fn()
@@ -33,7 +38,9 @@ vi.mock('./store', () => ({
   addCustomGame: mocks.addCustomGame,
   updateGame: mocks.updateGame,
   checkExePaths: mocks.checkExePaths,
-  removeGame: mocks.removeGame
+  removeGame: mocks.removeGame,
+  getGameCollections: mocks.getGameCollections,
+  createGameCollection: mocks.createGameCollection
 }))
 vi.mock('./icons', () => ({
   pickGameIcon: mocks.pickGameIcon,
@@ -44,10 +51,16 @@ vi.mock('./icons', () => ({
   reloadGameIcons: mocks.reloadGameIcons,
   refreshGameIcons: mocks.refreshGameIcons
 }))
+vi.mock('./covers', () => ({
+  pickGameCover: mocks.pickGameCover,
+  setGameCover: mocks.setGameCover,
+  getGameCover: mocks.getGameCover
+}))
 vi.mock('./launch', () => ({
   launchGame: mocks.launchGame,
   stopGame: mocks.stopGame,
-  runningGamesMap: mocks.runningGamesMap
+  runningGamesMap: mocks.runningGamesMap,
+  startPlaytimeMonitoring: vi.fn()
 }))
 
 import { registerGamesIpc } from './index'
@@ -70,9 +83,13 @@ describe('registerGamesIpc', () => {
       'games:add',
       'games:add-custom',
       'games:check-exes',
+      'games:collection-create',
+      'games:collections',
       'games:get',
+      'games:get-cover',
       'games:get-icon',
       'games:launch',
+      'games:pick-cover',
       'games:pick-icon',
       'games:preview-exe-icon',
       'games:refresh-icons',
@@ -80,6 +97,7 @@ describe('registerGamesIpc', () => {
       'games:remove',
       'games:restore-exe-icon',
       'games:running-map',
+      'games:set-cover',
       'games:set-icon',
       'games:stop',
       'games:update'
@@ -101,6 +119,15 @@ describe('registerGamesIpc', () => {
     expect(call('games:check-exes', ['C:\\a.exe'])).toEqual([true])
     expect(call('games:remove', 'g1')).toEqual({ success: true })
     expect(mocks.removeGame).toHaveBeenCalledWith('g1')
+
+    mocks.getGameCollections.mockReturnValue(['RPG'])
+    mocks.createGameCollection.mockReturnValue({ success: true, collections: ['RPG', 'Ação'] })
+    expect(call('games:collections')).toEqual(['RPG'])
+    expect(call('games:collection-create', 'Ação')).toEqual({
+      success: true,
+      collections: ['RPG', 'Ação']
+    })
+    expect(mocks.createGameCollection).toHaveBeenCalledWith('Ação')
   })
 
   it('encaminha adição por executável e execução', async () => {
@@ -146,5 +173,19 @@ describe('registerGamesIpc', () => {
       refreshed: 1,
       failed: 0
     })
+
+    mocks.pickGameCover.mockReturnValue(Promise.resolve({ success: true, dataUrl: 'data:cover' }))
+    mocks.setGameCover.mockReturnValue({ success: true, coverPath: 'C:\\cover.png' })
+    mocks.getGameCover.mockReturnValue('data:image/png;base64,cover')
+    await expect(call('games:pick-cover')).resolves.toEqual({
+      success: true,
+      dataUrl: 'data:cover'
+    })
+    expect(call('games:set-cover', 'g1', 'data:cover')).toEqual({
+      success: true,
+      coverPath: 'C:\\cover.png'
+    })
+    expect(mocks.setGameCover).toHaveBeenCalledWith('g1', 'data:cover')
+    expect(call('games:get-cover', 'g1')).toBe('data:image/png;base64,cover')
   })
 })

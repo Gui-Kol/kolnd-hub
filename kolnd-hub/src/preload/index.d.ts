@@ -293,6 +293,12 @@ declare global {
           origin: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number
           addedAt: string
+          favorite?: boolean
+          collections?: string[]
+          playtimeSeconds?: number
+          playtimeDays?: Record<string, number>
+          lastPlayedAt?: string
+          coverPath?: string | null
         }>
       >
       addGame: (game: {
@@ -312,8 +318,15 @@ declare global {
           iconPath?: string | null
           origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number | null
+          favorite?: boolean
+          collections?: string[]
+          coverPath?: string | null
         }
       ) => Promise<{ success: boolean; error?: string }>
+      getGameCollections: () => Promise<string[]>
+      createGameCollection: (
+        name: string
+      ) => Promise<{ success: boolean; error?: string; collections?: string[] }>
       removeGame: (id: string) => Promise<{ success: boolean; error?: string }>
       // Edição de jogos (T9)
       pickGameIcon: () => Promise<{
@@ -345,6 +358,17 @@ declare global {
       stopGame: (id: string) => Promise<{ ok: boolean; error?: string; killed?: number }>
       getRunningGames: (ids: string[]) => Promise<{ ok: boolean; running: Record<string, boolean> }>
       getGameIcon: (id: string) => Promise<string | null>
+      pickGameCover: () => Promise<{
+        success: boolean
+        canceled?: boolean
+        dataUrl?: string
+        error?: string
+      }>
+      setGameCover: (
+        id: string,
+        dataUrl: string
+      ) => Promise<{ success: boolean; coverPath?: string | null; error?: string }>
+      getGameCover: (id: string) => Promise<string | null>
       addCustomGame: (
         exePath: string
       ) => Promise<{ success: boolean; id?: string; name?: string; error?: string }>

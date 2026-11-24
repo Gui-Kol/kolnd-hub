@@ -8,10 +8,13 @@ export interface BibliotecaGridProps {
   games: Game[]
   /** dataURL cacheada por id (`null` = sem ícone). */
   icons: Record<string, string | null>
+  /** dataURL da capa por id (`null` = sem capa; o card usa o ícone). */
+  covers: Record<string, string | null>
   runningIds: ReadonlySet<string>
   missingExes: ReadonlySet<string>
   onLaunch: (game: Game) => void
   onEdit: (game: Game) => void
+  onToggleFavorite: (game: Game) => void
   onStopped: (game: Game, result: { ok: boolean; error?: string }) => void
 }
 
@@ -28,10 +31,12 @@ export interface BibliotecaGridProps {
 export const BibliotecaGrid = memo(function BibliotecaGrid({
   games,
   icons,
+  covers,
   runningIds,
   missingExes,
   onLaunch,
   onEdit,
+  onToggleFavorite,
   onStopped
 }: BibliotecaGridProps): JSX.Element {
   const runningGames = games.filter((game) => runningIds.has(game.id))
@@ -113,10 +118,12 @@ export const BibliotecaGrid = memo(function BibliotecaGrid({
             key={game.id}
             game={game}
             icon={icons[game.id]}
+            cover={covers[game.id]}
             running={runningIds.has(game.id)}
             exeMissing={missingExes.has(game.id)}
             onLaunch={onLaunch}
             onEdit={onEdit}
+            onToggleFavorite={onToggleFavorite}
             onStopped={onStopped}
           />
         ))}

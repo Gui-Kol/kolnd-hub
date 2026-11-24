@@ -1,11 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Search, FilePlus2, Loader2, RefreshCw } from 'lucide-react'
+import {
+  Gamepad2,
+  Plus,
+  ChevronDown,
+  Search,
+  FilePlus2,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
+} from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
-import { Badge, Button, Skeleton, Toast, EmptyState, ErrorState, LoadingState } from './ui'
+import {
+  applyLibraryFilters,
+  DEFAULT_LIBRARY_FILTERS,
+  hasActiveLibraryFilters,
+  type LibrarySort,
+  type LibrarySourceFilter
+} from '../lib/libraryFilter'
+import {
+  Badge,
+  Button,
+  Skeleton,
+  Toast,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  SearchInput,
+  Select
+} from './ui'
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { BuscarJogosModal, BuscarJogosState } from './biblioteca/BuscarJogosModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
@@ -37,12 +63,23 @@ export function Biblioteca(): JSX.Element {
   // Ícones por id: dataURL cacheada no estado do componente; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
+  // Capas por id (T6): mesma cache em memória; `null` = sem capa (card usa ícone).
+  const [covers, setCovers] = useState<Record<string, string | null>>({})
+  const coverRequests = useRef<Set<string>>(new Set())
   // T9 — selo ".exe não encontrado": ids cujo executável não existe mais no disco.
   const [missingExes, setMissingExes] = useState<Set<string>>(new Set())
   // Quais jogos estão com processo aberto (para habilitar o botão "Encerrar").
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
+  // Filtros da Biblioteca (T3/T4) — só em memória, nunca persistidos.
+  const [favoriteOnly, setFavoriteOnly] = useState(false)
+  const [collectionFilter, setCollectionFilter] = useState('')
+  const [collections, setCollections] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+  const [source, setSource] = useState<LibrarySourceFilter>(DEFAULT_LIBRARY_FILTERS.source)
+  const [missingOnly, setMissingOnly] = useState(false)
+  const [sort, setSort] = useState<LibrarySort>(DEFAULT_LIBRARY_FILTERS.sort)
   // "Atualizar ícones": re-extrai de todos os executáveis de uma vez.
   const [refreshingIcons, setRefreshingIcons] = useState(false)
 
@@ -63,6 +100,28 @@ export function Biblioteca(): JSX.Element {
       setLoading(false)
     }
   }, [])
+
+  // Coleções existentes (chave `gameCollections`). Falha é silenciosa: os
+  // filtros continuam funcionando com "Todas" e o modal ainda cria ao salvar.
+  const loadCollections = useCallback(async (): Promise<void> => {
+    try {
+      setCollections(await window.api.getGameCollections())
+    } catch {
+      // Sem coleções no seletor; nada quebra.
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      await loadCollections()
+      if (cancelled) return
+    }
+    void run()
+    return (): void => {
+      cancelled = true
+    }
+  }, [loadCollections])
 
   // Best-effort, uma vez por montagem: antes de listar, o main re-extrai só
   // os ícones ilegíveis. A ref sobrevive ao duplo-mount do StrictMode (mas é
@@ -124,6 +183,16 @@ export function Biblioteca(): JSX.Element {
     iconRequests.current.delete(id)
   }, [])
 
+  const dropCoverCache = useCallback((id: string): void => {
+    setCovers((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    coverRequests.current.delete(id)
+  }, [])
+
   const openEdit = useCallback((game: Game): void => {
     setEditing(game)
   }, [])
@@ -136,19 +205,44 @@ export function Biblioteca(): JSX.Element {
   const handleSaved = useCallback(
     (id: string): void => {
       dropIconCache(id)
+      dropCoverCache(id)
       setEditing(null)
       void loadGames()
+      // O modal também pode ter criado coleções novas.
+      void loadCollections()
     },
-    [dropIconCache, loadGames]
+    [dropIconCache, dropCoverCache, loadGames, loadCollections]
   )
 
   const handleRemoved = useCallback(
     (id: string): void => {
       dropIconCache(id)
+      dropCoverCache(id)
       setEditing(null)
       void loadGames()
     },
-    [dropIconCache, loadGames]
+    [dropIconCache, dropCoverCache, loadGames]
+  )
+
+  // Estrela do card: patch `favorite` na whitelist do main. Handler estável —
+  // o card é `memo`, então a identidade não pode mudar a cada render.
+  const handleToggleFavorite = useCallback(
+    async (game: Game): Promise<void> => {
+      const next = game.favorite !== true
+      try {
+        const result = await window.api.updateGame(game.id, { favorite: next })
+        if (!result.success) {
+          showToast(result.error ?? 'Não foi possível atualizar o favorito.')
+          return
+        }
+        setGames((prev) =>
+          prev.map((item) => (item.id === game.id ? { ...item, favorite: next } : item))
+        )
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Não foi possível atualizar o favorito.')
+      }
+    },
+    [showToast]
   )
 
   // Busca os ícones dos jogos que ainda não têm um cacheado. Cada id é
@@ -174,6 +268,29 @@ export function Biblioteca(): JSX.Element {
       cancelled = true
     }
   }, [games, icons])
+
+  // Capas: mesma estratégia dos ícones, uma requisição por id por montagem.
+  useEffect(() => {
+    let cancelled = false
+    for (const game of games) {
+      if (game.id in covers) continue
+      if (coverRequests.current.has(game.id)) continue
+      coverRequests.current.add(game.id)
+      window.api
+        .getGameCover(game.id)
+        .then((dataUrl) => {
+          if (cancelled) return
+          setCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
+        })
+        .catch(() => {
+          if (cancelled) return
+          setCovers((prev) => ({ ...prev, [game.id]: null }))
+        })
+    }
+    return (): void => {
+      cancelled = true
+    }
+  }, [games, covers])
 
   const handleLaunch = useCallback(
     async (game: Game): Promise<void> => {
@@ -297,6 +414,29 @@ export function Biblioteca(): JSX.Element {
     setBuscarJogos((current) => (current.phase === 'importing' ? current : { phase: 'idle' }))
   }, [])
 
+  // Filtros em memória (T3/T4). A busca ignora acento/caixa; coleção compara
+  // sem diferenciar caixa. "Sem executável" usa o conjunto já calculado.
+  const filterState = {
+    search,
+    source,
+    collection: collectionFilter,
+    missingOnly,
+    sort
+  }
+  const filteredByLib = applyLibraryFilters(games, filterState, missingExes)
+  const visibleGames = favoriteOnly
+    ? filteredByLib.filter((game) => game.favorite === true)
+    : filteredByLib
+  const filtersActive = favoriteOnly || hasActiveLibraryFilters(filterState)
+  const clearFilters = (): void => {
+    setFavoriteOnly(false)
+    setCollectionFilter('')
+    setSearch('')
+    setSource(DEFAULT_LIBRARY_FILTERS.source)
+    setMissingOnly(false)
+    setSort(DEFAULT_LIBRARY_FILTERS.sort)
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* ── Header ─────────────────────────────────── */}
@@ -409,6 +549,117 @@ export function Biblioteca(): JSX.Element {
         </div>
       </motion.div>
 
+      {/* ── Filtros da Biblioteca (T3/T4) ───────────── */}
+      {!loading && !loadError && games.length > 0 && (
+        <div
+          role="group"
+          aria-label="Filtros da biblioteca"
+          className="flex flex-col gap-3 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-3"
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="w-full lg:max-w-xs">
+              <SearchInput
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar por nome…"
+                aria-label="Buscar jogos por nome"
+              />
+            </div>
+
+            <div className="flex w-fit items-center gap-1 rounded-control border border-[var(--border-subtle)] bg-surface-sunken p-1">
+              {(
+                [
+                  { value: false, label: 'Todos' },
+                  { value: true, label: 'Favoritos' }
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={favoriteOnly === option.value}
+                  onClick={() => setFavoriteOnly(option.value)}
+                  className={`rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors duration-1 ease-standard ${
+                    favoriteOnly === option.value
+                      ? 'bg-surface-3 text-ink-primary'
+                      : 'text-ink-secondary hover:text-ink-primary'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-full sm:w-52">
+              <Select
+                aria-label="Filtrar por coleção"
+                value={collectionFilter}
+                onChange={(event) => setCollectionFilter(event.target.value)}
+              >
+                <option value="">Todas as coleções</option>
+                {collections.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-44">
+              <Select
+                aria-label="Filtrar por origem"
+                value={source}
+                onChange={(event) => setSource(event.target.value as LibrarySourceFilter)}
+              >
+                <option value="all">Todas as origens</option>
+                <option value="steam">Steam</option>
+                <option value="epic">Epic Games</option>
+                <option value="minecraft">Minecraft</option>
+                <option value="custom">Personalizado</option>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-48">
+              <Select
+                aria-label="Ordenar jogos"
+                value={sort}
+                onChange={(event) => setSort(event.target.value as LibrarySort)}
+              >
+                <option value="name-asc">Nome A–Z</option>
+                <option value="name-desc">Nome Z–A</option>
+                <option value="playtime-desc">Tempo de jogo</option>
+                <option value="recent">Mais recentes</option>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={missingOnly}
+              onClick={() => setMissingOnly((value) => !value)}
+              className={`inline-flex items-center gap-1.5 rounded-pill border px-3 py-1.5 text-xs font-semibold transition-colors duration-1 ease-standard ${
+                missingOnly
+                  ? 'border-warn-border bg-warn-bg text-warn'
+                  : 'border-[var(--border-subtle)] bg-surface-2 text-ink-secondary hover:border-[var(--border-strong)] hover:text-ink-primary'
+              }`}
+            >
+              <AlertTriangle size={12} aria-hidden="true" />
+              Sem executável
+            </button>
+
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Limpar filtros
+              </Button>
+            )}
+
+            <span className="tnum ml-auto text-[11px] text-ink-tertiary">
+              {visibleGames.length} de {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
         <div aria-busy="true" className="flex flex-col gap-6">
@@ -458,15 +709,29 @@ export function Biblioteca(): JSX.Element {
           }
           className="p-16"
         />
+      ) : visibleGames.length === 0 ? (
+        <EmptyState
+          icon={Gamepad2}
+          tone="muted"
+          title="Nenhum jogo neste filtro"
+          hint="Ajuste a busca/coleção ou limpe os filtros para ver a biblioteca inteira."
+          action={
+            <Button variant="secondary" onClick={clearFilters}>
+              Limpar filtros
+            </Button>
+          }
+        />
       ) : (
         /* ── Grade de jogos ─────────────────────────── */
         <BibliotecaGrid
-          games={games}
+          games={visibleGames}
           icons={icons}
+          covers={covers}
           runningIds={runningIds}
           missingExes={missingExes}
           onLaunch={handleLaunch}
           onEdit={openEdit}
+          onToggleFavorite={handleToggleFavorite}
           onStopped={handleGameStopped}
         />
       )}
@@ -481,6 +746,7 @@ export function Biblioteca(): JSX.Element {
             key={`${editing.id}:${editing.addedAt}`}
             game={editing}
             currentIcon={icons[editing.id] ?? null}
+            currentCover={covers[editing.id] ?? null}
             exeMissing={missingExes.has(editing.id)}
             showToast={showToast}
             onClose={closeEdit}

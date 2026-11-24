@@ -39,6 +39,11 @@ describe('preload — contrato de window.api', () => {
     for (const key of [
       'systemPcName',
       'getGames',
+      'getGameCollections',
+      'createGameCollection',
+      'pickGameCover',
+      'setGameCover',
+      'getGameCover',
       'launchApp',
       'onStatusChanged',
       'firstRunCheck',
@@ -65,6 +70,25 @@ describe('preload — contrato de window.api', () => {
 
     await api.importGames()
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:import-all')
+
+    await api.getGameCollections()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:collections')
+
+    await api.createGameCollection('RPG')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:collection-create', 'RPG')
+
+    await api.pickGameCover()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:pick-cover')
+
+    await api.setGameCover('g1', 'data:image/png;base64,xx')
+    expect(mocks.invoke).toHaveBeenLastCalledWith(
+      'games:set-cover',
+      'g1',
+      'data:image/png;base64,xx'
+    )
+
+    await api.getGameCover('g1')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:get-cover', 'g1')
 
     await api.upgradeOneUpdate('Git.Git')
     expect(mocks.invoke).toHaveBeenLastCalledWith('winget:upgrade-one', { id: 'Git.Git' })

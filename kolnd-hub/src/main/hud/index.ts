@@ -1,8 +1,7 @@
 import { app, globalShortcut, ipcMain } from 'electron'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
-import { getFpsStatus } from '../fps'
-import { getFpsAutoUpdate } from '../fps/agent'
+import { getFpsAutoStatus, getFpsAutoUpdate } from '../fps/agent'
 import { acquireHwPolling, collectHwSnapshot, onHwSnapshot, releaseHwPolling } from '../hwmon'
 import { getHudConfig, setHudShortcut, setHudSize, setHudVisible } from '../store'
 import {
@@ -66,17 +65,20 @@ function currentStatus(): HudStatus {
 }
 
 /**
- * Monta o payload do push. O FPS manual (ETW com UAC) tem prioridade; sem ele,
- * entra a amostra fresca do agent automático. Nada de zero falso: quando não há
- * alvo/amostra, `fps` é `null` e a UI mostra "—".
+ * Monta o payload do push. A fonte única é a leitura elevada (coletor dentro
+ * do agente de sensores); `fps` só vem preenchido com alvo ativo e
+ * `fpsStatus` carrega estado/motivo para o rodapé mesmo quando é `null`.
+ * Nada de zero falso: sem alvo/amostra a UI mostra "—" com o motivo.
  */
 function buildHudUpdate(snapshot: HwSnapshot): HudUpdate {
-  const fpsStatus = getFpsStatus()
-  const manual =
-    fpsStatus.state === 'running' && fpsStatus.last?.active === true ? fpsStatus.last : null
+  const status = getFpsAutoStatus()
+  const fpsStatus: HudUpdate['fpsStatus'] = { state: status.state }
+  if (status.reason) fpsStatus.reason = status.reason
+  if (status.error) fpsStatus.error = status.error
   return {
     snapshot,
-    fps: manual ?? getFpsAutoUpdate(),
+    fps: getFpsAutoUpdate(),
+    fpsStatus,
     size: { width: size.width, scale: size.scale },
     capturedAt: new Date().toISOString()
   }

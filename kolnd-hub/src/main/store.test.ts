@@ -58,6 +58,10 @@ let normalizeAppConfigs: typeof import('./store').normalizeAppConfigs
 let normalizeStartupImportance: typeof import('./store').normalizeStartupImportance
 let normalizeGame: typeof import('./store').normalizeGame
 let normalizeGames: typeof import('./store').normalizeGames
+let normalizeGameCollections: typeof import('./store').normalizeGameCollections
+let normalizePlaytimeDays: typeof import('./store').normalizePlaytimeDays
+let getGameCollections: typeof import('./store').getGameCollections
+let setGameCollections: typeof import('./store').setGameCollections
 let normalizeGamepadConfig: typeof import('./store').normalizeGamepadConfig
 let normalizeBigPicturePrefs: typeof import('./store').normalizeBigPicturePrefs
 let normalizeBenchmarkEntry: typeof import('./store').normalizeBenchmarkEntry
@@ -100,6 +104,10 @@ beforeAll(async () => {
   normalizeStartupImportance = storeMod.normalizeStartupImportance
   normalizeGame = storeMod.normalizeGame
   normalizeGames = storeMod.normalizeGames
+  normalizeGameCollections = storeMod.normalizeGameCollections
+  normalizePlaytimeDays = storeMod.normalizePlaytimeDays
+  getGameCollections = storeMod.getGameCollections
+  setGameCollections = storeMod.setGameCollections
   normalizeGamepadConfig = storeMod.normalizeGamepadConfig
   normalizeBigPicturePrefs = storeMod.normalizeBigPicturePrefs
   normalizeBenchmarkEntry = storeMod.normalizeBenchmarkEntry
@@ -327,6 +335,94 @@ describe('normalizeGames', () => {
       { id: 'd', name: 'D', exePath: 'C:\\D\\d.exe', origin: 'steam', steamAppId: 7 }
     ])
     expect(out.map((g) => g.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+// ── Biblioteca: favoritos, coleções e tempo de jogo ────────────
+
+describe('normalizeGame — campos novos da Biblioteca', () => {
+  const base = { id: 'g1', name: 'Jogo', exePath: 'C:\\g.exe', origin: 'custom' }
+
+  it('preserva favorite booleano e descarta outros tipos', () => {
+    expect((normalizeGame({ ...base, favorite: true }) as StoredGame).favorite).toBe(true)
+    expect((normalizeGame({ ...base, favorite: false }) as StoredGame).favorite).toBe(false)
+    expect((normalizeGame({ ...base, favorite: 'sim' }) as StoredGame).favorite).toBeUndefined()
+  })
+
+  it('normaliza collections: trim, dedupe sem caixa, limite de 8 e nomes longos', () => {
+    const out = normalizeGame({
+      ...base,
+      collections: ['  RPG ', 'rpg', '', 1, 'Ação']
+    }) as StoredGame
+    expect(out.collections).toEqual(['RPG', 'Ação'])
+
+    const many = normalizeGame({
+      ...base,
+      collections: Array.from({ length: 12 }, (_, i) => `Coleção ${i}`)
+    }) as StoredGame
+    expect(many.collections).toHaveLength(8)
+
+    const long = normalizeGame({ ...base, collections: ['x'.repeat(25)] }) as StoredGame
+    expect(long.collections).toBeUndefined()
+  })
+
+  it('normaliza playtimeSeconds (inteiro ≥ 0)', () => {
+    expect((normalizeGame({ ...base, playtimeSeconds: 90.7 }) as StoredGame).playtimeSeconds).toBe(
+      90
+    )
+    expect(
+      (normalizeGame({ ...base, playtimeSeconds: -1 }) as StoredGame).playtimeSeconds
+    ).toBeUndefined()
+    expect(
+      (normalizeGame({ ...base, playtimeSeconds: Number.NaN }) as StoredGame).playtimeSeconds
+    ).toBeUndefined()
+  })
+
+  it('normaliza playtimeDays: só datas válidas, valores positivos e 60 dias recentes', () => {
+    const days: Record<string, number> = { '2026-01-01': 60, invalido: 3, '2026-01-02': -1 }
+    for (let i = 0; i < 65; i += 1) {
+      const day = String(i + 1).padStart(2, '0')
+      days[`2025-12-${day}`] = 10
+    }
+    const out = normalizePlaytimeDays(days)
+    expect(Object.keys(out)).toHaveLength(60)
+    expect(out['2026-01-01']).toBe(60)
+    expect(out['2026-01-02']).toBeUndefined()
+    expect(out['invalido']).toBeUndefined()
+    // Mantém os mais recentes: 2025-12-01 (o mais antigo) fica de fora.
+    expect(out['2025-12-01']).toBeUndefined()
+    expect(out['2025-12-31']).toBe(10)
+  })
+
+  it('lastPlayedAt inválido é descartado', () => {
+    expect(
+      (normalizeGame({ ...base, lastPlayedAt: '2026-01-01T00:00:00.000Z' }) as StoredGame)
+        .lastPlayedAt
+    ).toBe('2026-01-01T00:00:00.000Z')
+    expect(
+      (normalizeGame({ ...base, lastPlayedAt: 'ontem' }) as StoredGame).lastPlayedAt
+    ).toBeUndefined()
+  })
+})
+
+describe('gameCollections', () => {
+  it('normaliza: trim, cap 30 e dedupe sem diferenciar caixa', () => {
+    expect(normalizeGameCollections(null)).toEqual([])
+    expect(normalizeGameCollections([' RPG ', 'rpg', '', 'Ação'])).toEqual(['RPG', 'Ação'])
+
+    const many = normalizeGameCollections(Array.from({ length: 35 }, (_, i) => `Coleção ${i}`))
+    expect(many).toHaveLength(30)
+  })
+
+  it('getGameCollections lê normalizado do store e setGameCollections persiste normalizado', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'gameCollections' ? ['  Favoritos ', 'favoritos', 'x'.repeat(30)] : def
+    )
+    expect(getGameCollections()).toEqual(['Favoritos'])
+
+    expect(setGameCollections(['  A ', 'a', 'B'])).toEqual({ success: true })
+    expect(h.set).toHaveBeenCalledWith('gameCollections', ['A', 'B'])
   })
 })
 

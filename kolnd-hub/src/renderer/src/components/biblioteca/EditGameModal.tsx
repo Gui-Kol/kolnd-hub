@@ -1,11 +1,14 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import {
+  Check,
   Gamepad2,
   Pencil,
   Loader2,
   AlertTriangle,
   ImagePlus,
+  Plus,
   RotateCcw,
+  Tags,
   Trash2
 } from 'lucide-react'
 import type { Game } from '../../types'
@@ -14,6 +17,8 @@ interface EditGameModalProps {
   game: Game
   /** dataURL do ícone atual (cacheada na grade) ou null para o fallback visual. */
   currentIcon: string | null
+  /** dataURL da capa atual (cacheada na grade) ou null quando não há capa. */
+  currentCover: string | null
   /** Selo inicial de executável ausente (verificado na grade). */
   exeMissing: boolean
   showToast: (text: string) => void
@@ -36,6 +41,7 @@ interface EditGameModalProps {
 export const EditGameModal = memo(function EditGameModal({
   game,
   currentIcon,
+  currentCover,
   exeMissing,
   showToast,
   onClose,
@@ -53,12 +59,78 @@ export const EditGameModal = memo(function EditGameModal({
   const [saving, setSaving] = useState(false)
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const [removing, setRemoving] = useState(false)
+  // Coleções (T3): lista existente + seleção pendente de persistência.
+  const [availableCollections, setAvailableCollections] = useState<string[]>([])
+  const [selectedCollections, setSelectedCollections] = useState<string[]>(
+    () => game.collections ?? []
+  )
+  const [newCollection, setNewCollection] = useState('')
+  const [collectionBusy, setCollectionBusy] = useState(false)
+  // Capa (T6): pré-visualizada aqui, só gravada/persistida no Salvar.
+  const [coverSource, setCoverSource] = useState<'none' | 'custom' | 'remove'>('none')
+  const [coverDataUrl, setCoverDataUrl] = useState<string | null>(null)
+  const [coverBusy, setCoverBusy] = useState(false)
 
   const busy = saving || removing
   const trimmedName = name.trim()
   const canSave = trimmedName.length > 0 && !busy
   const previewIcon =
     iconSource === 'custom' ? customDataUrl : iconSource === 'exe' ? exePreviewDataUrl : currentIcon
+  const previewCover =
+    coverSource === 'remove' ? null : coverSource === 'custom' ? coverDataUrl : currentCover
+
+  useEffect(() => {
+    let alive = true
+    window.api
+      .getGameCollections()
+      .then((list) => {
+        if (alive) setAvailableCollections(list)
+      })
+      .catch(() => {
+        // Sem a lista, os chips não aparecem; a seleção salva é preservada.
+      })
+    return (): void => {
+      alive = false
+    }
+  }, [])
+
+  const toggleCollection = useCallback((name: string): void => {
+    setSelectedCollections((prev) => {
+      const exists = prev.some((item) => item.toLowerCase() === name.toLowerCase())
+      if (exists) return prev.filter((item) => item.toLowerCase() !== name.toLowerCase())
+      if (prev.length >= 8) return prev
+      return [...prev, name]
+    })
+  }, [])
+
+  const handleCreateCollection = useCallback(async (): Promise<void> => {
+    const name = newCollection.trim()
+    if (!name || collectionBusy) return
+    setCollectionBusy(true)
+    try {
+      const result = await window.api.createGameCollection(name)
+      if (!result.success) {
+        showToast(result.error ?? 'Não foi possível criar a coleção.')
+        return
+      }
+      const list = result.collections ?? (await window.api.getGameCollections())
+      setAvailableCollections(list)
+      setNewCollection('')
+      // Coleção recém-criada já entra marcada (se houver espaço no jogo).
+      const created = list.find((item) => item.toLowerCase() === name.toLowerCase())
+      if (created) {
+        setSelectedCollections((prev) =>
+          prev.some((item) => item.toLowerCase() === created.toLowerCase()) || prev.length >= 8
+            ? prev
+            : [...prev, created]
+        )
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Não foi possível criar a coleção.')
+    } finally {
+      setCollectionBusy(false)
+    }
+  }, [collectionBusy, newCollection, showToast])
 
   const requestClose = useCallback((): void => {
     // Não fecha durante uma operação em andamento.
@@ -105,6 +177,30 @@ export const EditGameModal = memo(function EditGameModal({
       setIconBusy(false)
     }
   }, [iconBusy, busy, exePath, showToast])
+
+  const handlePickCover = useCallback(async (): Promise<void> => {
+    if (coverBusy || busy) return
+    setCoverBusy(true)
+    try {
+      const picked = await window.api.pickGameCover()
+      if (!picked.success) {
+        if (!picked.canceled && picked.error) showToast(picked.error)
+        return
+      }
+      setCoverDataUrl(picked.dataUrl ?? null)
+      setCoverSource('custom')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Não foi possível escolher a capa.')
+    } finally {
+      setCoverBusy(false)
+    }
+  }, [coverBusy, busy, showToast])
+
+  const handleRemoveCover = useCallback((): void => {
+    if (coverBusy || busy) return
+    setCoverDataUrl(null)
+    setCoverSource('remove')
+  }, [coverBusy, busy])
 
   const handlePickExe = useCallback(async (): Promise<void> => {
     if (busy) return
@@ -154,11 +250,27 @@ export const EditGameModal = memo(function EditGameModal({
         iconPath = restored.iconPath
       }
 
-      // 2) Persiste nome/executável/ícone numa única escrita do store.
+      // 2) Capa (se houver troca/remoção): grava em game-covers/ ou marca null.
+      let coverPath: string | null | undefined
+      if (coverSource === 'custom' && coverDataUrl) {
+        const written = await window.api.setGameCover(game.id, coverDataUrl)
+        if (!written.success || !written.coverPath) {
+          showToast(written.error ?? 'Não foi possível salvar a capa.')
+          setSaving(false)
+          return
+        }
+        coverPath = written.coverPath
+      } else if (coverSource === 'remove') {
+        coverPath = null
+      }
+
+      // 3) Persiste nome/executável/ícone/coleções/capa numa única escrita.
       const updated = await window.api.updateGame(game.id, {
         name: trimmedName,
         exePath: exePath.trim(),
-        ...(iconPath !== undefined ? { iconPath } : {})
+        collections: selectedCollections,
+        ...(iconPath !== undefined ? { iconPath } : {}),
+        ...(coverPath !== undefined ? { coverPath } : {})
       })
       if (!updated.success) {
         showToast(updated.error ?? 'Não foi possível salvar as alterações.')
@@ -171,7 +283,19 @@ export const EditGameModal = memo(function EditGameModal({
       showToast(err instanceof Error ? err.message : 'Não foi possível salvar as alterações.')
       setSaving(false)
     }
-  }, [canSave, iconSource, customDataUrl, exePath, game.id, trimmedName, showToast, onSaved])
+  }, [
+    canSave,
+    iconSource,
+    customDataUrl,
+    exePath,
+    game.id,
+    selectedCollections,
+    coverSource,
+    coverDataUrl,
+    trimmedName,
+    showToast,
+    onSaved
+  ])
 
   const handleRemove = useCallback(async (): Promise<void> => {
     if (!confirmingRemove) {
@@ -332,6 +456,137 @@ export const EditGameModal = memo(function EditGameModal({
               </p>
             </div>
           </div>
+        </div>
+
+        {/* ── Capa do jogo (T6) ─────────────────────── */}
+        <div>
+          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">
+            Capa do jogo (2:3)
+          </span>
+          <div className="flex items-start gap-4">
+            <div className="flex aspect-[2/3] w-24 shrink-0 items-center justify-center overflow-hidden rounded-card border border-[var(--border-subtle)] bg-surface-2">
+              {previewCover ? (
+                <img
+                  src={previewCover}
+                  alt={`Capa de ${trimmedName || game.name}`}
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                />
+              ) : (
+                <ImagePlus size={28} aria-hidden="true" className="text-ink-tertiary" />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col items-start gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handlePickCover()}
+                disabled={busy || coverBusy}
+              >
+                {coverBusy ? (
+                  <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <ImagePlus size={14} aria-hidden="true" />
+                )}
+                Escolher capa…
+              </Button>
+              {previewCover && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRemoveCover}
+                  disabled={busy || coverBusy}
+                >
+                  <Trash2 size={12} aria-hidden="true" />
+                  Remover capa
+                </Button>
+              )}
+              <p className="text-[10px] leading-snug text-ink-tertiary">
+                PNG, JPG ou WebP até 8 MB. A capa aparece na Biblioteca e no Big Picture; sem capa o
+                card segue com o ícone.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Coleções (T3) ─────────────────────────── */}
+        <div>
+          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">
+            <Tags size={12} aria-hidden="true" />
+            Coleções
+          </span>
+          <p className="mb-2 text-[10px] leading-snug text-ink-tertiary">
+            Até 8 coleções por jogo. Marque as existentes ou crie uma nova.
+          </p>
+          {availableCollections.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {availableCollections.map((collection) => {
+                const checked = selectedCollections.some(
+                  (item) => item.toLowerCase() === collection.toLowerCase()
+                )
+                const disabled =
+                  busy || collectionBusy || (!checked && selectedCollections.length >= 8)
+                return (
+                  <button
+                    key={collection}
+                    type="button"
+                    aria-pressed={checked}
+                    disabled={disabled}
+                    onClick={() => toggleCollection(collection)}
+                    className={`inline-flex items-center gap-1.5 rounded-pill border px-3 py-1 text-xs font-medium transition-colors duration-1 ease-standard disabled:cursor-not-allowed disabled:opacity-50 ${
+                      checked
+                        ? 'border-accent-border bg-accent-muted text-ink-primary'
+                        : 'border-[var(--border-subtle)] bg-surface-2 text-ink-secondary hover:border-[var(--border-strong)] hover:text-ink-primary'
+                    }`}
+                  >
+                    {checked && <Check size={12} aria-hidden="true" className="text-accent" />}
+                    {collection}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-ink-secondary">
+              Nenhuma coleção ainda — crie a primeira abaixo.
+            </p>
+          )}
+          <div className="mt-3 flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <Input
+                type="text"
+                value={newCollection}
+                maxLength={24}
+                disabled={busy || collectionBusy}
+                onChange={(event) => setNewCollection(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void handleCreateCollection()
+                  }
+                }}
+                placeholder="Nova coleção"
+                aria-label="Nome da nova coleção"
+              />
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleCreateCollection()}
+              disabled={busy || collectionBusy || newCollection.trim().length === 0}
+            >
+              {collectionBusy ? (
+                <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+              ) : (
+                <Plus size={14} aria-hidden="true" />
+              )}
+              Criar
+            </Button>
+          </div>
+          {selectedCollections.length >= 8 && (
+            <p className="mt-1.5 text-[10px] text-ink-tertiary">
+              Limite de 8 coleções por jogo atingido.
+            </p>
+          )}
         </div>
 
         {/* ── Remover jogo (confirmação em duas etapas) ── */}

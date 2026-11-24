@@ -116,6 +116,23 @@ function writeFpsSample(fpsDir: string, timestamp: string): void {
   )
 }
 
+/** Amostra fresca sem alvo: o coletor publica o motivo do "—". */
+function writeFpsNoTarget(fpsDir: string, timestamp: string): void {
+  mkdirSync(fpsDir, { recursive: true })
+  writeFileSync(
+    join(fpsDir, 'latest.json'),
+    JSON.stringify({
+      pid: null,
+      name: null,
+      fps: null,
+      frametimeMs: null,
+      reason: 'no-target',
+      timestamp
+    }),
+    'utf8'
+  )
+}
+
 interface HudLayoutSnapshot {
   /** Elementos cujo conteúdo é mais largo que a própria caixa. */
   overflow: string[]
@@ -257,15 +274,17 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     await expect(window.getByTestId('hud-shortcut-reset')).toBeEnabled()
 
     const afterReset = await window.evaluate(() => window.api.hudGet())
-    expect(afterReset.registered).toBe(true)
-    if (afterReset.config.shortcut === 'Shift+Insert') {
+    if (afterReset.registered && afterReset.config.shortcut === 'Shift+Insert') {
       await expect(window.getByTestId('hud-shortcut-value')).toHaveText('Shift + Insert')
       await expect(window.getByTestId('hud-status')).toHaveText('atalho registrado')
     } else {
-      // Padrão em uso por outro programa: erro amigável e atalho anterior mantido.
+      // Padrão em uso por outro programa (na máquina de dev pode ser o próprio
+      // Hub aberto): a UI precisa avisar. Sem atalho anterior, ficar sem
+      // registro é o resultado honesto — o teste segue para trocar na mão.
       await expect(window.getByTestId('hud-error')).toContainText(/em uso/i)
       console.log(
-        `[e2e/hud] padrão indisponível nesta máquina - mantido ${afterReset.config.shortcut}`
+        `[e2e/hud] padrão indisponível nesta máquina - atalho=${afterReset.config.shortcut}` +
+          ` registrado=${afterReset.registered}`
       )
     }
 
@@ -292,6 +311,12 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     ]) {
       await expect(hud.getByTestId(testId)).toBeVisible()
     }
+    // Vcore é uma métrica da seção CPU; com o agente elevado ativo vem um
+    // número com 3 casas, sem ele vem "—" (nunca uma estimativa).
+    const cpuVoltage = hud.getByTestId('hud-cpu-voltage')
+    await expect(cpuVoltage).toBeVisible()
+    const cpuVoltageText = await cpuVoltage.innerText()
+    expect(cpuVoltageText).toMatch(/^(\d+,\d{3}\s*V|—\s*V)$/)
 
     const info = await hudWindowInfo(app)
     expect(info, 'janela do HUD não encontrada no main').not.toBeNull()
@@ -315,6 +340,10 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
         document.querySelector('[data-testid="hud-overlay"]')?.getBoundingClientRect().height ?? 0
     )
     expect(Math.abs(info!.bounds.height - contentHeight)).toBeLessThanOrEqual(2)
+    // D7': a janela nunca passa da área de trabalho; em 300/normal o conteúdo
+    // também precisa caber inteiro (Vcore incluído) na área útil menos margens.
+    expect(info!.bounds.height).toBeLessThanOrEqual(info!.workArea.height)
+    expect(contentHeight).toBeLessThanOrEqual(info!.workArea.height - 24)
 
     // (d) FPS automático via `latest.json` (sem UAC, sem tarefa).
     writeFpsSample(fpsDir, new Date().toISOString())
@@ -325,14 +354,29 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
       })
       .toBe('60')
     await expect(hud.getByTestId('hud-frametime')).toContainText('16,7')
+    await expect(hud.getByTestId('hud-fps-state')).toHaveText('ETW local · sem injeção')
     await expect(hud.getByTestId('hud-cpu-usage')).not.toHaveText('—')
     await expect(hud.getByTestId('hud-ram')).not.toHaveText('—')
+
+    // Se o Monitor desta máquina já decodificou Vcore, o HUD precisa receber o
+    // mesmo valor vivo pelo push (não é um campo fixo nem estimativa).
+    const monitorVoltageText = await window.getByTestId('hw-cpu-voltage').innerText()
+    if (/\d+,\d{3}/.test(monitorVoltageText)) {
+      await expect
+        .poll(async () => hud.getByTestId('hud-cpu-voltage').innerText(), {
+          timeout: 20_000,
+          intervals: [500]
+        })
+        .toMatch(/\d+,\d{3}/)
+    }
+    const cpuVoltageLive = await hud.getByTestId('hud-cpu-voltage').innerText()
 
     console.log(
       `[e2e/hud] visível · alwaysOnTop=${info!.alwaysOnTop} · focusable=${info!.focusable}` +
         ` · bounds=${info!.bounds.width}×${info!.bounds.height}@${info!.bounds.x},${info!.bounds.y}` +
         ` · conteúdo=${contentHeight}px · fps=${await hud.getByTestId('hud-fps').innerText()}` +
-        ` · frametime=${await hud.getByTestId('hud-frametime').innerText()}`
+        ` · frametime=${await hud.getByTestId('hud-frametime').innerText()}` +
+        ` · vcore=${cpuVoltageLive} (monitor=${monitorVoltageText})`
     )
 
     // (e) Largura configurável via IPC: janela acompanha na hora.
@@ -376,7 +420,18 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     const restored = await window.evaluate(() => window.api.hudGet())
     expect(restored.config.scale).toBe('normal')
 
-    // (f) Amostra velha (> 3 s) vira "—": nunca inventa FPS.
+    // (f) Amostra fresca sem alvo: "—" com o motivo publicado pelo coletor.
+    writeFpsNoTarget(fpsDir, new Date().toISOString())
+    await expect
+      .poll(async () => hud.getByTestId('hud-fps').innerText(), {
+        timeout: 15_000,
+        intervals: [500]
+      })
+      .toBe('—')
+    await expect(hud.getByTestId('hud-fps-state')).toHaveText('sem alvo em primeiro plano')
+
+    // Amostra velha (> 3 s) vira "—" com motivo de amostra velha: nunca
+    // inventa FPS nem deixa um traço mudo.
     writeFpsSample(fpsDir, new Date(Date.now() - 10_000).toISOString())
     await expect
       .poll(async () => hud.getByTestId('hud-fps').innerText(), {
@@ -385,6 +440,12 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
       })
       .toBe('—')
     await expect(hud.getByTestId('hud-frametime')).toHaveText('—')
+    await expect
+      .poll(async () => hud.getByTestId('hud-fps-state').innerText(), {
+        timeout: 15_000,
+        intervals: [500]
+      })
+      .toBe('amostra de FPS velha')
 
     // (g) Ocultar pelo IPC esconde a janela.
     await window.evaluate(() => window.api.hudSetVisible(false))

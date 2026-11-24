@@ -3,15 +3,17 @@ import { promises as fs } from 'fs'
 import { isAbsolute, join } from 'path'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
-import { isUacCancelled } from '../hwmon/driver'
+import { isUacCancelled } from '../hwmon/uac'
 import { runPowerShellCommand, runProcess, type ProcessResult } from '../hwmon/powershell'
 import type {
   FpsAutoActionResult,
+  FpsAutoReason,
   FpsAutoSample,
   FpsAutoState,
   FpsAutoStatus,
   FpsUpdate
 } from '../../shared/fps'
+import { FPS_LEGACY_AGENT_TASK_NAME } from '../../shared/fps'
 import {
   buildEnsureProtectedHelperScript,
   encodePowerShell,
@@ -20,7 +22,10 @@ import {
   sha256File,
   type FpsProtectedPaths
 } from './helper'
+import { resolveFpsSinkDir } from './paths'
 import { isIgnoredProcess } from './target'
+
+export { resolveFpsSinkDir } from './paths'
 
 /**
  * FPS automático sem prompt por uso.
@@ -38,7 +43,7 @@ import { isIgnoredProcess } from './target'
  * configurável por `KOLDND_HUB_FPS_DIR` para os testes E2E.
  */
 
-export const FPS_AUTO_TASK_NAME = 'KolndHubFpsAgent'
+export const FPS_AUTO_TASK_NAME = FPS_LEGACY_AGENT_TASK_NAME
 export const FPS_AUTO_FILE = 'latest.json'
 export const FPS_AUTO_STALE_MS = 3_000
 const FPS_AUTO_POLL_MS = 1_000
@@ -61,24 +66,6 @@ function hasUnsafeChars(value: string): boolean {
 /** `true` quando o caminho pode entrar no comando da tarefa sem escapes. */
 function isSafeCommandPath(value: string): boolean {
   return value.length > 0 && value.length <= 1024 && isAbsolute(value) && !hasUnsafeChars(value)
-}
-
-/**
- * Diretório do sink: `KOLDND_HUB_FPS_DIR` quando válido (E2E), senão
- * `%ProgramData%\Kolnd Hub\fps`. Caminho inválido no env é ignorado em vez de
- * derrubar o app.
- */
-export function resolveFpsSinkDir(programDataDir: string, override?: string | null): string {
-  const candidate = typeof override === 'string' ? override.trim() : ''
-  if (
-    candidate &&
-    candidate.length <= 1024 &&
-    isAbsolute(candidate) &&
-    !hasUnsafeChars(candidate)
-  ) {
-    return candidate
-  }
-  return join(programDataDir, 'Kolnd Hub', 'fps')
 }
 
 function currentSinkDir(): string {
@@ -247,6 +234,10 @@ export interface ParsedFpsAutoLatest {
   sample: FpsAutoSample | null
   /** Epoch ms do timestamp do agent (null quando ilegível). */
   capturedAtMs: number | null
+  /** Timestamp válido, mas fora da janela de 3 s. */
+  stale?: boolean
+  /** Motivo publicado pelo coletor quando não havia alvo (`no-target`/`no-presents`). */
+  reason?: FpsAutoReason
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -286,7 +277,9 @@ export function parseFpsAutoLatest(input: unknown, nowMs: number): ParsedFpsAuto
   if (!Number.isFinite(capturedAtMs)) return empty
   // Toleramos até 5 s no futuro (clock/rounding); velho/ausente é stale.
   const age = nowMs - capturedAtMs
-  if (age > FPS_AUTO_STALE_MS || age < -5_000) return empty
+  if (age > FPS_AUTO_STALE_MS || age < -5_000) {
+    return { fresh: false, sample: null, capturedAtMs, stale: true }
+  }
 
   const pid =
     typeof input.pid === 'number' && Number.isSafeInteger(input.pid) && input.pid > 0
@@ -295,13 +288,17 @@ export function parseFpsAutoLatest(input: unknown, nowMs: number): ParsedFpsAuto
   const name = readSampleName(input.name)
   const fps = finiteInRange(input.fps, 0, 100_000)
   const frametimeMs = finiteInRange(input.frametimeMs, 0, 60_000)
+  const reason =
+    input.reason === 'no-target' || input.reason === 'no-presents' ? input.reason : undefined
 
   // Arquivo fresco sem alvo é um estado válido (desktop/Explorer em primeiro
   // plano) — mantém `fresh: true` para a UI distinguir de "agent parado".
   if (pid === null || !name || fps === null || frametimeMs === null) {
-    return { fresh: true, sample: null, capturedAtMs }
+    return { fresh: true, sample: null, capturedAtMs, reason: reason ?? 'no-target' }
   }
-  if (isIgnoredProcess(name)) return { fresh: true, sample: null, capturedAtMs }
+  if (isIgnoredProcess(name)) {
+    return { fresh: true, sample: null, capturedAtMs, reason: reason ?? 'no-target' }
+  }
 
   return {
     fresh: true,
@@ -336,9 +333,7 @@ let installed: boolean | null = null
 let installing = false
 let removing = false
 let lastError: string | undefined
-let lastSample: FpsAutoSample | null = null
-let lastSampleAtMs: number | null = null
-let lastFresh = false
+let lastParsed: ParsedFpsAutoLatest = { fresh: false, sample: null, capturedAtMs: null }
 let lastSignature = ''
 let lastQueryAt = 0
 let started = false
@@ -347,21 +342,43 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10
 }
 
-function autoState(): FpsAutoState {
-  if (installing) return 'installing'
-  if (lastError) return 'error'
-  if (lastFresh) return 'running'
-  if (installed === true) return 'stale'
-  return 'off'
+/**
+ * Traduz a amostra em estado + motivo do "—". Pura e exportada para teste: a
+ * UI distingue "fonte parada" de "amostra velha" e de "sem alvo" sem inventar
+ * FPS. `installed` é a tarefa LEGADA: quando ela ainda existe e não há arquivo,
+ * o estado é `stale` (o agente deveria publicar e não publica).
+ */
+export function deriveFpsAutoStatus(
+  parsed: ParsedFpsAutoLatest,
+  installedNow: boolean | null
+): { state: FpsAutoState; reason?: FpsAutoReason } {
+  if (parsed.fresh) {
+    if (parsed.sample) return { state: 'running' }
+    return { state: 'running', reason: parsed.reason ?? 'no-target' }
+  }
+  if (parsed.stale || parsed.capturedAtMs !== null || installedNow === true) {
+    return { state: 'stale', reason: 'stale' }
+  }
+  return { state: 'off', reason: 'source-stopped' }
+}
+
+function autoStatus(): Pick<FpsAutoStatus, 'state' | 'reason'> {
+  const derived = deriveFpsAutoStatus(lastParsed, installed)
+  if (installing) return { state: 'installing' }
+  if (lastError) return { state: 'error' }
+  return derived
 }
 
 function currentStatus(): FpsAutoStatus {
+  const derived = autoStatus()
   const status: FpsAutoStatus = {
-    state: autoState(),
+    state: derived.state,
     installed: installed === true,
-    sample: lastSample,
-    sinkDir: currentSinkDir()
+    sample: lastParsed.sample,
+    sinkDir: currentSinkDir(),
+    fresh: lastParsed.fresh
   }
+  if (derived.reason) status.reason = derived.reason
   if (lastError) status.error = lastError
   return status
 }
@@ -370,6 +387,8 @@ function sendStatus(force = false): void {
   const status = currentStatus()
   const signature = [
     status.state,
+    status.reason ?? '',
+    status.fresh ? '1' : '0',
     status.installed ? '1' : '0',
     status.sample?.pid ?? 0,
     status.sample?.timestamp ?? '',
@@ -415,9 +434,7 @@ async function refresh(force = false): Promise<void> {
   try {
     if (started) await queryTask(force)
     const parsed = await readFpsAutoLatestFile(currentLatestPath(), Date.now())
-    lastFresh = parsed.fresh
-    lastSample = parsed.sample
-    lastSampleAtMs = parsed.capturedAtMs
+    lastParsed = parsed
     sendStatus(force)
   } catch (err) {
     logger.warn(
@@ -449,16 +466,17 @@ function stopPolling(): void {
 
 /** Atualização pronta para o HUD; `null` = sem amostra fresca (mostra "—"). */
 export function getFpsAutoUpdate(): FpsUpdate | null {
-  if (!lastFresh || !lastSample || lastSampleAtMs === null) return null
-  if (Date.now() - lastSampleAtMs > FPS_AUTO_STALE_MS) return null
+  const sample = lastParsed.sample
+  if (!lastParsed.fresh || !sample || lastParsed.capturedAtMs === null) return null
+  if (Date.now() - lastParsed.capturedAtMs > FPS_AUTO_STALE_MS) return null
   return {
     state: 'running',
     active: true,
-    pid: lastSample.pid,
-    processName: lastSample.name,
-    fps: round1(lastSample.fps),
-    frametimeMs: round1(lastSample.frametimeMs),
-    capturedAt: lastSample.timestamp
+    pid: sample.pid,
+    processName: sample.name,
+    fps: round1(sample.fps),
+    frametimeMs: round1(sample.frametimeMs),
+    capturedAt: sample.timestamp
   }
 }
 
@@ -579,9 +597,7 @@ export async function removeFpsAuto(): Promise<FpsAutoActionResult> {
 
     installed = false
     lastError = undefined
-    lastFresh = false
-    lastSample = null
-    lastSampleAtMs = null
+    lastParsed = { fresh: false, sample: null, capturedAtMs: null }
     lastQueryAt = Date.now()
     logger.info('fps', `tarefa ${FPS_AUTO_TASK_NAME} removida`)
     sendStatus(true)
@@ -637,9 +653,7 @@ export function resetFpsAutoForTests(): void {
   installing = false
   removing = false
   lastError = undefined
-  lastSample = null
-  lastSampleAtMs = null
-  lastFresh = false
+  lastParsed = { fresh: false, sample: null, capturedAtMs: null }
   lastSignature = ''
   lastQueryAt = 0
 }

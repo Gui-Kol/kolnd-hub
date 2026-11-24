@@ -4,18 +4,18 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Estrutura do repositório
 
-| Pasta / arquivo            | O que é                                                                                                                                                          | Stack                                                              |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                          | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
-| `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                    | Python + PyQt6, empacotado com PyInstaller                         |
-| `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                    | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
-| `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                  | CMD + PowerShell                                                   |
+| Pasta / arquivo            | O que é                                                                                                                                                                                                      | Stack                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                                                                      | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
+| `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                                                                | Python + PyQt6, empacotado com PyInstaller                         |
+| `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                                                                | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
+| `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                                                              | CMD + PowerShell                                                   |
 | `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
 
 ## O que tem no Hub
 
 - **Dashboard** com o status de cada programa do ecossistema (rodando/parado, PID, logs ao vivo), iniciar/parar individual e ações em lote.
-- **Biblioteca de jogos**: busca e adiciona automaticamente os jogos instalados na Steam, Epic Games e Minecraft Launcher (ou adiciona qualquer `.exe`), extrai o ícone do executável, renomeia/troca ícone e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
+- **Biblioteca de jogos**: busca e adiciona automaticamente os jogos instalados na Steam, Epic Games e Minecraft Launcher (ou adiciona qualquer `.exe`), extrai o ícone do executável, permite escolher uma capa, renomeia/troca ícone, capa e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
 - **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
 - **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
 - **Acesso remoto** (ZeroTier) e **atualização pelo próprio app**, descritos abaixo.
@@ -23,11 +23,11 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Programas gerenciados pelo Hub
 
-| Programa                                                                | Como é distribuído                                                           | Instalação                                                                                        |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Mark LVI (JARVIS)**                                                   | Embutido no instalador do Hub em `resources/programs/MarkLVI/` (PyInstaller) | Automática na primeira execução do Hub                                                            |
+| Programa                                                                | Como é distribuído                                                           | Instalação                                                                                                                                                           |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mark LVI (JARVIS)**                                                   | Embutido no instalador do Hub em `resources/programs/MarkLVI/` (PyInstaller) | Automática na primeira execução do Hub                                                                                                                               |
 | **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
-| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                          |
+| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                                                                                             |
 
 ## Acesso remoto (jogar de qualquer lugar)
 

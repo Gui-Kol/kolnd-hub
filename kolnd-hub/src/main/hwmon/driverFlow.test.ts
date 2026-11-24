@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   detectPawnIoInstallation: vi.fn(),
   describePawnIoError: vi.fn(),
   installSensorsAgent: vi.fn(),
+  isFpsCollectorStaged: vi.fn(),
   missingAgentRegisters: vi.fn((): { msr: number[]; smn: number[] } => ({ msr: [], smn: [] })),
   readSensorsLatestFile: vi.fn(),
   sensorsAgentLatestPath: vi.fn(() => 'C:\\sink\\latest.json'),
@@ -53,6 +54,7 @@ vi.mock('fs', () => ({
 vi.mock('os', () => ({ tmpdir: () => 'C:\\tmp' }))
 vi.mock('./agent', () => ({
   installSensorsAgent: mocks.installSensorsAgent,
+  isFpsCollectorStaged: mocks.isFpsCollectorStaged,
   missingAgentRegisters: mocks.missingAgentRegisters,
   readSensorsLatestFile: mocks.readSensorsLatestFile,
   sensorsAgentLatestPath: mocks.sensorsAgentLatestPath
@@ -116,6 +118,7 @@ beforeEach(() => {
   mocks.describePawnIoError.mockReturnValue(null)
   mocks.readSensorsLatestFile.mockResolvedValue({ fresh: false, deviceOpen: false })
   mocks.installSensorsAgent.mockResolvedValue({ ok: true })
+  mocks.isFpsCollectorStaged.mockResolvedValue(true)
   mocks.missingAgentRegisters.mockReturnValue({ msr: [], smn: [] })
   mocks.runPowerShellCommand.mockResolvedValue({
     stdout: '',
@@ -427,6 +430,28 @@ describe('installDriver', () => {
 
     await expect(installDriver()).resolves.toMatchObject({ ok: true })
     expect(mocks.installSensorsAgent).toHaveBeenCalled()
+  })
+
+  it('propaga aviso não fatal do agente mesmo com os sensores ready', async () => {
+    mocks.detectPawnIoInstallation.mockResolvedValue(
+      installation({ dllPresent: true, registered: true })
+    )
+    mocks.readSensorsLatestFile.mockResolvedValue({
+      fresh: true,
+      deviceOpen: true,
+      sample: { vendor: 'amd', msr: {}, smn: {} }
+    })
+    mocks.missingAgentRegisters.mockReturnValue({ msr: [1], smn: [] })
+    mocks.installSensorsAgent.mockResolvedValue({
+      ok: true,
+      error: 'A leitura elevada foi instalada, mas o coletor de FPS não pôde ser preparado.'
+    })
+
+    await expect(installDriver()).resolves.toMatchObject({
+      ok: true,
+      state: 'ready',
+      error: expect.stringContaining('coletor de FPS')
+    })
   })
 
   it('falha do agente vira resultado de erro', async () => {

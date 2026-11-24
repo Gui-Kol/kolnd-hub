@@ -61,6 +61,9 @@ arquivo de código alterado quando a tarefa é docs-only.
   como Administrador (ex.: helper de FPS da tarefa `HIGHEST`) vive em `%ProgramData%` com
   ACL explícita (Usuários só `RX`), tem o **SHA-256 conferido** na cópia e a elevação vai
   por `-EncodedCommand` — nunca um `.ps1` em `%APPDATA%` esperando o clique no UAC.
+  Processos-filho de um agente elevado (o coletor de FPS dentro do `KolndHubSensorsAgent`)
+  seguem a mesma regra e precisam ser encerrados pelo script/removedor: nada de órfão
+  segurando a sessão ETW.
 - **Nunca `console.*` no main** — use `logger` de `src/main/logger.ts`.
 
 ## Armadilhas conhecidas do Hub

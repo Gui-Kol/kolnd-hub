@@ -25,7 +25,7 @@ import { registerFpsIpc } from './fps'
 import { registerFpsAutoIpc } from './fps/agent'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
-import { registerGamesIpc, repairGameIconsIfNeeded } from './games'
+import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
 import { registerGameImportIpc } from './gameImport'
 import { seedMarkLviData } from './programsDeployer'
@@ -425,6 +425,16 @@ if (gotSingleInstanceLock) {
   app.on('before-quit', () => {
     // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
     markQuitting()
+    // Tempo de jogo pendente: flush síncrono no store. Durante a desinstalação
+    // destrutiva NÃO grava (o fluxo pode estar apagando o userData; o
+    // travamento do app continua intacto).
+    if (!isAnyUninstallInProgress()) {
+      try {
+        flushPlaytimeTracking()
+      } catch (err) {
+        logger.warn('games', 'Falha ao salvar tempo de jogo na saída:', err)
+      }
+    }
     // Aqui a opção mais simples e determinística é o kill SÍNCRONO: o quit do
     // Electron não espera promises e preventDefault + espera assíncrona poderia
     // prender a saída se um filho travasse. taskkill /T /F leva poucos ms e

@@ -119,7 +119,7 @@ React puro (sem acesso a Node/DOM do main). Estrutura:
 
 - `components/` — Dashboard, Settings, Inicializacao (startup do PC), Biblioteca,
   Big Picture (`BigPicture*.tsx`), FirstRunInstall, Uninstall* (zona de perigo), etc.
-- `hooks/` — `useGamepad.ts`, `useGamesRunning.ts`
+- `hooks/` — `useGamepad.ts`, `useGamesRunning.ts`, `useGuideButtonShortcut.ts`
 - `lib/` — lógica pura e testável (`appsConfig.ts`, `hubConfig.ts`, `spatialNav.ts`,
   `gamepad/`, `sfx.ts`, `startup.ts`, `uninstall.ts`…). Testes Vitest co-localizados
   (`*.test.ts`).
@@ -251,8 +251,9 @@ Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para
 ## 6. Big Picture
 
 Modo TV/gamepad em tela cheia (estilo Steam Big Picture). Entrada: botão **Big Picture**
-na topbar (ícone) ou no mega menu do "Mais" (`Topbar.tsx`/`MegaMenu.tsx`); sem controle
-configurado, o Hub abre a configuração antes de liberar a home.
+na topbar (ícone) ou no mega menu do "Mais" (`Topbar.tsx`/`MegaMenu.tsx`) e, com a janela
+em foco, o botão **PS/Guide** (índice 16) do controle; sem controle configurado, o Hub abre
+a configuração antes de liberar a home.
 
 - **Tela cheia**: IPC `window:set-fullscreen` usa `setFullScreen` (NÃO `maximize`, NÃO
   `kiosk`) — Alt+F4 oculta a janela para a bandeja (como o X), sem encerrar. Os bounds da janela são guardados antes de
@@ -261,6 +262,13 @@ configurado, o Hub abre a configuração antes de liberar a home.
 - **Gamepad**: `hooks/useGamepad.ts` (detecção/leitura via Gamepad API), `lib/gamepad/`
   (`profiles.ts` — xbox/playstation/switch/generic, `detect.ts`, `types.ts` — re-export
   dos tipos canônicos de `src/shared/gamepad.ts`, única fonte para main/preload/renderer).
+- **Atalho PS/Guide**: `hooks/useGuideButtonShortcut.ts` faz poll de 150 ms em
+  `navigator.getGamepads()` e chama o mesmo `enterBigPicture` do shell normal somente na
+  borda de pressão do índice 16 e com `document.hasFocus()` verdadeiro — janela em segundo
+  plano/minimizada nunca abre o modo. O primeiro poll após (re)armar é silencioso (prime),
+  então segurar o PS ao sair do Big Picture não o reabre; o detector puro
+  (`lib/gamepad/guideButton.ts`) ignora pads que não exponham o índice 16. Detecção apenas:
+  o mapeamento das 12 ações continua proibindo o 16.
 - **Navegação espacial**: `lib/spatialNav.ts` (`nearestInDirection`) — calcula o focável
   mais próximo por direção (semiplano + ângulo de desvio, desempate por eixo
   perpendicular). Função pura, coberta por testes.
@@ -271,6 +279,10 @@ configurado, o Hub abre a configuração antes de liberar a home.
   (`{ sounds }`) no store — migração **`'1.4.0'`**. `null` em `gamepad` = "não
   configurado"; índice de botão 16 (Guide/Home) é rejeitado de propósito.
 - **Saída**: "Sair do Big Picture" no rail, **B** na raiz ou **Esc**.
+- **Limitações do atalho PS/Guide**: controles cujo driver não expõe o índice 16 ao
+  Chromium (alguns modelos/bluetooth) não têm o atalho, e a **Barra de Jogos** do Windows
+  pode interceptar o botão e roubar o foco — nesses casos o botão da topbar continua sendo
+  a entrada.
 
 ## 7. Tray e desinstalação
 
@@ -346,12 +358,43 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   paralelo) e não segura a tela de loading.
 - **Shell externo**: `shell:openExternal` com allowlist de esquemas; `shell:openPath`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
-- **Artefato elevado**: nunca em diretório gravável pelo usuário. O helper de FPS que
-  roda `HIGHEST` no logon fica em `%ProgramData%\Kolnd Hub\fps\bin` (ACL: Usuários só
-  `RX`, sem herança) e só é copiado após conferir o **SHA-256**; a elevação vai por
-  `-EncodedCommand` — nada de `.ps1` em `%APPDATA%` esperando o UAC.
+- **Artefato elevado**: nunca em diretório gravável pelo usuário. O agente de sensores
+  (`KolndHubSensorsAgent`) copia para `%ProgramData%\Kolnd Hub\sensors\agent` o helper do
+  PawnIO, o script persistente e o coletor de FPS `KolndFpsEtw.exe` (ACL: Usuários só `RX`,
+  sem herança) e confere o **SHA-256** de cada cópia antes de rodar; a elevação vai por
+  `-EncodedCommand` — nada de `.ps1` em `%APPDATA%` esperando o UAC. O coletor grava o sink
+  em `%ProgramData%\Kolnd Hub\fps` (Usuários: RX) e morre junto com o agente.
 
-## 9. Mapa de arquivos
+## 9. Sensores elevados e FPS
+
+- **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
+  persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
+  a 1 Hz. O main só lê o arquivo (sem privilégio); amostra com mais de 3 s é stale. O script
+  e a DLL vivem em `...\sensors\agent` com ACL explícita e só são copiados após o SHA-256.
+- **Vcore**: os SMN do SVI2 entram no mesmo lote (`0x59800`, `0x5A008`, `0x5A00C`,
+  `0x5A010`). `cpuVoltage.ts` escolhe o plano 0 pelo modelo (`+0xC` legado, `+0x10` em
+  Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
+  fora de 0,3–1,8 V vira `null` (nunca estimativa). O HUD publica em `hud-cpu-voltage` e o
+  Monitor em `hw-cpu-voltage`.
+- **Coletor de FPS**: o mesmo agente inicia `KolndFpsEtw.exe --sink` apontando para
+  `%ProgramData%\Kolnd Hub\fps` como processo filho (cópia protegida + hash conferido). O
+  script passa `--stop` e no `finally` encerra o filho; o removedor grava o stop e ainda mata
+  por `CommandLine --sink` como rede de segurança. A preparação do coletor é **best-effort**:
+  se a compilação/cópia falhar, o agente instala os sensores sem FPS e a UI mostra um aviso
+  não fatal — o FPS nunca bloqueia a leitura de temperatura/potência. A tarefa legada
+  `KolndHubFpsAgent` é encerrada e apagada no install/remove.
+- **Leitura única no main**: `fps/agent.ts` lê `latest.json` a 1 Hz, valida timestamp (3 s),
+  pid/nome/fps e publica `fps:auto-update`. O motivo do "—" (`source-stopped`, `stale`,
+  `no-target`, `no-presents`) acompanha o status e o `hud:update.fpsStatus`, então o Monitor
+  e o rodapé do HUD explicam o traço. Os IPCs `fps:*` manuais continuam registrados por
+  compatibilidade, mas a aba não usa dois caminhos.
+- **Cobertura assumida**: os provedores habilitados são DXGI `Present_Start` (0x2a) e DxgKrnl
+  `PresentHistory_Start` (0xab), constantes do PresentMon. D3D11/12 é coberto; Vulkan/OpenGL
+  só aparece se o driver encaminhar a apresentação pelo DxgKrnl, e D3D9 puro não é coberto.
+  Valorant é D3D11, mas a cobertura ao vivo depende do jogo/anti-cheat e não foi medida
+  nesta máquina — nenhum provider ou event id foi inventado.
+
+## 10. Mapa de arquivos
 
 | Assunto                                 | Arquivo                                                                                                                                                      |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -370,6 +413,8 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
 | Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
 | Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
+| Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
+| FPS/frametime (ETW + leitura elevada)   | `kolnd-hub/src/main/fps/` (`helper.ts`, `agent.ts`, `paths.ts`, `target.ts`), `src/main/hud/index.ts`                                                        |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
 | Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |

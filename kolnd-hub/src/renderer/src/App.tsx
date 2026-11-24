@@ -22,6 +22,7 @@ import {
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
 import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
 import { once } from './lib/once'
+import { useGuideButtonShortcut } from './hooks/useGuideButtonShortcut'
 
 // Code splitting: páginas fora da inicial viajam em chunks próprios, carregados
 // só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture
@@ -624,6 +625,15 @@ function App(): JSX.Element {
       setBigPicture(hasConfig ? 'transitioning' : 'setup')
     })()
   }, [])
+
+  // Atalho do botão PS/Guide (índice 16): só com o Hub em foco (gate dentro do
+  // hook) e no shell normal — setup/transição/home do Big Picture, modais,
+  // busca e primeira execução ficam de fora. Passar pelo `enterBigPicture`
+  // mantém o gate de configuração como única porta de entrada.
+  useGuideButtonShortcut({
+    enabled: !isFirstRun && !isLoading && bigPicture === 'hidden' && !exitModalOpen && !searchOpen,
+    onTrigger: enterBigPicture
+  })
 
   const exitBigPicture = useCallback((): void => {
     void window.api.setFullScreen(false)

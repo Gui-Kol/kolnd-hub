@@ -47,7 +47,7 @@ vi.mock('./helper', () => ({
   resolveFpsProtectedPaths: mocks.resolveFpsProtectedPaths,
   sha256File: mocks.sha256File
 }))
-vi.mock('../hwmon/driver', () => ({ isUacCancelled: mocks.isUacCancelled }))
+vi.mock('../hwmon/uac', () => ({ isUacCancelled: mocks.isUacCancelled }))
 vi.mock('../hwmon/powershell', () => ({
   runPowerShellCommand: mocks.runPowerShellCommand,
   runProcess: mocks.runProcess

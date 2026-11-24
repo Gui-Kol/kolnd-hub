@@ -16,8 +16,8 @@ const mocks = vi.hoisted(() => ({
   releaseHwPolling: vi.fn(),
   onHwSnapshot: vi.fn(),
   collectHwSnapshot: vi.fn(),
-  getFpsStatus: vi.fn(),
   getFpsAutoUpdate: vi.fn(),
+  getFpsAutoStatus: vi.fn(),
   showHudWindow: vi.fn(),
   hideHudWindow: vi.fn(),
   getHudWindow: vi.fn(),
@@ -38,8 +38,10 @@ vi.mock('electron', () => ({
 vi.mock('../logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }))
-vi.mock('../fps', () => ({ getFpsStatus: mocks.getFpsStatus }))
-vi.mock('../fps/agent', () => ({ getFpsAutoUpdate: mocks.getFpsAutoUpdate }))
+vi.mock('../fps/agent', () => ({
+  getFpsAutoUpdate: mocks.getFpsAutoUpdate,
+  getFpsAutoStatus: mocks.getFpsAutoStatus
+}))
 vi.mock('../hwmon', () => ({
   acquireHwPolling: mocks.acquireHwPolling,
   releaseHwPolling: mocks.releaseHwPolling,
@@ -165,8 +167,14 @@ beforeEach(() => {
   mocks.setHudSize.mockReturnValue({ success: true, size: { width: 420, scale: 'grande' } })
   mocks.onHwSnapshot.mockImplementation(() => vi.fn())
   mocks.collectHwSnapshot.mockResolvedValue(snapshotFixture())
-  mocks.getFpsStatus.mockReturnValue({ state: 'off', last: null })
   mocks.getFpsAutoUpdate.mockReturnValue(null)
+  mocks.getFpsAutoStatus.mockReturnValue({
+    state: 'off',
+    installed: false,
+    sample: null,
+    sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
+    reason: 'source-stopped'
+  })
   mocks.showHudWindow.mockReturnValue(fakeWindow)
   mocks.getHudWindow.mockReturnValue(fakeWindow)
   mocks.setHudWidth.mockImplementation((width: number) => width)
@@ -370,7 +378,7 @@ describe('hud:set-shortcut', () => {
 })
 
 describe('push hud:update', () => {
-  it('usa o snapshot do polling e inclui FPS só quando há alvo ativo', () => {
+  it('usa o snapshot do polling e a fonte elevada, com motivo quando não há número', () => {
     register()
     getHandler('hud:set-visible')({}, true)
     const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
@@ -380,7 +388,9 @@ describe('push hud:update', () => {
       'hud:update',
       expect.objectContaining({
         snapshot: expect.objectContaining({ capturedAt: expect.any(String) }),
-        size: { width: 300, scale: 'normal' }
+        size: { width: 300, scale: 'normal' },
+        fps: null,
+        fpsStatus: { state: 'off', reason: 'source-stopped' }
       })
     )
 
@@ -393,52 +403,62 @@ describe('push hud:update', () => {
       frametimeMs: 6.9,
       capturedAt: '2026-11-17T12:00:01.000Z'
     }
-    mocks.getFpsStatus.mockReturnValue({ state: 'running', last: activeUpdate })
-    listener(snapshotFixture())
-    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
-      'hud:update',
-      expect.objectContaining({ fps: activeUpdate })
-    )
-
-    // Medição rodando sem alvo ativo continua null (nunca 0 FPS).
-    mocks.getFpsStatus.mockReturnValue({
+    mocks.getFpsAutoUpdate.mockReturnValue(activeUpdate)
+    mocks.getFpsAutoStatus.mockReturnValue({
       state: 'running',
-      last: { ...activeUpdate, active: false, fps: null, frametimeMs: null }
+      installed: false,
+      sample: {
+        pid: 123,
+        name: 'jogo.exe',
+        fps: 144,
+        frametimeMs: 6.9,
+        timestamp: '2026-11-17T12:00:01.000Z'
+      },
+      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
+      fresh: true
     })
     listener(snapshotFixture())
     expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
       'hud:update',
-      expect.objectContaining({ fps: null })
+      expect.objectContaining({ fps: activeUpdate, fpsStatus: { state: 'running' } })
+    )
+
+    // Rodando sem alvo: o número continua null (nunca 0 FPS) e o motivo vai
+    // junto para o rodapé explicar o "—".
+    mocks.getFpsAutoUpdate.mockReturnValue(null)
+    mocks.getFpsAutoStatus.mockReturnValue({
+      state: 'running',
+      installed: false,
+      sample: null,
+      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
+      fresh: true,
+      reason: 'no-target'
+    })
+    listener(snapshotFixture())
+    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
+      'hud:update',
+      expect.objectContaining({ fps: null, fpsStatus: { state: 'running', reason: 'no-target' } })
     )
   })
 
-  it('usa a amostra do FPS automático quando o manual não tem alvo', () => {
+  it('propaga erro da fonte de FPS sem inventar número', () => {
     register()
     getHandler('hud:set-visible')({}, true)
     const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
-    const autoUpdate = {
-      state: 'running',
-      active: true,
-      pid: 777,
-      processName: 'jogo.exe',
-      fps: 60,
-      frametimeMs: 16.7,
-      capturedAt: '2026-11-17T12:00:02.000Z'
-    }
-    mocks.getFpsAutoUpdate.mockReturnValue(autoUpdate)
+    mocks.getFpsAutoStatus.mockReturnValue({
+      state: 'error',
+      installed: false,
+      sample: null,
+      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
+      error: 'falha ao ler o sink'
+    })
     listener(snapshotFixture())
     expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
       'hud:update',
-      expect.objectContaining({ fps: autoUpdate })
-    )
-
-    // Manual com alvo ativo tem prioridade sobre o automático.
-    const manual = { ...autoUpdate, pid: 999, fps: 144, capturedAt: '2026-11-17T12:00:03.000Z' }
-    mocks.getFpsStatus.mockReturnValue({ state: 'running', last: manual })
-    listener(snapshotFixture())
-    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
-      'hud:update',
-      expect.objectContaining({ fps: manual })
+      expect.objectContaining({
+        fps: null,
+        fpsStatus: { state: 'error', error: 'falha ao ler o sink' }
+      })
     )
   })
 

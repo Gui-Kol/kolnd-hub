@@ -7,7 +7,7 @@
 // `globalShortcut.register`, e o renderer precisa montar o mesmo formato ao
 // gravar o atalho — as duas pontas usam estas funções.
 
-import type { FpsUpdate } from './fps'
+import type { FpsAutoReason, FpsAutoState, FpsUpdate } from './fps'
 import type { HwSnapshot } from './hwmon'
 
 /** Atalho padrão: combinação improvável de já estar em uso em outros apps. */
@@ -124,6 +124,16 @@ export interface HudStatus {
 }
 
 /**
+ * Estado compacto da fonte de FPS elevada para o rodapé do HUD. `fps` pode ser
+ * `null` (sem número) e o motivo continua explicável — nunca um traço mudo.
+ */
+export interface HudFpsStatus {
+  state: FpsAutoState
+  reason?: FpsAutoReason
+  error?: string
+}
+
+/**
  * Payload do push `hud:update` (~1 Hz enquanto a sobreposição está visível).
  * `fps` só vem preenchido quando a medição ETW está ativa com um alvo em
  * primeiro plano — nunca inventamos 0 FPS.
@@ -131,6 +141,8 @@ export interface HudStatus {
 export interface HudUpdate {
   snapshot: HwSnapshot
   fps: FpsUpdate | null
+  /** Estado/motivo da fonte elevada mesmo quando `fps` é `null`. */
+  fpsStatus?: HudFpsStatus
   /** Tamanho atual do HUD — o overlay usa a escala e sabe a largura vigente. */
   size: HudSize
   /** ISO 8601 do instante em que o main montou esta atualização. */

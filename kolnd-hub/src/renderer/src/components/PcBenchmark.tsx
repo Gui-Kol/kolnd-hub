@@ -266,9 +266,10 @@ export function PcBenchmark(): JSX.Element {
             Benchmark de CPU
           </h3>
           <p className="mx-auto max-w-lg text-[12px] leading-relaxed text-ink-secondary">
-            Mede inteiros, ponto flutuante, memória, AES e SHA-256 em single e multi-thread. Tudo
-            roda na sua máquina, em processos separados — nada sai daqui. Leva de 15 a 30 segundos,
-            dependendo do número de núcleos.
+            Mede inteiros, ponto flutuante, memória, AES e SHA-256 em duas fases, como no CPU-Z:
+            single (1 núcleo) e multi (todos os núcleos lógicos). Tudo roda na sua máquina, em
+            processos separados — nada sai daqui. Leva de 15 a 30 segundos, dependendo do número de
+            núcleos.
           </p>
         </div>
 
@@ -492,10 +493,11 @@ export function PcBenchmark(): JSX.Element {
               Teste de estresse
             </h3>
             <p className="text-[12px] leading-relaxed text-ink-secondary">
-              Carga contínua em todos os núcleos, sem pontuação. O cronômetro e a verificação de
-              integridade mostram se a computação continua consistente. A carga usa ~80% de cada
-              núcleo para o Hub continuar respondendo; se a interface parar de responder, o teste é
-              encerrado sozinho.
+              Carga contínua em todos os núcleos lógicos, sem pontuação: um processo por núcleo, a
+              mesma mecânica do CPU-Z. O cronômetro e a verificação de integridade mostram se a
+              computação continua consistente. A carga roda em prioridade abaixo da normal, então o
+              Hub continua respondendo; se a interface parar de responder, o teste é encerrado
+              sozinho.
             </p>
           </div>
         </div>

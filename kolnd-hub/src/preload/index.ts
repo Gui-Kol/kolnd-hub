@@ -451,6 +451,12 @@ const api = {
       origin: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number
       addedAt: string
+      favorite?: boolean
+      collections?: string[]
+      playtimeSeconds?: number
+      playtimeDays?: Record<string, number>
+      lastPlayedAt?: string
+      coverPath?: string | null
     }>
   > => ipcRenderer.invoke('games:get'),
 
@@ -472,8 +478,18 @@ const api = {
       iconPath?: string | null
       origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number | null
+      favorite?: boolean
+      collections?: string[]
+      coverPath?: string | null
     }
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('games:update', id, patch),
+
+  getGameCollections: (): Promise<string[]> => ipcRenderer.invoke('games:collections'),
+
+  createGameCollection: (
+    name: string
+  ): Promise<{ success: boolean; error?: string; collections?: string[] }> =>
+    ipcRenderer.invoke('games:collection-create', name),
 
   removeGame: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('games:remove', id),
@@ -528,6 +544,21 @@ const api = {
     ipcRenderer.invoke('games:running-map', ids),
 
   getGameIcon: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-icon', id),
+
+  pickGameCover: (): Promise<{
+    success: boolean
+    canceled?: boolean
+    dataUrl?: string
+    error?: string
+  }> => ipcRenderer.invoke('games:pick-cover'),
+
+  setGameCover: (
+    id: string,
+    dataUrl: string
+  ): Promise<{ success: boolean; coverPath?: string | null; error?: string }> =>
+    ipcRenderer.invoke('games:set-cover', id, dataUrl),
+
+  getGameCover: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-cover', id),
 
   addCustomGame: (
     exePath: string

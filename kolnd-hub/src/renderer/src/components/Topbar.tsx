@@ -150,6 +150,7 @@ export function Topbar({
             size="sm"
             onClick={onEnterBigPicture}
             aria-label="Entrar no modo Big Picture"
+            title="Big Picture — dica: o botão PS/Guide do controle abre o modo quando o Hub está em foco"
             className="hidden min-[980px]:inline-flex"
           >
             <Gamepad2 size={16} />

@@ -63,6 +63,18 @@ export interface StoredGame {
   steamAppId?: number
   /** ISO timestamp de quando o jogo entrou na biblioteca. */
   addedAt: string
+  /** Marcado como favorito na Biblioteca/Big Picture. */
+  favorite?: boolean
+  /** Nomes das coleções do jogo (máx. 8, 1–24 chars cada, únicos sem diferenciar caixa). */
+  collections?: string[]
+  /** Total acumulado de tempo de jogo, em segundos (inteiro ≥ 0). */
+  playtimeSeconds?: number
+  /** Segundos por dia local (`YYYY-MM-DD`); só os 60 dias mais recentes são mantidos. */
+  playtimeDays?: Record<string, number>
+  /** ISO da última vez que o jogo foi aberto pelo Hub. */
+  lastPlayedAt?: string
+  /** Caminho absoluto da capa escolhida em `%APPDATA%/kolnd-hub/game-covers/`; null = sem capa. */
+  coverPath?: string | null
 }
 
 export interface StoredAppConfig {
@@ -98,6 +110,8 @@ export interface HubStoreSchema {
   apps: StoredAppConfig[]
   startupImportance: Record<string, ImportanceLevelName>
   games: StoredGame[]
+  /** Coleções de jogos da Biblioteca (máx. 30, nomes 1–24 chars, únicos). */
+  gameCollections: string[]
   /** Preferência: iniciar o Kloud Games junto com o Hub (default false). */
   launchKloudOnStart: boolean
   /** Preferência: notificar quando um programa gerenciado morrer inesperadamente (default true, opt-out). */
@@ -269,6 +283,82 @@ export function normalizeStartupImportance(input: unknown): Record<string, Impor
   return out
 }
 
+/** Limites das coleções de jogos (chave `gameCollections` e campo `collections`). */
+export const MAX_GAME_COLLECTIONS = 30
+export const MAX_GAME_COLLECTION_TAGS = 8
+export const MAX_COLLECTION_NAME_LENGTH = 24
+/** Quantos dias de tempo de jogo são preservados em `playtimeDays`. */
+export const MAX_PLAYTIME_DAYS = 60
+
+/** Nome de coleção válido (trim, 1–24 chars) ou null. */
+function normalizeCollectionName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim()
+  if (!name || name.length > MAX_COLLECTION_NAME_LENGTH) return null
+  return name
+}
+
+/**
+ * Normaliza uma lista de nomes de coleção: descarta inválidos, faz trim,
+ * deduplica sem diferenciar caixa (preserva a grafia da primeira ocorrência)
+ * e aplica o cap pedido. Default = cap da chave `gameCollections`.
+ */
+export function normalizeGameCollections(
+  input: unknown,
+  limit: number = MAX_GAME_COLLECTIONS
+): string[] {
+  if (!Array.isArray(input)) return []
+  const max =
+    Number.isInteger(limit) && limit > 0
+      ? Math.min(limit, MAX_GAME_COLLECTIONS)
+      : MAX_GAME_COLLECTIONS
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of input) {
+    const name = normalizeCollectionName(item)
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/** Segundos de tempo de jogo válidos (inteiro ≥ 0) ou null. */
+function normalizePlaytimeSeconds(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
+  return Math.floor(value)
+}
+
+/**
+ * Normaliza o mapa de tempo por dia local. Só chaves `YYYY-MM-DD` com valores
+ * positivos entram; os 60 dias mais recentes são preservados.
+ */
+export function normalizePlaytimeDays(input: unknown): Record<string, number> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const entries: Array<[string, number]> = []
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue
+    const seconds = normalizePlaytimeSeconds(value)
+    if (seconds === null || seconds <= 0) continue
+    entries.push([key, seconds])
+  }
+  entries.sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+  const out: Record<string, number> = {}
+  for (const [key, seconds] of entries.slice(0, MAX_PLAYTIME_DAYS)) out[key] = seconds
+  return out
+}
+
+/** ISO timestamp válido (string não vazia, ≤ 40 chars, parseável) ou null. */
+function normalizeIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > 40) return null
+  return Number.isNaN(Date.parse(trimmed)) ? null : trimmed
+}
+
 /**
  * Valida/normaliza uma entrada de jogo vinda do renderer/devtools ou do disco.
  * Descarta entradas sem id/name/exePath; entradas inválidas nunca derrubam a lista.
@@ -305,6 +395,23 @@ export function normalizeGame(input: unknown): StoredGame | null {
 
   const game: StoredGame = { id, name, exePath, iconPath, origin, addedAt }
   if (steamAppId !== undefined) game.steamAppId = steamAppId
+  if (typeof raw.favorite === 'boolean') game.favorite = raw.favorite
+
+  const collections = normalizeGameCollections(raw.collections, MAX_GAME_COLLECTION_TAGS)
+  if (collections.length > 0) game.collections = collections
+
+  const playtimeSeconds = normalizePlaytimeSeconds(raw.playtimeSeconds)
+  if (playtimeSeconds !== null) game.playtimeSeconds = playtimeSeconds
+
+  const playtimeDays = normalizePlaytimeDays(raw.playtimeDays)
+  if (Object.keys(playtimeDays).length > 0) game.playtimeDays = playtimeDays
+
+  const lastPlayedAt = normalizeIsoTimestamp(raw.lastPlayedAt)
+  if (lastPlayedAt) game.lastPlayedAt = lastPlayedAt
+
+  const coverPath =
+    typeof raw.coverPath === 'string' && raw.coverPath.trim() ? raw.coverPath.trim() : null
+  if (coverPath) game.coverPath = coverPath
   return game
 }
 
@@ -566,9 +673,23 @@ const schema: Store.Schema<HubStoreSchema> = {
         iconPath: { type: ['string', 'null'] },
         origin: { enum: ['steam', 'epic', 'minecraft', 'custom'] },
         steamAppId: { type: 'number' },
-        addedAt: { type: 'string' }
+        addedAt: { type: 'string' },
+        favorite: { type: 'boolean' },
+        collections: { type: 'array', items: { type: 'string' } },
+        playtimeSeconds: { type: 'number' },
+        playtimeDays: { type: 'object', additionalProperties: { type: 'number' } },
+        lastPlayedAt: { type: 'string' },
+        coverPath: { type: ['string', 'null'] }
       }
     }
+  },
+  // Coleções da Biblioteca. Sem migração: chave nova com default [] (o ajv
+  // preenche nas instalações antigas); o conteúdo é revalidado por
+  // normalizeGameCollections() na leitura/escrita.
+  gameCollections: {
+    type: 'array',
+    default: [],
+    items: { type: 'string' }
   },
   launchKloudOnStart: {
     type: 'boolean',
@@ -908,6 +1029,31 @@ export function setStoredGames(games: unknown): { success: boolean; error?: stri
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar games:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lê as coleções de jogos persistidas (sempre normalizadas; [] quando indisponível). */
+export function getGameCollections(): string[] {
+  if (!store) return []
+  try {
+    return normalizeGameCollections(store.get('gameCollections', []))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler gameCollections:', err)
+    return []
+  }
+}
+
+/** Normaliza e persiste a lista de coleções da Biblioteca (cap 30). */
+export function setGameCollections(input: unknown): { success: boolean; error?: string } {
+  const normalized = normalizeGameCollections(input)
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('gameCollections', normalized)
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar gameCollections:', message)
     return { success: false, error: message }
   }
 }

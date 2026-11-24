@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { cpus, tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import type { E2eContext } from './global-setup'
 
@@ -16,6 +16,7 @@ import type { E2eContext } from './global-setup'
  * Este teste roda **3 execuções na mesma sessão** e exige:
  * - cada score dentro de ±15 % da mediana das três (estabilidade real);
  * - CPU do processo main ociosa depois de cada run (< 50 % de um núcleo);
+ * - a fase multi usa ≥ 95 % da CPU do sistema (filhos em barreira, sem cauda);
  * - nenhum processo filho do runner remanescente (sem órfãos).
  */
 const CONTEXT_FILE =
@@ -34,6 +35,87 @@ async function launchApp(): Promise<ElectronApplication> {
       KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
       PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
     }
+  })
+}
+
+interface CpuSample {
+  at: number
+  /** Média de ocupação de todos os núcleos lógicos (0–100). */
+  avg: number
+}
+
+interface PhaseMark {
+  phase: 'single' | 'multi'
+  percent: number
+  at: number
+}
+
+function coreTimes(): Array<{ idle: number; total: number }> {
+  return cpus().map((cpu) => ({
+    idle: cpu.times.idle,
+    total: cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq
+  }))
+}
+
+/** Amostra a CPU do sistema enquanto o benchmark roda (os filhos são outros processos). */
+function startCpuSampler(intervalMs = 300): { stop: () => CpuSample[] } {
+  const samples: CpuSample[] = []
+  let last = coreTimes()
+  const timer = setInterval(() => {
+    const now = coreTimes()
+    const cores = Math.min(last.length, now.length)
+    let busy = 0
+    for (let index = 0; index < cores; index++) {
+      const total = now[index].total - last[index].total
+      const idle = now[index].idle - last[index].idle
+      busy += total > 0 ? (total - idle) / total : 0
+    }
+    samples.push({ at: Date.now(), avg: cores > 0 ? Math.round((busy / cores) * 1000) / 10 : 0 })
+    last = now
+  }, intervalMs)
+  return {
+    stop: () => {
+      clearInterval(timer)
+      return samples
+    }
+  }
+}
+
+/** Marca no renderer em que instante cada fase/carga começou (progresso do main). */
+async function startPhaseProbe(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const scope = window as unknown as {
+      __benchPhases?: Array<{ phase: 'single' | 'multi'; percent: number; at: number }>
+      __benchPhasesOff?: () => void
+    }
+    const api = (
+      window as unknown as {
+        api: {
+          onBenchmarkProgress: (
+            callback: (progress: { phase: 'single' | 'multi'; percent: number }) => void
+          ) => () => void
+        }
+      }
+    ).api
+    scope.__benchPhases = []
+    scope.__benchPhasesOff = api.onBenchmarkProgress((progress) => {
+      scope.__benchPhases?.push({
+        phase: progress.phase,
+        percent: progress.percent,
+        at: Date.now()
+      })
+    })
+  })
+}
+
+async function readPhaseMarks(window: Page): Promise<PhaseMark[]> {
+  return window.evaluate(() => {
+    const scope = window as unknown as {
+      __benchPhases?: PhaseMark[]
+      __benchPhasesOff?: () => void
+    }
+    scope.__benchPhasesOff?.()
+    return (scope.__benchPhases ?? []).map((mark) => ({ ...mark }))
   })
 }
 
@@ -149,14 +231,26 @@ test('benchmark de CPU mantém o score estável em 3 execuções na mesma sessã
     // Nenhum filho do runner antes de começar (estado limpo).
     expect(countRunnerProcesses()).toBe(0)
 
-    const runs: Array<{ scores: HistoryEntry; cpuPercent: number; orphans: number }> = []
+    const runs: Array<{
+      scores: HistoryEntry
+      cpuPercent: number
+      orphans: number
+      samples: CpuSample[]
+      phases: PhaseMark[]
+    }> = []
     const userDataDir = loadContext().userDataDir
     for (let index = 0; index < 3; index++) {
+      // CPU do sistema e marcas de fase durante a execução (a fase multi roda
+      // em processos filhos, invisíveis para `process.cpuUsage()` do main).
+      await startPhaseProbe(window)
+      const sampler = startCpuSampler()
       const scores = await runBenchmarkOnce(window)
+      const samples = sampler.stop()
+      const phases = await readPhaseMarks(window)
       await window.waitForTimeout(1500)
       const cpuPercent = await mainCpuPercent(app)
       const orphans = countRunnerProcesses()
-      runs.push({ scores, cpuPercent, orphans })
+      runs.push({ scores, cpuPercent, orphans, samples, phases })
       // Evidência objetiva no log do Playwright.
       console.log(
         `[e2e][benchmark] run ${index + 1}: single ${scores.single} · multi ${scores.multi} · cpu main ${cpuPercent}% · runners vivos ${orphans}`
@@ -164,6 +258,10 @@ test('benchmark de CPU mantém o score estável em 3 execuções na mesma sessã
       console.log(
         `[e2e][benchmark] cargas run ${index + 1}: ` +
           scores.tests.map((load) => `${load.id} ${load.single}/${load.multi}`).join(' · ')
+      )
+      console.log(
+        `[e2e][benchmark] cpu do sistema run ${index + 1}: ` +
+          JSON.stringify(samples.map((sample) => sample.avg))
       )
     }
 
@@ -202,6 +300,49 @@ test('benchmark de CPU mantém o score estável em 3 execuções na mesma sessã
     for (const run of runs) {
       expect(run.cpuPercent).toBeLessThan(50)
       expect(run.orphans).toBe(0)
+    }
+
+    // Fase multi: a barreira faz todos os filhos medirem juntos, então a CPU
+    // do sistema fica saturada até o fim (sem a cauda ociosa antiga).
+    for (let index = 0; index < runs.length; index++) {
+      const run = runs[index]
+      const multiStart = run.phases.find((mark) => mark.phase === 'multi')?.at
+      expect(multiStart, `run ${index + 1}: a fase multi não foi reportada`).toBeTruthy()
+      const lastAt = run.samples.length > 0 ? run.samples[run.samples.length - 1].at : 0
+      // +4 s: spawn dos 16 processos + aquecimento antes do `go` (a carga já
+      // satura durante o aquecimento; a margem cobre a criação dos processos).
+      // -800 ms: a última amostra pode pegar o fim da execução e a UI ociosa.
+      const inside = run.samples.filter(
+        (sample) => sample.at >= (multiStart as number) + 4000 && sample.at <= lastAt - 800
+      )
+      console.log(
+        `[e2e][benchmark] run ${index + 1} CPU na fase multi: ` +
+          JSON.stringify(inside.map((sample) => sample.avg)) +
+          ` (janela ${inside.length} amostras)`
+      )
+      expect(inside.length).toBeGreaterThanOrEqual(6)
+
+      // A janela medida precisa ficar saturada: no mínimo 85 % das amostras a
+      // ≥ 95 %. As demais cobrem o intervalo entre uma medição e a repetição de
+      // carga instável, que respawna os 16 filhos (a máquina fica ociosa por
+      // alguns instantes entre os dois lotes) — não é cauda da medição.
+      const saturated = inside.filter((sample) => sample.avg >= 95).length
+      expect(
+        saturated / inside.length,
+        `run ${index + 1}: fase multi não saturou a CPU (${saturated}/${inside.length})`
+      ).toBeGreaterThanOrEqual(0.85)
+
+      // E houve um trecho contínuo de pelo menos 3 s a ≥ 95 % (a janela medida).
+      let longest = 0
+      let current = 0
+      for (const sample of inside) {
+        current = sample.avg >= 95 ? current + 1 : 0
+        longest = Math.max(longest, current)
+      }
+      expect(
+        longest * 300,
+        `run ${index + 1}: sem trecho contínuo de 3 s a 95 % na fase multi`
+      ).toBeGreaterThanOrEqual(3000)
     }
 
     // Escala nova: os scores precisam ser da ordem do CPU-Z medido (~582/4.700),

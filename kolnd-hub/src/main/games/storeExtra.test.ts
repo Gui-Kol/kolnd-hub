@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getStoredGames: vi.fn(),
   setStoredGames: vi.fn(),
+  getGameCollections: vi.fn(),
+  setGameCollections: vi.fn(),
   normalizeGame: vi.fn(),
   realNormalizeGame: null as unknown,
   gameIconsDir: vi.fn(() => 'C:\\ud\\game-icons'),
@@ -10,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   deleteStaleIcons: vi.fn(),
   extractIconPng: vi.fn(),
   deleteCachedIcon: vi.fn(),
+  resolveCover: vi.fn((path: unknown) => (typeof path === 'string' ? path : null)),
+  deleteStaleCovers: vi.fn(),
+  deleteCachedCover: vi.fn(),
   existsSync: vi.fn(),
   rmSync: vi.fn(),
   statSync: vi.fn(),
@@ -23,6 +28,8 @@ vi.mock('../store', async (importOriginal) => {
     ...actual,
     getStoredGames: mocks.getStoredGames,
     setStoredGames: mocks.setStoredGames,
+    getGameCollections: mocks.getGameCollections,
+    setGameCollections: mocks.setGameCollections,
     normalizeGame: (...args: unknown[]) => mocks.normalizeGame(...args)
   }
 })
@@ -33,6 +40,11 @@ vi.mock('./icons', () => ({
   extractIconPng: mocks.extractIconPng,
   deleteCachedIcon: mocks.deleteCachedIcon
 }))
+vi.mock('./covers', () => ({
+  resolveCoverInsideGameCovers: mocks.resolveCover,
+  deleteStaleCovers: mocks.deleteStaleCovers,
+  deleteCachedCover: mocks.deleteCachedCover
+}))
 vi.mock('fs', () => ({
   existsSync: mocks.existsSync,
   rmSync: mocks.rmSync,
@@ -42,7 +54,15 @@ vi.mock('../logger', () => ({
   logger: { info: vi.fn(), warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
 }))
 
-import { addCustomGame, addGame, checkExePaths, getGames, removeGame, updateGame } from './store'
+import {
+  addCustomGame,
+  addGame,
+  checkExePaths,
+  createGameCollection,
+  getGames,
+  removeGame,
+  updateGame
+} from './store'
 import type { Game } from './store'
 
 function game(overrides: Partial<Game> = {}): Game {
@@ -61,7 +81,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.getStoredGames.mockReturnValue([])
   mocks.setStoredGames.mockReturnValue({ success: true })
+  mocks.getGameCollections.mockReturnValue([])
+  mocks.setGameCollections.mockReturnValue({ success: true })
   mocks.resolveIcon.mockImplementation((path: unknown) => (typeof path === 'string' ? path : null))
+  mocks.resolveCover.mockImplementation((path: unknown) => (typeof path === 'string' ? path : null))
   mocks.normalizeGame.mockImplementation((value: unknown) =>
     (mocks.realNormalizeGame as (v: unknown) => unknown)(value)
   )
@@ -219,6 +242,34 @@ describe('updateGame — ramos de erro e troca de ícone', () => {
     })
     expect(mocks.logWarn).toHaveBeenCalled()
   })
+
+  it('troca/limpa capa com a mesma defesa e apaga o arquivo antigo após salvar', () => {
+    const oldCover = 'C:\\ud\\game-covers\\game-1.png'
+    mocks.getStoredGames.mockReturnValue([game({ coverPath: oldCover })])
+    mocks.resolveCover.mockImplementation((path: unknown) =>
+      typeof path === 'string' ? path : null
+    )
+
+    expect(updateGame('game-1', { coverPath: 'C:\\ud\\game-covers\\game-1.webp' })).toEqual({
+      success: true
+    })
+    const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+    expect(saved.coverPath).toBe('C:\\ud\\game-covers\\game-1.webp')
+    expect(mocks.rmSync).toHaveBeenCalledWith(oldCover, { force: true })
+    expect(mocks.deleteStaleCovers).toHaveBeenCalledWith(
+      'game-1',
+      'C:\\ud\\game-covers\\game-1.webp'
+    )
+
+    expect(updateGame('game-1', { coverPath: null })).toEqual({ success: true })
+    expect((mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0].coverPath).toBeUndefined()
+
+    mocks.resolveCover.mockReturnValueOnce(null)
+    expect(updateGame('game-1', { coverPath: 'C:\\fora.png' })).toEqual({
+      success: false,
+      error: 'A capa deve estar dentro da pasta de capas do Kolnd Hub.'
+    })
+  })
 })
 
 describe('removeGame — falha do store', () => {
@@ -230,5 +281,90 @@ describe('removeGame — falha do store', () => {
       error: 'Não foi possível remover o jogo.'
     })
     expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateGame — favoritos e coleções', () => {
+  it('aplica favorite booleano e persiste', () => {
+    mocks.getStoredGames.mockReturnValue([game()])
+    expect(updateGame('game-1', { favorite: true })).toEqual({ success: true })
+    expect((mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0].favorite).toBe(true)
+
+    expect(updateGame('game-1', { favorite: 'sim' })).toEqual({
+      success: false,
+      error: 'Valor inválido para favorito.'
+    })
+  })
+
+  it('normaliza collections (trim, dedupe, cap 8) e recusa lista inválida', () => {
+    mocks.getStoredGames.mockReturnValue([game()])
+    expect(
+      updateGame('game-1', {
+        collections: [' RPG ', 'rpg', ...Array.from({ length: 10 }, (_, i) => `C${i}`)]
+      })
+    ).toEqual({ success: true })
+    const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+    expect(saved.collections).toHaveLength(8)
+    expect(saved.collections?.[0]).toBe('RPG')
+
+    expect(updateGame('game-1', { collections: 'RPG' })).toEqual({
+      success: false,
+      error: 'Lista de coleções inválida.'
+    })
+  })
+})
+
+describe('createGameCollection', () => {
+  it('cria com trim, devolve a lista e persiste', () => {
+    mocks.getGameCollections.mockReturnValue(['Já existe'])
+    expect(createGameCollection('  Nova  ')).toEqual({
+      success: true,
+      collections: ['Já existe', 'Nova']
+    })
+    expect(mocks.setGameCollections).toHaveBeenCalledWith(['Já existe', 'Nova'])
+  })
+
+  it('recusa nome vazio/longo, duplicado (case-insensitive), cap 30 e falha do store', () => {
+    expect(createGameCollection('   ')).toEqual({
+      success: false,
+      error: 'Informe um nome de coleção entre 1 e 24 caracteres.'
+    })
+    expect(createGameCollection(42)).toEqual({
+      success: false,
+      error: 'Informe um nome de coleção entre 1 e 24 caracteres.'
+    })
+    expect(createGameCollection('x'.repeat(25))).toEqual({
+      success: false,
+      error: 'Informe um nome de coleção entre 1 e 24 caracteres.'
+    })
+
+    mocks.getGameCollections.mockReturnValue(['RPG'])
+    expect(createGameCollection('rpg')).toEqual({
+      success: false,
+      error: 'Já existe uma coleção com esse nome.',
+      collections: ['RPG']
+    })
+
+    const full = Array.from({ length: 30 }, (_, i) => `Coleção ${i}`)
+    mocks.getGameCollections.mockReturnValue(full)
+    expect(createGameCollection('Extra')).toEqual({
+      success: false,
+      error: 'Você já tem o máximo de 30 coleções.',
+      collections: full
+    })
+
+    mocks.getGameCollections.mockReturnValue([])
+    mocks.setGameCollections.mockReturnValueOnce({ success: false })
+    expect(createGameCollection('Falha')).toEqual({
+      success: false,
+      error: 'Não foi possível criar a coleção.',
+      collections: []
+    })
+    mocks.setGameCollections.mockReturnValueOnce({ success: false, error: 'sem disco' })
+    expect(createGameCollection('Falha')).toEqual({
+      success: false,
+      error: 'sem disco',
+      collections: []
+    })
   })
 })

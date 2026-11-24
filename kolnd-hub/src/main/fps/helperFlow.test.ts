@@ -33,7 +33,7 @@ vi.mock('fs', () => ({
   statSync: mocks.statSync,
   writeFileSync: mocks.writeFileSync
 }))
-vi.mock('../hwmon/driver', () => ({ isUacCancelled: mocks.isUacCancelled }))
+vi.mock('../hwmon/uac', () => ({ isUacCancelled: mocks.isUacCancelled }))
 vi.mock('../hwmon/powershell', () => ({
   runPowerShell: mocks.runPowerShell,
   runPowerShellCommand: mocks.runPowerShellCommand

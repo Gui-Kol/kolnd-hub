@@ -35,6 +35,25 @@ import { addBenchmarkEntry } from './store'
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+function isAlive(pid: number): boolean {
+  try {
+    // Sinal 0 só testa existência; no Windows o Node mapeia para OpenProcess.
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitUntilDead(pid: number, timeoutMs = 3000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true
+    await wait(50)
+  }
+  return !isAlive(pid)
+}
+
 /** Runner real, gravado em um diretório temporário (nunca no repositório). */
 const runnerDir = mkdtempSync(join(tmpdir(), 'kolnd-benchmark-'))
 const runnerScriptPath = join(runnerDir, 'kolnd-bench-runner.js')
@@ -123,11 +142,11 @@ describe('runner real em processo filho', () => {
 })
 
 describe('teste de estresse', () => {
-  it('start → stop resolve rápido e não deixa worker vivo', async () => {
+  it('start → stop resolve rápido e não deixa processo vivo', async () => {
     const startedAt = Date.now()
-    const start = startStress(null)
+    const start = await startStress(null, { threads: 2, runnerScriptPath })
     expect(start.ok).toBe(true)
-    expect(start.threads).toBeGreaterThan(0)
+    expect(start.threads).toBe(2)
     expect(isBenchmarkBusy()).toBe(true)
 
     await wait(700)
@@ -140,16 +159,16 @@ describe('teste de estresse', () => {
     expect(wallMs).toBeLessThan(3000)
     expect(isBenchmarkBusy()).toBe(false)
 
-    // Se algum worker tivesse ficado preso, o estado continuaria "ocupado".
-    const restart = startStress(null)
+    // Se algum filho tivesse ficado preso, o estado continuaria "ocupado".
+    const restart = await startStress(null, { threads: 1, runnerScriptPath })
     expect(restart.ok).toBe(true)
     expect(stopStress().ok).toBe(true)
-  }, 8000)
+  }, 15_000)
 
   it('bloqueia benchmark e um segundo estresse enquanto um teste roda', async () => {
-    expect(startStress(null).ok).toBe(true)
+    expect((await startStress(null, { threads: 1, runnerScriptPath })).ok).toBe(true)
 
-    const secondStart = startStress(null)
+    const secondStart = await startStress(null, { threads: 1, runnerScriptPath })
     expect(secondStart.ok).toBe(false)
     expect(secondStart.error).toContain('Já existe um teste em andamento')
 
@@ -164,7 +183,55 @@ describe('teste de estresse', () => {
 
     expect(stopStress().ok).toBe(true)
     expect(isBenchmarkBusy()).toBe(false)
-  }, 8000)
+  }, 15_000)
+
+  it('roda em processos filhos, agrega a integridade e não deixa órfãos', async () => {
+    const pids: number[] = []
+    const start = await startStress(null, {
+      threads: 2,
+      runnerScriptPath,
+      onChild: (child) => {
+        if (child.pid) pids.push(child.pid)
+      }
+    })
+    expect(start.ok).toBe(true)
+    expect(start.threads).toBe(2)
+    expect(pids).toHaveLength(2)
+
+    // Tempo para os filhos reportarem o checksum periódico (~500 ms).
+    await wait(1200)
+
+    const stop = stopStress()
+    expect(stop.ok).toBe(true)
+    expect(stop.checksumOk).toBe(true)
+
+    for (const pid of pids) {
+      expect(await waitUntilDead(pid)).toBe(true)
+    }
+  }, 15_000)
+
+  it('marca falha de integridade quando um filho reporta checksum inválido', async () => {
+    // Filho de mentira: só reporta uma amostra com checksum falso e fica vivo
+    // até o stop (o teste de estresse não tem resultado final).
+    const fake = join(runnerDir, 'fake-stress.js')
+    writeFileSync(
+      fake,
+      [
+        'process.stdout.write(\'{"type":"ready"}\\n\')',
+        'setInterval(function () {',
+        '  process.stdout.write(\'{"type":"stress","elapsedMs":500,"checksumOk":false}\\n\')',
+        '}, 100)'
+      ].join('\n'),
+      'utf8'
+    )
+
+    const start = await startStress(null, { threads: 1, runnerScriptPath: fake })
+    expect(start.ok).toBe(true)
+    await wait(400)
+    const stop = stopStress()
+    expect(stop.ok).toBe(true)
+    expect(stop.checksumOk).toBe(false)
+  }, 15_000)
 })
 
 describe('cancelamento do benchmark', () => {

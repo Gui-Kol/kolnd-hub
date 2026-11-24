@@ -31,6 +31,7 @@ import {
   mappingsEqual
 } from '../lib/gamepad'
 import type { GamepadAction, GamepadButtonMapping, GamepadConfig } from '../lib/gamepad'
+import { GAMEPAD_GUIDE_BUTTON_INDEX } from '../../../shared/gamepad'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import { announce } from '../lib/useAnnouncer'
 import { GamepadMappingRow } from './gamepad/GamepadMappingRow'
@@ -62,7 +63,6 @@ const DETECT_POLL_MS = 200
 const DETECT_HINT_AFTER_MS = 30_000
 const LISTEN_POLL_MS = 100
 const NOTICE_DISMISS_MS = 4500
-const GUIDE_BUTTON_INDEX = 16
 
 function formatConfiguredDate(iso: string): string {
   const date = new Date(iso)
@@ -278,7 +278,7 @@ export function GamepadSetup({
       if (!draft) return
 
       if (button !== null) {
-        if (button === GUIDE_BUTTON_INDEX) {
+        if (button === GAMEPAD_GUIDE_BUTTON_INDEX) {
           if (soundsRef.current) playSfx('error')
           showNotice('O botão Guide (16) é reservado e não pode ser mapeado.')
           return

@@ -85,6 +85,7 @@ export type {
 // Tipos da medição de FPS/frametime por ETW — fonte única em `src/shared/fps.ts`.
 export type {
   FpsAutoActionResult,
+  FpsAutoReason,
   FpsAutoSample,
   FpsAutoState,
   FpsAutoStatus,
@@ -97,7 +98,14 @@ export type {
 } from '../../shared/fps'
 
 // Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
-export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
+export type {
+  HudConfig,
+  HudFpsStatus,
+  HudScale,
+  HudSize,
+  HudStatus,
+  HudUpdate
+} from '../../shared/hud'
 
 export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 
@@ -130,6 +138,18 @@ export interface Game {
   origin: GameOrigin
   steamAppId?: number
   addedAt: string
+  /** Marcado como favorito na Biblioteca/Big Picture. */
+  favorite?: boolean
+  /** Coleções do jogo (máx. 8 nomes, 1–24 chars cada). */
+  collections?: string[]
+  /** Total acumulado de tempo de jogo, em segundos. */
+  playtimeSeconds?: number
+  /** Segundos por dia local (`YYYY-MM-DD`), até 60 dias. */
+  playtimeDays?: Record<string, number>
+  /** ISO da última vez que o jogo foi aberto pelo Hub. */
+  lastPlayedAt?: string
+  /** Caminho absoluto da capa escolhida (dentro de `game-covers/`); null = sem capa. */
+  coverPath?: string | null
 }
 
 export interface SystemProcess {

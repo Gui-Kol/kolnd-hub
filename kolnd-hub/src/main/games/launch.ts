@@ -2,10 +2,11 @@ import { spawn, execFileSync } from 'child_process'
 import { existsSync } from 'fs'
 import { basename, dirname, extname } from 'path'
 import treeKill from 'tree-kill'
-import { getStoredGames } from '../store'
+import { getStoredGames, setStoredGames } from '../store'
 import { isValidId } from './naming'
 import { listRunningProcesses, type RunningProcess } from '../startupManager'
 import { logger } from '../logger'
+import { createPlaytimeTracker, PLAYTIME_TICK_MS } from './playtime'
 
 /**
  * Descoberta, lançamento e parada de processos de jogos.
@@ -46,6 +47,38 @@ export interface GameProcess {
   name: string
   id: number
   path: string
+}
+
+/**
+ * Tracker único do processo principal: contagem só de jogos abertos pelo Hub.
+ * As dependências são as mesmas que `runningGamesMap` já usa, então o tick é
+ * uma única listagem de processos a cada 20 s (e nada quando não há sessão).
+ */
+export const playtimeTracker = createPlaytimeTracker({
+  now: () => Date.now(),
+  listRunningProcesses: () => listRunningProcesses(),
+  getGames: () => getStoredGames(),
+  persistGames: (games) => setStoredGames(games).success
+})
+
+let playtimeInterval: NodeJS.Timeout | null = null
+
+/** Liga o tick do tracker (idempotente). Chamado junto com o IPC da biblioteca. */
+export function startPlaytimeMonitoring(): void {
+  if (playtimeInterval) return
+  playtimeInterval = setInterval(() => {
+    void playtimeTracker.tick()
+  }, PLAYTIME_TICK_MS)
+  // Não segura o event loop do app (o flush de saída é explícito).
+  playtimeInterval.unref?.()
+}
+
+/**
+ * Persiste o tempo pendente (will-quit). SÍNCRONO de propósito: o Electron não
+ * espera promises no quit; aqui só há leitura/gravação do store.
+ */
+export function flushPlaytimeTracking(): void {
+  playtimeTracker.flush()
 }
 
 /**
@@ -195,6 +228,8 @@ export async function launchGame(id: unknown): Promise<LaunchGameResult> {
     child.once('spawn', () => {
       child?.unref()
       logger.info('games', `Jogo iniciado: ${game.name} (${game.exePath})`)
+      // Só conta sessões abertas PELO Hub; o `lastPlayedAt` é gravado agora.
+      playtimeTracker.start(game.id, game.exePath)
       finish({ ok: true })
     })
     child.once('error', (err: Error) => {

@@ -72,21 +72,27 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     const cpuModelBox = await window.getByTestId('hw-cpu-model').boundingBox()
     expect(advancedBox && cpuModelBox && advancedBox.y < cpuModelBox.y).toBe(true)
 
-    // Desempenho/FPS: o card existe desde o primeiro render e, sem clique em
-    // "Ativar", tudo fica em "—". O teste NUNCA clica no botão de FPS — ele
-    // pede UAC e elevaria privilégio no CI.
+    // Desempenho/FPS: o card existe desde o primeiro render e usa a leitura
+    // elevada (sem botão manual por uso). Sem coletor ativo, mostra "—" com o
+    // motivo; com ele, mostra o alvo atual. O teste NUNCA clica em nada que
+    // peça UAC.
     const fpsCard = window.getByTestId('fps-card')
     await expect(fpsCard).toBeVisible()
-    await expect(window.getByTestId('fps-badge')).toHaveText('—')
-    await expect(window.getByTestId('fps-value')).toHaveText('—')
-    await expect(window.getByTestId('fps-frametime')).toHaveText('—')
-    await expect(window.getByTestId('fps-process')).toHaveText('—')
-    await expect(fpsCard).toContainText('Sem injeção')
+    const fpsBadge = window.getByTestId('fps-badge')
+    await expect(fpsBadge).toHaveText(
+      /ao vivo|sem alvo|sem quadros|amostra velha|fonte parada|carregando…/
+    )
+    await expect(window.getByTestId('fps-value')).toHaveText(/^(—|\d[\d.]*)$/)
+    await expect(window.getByTestId('fps-frametime')).toHaveText(/^(—|\d+,\d+\s*ms)$/)
+    await expect(window.getByTestId('fps-process')).toHaveText(/^(—|\S+)$/)
+    await expect(window.getByTestId('fps-reason')).not.toHaveText('')
+    await expect(fpsCard).toContainText('Leitura elevada')
     await expect(fpsCard).toContainText(/nada é injetado no jogo/i)
-    const fpsStart = window.getByTestId('fps-start')
-    await expect(fpsStart).toBeVisible()
-    await expect(fpsStart).toContainText('permissão de administrador')
+    // O caminho manual (UAC por uso) e a tarefa legada saíram da UI.
+    await expect(window.getByTestId('fps-start')).toHaveCount(0)
     await expect(window.getByTestId('fps-stop')).toHaveCount(0)
+    await expect(window.getByTestId('fps-auto-install')).toHaveCount(0)
+    await expect(window.getByTestId('fps-auto-remove')).toHaveCount(0)
 
     // GPU e RAM medidas de verdade (nvidia-smi + CIM), sem configuração manual.
     await expect(window.getByTestId('hw-gpu-model')).toContainText('NVIDIA GeForce RTX 5060 Ti', {
@@ -112,7 +118,8 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     if (driverText.includes('ativo')) {
       // Máquina de dev com driver já instalado: valores privilegiados existem.
       await expect(window.getByTestId('hw-cpu-temp')).not.toHaveText('—')
-      await expect(window.getByTestId('hw-install-driver')).toHaveCount(0)
+      // Vcore é medido pela telemetria SVI2/IA32_PERF_STATUS, nunca estimado.
+      await expect(window.getByTestId('hw-cpu-voltage')).toHaveText(/^\d+,\d{3}\s*V$/)
       await expect(window.getByTestId('hw-total-power-badge')).toHaveText(/medido|estimado/i)
       await expect
         .poll(async () => parseWatts(await window.getByTestId('hw-total-power').innerText()), {
@@ -120,11 +127,15 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
           intervals: [500]
         })
         .toBeGreaterThan(0)
+      console.log(
+        `[e2e/vcore] ${await window.getByTestId('hw-cpu-voltage').innerText()} (medido pelo agente elevado)`
+      )
     } else {
       // Sem driver: campos privilegiados mostram "—" e o botão de instalação
       // fica visível — mas NUNCA é clicado neste teste.
       await expect(window.getByTestId('hw-cpu-temp')).toHaveText('—')
       await expect(window.getByTestId('hw-cpu-power')).toHaveText('—')
+      await expect(window.getByTestId('hw-cpu-voltage')).toHaveText('—')
 
       // Energia centralizada: total estimado com CPU/plataforma estimadas e
       // GPU medida. O total nunca fica abaixo da GPU (nunca soma um buraco).
