@@ -6,7 +6,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 | Pasta / arquivo            | O que é                                                                                                                                                          | Stack                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, OpenOffice, Big Picture, configurações, bandeja, primeira execução)                              | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
+| `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                          | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
 | `Mark-LVI/`                | **Mark LVI (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                    | Python + PyQt6, empacotado com PyInstaller                         |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                    | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                  | CMD + PowerShell                                                   |
@@ -17,7 +17,6 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 - **Dashboard** com o status de cada programa do ecossistema (rodando/parado, PID, logs ao vivo), iniciar/parar individual e ações em lote.
 - **Biblioteca de jogos**: importa os jogos instalados da Steam ou adiciona qualquer `.exe`, extrai o ícone do executável, renomeia/troca ícone e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
 - **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
-- **OpenOffice**: escritório isométrico que trata cada sessão do OpenCode como um "funcionário" numa sala — contratar, definir função (agente/modelo/esforço), mandar prompt, acompanhar a conversa, interromper e arquivar, sem abrir o OpenCode (requer o OpenCode CLI instalado). **Ainda incompleto**: o próprio app avisa que a tela vai ganhar melhorias em updates futuros.
 - **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
 - **Acesso remoto** (ZeroTier) e **atualização pelo próprio app**, descritos abaixo.
 - **Bandeja do sistema** com abrir/ocultar, autostart opcional e encerramento; fechar a janela (X) mantém o Hub na bandeja.
@@ -265,11 +264,11 @@ kolnd-hub/src/
 │               # config persistente (electron-store com schema + migração IPC)
 ├── preload/    # bridge segura (contextBridge, sandbox habilitado)
 └── renderer/   # React: Dashboard, Biblioteca, Meu PC (inicialização, tela,
-                # atualizações, limpeza, benchmark, monitor + HUD), OpenOffice,
+                # atualizações, limpeza, benchmark, monitor + HUD),
                 # Configurações, FirstRunInstall e Big Picture (gamepad/TV)…
 ```
 
-Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback; a migração mais recente é a **'1.10.0'**, do OpenOffice — departamentos e avatares). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
+Os comandos e diretórios de cada programa ficam configuráveis no app (**Configurações**) e são salvos no **electron-store** (`%APPDATA%\kolnd-hub\config.json`, com schema e migrações versionadas; o Hub migra automaticamente o que estava no `localStorage` na primeira execução, mantendo-o como fallback; a migração mais recente é a **'1.10.0'**). Caminhos aceitam variáveis de ambiente (`%ProgramFiles%`, `%LOCALAPPDATA%`…), caminhos absolutos e relativos. Comandos rodam via shell por padrão; em Configurações dá para desativar "Executar via shell" por comando.
 
 O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em **Big Picture** no rodapé da barra lateral e a janela entra em tela cheia com uma transição cinematográfica. A interface é navegável 100% por controle (D-Pad/stick + botões; LB/RB alternam Jogos · Ferramentas · Controle; B/Esc sai de volta ao Hub) — sem controle configurado, o primeiro acesso abre a configuração (detecção automática do modelo via "pressione qualquer botão", ajuste manual em **Configurações → Big Picture**). Mouse e teclado funcionam em paralelo, e a configuração do controle sobrevive a reinícios (`electron-store`, chaves `gamepad`/`bigPicture`).
 

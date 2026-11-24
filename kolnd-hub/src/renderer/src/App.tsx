@@ -24,18 +24,15 @@ import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConf
 import { once } from './lib/once'
 
 // Code splitting: páginas fora da inicial viajam em chunks próprios, carregados
-// só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture/
-// Escritório inteiros). Fallback `null`: nenhum spinner/texto novo — a transição
-// de página existente continua idêntica.
+// só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture
+// inteiros). Fallback `null`: nenhum spinner/texto novo — a transição de página
+// existente continua idêntica.
 const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })))
 const Inicializacao = lazy(() =>
   import('./components/Inicializacao').then((m) => ({ default: m.Inicializacao }))
 )
 const Biblioteca = lazy(() =>
   import('./components/Biblioteca').then((m) => ({ default: m.Biblioteca }))
-)
-const OfficeView = lazy(() =>
-  import('./components/office/OfficeView').then((m) => ({ default: m.OfficeView }))
 )
 const BigPicture = lazy(() =>
   import('./components/BigPicture').then((m) => ({ default: m.BigPicture }))
@@ -737,14 +734,7 @@ function App(): JSX.Element {
                     onStop={handleStop}
                     onToast={onToast}
                     onOpenSettings={() => setCurrentPage('settings')}
-                    onOpenOffice={() => setCurrentPage('openoffice')}
                   />
-                ) : currentPage === 'openoffice' ? (
-                  <ErrorBoundary>
-                    <Suspense fallback={null}>
-                      <OfficeView />
-                    </Suspense>
-                  </ErrorBoundary>
                 ) : currentPage === 'inicializacao' ? (
                   <ErrorBoundary>
                     <Suspense fallback={null}>

@@ -6,7 +6,6 @@ import type { LucideIcon } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
 import { RemoteHelpModal } from './RemoteHelpModal'
-import { OpenOfficeCard } from './office/OpenOfficeCard'
 import { Badge, EmptyState } from './ui'
 import { AppConfig, AppState } from '../types'
 import type { RemoteModeReason } from '../../../shared/remote'
@@ -20,8 +19,6 @@ interface DashboardProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
   /** Navega para Configurações (seção Acesso remoto) a partir da ajuda. */
   onOpenSettings: () => void
-  /** Navega para a página OpenOffice (card do grupo Inteligência Artificial). */
-  onOpenOffice: () => void
 }
 
 const KLOUD_APP_ID = 'kloud-games'
@@ -77,8 +74,7 @@ export function Dashboard({
   onLaunch,
   onStop,
   onToast,
-  onOpenSettings,
-  onOpenOffice
+  onOpenSettings
 }: DashboardProps): JSX.Element {
   const [selectedApp, setSelectedApp] = useState<AppConfig | null>(null)
   // Entradas decorativas (header, grupos em cascata, cards) viram fade curto com reduce.
@@ -175,8 +171,7 @@ export function Dashboard({
       ...categoryMeta[cat],
       apps: apps.filter((a) => a.category === cat)
     }))
-    // IA nunca some: o card do OpenOffice mora nesse grupo mesmo sem apps de IA.
-    .filter((g) => g.category === 'ai' || g.apps.length > 0)
+    .filter((g) => g.apps.length > 0)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -287,9 +282,6 @@ export function Dashboard({
 
             {/* Cards em grade */}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {group.category === 'ai' && (
-                <OpenOfficeCard onOpen={onOpenOffice} delay={0.15 + gi * 0.05} />
-              )}
               {group.apps.map((app, i) => (
                 <AppCard
                   key={app.id}

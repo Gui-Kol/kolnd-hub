@@ -39,7 +39,7 @@ export interface AppState {
   source?: 'hub' | 'background'
 }
 
-export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca' | 'openoffice'
+export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca'
 
 // Tipos do modo Big Picture (lib/gamepad, T1) re-exportados para consumo único.
 export type {

@@ -1,4 +1,4 @@
-﻿# Publisher Metadata
+# Publisher Metadata
 set(KLOUD_GAMES_PUBLISHER_NAME "Third Party Publisher"
         CACHE STRING "The name of the publisher (not developer) of the application.")
 set(KLOUD_GAMES_PUBLISHER_WEBSITE ""
@@ -23,8 +23,8 @@ if(WIN32)
             "Require static Qt libraries and their static third-party dependencies." ON)
 endif()
 
-option(KLOUD_GAMES_SYSTEM_VULKAN_HEADERS "Use system installation of vulkan-headers rather than the submodule." OFF)
-option(KLOUD_GAMES_SYSTEM_WAYLAND_PROTOCOLS "Use system installation of wayland-protocols rather than the submodule." OFF)
+option(KLOUD_GAMES_SYSTEM_VULKAN_HEADERS "Use system Vulkan headers instead of the build-deps pin." OFF)
+option(KLOUD_GAMES_SYSTEM_WAYLAND_PROTOCOLS "Use system Wayland protocols instead of the CPM package." OFF)
 
 option(BOOST_USE_STATIC "Use static boost libraries." ON)
 

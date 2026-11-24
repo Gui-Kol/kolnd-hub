@@ -40,7 +40,6 @@ import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
-import { registerOfficeIpc } from './ipc/office'
 import type { IpcContext } from './ipc/lifecycle'
 import { isQuitting, markQuitting } from './quitState'
 import { logger } from './logger'
@@ -345,9 +344,6 @@ app.whenReady().then(() => {
   // Registra os canais IPC da sobreposição (HUD): atalho global + janela
   // transparente always-on-top. Restaura a preferência persistida.
   registerHudIpc(ctx)
-
-  // Registra os canais IPC do escritório (sessões do OpenCode na página OpenOffice).
-  registerOfficeIpc(ctx)
 
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()

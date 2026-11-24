@@ -8,6 +8,8 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+## [1.2.0] - 2026-11-24
+
 ### Adicionado
 
 - **Ícones da Biblioteca recarregados ao abrir a aba**: o main revisa todos os jogos e re-extrai do executável apenas os ícones que não estão legíveis (arquivo ausente, vazio ou corrompido), garantindo que os cards fiquem preenchidos; ícones válidos — inclusive os escolhidos à mão no modal de edição — nunca são sobrescritos (IPC `games:reload-icons`)
@@ -15,8 +17,13 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ### Alterado
 
+- **Kloud Games atualizado para o Sunshine v2026.1123.40502**: mantendo a identidade visual e o frontend do Kolnd Hub, o fork recebeu os encoders legados **MPEG-2/H.263+**, a opção **resolução máxima de stream**, captura **ScreenCaptureKit** e **VideoToolbox v2** no macOS, correções de input/portal/multiseat no Linux, a migração das dependências para **CPM** e a atualização de libvirtualhid/moonlight-common-c/nvapi; a opção de doações continua removida
 - **Suíte unitária elevada a toda a lógica testável**: Vitest passou a cobrir `src/main` (incl. os 16 módulos de `ipc/`), `src/shared`, o contrato de `src/preload`, `renderer/src/lib` e `renderer/src/hooks` — 1.893 testes passando, com `src/main` em 93,8% de linhas, `src/shared` 98,1%, `preload` 100%, `renderer/lib` 99,0% e `renderer/hooks` 99,6%; `jsdom` entrou como devDependency só para os hooks de DOM e os limiares do `vitest.config.ts` subiram para os números reais (≥90% no main, ≥95% em shared/preload/lib, ≥96% em hooks)
 - **Acesso remoto passou a usar ZeroTier no lugar do Tailscale**: a seção **Configurações → Acesso remoto** e o **Modo remoto** do card do Kloud Games detectam o CLI oficial (`zerotier-cli -j info`/`-j listnetworks`), mostram o endereço atribuído pela rede, separam os IPs da VPN dos da LAN pelo adapter/`assignedAddresses` e instalam/abrem o ZeroTier por ação explícita (`winget` e GUI oficial); ingressar na rede continua sendo feito no app/painel do ZeroTier (IPCs `remote:install-zerotier`/`remote:open-zerotier`, motivos `zerotier-missing`/`zerotier-disconnected`)
+
+### Removido
+
+- **OpenOffice removido por completo**: saíram a página do escritório isométrico, o card do grupo Inteligência Artificial, o item da topbar e do mega menu, a seção **Configurações → OpenOffice**, todos os canais IPC `office:*`, o instalador/ponte do plugin do OpenCode, os contratos compartilhados (`src/shared/office*`), as chaves `officeDepartments`/`officeAvatars` do electron-store (a migração 1.10.0 virou no-op) e os testes unitários/e2e correspondentes
 
 ### Corrigido
 

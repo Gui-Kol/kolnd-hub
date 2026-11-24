@@ -25,20 +25,6 @@ import {
   type HudSize
 } from '../shared/hud'
 import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../shared/hwmon'
-import {
-  OFFICE_AGENT_ID_RE,
-  OFFICE_DEPARTMENTS_MAX,
-  OFFICE_DEPARTMENT_ID_RE,
-  OFFICE_DEPARTMENT_MEMBERS_MAX,
-  OFFICE_SESSION_ID_RE,
-  normalizeOfficeDepartmentName,
-  type OfficeDepartment
-} from '../shared/office'
-import {
-  OFFICE_AVATARS_MAX,
-  normalizeAvatarLook,
-  type OfficeAvatarLook
-} from '../shared/officeAvatar'
 export type {
   GamepadProfile,
   GamepadAction,
@@ -137,10 +123,6 @@ export interface HubStoreSchema {
    * Sempre lido/gravado normalizado por `normalizeHwmonIntervalMs`.
    */
   hwmonIntervalMs: number
-  /** Salas-departamento do OpenOffice (lista normalizada, cap 30). */
-  officeDepartments: OfficeDepartment[]
-  /** Aparência editada por sessão (mapa normalizado, cap 300). */
-  officeAvatars: Record<string, OfficeAvatarLook>
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -539,90 +521,6 @@ export function normalizeBenchmarkHistory(input: unknown): BenchmarkEntry[] {
   return out
 }
 
-// ── OpenOffice: salas-departamento e aparência ─────────────────────────────
-//
-// Duas chaves novas do OpenOffice. O conteúdo é sempre normalizado na leitura
-// e na escrita (arquivo editado à mão, versão antiga ou renderer comprometido):
-// ids/formato, nome sem controles, índices de paleta dentro da faixa, dedupe e
-// limites de quantidade.
-
-/** Nome de sala: 1–24 caracteres, espaços colapsados e sem controles. */
-export { normalizeOfficeDepartmentName }
-
-/** Departamento vindo do disco/IPC; qualquer campo inválido descarta a entrada. */
-export function normalizeOfficeDepartment(input: unknown): OfficeDepartment | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
-  const raw = input as Record<string, unknown>
-
-  const id = typeof raw.id === 'string' ? raw.id.trim() : ''
-  const name = normalizeOfficeDepartmentName(raw.name)
-  const agentID = typeof raw.agentID === 'string' ? raw.agentID.trim() : ''
-  if (!OFFICE_DEPARTMENT_ID_RE.test(id) || !name || !OFFICE_AGENT_ID_RE.test(agentID)) return null
-
-  const createdAt =
-    typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) && raw.createdAt > 0
-      ? Math.trunc(raw.createdAt)
-      : null
-  if (createdAt === null) return null
-
-  const sessionIDs: string[] = []
-  const seen = new Set<string>()
-  if (Array.isArray(raw.sessionIDs)) {
-    for (const entry of raw.sessionIDs) {
-      if (typeof entry !== 'string') continue
-      const sessionID = entry.trim()
-      if (!OFFICE_SESSION_ID_RE.test(sessionID) || seen.has(sessionID)) continue
-      seen.add(sessionID)
-      sessionIDs.push(sessionID)
-      if (sessionIDs.length >= OFFICE_DEPARTMENT_MEMBERS_MAX) break
-    }
-  }
-
-  return { id, name, agentID, sessionIDs, createdAt }
-}
-
-/**
- * Lista normalizada de departamentos: descarta inválidos, deduplica por id e
- * por sessão (a primeira sala vence) e corta em `OFFICE_DEPARTMENTS_MAX`.
- */
-export function normalizeOfficeDepartments(input: unknown): OfficeDepartment[] {
-  if (!Array.isArray(input)) return []
-  const seenIDs = new Set<string>()
-  const seenSessions = new Set<string>()
-  const out: OfficeDepartment[] = []
-  for (const item of input) {
-    const department = normalizeOfficeDepartment(item)
-    if (!department || seenIDs.has(department.id)) continue
-    const sessionIDs = department.sessionIDs.filter((sessionID) => !seenSessions.has(sessionID))
-    for (const sessionID of sessionIDs) seenSessions.add(sessionID)
-    seenIDs.add(department.id)
-    out.push({ ...department, sessionIDs })
-    if (out.length >= OFFICE_DEPARTMENTS_MAX) break
-  }
-  return out
-}
-
-/**
- * Mapa de looks por sessão. Chaves fora do formato de sessão e looks inválidos
- * são descartados; o cap mantém as `OFFICE_AVATARS_MAX` entradas mais recentes
- * (a ordem de inserção do objeto é a ordem de escrita).
- */
-export function normalizeOfficeAvatars(input: unknown): Record<string, OfficeAvatarLook> {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
-  const entries: Array<[string, OfficeAvatarLook]> = []
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    const sessionID = key.trim()
-    if (!OFFICE_SESSION_ID_RE.test(sessionID)) continue
-    const look = normalizeAvatarLook(value)
-    if (!look) continue
-    entries.push([sessionID, look])
-  }
-  const kept = entries.slice(-OFFICE_AVATARS_MAX)
-  const out: Record<string, OfficeAvatarLook> = {}
-  for (const [sessionID, look] of kept) out[sessionID] = look
-  return out
-}
-
 const schema: Store.Schema<HubStoreSchema> = {
   apps: {
     type: 'array',
@@ -762,31 +660,6 @@ const schema: Store.Schema<HubStoreSchema> = {
   hwmonIntervalMs: {
     type: 'number',
     default: HWMON_INTERVAL_DEFAULT_MS
-  },
-  // Salas-departamento do OpenOffice. O conteúdo é revalidado por
-  // normalizeOfficeDepartments() na leitura/escrita; o schema só garante a forma
-  // básica (id/nome/agente/membros), sem derrubar o arquivo inteiro.
-  officeDepartments: {
-    type: 'array',
-    default: [],
-    items: {
-      type: 'object',
-      required: ['id', 'name', 'agentID', 'sessionIDs', 'createdAt'],
-      additionalProperties: true,
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        name: { type: 'string', minLength: 1 },
-        agentID: { type: 'string', minLength: 1 },
-        sessionIDs: { type: 'array', items: { type: 'string' } },
-        createdAt: { type: 'number' }
-      }
-    }
-  },
-  // Aparência editada por sessão. O mapa é livre no schema porque o formato de
-  // cada look é validado por normalizeOfficeAvatars()/normalizeAvatarLook().
-  officeAvatars: {
-    type: 'object',
-    default: {}
   }
 }
 
@@ -822,7 +695,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.7.0 acrescenta as preferências de tamanho do HUD (`width`/`scale`).
       // 1.8.0 garante a chave `remoteAccess` (último IP público consultado).
       // 1.9.0 acrescenta `mode` ao `remoteAccess` (modo remoto do Kloud Games).
-      // 1.10.0 garante `officeDepartments` (cap 30) e `officeAvatars` (cap 300).
+      // 1.10.0 existiu para as chaves do OpenOffice, recurso removido.
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -908,14 +781,9 @@ function createStore(): Store<HubStoreSchema> | null {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
         },
-        '1.10.0': (s): void => {
-          try {
-            // Chaves novas do OpenOffice; listas/mapas corrompidos viram vazio.
-            s.set('officeDepartments', normalizeOfficeDepartments(s.get('officeDepartments', [])))
-            s.set('officeAvatars', normalizeOfficeAvatars(s.get('officeAvatars', {})))
-          } catch {
-            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
-          }
+        '1.10.0': (): void => {
+          // No-op: a migração original só normalizava as chaves do OpenOffice,
+          // recurso removido do Hub. Mantida para não abrir buraco na cadeia.
         }
       }
     })
@@ -1469,87 +1337,6 @@ export function setRemoteMode(value: unknown): { success: boolean; error?: strin
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar modo remoto:', message)
-    return { success: false, error: message }
-  }
-}
-
-/** Lista de salas-departamento do OpenOffice (sempre normalizada; [] quando indisponível). */
-export function getOfficeDepartments(): OfficeDepartment[] {
-  if (!store) return []
-  try {
-    return normalizeOfficeDepartments(store.get('officeDepartments', []))
-  } catch (err) {
-    logger.error('store', 'Falha ao ler officeDepartments:', err)
-    return []
-  }
-}
-
-/** Normaliza e persiste a lista de salas-departamento (cap 30). */
-export function setOfficeDepartments(input: unknown): { success: boolean; error?: string } {
-  const normalized = normalizeOfficeDepartments(input)
-  if (!store) return { success: false, error: 'Store persistente indisponível' }
-  try {
-    store.set('officeDepartments', normalized)
-    return { success: true }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error('store', 'Falha ao salvar officeDepartments:', message)
-    return { success: false, error: message }
-  }
-}
-
-/** Mapa de aparências por sessão (sempre normalizado; {} quando indisponível). */
-export function getOfficeAvatars(): Record<string, OfficeAvatarLook> {
-  if (!store) return {}
-  try {
-    return normalizeOfficeAvatars(store.get('officeAvatars', {}))
-  } catch (err) {
-    logger.error('store', 'Falha ao ler officeAvatars:', err)
-    return {}
-  }
-}
-
-/** Normaliza e persiste o mapa inteiro de aparências (cap 300). */
-export function setOfficeAvatars(input: unknown): { success: boolean; error?: string } {
-  const normalized = normalizeOfficeAvatars(input)
-  if (!store) return { success: false, error: 'Store persistente indisponível' }
-  try {
-    store.set('officeAvatars', normalized)
-    return { success: true }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error('store', 'Falha ao salvar officeAvatars:', message)
-    return { success: false, error: message }
-  }
-}
-
-/**
- * Grava o look de UMA sessão. A entrada vai para o fim da ordem de escrita —
- * é assim que o cap de 300 descarta as mais antigas numa próxima leitura.
- */
-export function setOfficeAvatar(
-  sessionID: unknown,
-  look: unknown
-): { success: boolean; error?: string } {
-  const id = typeof sessionID === 'string' ? sessionID.trim() : ''
-  if (!OFFICE_SESSION_ID_RE.test(id)) {
-    return { success: false, error: 'Sessão inválida para salvar a aparência.' }
-  }
-  const normalized = normalizeAvatarLook(look)
-  if (!normalized) {
-    return { success: false, error: 'Aparência inválida: confira sexo e cores escolhidas.' }
-  }
-  if (!store) return { success: false, error: 'Store persistente indisponível' }
-  try {
-    const current = getOfficeAvatars()
-    delete current[id]
-    current[id] = normalized
-    const next = normalizeOfficeAvatars(current)
-    store.set('officeAvatars', next)
-    return { success: true }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error('store', 'Falha ao salvar officeAvatars:', message)
     return { success: false, error: message }
   }
 }

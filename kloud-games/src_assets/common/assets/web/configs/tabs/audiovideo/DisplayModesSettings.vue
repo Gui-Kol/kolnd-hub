@@ -15,6 +15,13 @@ const config = ref(props.config)
     <div class="kg-help">{{ $t("config.max_bitrate_desc") }}</div>
   </div>
 
+  <!--max_stream_resolution-->
+  <div class="kg-field">
+    <label for="max_stream_resolution" class="kg-label">{{ $t("config.max_stream_resolution") }}</label>
+    <input type="text" class="kg-input" id="max_stream_resolution" placeholder="2560x1440" v-model="config.max_stream_resolution" />
+    <div class="kg-help">{{ $t("config.max_stream_resolution_desc") }}</div>
+  </div>
+
   <!--minimum_fps_target-->
   <div class="kg-field">
     <label for="minimum_fps_target" class="kg-label">{{ $t("config.minimum_fps_target") }}</label>

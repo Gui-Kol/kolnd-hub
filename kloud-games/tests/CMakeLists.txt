@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.13)
 # https://github.com/google/oss-policies-info/blob/main/foundational-cxx-support-matrix.md#foundational-c-support
 
 project(test_KLOUD_GAMES)
@@ -122,7 +122,7 @@ if(KLOUD_GAMES_ENABLE_TRAY AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Li
 
     if(WIN32 OR APPLE)
         configure_file(
-                "${CMAKE_SOURCE_DIR}/third-party/libvirtualhid/libvirtualhid.svg"
+                "${libvirtualhid_SOURCE_DIR}/libvirtualhid.svg"
                 "${KLOUD_GAMES_TRAY_TEST_ICON_DESTINATION_DIR}/logo-libvirtualhid.svg"
                 COPYONLY)
     endif()
@@ -140,13 +140,12 @@ if(KLOUD_GAMES_ENABLE_TRAY AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Li
     endforeach()
 
     add_library(KLOUD_GAMES_tray_test_helpers STATIC
-            ${CMAKE_SOURCE_DIR}/third-party/tray/tests/notification_utils.cpp
-            ${CMAKE_SOURCE_DIR}/third-party/tray/tests/screenshot_utils.cpp)
+            "${tray_SOURCE_DIR}/tests/notification_utils.cpp"
+            "${tray_SOURCE_DIR}/tests/screenshot_utils.cpp")
     set_target_properties(KLOUD_GAMES_tray_test_helpers PROPERTIES
             CXX_STANDARD 17
             CXX_STANDARD_REQUIRED ON)
-    target_include_directories(KLOUD_GAMES_tray_test_helpers PRIVATE
-            ${CMAKE_SOURCE_DIR}/third-party/tray)
+    target_include_directories(KLOUD_GAMES_tray_test_helpers PUBLIC "${tray_SOURCE_DIR}/tests")
     target_link_libraries(KLOUD_GAMES_tray_test_helpers PRIVATE
             lizardbyte::common)
 
@@ -301,3 +300,7 @@ if (WIN32)
         )
     endif()
 endif ()
+
+# Exercise the same negotiation implementation used by the client transport.
+target_sources(${PROJECT_NAME} PRIVATE
+        "${moonlight-common-c_SOURCE_DIR}/src/VideoFormats.c")
