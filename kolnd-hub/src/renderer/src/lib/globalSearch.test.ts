@@ -86,12 +86,16 @@ describe('filterSearch', () => {
     const apps = [app({ id: 'a1', name: 'Kloud App', tags: ['ia', 'local'] })]
     const games = [
       game({ id: 'g1', name: 'Kloud Steam', origin: 'steam' }),
-      game({ id: 'g2', name: 'Kloud Custom', origin: 'custom' })
+      game({ id: 'g2', name: 'Kloud Custom', origin: 'custom' }),
+      game({ id: 'g3', name: 'Kloud Epic', origin: 'epic' }),
+      game({ id: 'g4', name: 'Kloud Minecraft', origin: 'minecraft' })
     ]
     const out = filterSearch('kloud', apps, games)
     expect(out[0]).toMatchObject({ kind: 'app', subtitle: 'ia · local' })
     expect(out[1]).toMatchObject({ kind: 'game', subtitle: 'Steam' })
     expect(out[2]).toMatchObject({ kind: 'game', subtitle: 'Personalizado' })
+    expect(out[3]).toMatchObject({ kind: 'game', subtitle: 'Epic Games' })
+    expect(out[4]).toMatchObject({ kind: 'game', subtitle: 'Minecraft' })
   })
 
   it('usa a categoria como subtitle quando o app não tem tags', () => {

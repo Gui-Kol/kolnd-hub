@@ -11,7 +11,7 @@
 
 O Kolnd Hub é a central de controle do ecossistema Kolnd: inicia/para/monitora os
 programas (Mark LVI, Kloud Games), gerencia a inicialização do PC, a biblioteca de
-jogos (inclusive importados da Steam), o modo Big Picture (gamepad/TV) e a própria
+jogos (Steam, Epic Games e Minecraft Launcher), o modo Big Picture (gamepad/TV) e a própria
 desinstalação. É um app Electron empacotado como instalador NSIS único.
 
 Stack (ver [`kolnd-hub/package.json`](../kolnd-hub/package.json)):
@@ -137,20 +137,20 @@ Todo canal é `ipcMain.handle` (request/response) ou `ipcMain.on` via eventos
 Os canais são registrados por funções `register*Ipc()` chamadas em `app.whenReady()`,
 mais handlers inline em `index.ts`:
 
-| Registro                                 | Arquivo                                                                 | Canais (exemplos)                                                                                                                                                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerConfigIpc` / `registerPrefsIpc` | `store.ts`                                                              | `config:get`, `config:setApps`, `config:migrate`, `prefs:get`/`prefs:set`                                                                                                                                                             |
-| `registerGamepadIpc`                     | `gamepad.ts`                                                            | `gamepad:get`/`set`/`reset`, `bigpicture:get-prefs`/`set-prefs`                                                                                                                                                                       |
-| `registerFirstRunIpc`                    | `firstRunInstaller.ts`                                                  | `firstRun:start`/`cancel`/`retry-kloud-games` + eventos `firstRun:*`                                                                                                                                                                  |
-| `registerWingetIpc`                      | `wingetUpdater.ts`                                                      | `winget:list-upgrades`, `winget:upgrade-one`, `winget:kill-upgrade`                                                                                                                                                                   |
-| `registerTempCleanerIpc`                 | `tempCleaner.ts`                                                        | `system:clean-temp`                                                                                                                                                                                                                   |
-| `registerDisplayIpc`                     | `displaySettings.ts`                                                    | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
-| `registerGamesIpc`                       | `games.ts`                                                              | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
-| `registerSteamIpc`                       | `steamScanner.ts`                                                       | `steam:import`                                                                                                                                                                                                                        |
-| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                   | `remote:status`/`public-ip`/`install-zerotier`/`open-zerotier`/`open-kloud-web`/`copy`                                                                                                                                                 |
-| `registerUpdatesIpc`                     | `ipc/updates.ts`                                                        | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
-| `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`) | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
-| inline em `index.ts`                     | —                                                                       | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
+| Registro                                 | Arquivo                                                                        | Canais (exemplos)                                                                                                                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerConfigIpc` / `registerPrefsIpc` | `store.ts`                                                                     | `config:get`, `config:setApps`, `config:migrate`, `prefs:get`/`prefs:set`                                                                                                                                                             |
+| `registerGamepadIpc`                     | `gamepad.ts`                                                                   | `gamepad:get`/`set`/`reset`, `bigpicture:get-prefs`/`set-prefs`                                                                                                                                                                       |
+| `registerFirstRunIpc`                    | `firstRunInstaller.ts`                                                         | `firstRun:start`/`cancel`/`retry-kloud-games` + eventos `firstRun:*`                                                                                                                                                                  |
+| `registerWingetIpc`                      | `wingetUpdater.ts`                                                             | `winget:list-upgrades`, `winget:upgrade-one`, `winget:kill-upgrade`                                                                                                                                                                   |
+| `registerTempCleanerIpc`                 | `tempCleaner.ts`                                                               | `system:clean-temp`                                                                                                                                                                                                                   |
+| `registerDisplayIpc`                     | `displaySettings.ts`                                                           | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
+| `registerGamesIpc`                       | `games.ts`                                                                     | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
+| `registerGameImportIpc`                  | `gameImport.ts` (+ `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`) | `games:import-all`                                                                                                                                                                                                                    |
+| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`public-ip`/`install-zerotier`/`open-zerotier`/`open-kloud-web`/`copy`                                                                                                                                                |
+| `registerUpdatesIpc`                     | `ipc/updates.ts`                                                               | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
+| `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`)        | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
+| inline em `index.ts`                     | —                                                                              | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
 **Regra de ouro: o main nunca confia no que chega por IPC, e o renderer também não confia
 no main sem checagem.** Os handlers recebem os argumentos como `unknown` (ou validam de
@@ -185,14 +185,14 @@ Configuração persistente via **electron-store** (`name: 'config'` → arquivo
 
 Chaves do schema (`HubStoreSchema`):
 
-| Chave                | Conteúdo                                                               |
-| -------------------- | ---------------------------------------------------------------------- |
-| `apps`               | lista de `StoredAppConfig` (id, command, cwd, category, …)             |
-| `startupImportance`  | `Record<string, 'critico' \| 'recomendado' \| 'opcional' \| 'inutil'>` |
-| `games`              | lista de `StoredGame` (Biblioteca; `origin` steam/custom)              |
-| `launchKloudOnStart` | boolean, default `false`                                               |
-| `gamepad`            | `GamepadConfig \| null` (null = não configurado)                       |
-| `bigPicture`         | `{ sounds: boolean }`, default `{ sounds: true }`                      |
+| Chave                | Conteúdo                                                                 |
+| -------------------- | ------------------------------------------------------------------------ |
+| `apps`               | lista de `StoredAppConfig` (id, command, cwd, category, …)               |
+| `startupImportance`  | `Record<string, 'critico' \| 'recomendado' \| 'opcional' \| 'inutil'>`   |
+| `games`              | lista de `StoredGame` (Biblioteca; `origin` steam/epic/minecraft/custom) |
+| `launchKloudOnStart` | boolean, default `false`                                                 |
+| `gamepad`            | `GamepadConfig \| null` (null = não configurado)                         |
+| `bigPicture`         | `{ sounds: boolean }`, default `{ sounds: true }`                        |
 
 Migrações lançadas (`migrations` em `store.ts`) — a mais recente é **`'1.9.0'`**:
 
@@ -364,7 +364,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                      |
 | Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                     |
 | Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                 |
-| Jogos / Steam                           | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`                                                                                                             |
+| Jogos / Steam, Epic e Minecraft         | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`, `gameImport.ts`                                                   |
 | Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                           |
 | Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                       |
 | Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |

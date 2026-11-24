@@ -156,6 +156,14 @@ describe('updateGame — ramos de erro e troca de ícone', () => {
       success: false,
       error: 'Origem do jogo inválida.'
     })
+    expect(updateGame('game-1', { origin: 'epic' })).toEqual({ success: true })
+    expect((mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[] | undefined)?.[0].origin).toBe(
+      'epic'
+    )
+    expect(updateGame('game-1', { origin: 'minecraft' })).toEqual({ success: true })
+    expect((mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[] | undefined)?.[0].origin).toBe(
+      'minecraft'
+    )
     expect(updateGame('game-1', { steamAppId: 1.5 })).toEqual({
       success: false,
       error: 'steamAppId inválido.'

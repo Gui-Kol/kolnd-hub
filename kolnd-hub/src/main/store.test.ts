@@ -285,6 +285,32 @@ describe('normalizeGame', () => {
     }) as StoredGame
     expect(out.steamAppId).toBeUndefined()
   })
+
+  it('aceita as origens novas (epic/minecraft) e cai em custom quando inválida', () => {
+    const epic = normalizeGame({
+      id: 'e1',
+      name: 'Epic',
+      exePath: 'D:\\Epic\\e.exe',
+      origin: 'epic'
+    }) as StoredGame
+    expect(epic.origin).toBe('epic')
+
+    const minecraft = normalizeGame({
+      id: 'm1',
+      name: 'Minecraft',
+      exePath: 'C:\\XboxGames\\Minecraft.exe',
+      origin: 'minecraft'
+    }) as StoredGame
+    expect(minecraft.origin).toBe('minecraft')
+
+    const invalid = normalizeGame({
+      id: 'i1',
+      name: 'Inválido',
+      exePath: 'C:\\inv.exe',
+      origin: 'playnite'
+    }) as StoredGame
+    expect(invalid.origin).toBe('custom')
+  })
 })
 
 describe('normalizeGames', () => {

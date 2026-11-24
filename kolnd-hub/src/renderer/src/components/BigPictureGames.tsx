@@ -226,7 +226,13 @@ const GameCard = memo(function GameCard({
             // tone="neutral" do primitivo mede 3.76–4.12 (ink-tertiary) nos fundos
             // dos cards do BP; ink-secondary mantém a mesma linguagem discreta com AA (6.35–6.97).
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-[var(--border-subtle)] bg-white/[0.05] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink-secondary">
-              {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
+              {game.origin === 'steam'
+                ? 'Steam'
+                : game.origin === 'epic'
+                  ? 'Epic Games'
+                  : game.origin === 'minecraft'
+                    ? 'Minecraft'
+                    : 'Personalizado'}
             </span>
           )}
         </span>

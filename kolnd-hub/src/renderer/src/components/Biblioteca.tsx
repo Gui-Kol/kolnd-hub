@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Download, FilePlus2, Loader2, RefreshCw } from 'lucide-react'
+import { Gamepad2, Plus, ChevronDown, Search, FilePlus2, Loader2, RefreshCw } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
 import { Badge, Button, Skeleton, Toast, EmptyState, ErrorState, LoadingState } from './ui'
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
-import { SteamImportModal, SteamImportState } from './biblioteca/SteamImportModal'
+import { BuscarJogosModal, BuscarJogosState } from './biblioteca/BuscarJogosModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
 
 interface LocalToast {
@@ -32,7 +32,8 @@ export function Biblioteca(): JSX.Element {
   const [toast, setToast] = useState<LocalToast | null>(null)
   // Guarda contra reentrada enquanto o seletor/extração/salvamento está em curso.
   const [addingCustom, setAddingCustom] = useState(false)
-  const [steamImport, setSteamImport] = useState<SteamImportState>({ phase: 'idle' })
+  // Fluxo "Buscar jogos" (Steam + Epic Games + Minecraft Launcher): idle/importing/done.
+  const [buscarJogos, setBuscarJogos] = useState<BuscarJogosState>({ phase: 'idle' })
   // Ícones por id: dataURL cacheada no estado do componente; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
@@ -268,34 +269,32 @@ export function Biblioteca(): JSX.Element {
     }
   }, [addingCustom, loadGames, showToast])
 
-  // Importa os jogos da Steam: fecha o menu, mostra "Importando…" e, ao
-  // concluir, abre o modal-resumo e recarrega a grade.
-  const handleImportSteam = useCallback(async (): Promise<void> => {
+  // Busca jogos instalados em todas as fontes suportadas (Steam, Epic Games e
+  // Minecraft Launcher): fecha o menu, abre o modal em "Procurando…" e só
+  // recarrega a grade quando o relatório geral der certo.
+  const handleFindGames = useCallback(async (): Promise<void> => {
     setMenuOpen(false)
-    setSteamImport({ phase: 'importing' })
+    setBuscarJogos({ phase: 'importing' })
     try {
-      const result = await window.api.importSteamGames()
-      setSteamImport({ phase: 'done', result })
+      const result = await window.api.importGames()
+      setBuscarJogos({ phase: 'done', result })
       if (result.ok) void loadGames()
     } catch (err) {
-      setSteamImport({
+      setBuscarJogos({
         phase: 'done',
         result: {
           ok: false,
+          sources: [],
           imported: 0,
-          alreadyInLibrary: 0,
-          ignoredTools: 0,
-          noExe: 0,
-          errors: [],
-          error: err instanceof Error ? err.message : 'Não foi possível importar os jogos da Steam.'
+          error: err instanceof Error ? err.message : 'Não foi possível buscar os jogos.'
         }
       })
     }
   }, [loadGames])
 
-  const closeSteamImport = useCallback((): void => {
-    // Não fecha enquanto a importação está em andamento (o IPC não pode ser cancelado).
-    setSteamImport((current) => (current.phase === 'importing' ? current : { phase: 'idle' }))
+  const closeFindGames = useCallback((): void => {
+    // Não fecha enquanto a varredura está em andamento (o IPC não é cancelável).
+    setBuscarJogos((current) => (current.phase === 'importing' ? current : { phase: 'idle' }))
   }, [])
 
   return (
@@ -372,16 +371,16 @@ export function Biblioteca(): JSX.Element {
                     <button
                       type="button"
                       role="menuitem"
-                      onClick={() => void handleImportSteam()}
+                      onClick={() => void handleFindGames()}
                       className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-ink-primary transition-colors duration-1 ease-standard hover:bg-surface-2"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-[var(--border-subtle)] bg-surface-2">
-                        <Download size={16} aria-hidden="true" className="text-ink-secondary" />
+                        <Search size={16} aria-hidden="true" className="text-ink-secondary" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block font-medium">Importar jogos da Steam</span>
+                        <span className="block font-medium">Buscar jogos</span>
                         <span className="mt-0.5 block text-[11px] text-ink-tertiary">
-                          Detecta os jogos instalados via Steam
+                          Procura jogos instalados na Steam, Epic Games e Minecraft Launcher
                         </span>
                       </span>
                     </button>
@@ -472,8 +471,8 @@ export function Biblioteca(): JSX.Element {
         />
       )}
 
-      {/* ── Modal "Importar jogos da Steam" ────────────── */}
-      <SteamImportModal state={steamImport} onClose={closeSteamImport} />
+      {/* ── Modal "Buscar jogos" (Steam + Epic Games + Minecraft Launcher) ── */}
+      <BuscarJogosModal state={buscarJogos} onClose={closeFindGames} />
 
       {/* ── Modal "Editar Game" (T9) ────────────────────── */}
       <AnimatePresence>

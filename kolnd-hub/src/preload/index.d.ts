@@ -19,6 +19,7 @@ import type {
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { GameImportReport } from '../shared/gameImport'
 import type {
   PublicIpResult,
   RemoteActionResult,
@@ -289,7 +290,7 @@ declare global {
           name: string
           exePath: string
           iconPath: string | null
-          origin: 'steam' | 'custom'
+          origin: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number
           addedAt: string
         }>
@@ -299,7 +300,7 @@ declare global {
         name: string
         exePath: string
         iconPath?: string | null
-        origin: 'steam' | 'custom'
+        origin: 'steam' | 'epic' | 'minecraft' | 'custom'
         steamAppId?: number
         addedAt?: string
       }) => Promise<{ success: boolean; error?: string }>
@@ -309,7 +310,7 @@ declare global {
           name?: string
           exePath?: string
           iconPath?: string | null
-          origin?: 'steam' | 'custom'
+          origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number | null
         }
       ) => Promise<{ success: boolean; error?: string }>
@@ -348,16 +349,8 @@ declare global {
         exePath: string
       ) => Promise<{ success: boolean; id?: string; name?: string; error?: string }>
 
-      // ── Steam ───────────────────────────────────
-      importSteamGames: () => Promise<{
-        ok: boolean
-        imported: number
-        alreadyInLibrary: number
-        ignoredTools: number
-        noExe: number
-        errors: string[]
-        error?: string
-      }>
+      // ── Busca de jogos (Steam + Epic Games + Minecraft Launcher) ──
+      importGames: () => Promise<GameImportReport>
 
       // ── Diálogos (Configurações) ────────────────────
       pickAppPath: (

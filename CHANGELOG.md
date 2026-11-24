@@ -8,6 +8,10 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+### Adicionado
+
+- **"Buscar jogos" na Biblioteca (Steam + Epic Games + Minecraft Launcher)**: o antigo "Importar jogos da Steam" virou uma ação única (`games:import-all`) que varre as três fontes instaladas, adiciona automaticamente o que encontra e mostra um relatório por fonte — novos, já na biblioteca, "não encontrado neste PC" e erros. A origem nova (`epic`/`minecraft`) aparece no badge do card e na busca global, e uma fonte ausente não é erro
+
 ## [1.2.0] - 2026-11-24
 
 ### Adicionado

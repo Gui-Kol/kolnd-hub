@@ -49,7 +49,7 @@ export type { HudConfig } from '../shared/hud'
 
 export type ImportanceLevelName = 'critico' | 'recomendado' | 'opcional' | 'inutil'
 
-export type GameOrigin = 'steam' | 'custom'
+export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 
 /** Jogo persistido na Biblioteca (electron-store, chave `games`). */
 export interface StoredGame {
@@ -204,7 +204,7 @@ export interface BenchmarkEntry {
 
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
 const IMPORTANCE_LEVELS: ImportanceLevelName[] = ['critico', 'recomendado', 'opcional', 'inutil']
-const GAME_ORIGINS: GameOrigin[] = ['steam', 'custom']
+const GAME_ORIGINS: GameOrigin[] = ['steam', 'epic', 'minecraft', 'custom']
 
 /** Valida/normaliza uma entrada de app vinda do renderer ou do localStorage. */
 export function normalizeAppConfig(input: unknown): StoredAppConfig | null {
@@ -564,7 +564,7 @@ const schema: Store.Schema<HubStoreSchema> = {
         name: { type: 'string', minLength: 1 },
         exePath: { type: 'string', minLength: 1 },
         iconPath: { type: ['string', 'null'] },
-        origin: { enum: ['steam', 'custom'] },
+        origin: { enum: ['steam', 'epic', 'minecraft', 'custom'] },
         steamAppId: { type: 'number' },
         addedAt: { type: 'string' }
       }

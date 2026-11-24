@@ -27,7 +27,7 @@ import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
-import { registerSteamIpc } from './steamScanner'
+import { registerGameImportIpc } from './gameImport'
 import { seedMarkLviData } from './programsDeployer'
 import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
 import { registerDialogIpc } from './ipc/dialog'
@@ -348,8 +348,8 @@ app.whenReady().then(() => {
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()
 
-  // Registra os canais IPC da importação de jogos da Steam.
-  registerSteamIpc()
+  // Registra o canal IPC único da busca de jogos (Steam + Epic + Minecraft).
+  registerGameImportIpc()
 
   // Registra os canais IPC de validação de linha de comando (Configurações).
   registerCommandValidateIpc()

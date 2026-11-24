@@ -15,7 +15,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 ## O que tem no Hub
 
 - **Dashboard** com o status de cada programa do ecossistema (rodando/parado, PID, logs ao vivo), iniciar/parar individual e ações em lote.
-- **Biblioteca de jogos**: importa os jogos instalados da Steam ou adiciona qualquer `.exe`, extrai o ícone do executável, renomeia/troca ícone e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
+- **Biblioteca de jogos**: busca e adiciona automaticamente os jogos instalados na Steam, Epic Games e Minecraft Launcher (ou adiciona qualquer `.exe`), extrai o ícone do executável, renomeia/troca ícone e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
 - **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
 - **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
 - **Acesso remoto** (ZeroTier) e **atualização pelo próprio app**, descritos abaixo.

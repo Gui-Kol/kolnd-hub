@@ -16,17 +16,9 @@ const gamesMock = vi.hoisted(() => ({
 }))
 const exeMock = vi.hoisted(() => ({ findGameExecutable: vi.fn() }))
 const mocks = vi.hoisted(() => ({
-  handlers: new Map<string, (...args: unknown[]) => unknown>(),
   logWarn: vi.fn()
 }))
 
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
-      mocks.handlers.set(channel, handler)
-    }
-  }
-}))
 vi.mock('child_process', () => ({ spawnSync: cpMock.spawnSync }))
 vi.mock('fs', () => ({
   existsSync: fsMock.existsSync,
@@ -45,12 +37,7 @@ vi.mock('./logger', () => ({
   logger: { info: vi.fn(), warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
 }))
 
-import {
-  findSteamLibraries,
-  findSteamRoot,
-  importSteamGames,
-  registerSteamIpc
-} from './steamScanner'
+import { findSteamLibraries, findSteamRoot, scanSteamGames } from './steamScanner'
 
 const STEAM_ROOT = 'C:\\Steam'
 const OTHER_LIB = 'D:\\SteamLibrary'
@@ -95,7 +82,6 @@ function registryOutput(value: string, name = 'SteamPath'): string {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.handlers.clear()
   cpMock.spawnSync.mockReturnValue({ status: 0, stdout: '', stderr: '' })
   gamesMock.getGames.mockReturnValue([])
   gamesMock.extractIconPng.mockResolvedValue(true)
@@ -193,15 +179,18 @@ describe('findSteamLibraries', () => {
   })
 })
 
-describe('importSteamGames', () => {
-  it('Steam não detectada → relatório com erro', async () => {
+describe('scanSteamGames', () => {
+  it('Steam não detectada → detected false e mensagem amigável (sem erro)', async () => {
     setupFs({})
-    const report = await importSteamGames()
+    const report = await scanSteamGames()
     expect(report).toMatchObject({
-      ok: false,
+      source: 'steam',
+      label: 'Steam',
+      detected: false,
       imported: 0,
-      error: 'Steam não detectada. Verifique se ela está instalada.'
+      message: 'Steam não detectada. Verifique se ela está instalada.'
     })
+    expect(report).not.toHaveProperty('error')
   })
 
   it('importa jogos válidos e contabiliza ferramentas, duplicados, sem exe e erros', async () => {
@@ -227,6 +216,7 @@ describe('importSteamGames', () => {
       join(steamapps, 'appmanifest_5.acf'),
       join(steamapps, 'appmanifest_6.acf'),
       join(steamapps, 'appmanifest_7.acf'),
+      join(steamapps, 'appmanifest_8.acf'),
       join(steamapps, 'appmanifest_9.acf'),
       join(steamapps, 'appmanifest_999.acf'),
       rootExe,
@@ -244,6 +234,7 @@ describe('importSteamGames', () => {
           'appmanifest_5.acf',
           'appmanifest_6.acf',
           'appmanifest_7.acf',
+          'appmanifest_8.acf',
           'appmanifest_9.acf',
           'appmanifest_999.acf',
           'notas.txt'
@@ -258,6 +249,7 @@ describe('importSteamGames', () => {
         [join(steamapps, 'appmanifest_5.acf')]: manifest('Jogo Bom', 500, 'Jogo Bom'),
         [join(steamapps, 'appmanifest_6.acf')]: manifest('Sem Icone', 600, 'Sem Icone'),
         [join(steamapps, 'appmanifest_7.acf')]: manifest('Duplicado', 700, 'Dup'),
+        [join(steamapps, 'appmanifest_8.acf')]: 'conteúdo sem appid/name/installdir',
         [join(steamapps, 'appmanifest_9.acf')]: manifest('Falha Estranha', 900, 'Falha'),
         [join(steamapps, 'appmanifest_999.acf')]: new Error('EACCES')
       }
@@ -279,11 +271,11 @@ describe('importSteamGames', () => {
       return { success: true }
     })
 
-    const report = await importSteamGames()
-    expect(report.ok).toBe(true)
+    const report = await scanSteamGames()
+    expect(report.detected).toBe(true)
     expect(report.imported).toBe(2)
     expect(report.alreadyInLibrary).toBe(2) // 300 (steamAppId) + 700 (addGame "Já existe")
-    expect(report.ignoredTools).toBe(2) // Proton (nome) + 228980 (id conhecido)
+    expect(report.ignored).toBe(3) // Proton (nome) + 228980 (id conhecido) + manifesto inválido
     expect(report.noExe).toBe(1)
     expect(report.errors).toEqual(['Falha Estranha: disco cheio'])
 
@@ -329,7 +321,7 @@ describe('importSteamGames', () => {
     })
     exeMock.findGameExecutable.mockReturnValue(join(steamapps, 'common', 'Jogo', 'jogo.exe'))
 
-    const report = await importSteamGames()
+    const report = await scanSteamGames()
     expect(report.imported).toBe(1)
     expect(gamesMock.addGame).toHaveBeenCalledTimes(1)
     expect(mocks.logWarn).toHaveBeenCalledWith(
@@ -337,15 +329,5 @@ describe('importSteamGames', () => {
       `Sem acesso a ${otherSteamapps}:`,
       expect.any(Error)
     )
-  })
-})
-
-describe('registerSteamIpc', () => {
-  it('registra steam:import e devolve o relatório', async () => {
-    registerSteamIpc()
-    setupFs({})
-    const handler = mocks.handlers.get('steam:import')
-    expect(handler).toBeDefined()
-    await expect(handler?.({})).resolves.toMatchObject({ ok: false })
   })
 })

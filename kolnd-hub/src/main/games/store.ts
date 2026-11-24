@@ -208,7 +208,7 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         }
         break
       case 'origin':
-        if (value !== 'steam' && value !== 'custom') {
+        if (value !== 'steam' && value !== 'epic' && value !== 'minecraft' && value !== 'custom') {
           return { success: false, error: 'Origem do jogo inválida.' }
         }
         merged.origin = value

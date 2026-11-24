@@ -62,7 +62,14 @@ export function filterSearch(
         kind: 'game',
         id: game.id,
         label: game.name,
-        subtitle: game.origin === 'steam' ? 'Steam' : 'Personalizado'
+        subtitle:
+          game.origin === 'steam'
+            ? 'Steam'
+            : game.origin === 'epic'
+              ? 'Epic Games'
+              : game.origin === 'minecraft'
+                ? 'Minecraft'
+                : 'Personalizado'
       })
     }
     if (results.length >= MAX_RESULTS) return results

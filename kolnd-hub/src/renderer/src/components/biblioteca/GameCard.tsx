@@ -122,8 +122,16 @@ export const GameCard = memo(function GameCard({
             Em execução
           </Badge>
         )}
-        {/* Badge de origem neutra (STEAM/CUSTOM), sem cor de marca */}
-        <Badge tone="neutral">{game.origin === 'steam' ? 'Steam' : 'Custom'}</Badge>
+        {/* Badge de origem neutra (STEAM/EPIC/MINECRAFT/CUSTOM), sem cor de marca */}
+        <Badge tone="neutral">
+          {game.origin === 'steam'
+            ? 'Steam'
+            : game.origin === 'epic'
+              ? 'Epic'
+              : game.origin === 'minecraft'
+                ? 'Minecraft'
+                : 'Custom'}
+        </Badge>
       </div>
     </button>
   )

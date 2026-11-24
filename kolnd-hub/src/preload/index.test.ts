@@ -63,6 +63,9 @@ describe('preload — contrato de window.api', () => {
     await api.getRunningGames(['a', 'b'])
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:running-map', ['a', 'b'])
 
+    await api.importGames()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:import-all')
+
     await api.upgradeOneUpdate('Git.Git')
     expect(mocks.invoke).toHaveBeenLastCalledWith('winget:upgrade-one', { id: 'Git.Git' })
 

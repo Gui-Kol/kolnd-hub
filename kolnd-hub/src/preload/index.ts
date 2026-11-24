@@ -21,6 +21,7 @@ import type {
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { GameImportReport } from '../shared/gameImport'
 import type {
   PublicIpResult,
   RemoteActionResult,
@@ -447,7 +448,7 @@ const api = {
       name: string
       exePath: string
       iconPath: string | null
-      origin: 'steam' | 'custom'
+      origin: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number
       addedAt: string
     }>
@@ -458,7 +459,7 @@ const api = {
     name: string
     exePath: string
     iconPath?: string | null
-    origin: 'steam' | 'custom'
+    origin: 'steam' | 'epic' | 'minecraft' | 'custom'
     steamAppId?: number
     addedAt?: string
   }): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('games:add', game),
@@ -469,7 +470,7 @@ const api = {
       name?: string
       exePath?: string
       iconPath?: string | null
-      origin?: 'steam' | 'custom'
+      origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number | null
     }
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('games:update', id, patch),
@@ -537,16 +538,8 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('games:add-custom', exePath),
 
-  // ── Steam ─────────────────────────────────────────
-  importSteamGames: (): Promise<{
-    ok: boolean
-    imported: number
-    alreadyInLibrary: number
-    ignoredTools: number
-    noExe: number
-    errors: string[]
-    error?: string
-  }> => ipcRenderer.invoke('steam:import'),
+  // ── Busca de jogos (Steam + Epic Games + Minecraft Launcher) ──
+  importGames: (): Promise<GameImportReport> => ipcRenderer.invoke('games:import-all'),
 
   // ── Diálogos (Configurações) ────────────────────
   pickAppPath: (

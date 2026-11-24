@@ -31,6 +31,7 @@ export default defineConfig({
         'src/renderer/src/env.d.ts',
         'src/renderer/src/types.ts',
         'src/shared/fps.ts',
+        'src/shared/gameImport.ts',
         '**/*.d.ts'
       ],
       // Limiares reais da suíte (24/11/2026) com margem de ~2–4 p.p. abaixo do
