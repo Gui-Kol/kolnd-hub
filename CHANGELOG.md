@@ -8,6 +8,8 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+## [1.2.1] - 2026-11-24
+
 ### Alterado
 
 - **JARVIS atualizado para o Mark LVII**: o Mark LVI saiu do monorepo e o Hub passou a apontar para o novo projeto em `Mark-LVII/` — bundle `resources/programs/MarkLVII/MarkLVII.exe`, script `kolnd-hub/scripts/build-mark-lvii.ps1` (PyInstaller) e migração automática das configurações salvas do Mark LVI (`MarkLVI.exe` em `resources/programs/MarkLVI` e `py main.py` em `../Mark-LVI`) para o novo executável
