@@ -10,7 +10,12 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ### Adicionado
 
+- **PR automático de `Dev` para `main`** (`.github/workflows/dev-to-main-pr.yml`): todo push em `Dev` garante um PR aberto para `main`; se ele ainda não existe, é criado, e nos pushes seguintes apenas a descrição é atualizada (os commits novos entram sozinhos, porque o head do PR é a própria `Dev`). O bloco automático fica entre os marcadores `dev-to-main:auto` e o texto manual fora deles é preservado
 - **Modo remoto do Kloud Games virou um fluxo completo de ZeroTier**: o clique instala a última versão pelo winget quando o ZeroTier está ausente e re-tenta ligar o modo; o tutorial do card ganhou abas **No PC (este computador)** e **No celular**, com passos simples e botões de copiar (IP do ZeroTier, ID da rede, IP local e "Copiar tudo"). O ZeroTier agora pode ser **aberto/fechado** pelo Hub com selo **Aberto / Aberto em segundo plano / Fechado** (serviço lido por `sc.exe` + GUI por `tasklist`; abrir/fechar o serviço usa UAC e relê o estado) e o card mostra o IP do ZeroTier em destaque com botão de copiar
+
+### Removido
+
+- **Dependabot**: `.github/dependabot.yml` removido do projeto; atualizações de dependências voltam a ser manuais
 
 ## [1.2.1] - 2026-11-24
 

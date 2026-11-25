@@ -41,6 +41,7 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
 - **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVII`, que não vai para o git) → **Generate SHA256SUMS** (informativo; gera `dist/SHA256SUMS.txt`). Artefatos: `dist/Kolnd Hub Setup *.exe` + `dist/SHA256SUMS.txt` e `coverage/` (ambos 7 dias).
+- **PR automático `Dev` → `main`** (`.github/workflows/dev-to-main-pr.yml`): cada push em `Dev` mantém **um único** PR aberto para `main`. Se ainda não existe PR, ele é criado; se já existe, **só a descrição é atualizada** (os commits novos entram sozinhos, porque o head do PR é a própria `Dev`). O bloco automático fica entre os marcadores `<!-- dev-to-main:auto:start -->` / `<!-- dev-to-main:auto:end -->`, então texto escrito à mão fora deles é preservado. Requer **"Allow GitHub Actions to create and approve pull requests"** em Settings → Actions → General (ou o secret `PR_TOKEN`, PAT com `pull-requests: write`; com o `GITHUB_TOKEN` o PR não dispara os checks de `pull_request` — limitação do GitHub —, mas o push em `Dev` continua rodando o CI).
 
 - **Baseline de bundle do renderer (16/11/2026)**: números e comando de reprodução (`$env:BUNDLE_ANALYZE='1'; npm run build`, gera `dist/bundle-report.html`, gitignored) em [`../docs/bundle-baseline.md`](../docs/bundle-baseline.md).
 
@@ -63,7 +64,6 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 ### Auditoria de dependências e segurança (CI)
 
 - **Audit (informativo)** — o step `npm audit --audit-level=high` roda em todo push/PR, mas tem `continue-on-error: true`: **não reprova o build**. Ele existe para dar visibilidade a CVEs conhecidas em dependências (ex.: Electron 28 fora de suporte); cada vulnerabilidade high/critical encontrada vira item/issue próprio, não é corrigida no CI. **Bloqueante é uma promoção futura**: só tornar o step bloqueante depois de zerar os highs atuais — até lá, falha de audit no log = sinal de atenção, não de build quebrado.
-- **Dependabot** (`.github/dependabot.yml`) — atualização semanal de dependências npm (`/kolnd-hub`) e de GitHub Actions (`/`), com limite de 5 PRs abertos e labels `dependencies`. Apenas minor/patch são propostos automaticamente; majors ficam para avaliação manual.
 - **CodeQL** (`.github/workflows/codeql.yml`) — análise estática `javascript-typescript` em push (`main`/`Dev`), PRs e schedule semanal (`ubuntu-latest`, build-mode `none`). O repositório é **público**, então o CodeQL roda gratuitamente; resultados aparecem na aba **Security** → code scanning (primeiro run em 13/11/2026: verde, 0 alertas).
 
 ### Acessibilidade (a11y)
