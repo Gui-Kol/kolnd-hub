@@ -69,6 +69,30 @@ const JSON_UPGRADES = JSON.stringify([
   }
 ])
 
+/** O Kloud Games se disfarça com o id do Sunshine oficial — só o nome o denuncia. */
+const JSON_WITH_KLOUD = JSON.stringify([
+  {
+    PackageIdentifier: 'LizardByte.Sunshine',
+    PackageName: 'KLOUD_GAMES',
+    Version: '0.0.0-d509f229-dirty',
+    AvailableVersion: '2026.914.233613'
+  },
+  {
+    PackageIdentifier: 'Git.Git',
+    PackageName: 'Git',
+    Version: '2.55.0',
+    AvailableVersion: '2.56.0'
+  }
+])
+
+const TABLE_WITH_KLOUD = [
+  'Name        Id                   Version   Available   Source',
+  '-------------------------------------------------------------',
+  'KLOUD_GAMES LizardByte.Sunshine  0.0.0     2026.914    winget',
+  'Git         Git.Git              2.55.0    2.56.0      winget',
+  '16 upgrades available.'
+].join('\n')
+
 beforeEach(async () => {
   vi.resetModules()
   vi.useRealTimers()
@@ -172,6 +196,46 @@ describe('listUpgradable — suporte a JSON', () => {
     await vi.advanceTimersByTimeAsync(180_000)
     await expectation
     expect(children[0].kill).toHaveBeenCalled()
+  })
+})
+
+describe('listUpgradable — filtro de marcas próprias', () => {
+  it('some com o Kloud Games no caminho JSON e mantém os apps normais', async () => {
+    const promise = mod.listUpgradable()
+    finish(children[0], JSON_WITH_KLOUD)
+
+    await expect(promise).resolves.toEqual([
+      { name: 'Git', id: 'Git.Git', currentVersion: '2.55.0', availableVersion: '2.56.0' }
+    ])
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      'winget',
+      expect.stringContaining('LizardByte.Sunshine')
+    )
+  })
+
+  it('some com o Kloud Games no parse da tabela', async () => {
+    const promise = mod.listUpgradable()
+    finish(children[0], 'sem json', 1)
+    await tick()
+
+    finish(children[1], TABLE_WITH_KLOUD)
+    const items = await promise
+    expect(items).toEqual([
+      { name: 'Git', id: 'Git.Git', currentVersion: '2.55.0', availableVersion: '2.56.0' }
+    ])
+  })
+
+  it('some com o Kloud Games também no fallback sem --accept-*', async () => {
+    const promise = mod.listUpgradable()
+    finish(children[0], 'sem json', 1)
+    await tick()
+
+    finish(children[1], 'Multiple installed packages found matching input criteria. Please refine.')
+    await tick()
+
+    finish(children[2], TABLE_WITH_KLOUD)
+    await expect(promise).resolves.toHaveLength(1)
+    expect(mocks.spawn.mock.calls[2][1]).toEqual(['upgrade'])
   })
 })
 
