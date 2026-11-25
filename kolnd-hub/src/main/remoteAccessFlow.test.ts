@@ -58,6 +58,7 @@ vi.mock('net', async (importOriginal) => {
 })
 
 import {
+  buildElevatedServiceArgs,
   checkKloudPorts,
   copyRemoteText,
   fetchPublicIp,
@@ -68,9 +69,12 @@ import {
   openZeroTier,
   probeTcp,
   requestRemoteMode,
-  zeroTierCliInvocation
+  setZeroTierOpen,
+  zeroTierCliInvocation,
+  zeroTierServiceScript
 } from './remoteAccess'
 import { KLOUD_TCP_PORTS } from '../shared/remote'
+import type { ZeroTierInfo } from '../shared/remote'
 
 const CLI = 'C:\\Program Files (x86)\\ZeroTier\\One\\zerotier-cli.bat'
 const INFO_OK = JSON.stringify({ address: 'ab12cd34ef', online: true, version: '1.14.0' })
@@ -94,11 +98,20 @@ function execResponder(
 ): void {
   mocks.execFile.mockImplementation(
     (
-      _exe: string,
+      exe: string,
       args: string[],
       _options: unknown,
       cb: (error: Error | null, stdout?: string, stderr?: string) => void
     ) => {
+      // Leituras do serviço/GUI têm resposta própria; o resto vai para o teste.
+      if (exe === 'sc.exe') {
+        process.nextTick(() => cb(null, 'STATE : 4 RUNNING', ''))
+        return
+      }
+      if (exe === 'tasklist') {
+        process.nextTick(() => cb(null, '"zerotier_desktop_ui.exe","4321","Console"', ''))
+        return
+      }
       process.nextTick(() => impl(args, cb))
     }
   )
@@ -229,6 +242,248 @@ describe('getZeroTierInfo', () => {
     expect(info.installed).toBe(true)
     expect(info.error).toContain('authtoken not readable')
     expect(info.error?.length ?? 0).toBeLessThanOrEqual(301)
+  })
+})
+
+describe('getZeroTierInfo — serviço e janela', () => {
+  it('lê sc.exe e tasklist em paralelo com o CLI', async () => {
+    cliPresent = true
+    process.env.ZEROTIER_CLI = CLI
+    mocks.execFile.mockImplementation(
+      (
+        exe: string,
+        args: string[],
+        _options: unknown,
+        cb: (error: Error | null, stdout?: string, stderr?: string) => void
+      ) => {
+        process.nextTick(() => {
+          if (exe === 'sc.exe') cb(null, 'STATE : 4 RUNNING', '')
+          else if (exe === 'tasklist')
+            cb(null, '"zerotier_desktop_ui.exe","4321","Console","1","10.000 K"', '')
+          else if (args.join(' ').includes('listnetworks')) cb(null, NETWORKS_OK, '')
+          else cb(null, INFO_OK, '')
+        })
+      }
+    )
+
+    const info = await getZeroTierInfo()
+    expect(info).toMatchObject({ service: 'running', uiOpen: true, connected: true })
+  })
+
+  it('falha de sc/tasklist vira unknown/false sem derrubar o status', async () => {
+    cliPresent = true
+    process.env.ZEROTIER_CLI = CLI
+    mocks.execFile.mockImplementation(
+      (
+        exe: string,
+        args: string[],
+        _options: unknown,
+        cb: (error: Error | null, stdout?: string, stderr?: string) => void
+      ) => {
+        process.nextTick(() => {
+          if (exe === 'sc.exe') cb(new Error('exit 1060'), '', 'O serviço não existe')
+          else if (exe === 'tasklist') cb(new Error('exit 1'), '', 'falhou')
+          else if (args.join(' ').includes('listnetworks')) cb(null, NETWORKS_OK, '')
+          else cb(null, INFO_OK, '')
+        })
+      }
+    )
+
+    const info = await getZeroTierInfo()
+    expect(info.service).toBe('unknown')
+    expect(info.uiOpen).toBe(false)
+    expect(info.connected).toBe(true)
+  })
+})
+
+describe('setZeroTierOpen', () => {
+  const base: ZeroTierInfo = {
+    installed: true,
+    connected: true,
+    online: true,
+    service: 'running',
+    uiOpen: true,
+    nodeId: 'ab12cd34ef',
+    version: '1.14.0',
+    network: 'Rede',
+    networkId: '8056c2e21c000001',
+    networkStatus: 'OK',
+    ipv4: '10.147.17.5',
+    ipv6: null,
+    exePath: CLI
+  }
+  const infoWith = (overrides: Partial<ZeroTierInfo>): ZeroTierInfo => ({ ...base, ...overrides })
+  const okExec = async (): Promise<{ ok: boolean; stdout: string; stderr: string }> => ({
+    ok: true,
+    stdout: '',
+    stderr: ''
+  })
+
+  it('valor inválido → erro sem tocar no sistema', async () => {
+    const exec = vi.fn(okExec)
+    const elevate = vi.fn()
+    const readInfo = vi.fn(async () => base)
+
+    const result = await setZeroTierOpen('sim', { cliPath: () => CLI, exec, elevate, readInfo })
+    expect(result).toMatchObject({ success: false, open: false })
+    expect(exec).not.toHaveBeenCalled()
+    expect(elevate).not.toHaveBeenCalled()
+  })
+
+  it('sem CLI instalado → erro pt-BR com info relida', async () => {
+    const readInfo = vi.fn(async () =>
+      infoWith({ installed: false, service: 'unknown', uiOpen: false })
+    )
+    const result = await setZeroTierOpen(true, {
+      cliPath: () => null,
+      readInfo,
+      elevate: vi.fn()
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('não está instalado')
+    expect(result.info?.installed).toBe(false)
+  })
+
+  it('abrir com serviço já rodando só abre a janela (sem UAC)', async () => {
+    const elevate = vi.fn()
+    const openGui = vi.fn(async () => ({ success: true, opened: 'app' as const }))
+    const readInfo = vi.fn(async () => base)
+
+    const result = await setZeroTierOpen(true, {
+      cliPath: () => CLI,
+      readInfo,
+      elevate,
+      openGui
+    })
+
+    expect(elevate).not.toHaveBeenCalled()
+    expect(openGui).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ success: true, open: true })
+    expect(result.info?.service).toBe('running')
+  })
+
+  it('abrir com serviço parado eleva Start-Service e relê a info', async () => {
+    let reads = 0
+    const readInfo = vi.fn(async () =>
+      infoWith(reads++ === 0 ? { service: 'stopped', connected: false } : {})
+    )
+    const elevate = vi.fn(async (action: 'start' | 'stop') => {
+      expect(action).toBe('start')
+      return { ok: true }
+    })
+    const openGui = vi.fn(async () => ({ success: true, opened: 'app' as const }))
+
+    const result = await setZeroTierOpen(true, {
+      cliPath: () => CLI,
+      readInfo,
+      elevate,
+      openGui
+    })
+
+    expect(elevate).toHaveBeenCalledWith('start')
+    expect(openGui).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ success: true, open: true })
+    expect(result.info?.service).toBe('running')
+  })
+
+  it('UAC cancelado ao abrir → cancelled, GUI não abre e info é devolvida', async () => {
+    const elevate = vi.fn(async () => ({
+      ok: false,
+      cancelled: true,
+      error: 'A permissão de administrador foi cancelada.'
+    }))
+    const openGui = vi.fn(async () => ({ success: true, opened: 'app' as const }))
+
+    const result = await setZeroTierOpen(true, {
+      cliPath: () => CLI,
+      readInfo: async () => infoWith({ service: 'stopped', connected: false }),
+      elevate,
+      openGui
+    })
+
+    expect(result).toMatchObject({
+      success: false,
+      open: false,
+      cancelled: true,
+      error: expect.stringContaining('cancelada')
+    })
+    expect(result.info?.service).toBe('stopped')
+    expect(openGui).not.toHaveBeenCalled()
+  })
+
+  it('fechar com serviço rodando encerra a GUI e eleva Stop-Service', async () => {
+    let reads = 0
+    const readInfo = vi.fn(async () =>
+      infoWith(reads++ === 0 ? { service: 'running' } : { service: 'stopped', uiOpen: false })
+    )
+    const exec = vi.fn(okExec)
+    const elevate = vi.fn(async (action: 'start' | 'stop') => {
+      expect(action).toBe('stop')
+      return { ok: true }
+    })
+
+    const result = await setZeroTierOpen(false, {
+      cliPath: () => CLI,
+      readInfo,
+      elevate,
+      exec
+    })
+
+    expect(exec).toHaveBeenCalledWith(
+      'taskkill',
+      ['/IM', 'zerotier_desktop_ui.exe', '/F'],
+      expect.any(Number)
+    )
+    expect(elevate).toHaveBeenCalledWith('stop')
+    expect(result).toMatchObject({ success: true, open: false })
+    expect(result.info?.service).toBe('stopped')
+  })
+
+  it('fechar com serviço já parado é no-op bem-sucedido (sem UAC)', async () => {
+    const elevate = vi.fn()
+    const result = await setZeroTierOpen(false, {
+      cliPath: () => CLI,
+      readInfo: async () => infoWith({ service: 'stopped', uiOpen: false }),
+      elevate,
+      exec: vi.fn(async () => ({ ok: false, stdout: '', stderr: 'sem processo' }))
+    })
+
+    expect(elevate).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ success: true, open: false })
+  })
+
+  it('serviço desconhecido não derruba o fechamento', async () => {
+    const elevate = vi.fn()
+    const result = await setZeroTierOpen(false, {
+      cliPath: () => CLI,
+      readInfo: async () => infoWith({ service: 'unknown', uiOpen: false }),
+      elevate,
+      exec: vi.fn(okExec)
+    })
+
+    expect(elevate).not.toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(result.info?.service).toBe('unknown')
+  })
+
+  it('monta o comando elevado com RunAs e EncodedCommand de Start/Stop-Service', () => {
+    for (const action of ['start', 'stop'] as const) {
+      const args = buildElevatedServiceArgs(action)
+      expect(args).toContain('-EncodedCommand')
+
+      const wrapper = Buffer.from(args[args.length - 1], 'base64').toString('utf16le')
+      expect(wrapper).toContain('Start-Process')
+      expect(wrapper).toContain('-Verb RunAs')
+      expect(wrapper).toContain('-Wait')
+      expect(wrapper).toContain('-PassThru')
+
+      const innerEncoded = /-EncodedCommand','([^']+)'/.exec(wrapper)?.[1] ?? ''
+      const inner = Buffer.from(innerEncoded, 'base64').toString('utf16le')
+      expect(inner).toContain(action === 'start' ? 'Start-Service' : 'Stop-Service')
+      expect(inner).toContain('ZeroTierOneService')
+    }
+    expect(zeroTierServiceScript('stop')).toContain('-Force')
   })
 })
 

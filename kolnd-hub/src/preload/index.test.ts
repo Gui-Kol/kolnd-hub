@@ -50,6 +50,7 @@ describe('preload — contrato de window.api', () => {
       'hwmonSnapshot',
       'fpsStart',
       'hudGet',
+      'remoteSetZeroTierOpen',
       'uninstallHub',
       'onUninstallComplete',
       'checkForUpdates'
@@ -110,6 +111,9 @@ describe('preload — contrato de window.api', () => {
 
     await api.hudReportSize(300)
     expect(mocks.invoke).toHaveBeenLastCalledWith('hud:report-size', { height: 300 })
+
+    await api.remoteSetZeroTierOpen(false)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('remote:set-zerotier-open', false)
   })
 
   it('todos os métodos invoke encaminham um canal string sem lançar', async () => {

@@ -24,7 +24,8 @@ import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
-  RemoteStatus
+  RemoteStatus,
+  ZeroTierPowerResult
 } from '../shared/remote'
 
 declare global {
@@ -57,6 +58,7 @@ declare global {
       remotePublicIp: () => Promise<PublicIpResult>
       remoteInstallZeroTier: () => Promise<RemoteActionResult>
       remoteOpenZeroTier: () => Promise<RemoteActionResult>
+      remoteSetZeroTierOpen: (value: boolean) => Promise<ZeroTierPowerResult>
       remoteOpenKloudWeb: () => Promise<RemoteActionResult>
       remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
 

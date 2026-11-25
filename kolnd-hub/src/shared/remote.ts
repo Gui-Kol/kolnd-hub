@@ -31,8 +31,15 @@ export const PUBLIC_IP_ENDPOINT = 'https://api.ipify.org?format=json'
 export type RemoteNetworkKind = 'direct' | 'nat' | 'cgnat' | 'unknown'
 
 /**
+ * Estado do serviço `ZeroTierOneService` no Windows.
+ * `unknown` cobre serviço ausente, consulta falhou ou saída ambígua — nunca
+ * presumimos "parado" sem prova.
+ */
+export type ZeroTierServiceState = 'running' | 'stopped' | 'unknown'
+
+/**
  * Estado do ZeroTier nesta máquina (saída de `zerotier-cli -j info` +
- * `zerotier-cli -j listnetworks`).
+ * `zerotier-cli -j listnetworks` + leitura do serviço/GUI no main).
  */
 export interface ZeroTierInfo {
   installed: boolean
@@ -40,6 +47,10 @@ export interface ZeroTierInfo {
   connected: boolean
   /** O serviço respondeu `online: true` (independe de ter rede ingressada). */
   online: boolean
+  /** Estado do serviço `ZeroTierOneService` (`sc.exe query`). */
+  service: ZeroTierServiceState
+  /** A janela/bandeja oficial (`zerotier_desktop_ui.exe`) está aberta. */
+  uiOpen: boolean
   /** Node ID de 10 hex — o mesmo que aparece em my.zerotier.com. */
   nodeId: string | null
   version: string | null
@@ -120,6 +131,18 @@ export interface RemoteActionResult {
   installedNow?: boolean
 }
 
+/** Resultado de abrir/fechar o ZeroTier (serviço + GUI). */
+export interface ZeroTierPowerResult {
+  success: boolean
+  /** Estado desejado aplicado (true = aberto, false = fechado). */
+  open: boolean
+  /** O usuário recusou o UAC — nada foi alterado. */
+  cancelled?: boolean
+  error?: string
+  /** Estado relido ao fim da ação (fonte da UI, nunca adivinhado). */
+  info?: ZeroTierInfo
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -142,6 +165,38 @@ export function isIPv6(value: unknown): boolean {
   if (typeof value !== 'string') return false
   const text = value.trim()
   return text.includes(':') && text.length <= 45 && /^[0-9a-f:.]+$/i.test(text)
+}
+
+/**
+ * Interpreta a saída de `sc.exe query ZeroTierOneService` (ou texto solto do
+ * PowerShell/Get-Service). Só devolve `running`/`stopped` com palavra inteira
+ * reconhecida; `START_PENDING` conta como caminho para aberto e
+ * `STOP_PENDING` como fechado. Qualquer outra coisa é `unknown` — a UI nunca
+ * deve inventar "fechado" quando a consulta falhou.
+ */
+export function parseServiceState(raw: string): ZeroTierServiceState {
+  if (typeof raw !== 'string' || !raw.trim()) return 'unknown'
+  const text = raw.toUpperCase()
+
+  if (/\bSTART_PENDING\b/.test(text)) return 'running'
+  if (/\bRUNNING\b/.test(text)) return 'running'
+  if (/\bSTOP_PENDING\b/.test(text)) return 'stopped'
+  if (/\bSTOPPED\b/.test(text)) return 'stopped'
+  return 'unknown'
+}
+
+/**
+ * `tasklist /FI "IMAGENAME eq zerotier_desktop_ui.exe" /NH /FO CSV` devolve uma
+ * linha CSV por processo ou "INFO: No tasks are running…". Só o nome exato do
+ * executável na primeira coluna conta — evita casar com o serviço/CLI.
+ */
+export function parseZeroTierUiOpen(output: string): boolean {
+  if (typeof output !== 'string' || !output.trim()) return false
+  for (const line of output.split(/\r?\n/)) {
+    const firstCell = line.trim().replace(/^"/, '').split('"')[0].trim().toLowerCase()
+    if (firstCell === 'zerotier_desktop_ui.exe') return true
+  }
+  return false
 }
 
 /**
@@ -306,6 +361,9 @@ export function parseZeroTierStatus(
   return {
     connected: online && primary !== null,
     online,
+    // O parser JSON não conhece serviço/GUI — o main injeta a leitura real.
+    service: 'unknown',
+    uiOpen: false,
     nodeId,
     version,
     network: shown?.name ?? null,

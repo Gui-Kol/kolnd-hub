@@ -9,6 +9,7 @@ import { join } from 'path'
 import { clipboard, shell } from 'electron'
 import { getKloudGamesStatus } from './kloudGames'
 import { logger } from './logger'
+import { isUacCancelled } from './hwmon/uac'
 import { getRemoteAccessPrefs, getRemoteMode, setRemoteMode, setRemotePublicIp } from './store'
 import {
   KLOUD_TCP_PORTS,
@@ -20,15 +21,19 @@ import {
   flattenAddresses,
   isIPv4,
   isZeroTierInterfaceName,
+  parseServiceState,
   parseZeroTierNetworks,
   parseZeroTierStatus,
+  parseZeroTierUiOpen,
   type LocalAddresses,
   type PortTargetResult,
   type PublicIpResult,
   type RemoteActionResult,
   type RemoteModeResult,
   type RemoteStatus,
-  type ZeroTierInfo
+  type ZeroTierInfo,
+  type ZeroTierPowerResult,
+  type ZeroTierServiceState
 } from '../shared/remote'
 
 /**
@@ -43,8 +48,10 @@ import {
  */
 
 const ZEROTIER_PACKAGE_ID = 'ZeroTier.ZeroTierOne'
+const ZEROTIER_SERVICE_NAME = 'ZeroTierOneService'
 const WINGET_TIMEOUT_MS = 10 * 60 * 1000
 const STATUS_TIMEOUT_MS = 8000
+const POWER_TIMEOUT_MS = 60 * 1000
 const PUBLIC_IP_TIMEOUT_MS = 6000
 const PROBE_TIMEOUT_MS = 700
 const MAX_ERROR_LENGTH = 300
@@ -234,7 +241,23 @@ interface ZeroTierProbe {
   hints: ZeroTierNetworkHints
 }
 
-/** Lê info + redes numa tacada só; nunca rejeita — erro vira `error` no objeto. */
+/** Estado do serviço Windows — nunca lança; falha/ausência vira `unknown`. */
+async function readZeroTierService(): Promise<ZeroTierServiceState> {
+  const result = await execText('sc.exe', ['query', ZEROTIER_SERVICE_NAME], STATUS_TIMEOUT_MS)
+  return parseServiceState(`${result.stdout}\n${result.stderr}`)
+}
+
+/** GUI oficial aberta? `tasklist` falhou → `false` (não inventa "aberta"). */
+async function readZeroTierUi(): Promise<boolean> {
+  const result = await execText(
+    'tasklist',
+    ['/FI', `IMAGENAME eq ${GUI_FILE_NAME}`, '/NH', '/FO', 'CSV'],
+    STATUS_TIMEOUT_MS
+  )
+  return result.ok ? parseZeroTierUiOpen(result.stdout) : false
+}
+
+/** Lê info + redes + serviço + GUI numa tacada só; nunca rejeita. */
 async function readZeroTierProbe(): Promise<ZeroTierProbe> {
   const exePath = findZeroTierCli()
   const empty = parseZeroTierStatus(null, null)
@@ -242,9 +265,11 @@ async function readZeroTierProbe(): Promise<ZeroTierProbe> {
     return { info: { installed: false, ...empty, exePath: null }, hints: {} }
   }
 
-  const [infoResult, networksResult] = await Promise.all([
+  const [infoResult, networksResult, service, uiOpen] = await Promise.all([
     runZeroTierCli(exePath, ['-j', 'info']),
-    runZeroTierCli(exePath, ['-j', 'listnetworks'])
+    runZeroTierCli(exePath, ['-j', 'listnetworks']),
+    readZeroTierService(),
+    readZeroTierUi()
   ])
 
   const networksRaw = parseJsonLoose(networksResult.stdout)
@@ -255,7 +280,7 @@ async function readZeroTierProbe(): Promise<ZeroTierProbe> {
     addresses: networks.flatMap((network) => network.assigned)
   }
 
-  const info: ZeroTierInfo = { installed: true, ...parsed, exePath }
+  const info: ZeroTierInfo = { installed: true, ...parsed, service, uiOpen, exePath }
   const failure = [infoResult, networksResult].find((result) => !result.ok)
   if (failure) {
     const detail = failure.stderr || failure.error || 'não foi possível consultar o serviço'
@@ -523,6 +548,170 @@ export function fetchPublicIp(): Promise<PublicIpResult> {
     })
     req.on('error', (err) => finish({ success: false, error: conciseError(err.message) }))
   })
+}
+
+interface ZeroTierElevationResult {
+  ok: boolean
+  cancelled?: boolean
+  error?: string
+}
+
+/**
+ * Dependências injetáveis de `setZeroTierOpen`. Os testes trocam exec/elevação
+ * para nunca abrir UAC de verdade.
+ */
+export interface ZeroTierPowerDeps {
+  cliPath?: () => string | null
+  readInfo?: () => Promise<ZeroTierInfo>
+  elevate?: (action: 'start' | 'stop') => Promise<ZeroTierElevationResult>
+  openGui?: () => Promise<RemoteActionResult>
+  exec?: (exe: string, args: string[], timeoutMs: number) => Promise<ExecResult>
+}
+
+/** PowerShell usa UTF-16LE no `-EncodedCommand` (base64). */
+function encodePowerShell(script: string): string {
+  return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+/** Script interno — roda já elevado e só mexe no serviço do ZeroTier. */
+export function zeroTierServiceScript(action: 'start' | 'stop'): string {
+  const verb = action === 'start' ? 'Start-Service' : 'Stop-Service -Force'
+  return `$ErrorActionPreference = 'Stop'; ${verb} -Name '${ZEROTIER_SERVICE_NAME}'`
+}
+
+/**
+ * argv do PowerShell que pede UAC (`-Verb RunAs -Wait -PassThru`) e executa o
+ * script interno por `-EncodedCommand` — nunca um `.ps1` em pasta gravável
+ * pelo usuário. Exportado para o teste conferir a montagem sem executar nada.
+ */
+export function buildElevatedServiceArgs(action: 'start' | 'stop'): string[] {
+  const inner = encodePowerShell(zeroTierServiceScript(action))
+  const wrapper = [
+    `$p = Start-Process -FilePath 'powershell.exe'`,
+    `-ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${inner}')`,
+    '-Verb RunAs -Wait -PassThru',
+    '; exit $p.ExitCode'
+  ].join(' ')
+  return [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-EncodedCommand',
+    encodePowerShell(wrapper)
+  ]
+}
+
+/** Eleva e liga/desliga o serviço; UAC recusado é estado próprio, não exceção. */
+async function elevateZeroTierService(action: 'start' | 'stop'): Promise<ZeroTierElevationResult> {
+  const result = await execText(
+    'powershell.exe',
+    buildElevatedServiceArgs(action),
+    POWER_TIMEOUT_MS
+  )
+  const combined = `${result.stdout}\n${result.stderr}\n${result.error ?? ''}`
+
+  if (isUacCancelled(combined)) {
+    return {
+      ok: false,
+      cancelled: true,
+      error:
+        'A permissão de administrador foi cancelada. O ZeroTier não foi alterado — tente de novo quando quiser.'
+    }
+  }
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: conciseError(
+        result.stderr || result.error || 'Não foi possível alterar o serviço do ZeroTier.'
+      )
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Abre/fecha o ZeroTier de verdade (D1): abrir = serviço ligado + GUI oficial;
+ * fechar = GUI encerrada (best-effort, sem elevação) + serviço parado (UAC).
+ *
+ * Sempre relê o estado no fim: o renderer atualiza o selo com o que o Windows
+ * respondeu, nunca com o que pedimos. `value` é `unknown` (entra por IPC).
+ */
+export async function setZeroTierOpen(
+  value: unknown,
+  deps: ZeroTierPowerDeps = {}
+): Promise<ZeroTierPowerResult> {
+  const cliPath = deps.cliPath ?? ((): string | null => findZeroTierCli())
+  const readInfo = deps.readInfo ?? getZeroTierInfo
+  const elevate = deps.elevate ?? elevateZeroTierService
+  const openGui = deps.openGui ?? openZeroTier
+  const exec = deps.exec ?? execText
+
+  if (typeof value !== 'boolean') {
+    return { success: false, open: false, error: 'Valor inválido para abrir ou fechar o ZeroTier.' }
+  }
+
+  if (!cliPath()) {
+    return {
+      success: false,
+      open: false,
+      error: 'O ZeroTier não está instalado neste PC. Instale primeiro para abrir.',
+      info: await readInfo()
+    }
+  }
+
+  if (!value) {
+    // GUI não exige elevação; matar processo inexistente é sucesso silencioso.
+    await exec('taskkill', ['/IM', GUI_FILE_NAME, '/F'], STATUS_TIMEOUT_MS)
+    const before = await readInfo()
+    if (before.service === 'running') {
+      const elevated = await elevate('stop')
+      if (!elevated.ok) {
+        const info = await readInfo()
+        return {
+          success: false,
+          open: info.service === 'running',
+          cancelled: elevated.cancelled,
+          error: elevated.error ?? 'Não foi possível fechar o ZeroTier.',
+          info
+        }
+      }
+    }
+    const info = await readInfo()
+    logger.info('remote-access', `ZeroTier fechado (serviço: ${info.service})`)
+    return { success: true, open: info.service === 'running', info }
+  }
+
+  const before = await readInfo()
+  if (before.service !== 'running') {
+    const elevated = await elevate('start')
+    if (!elevated.ok) {
+      const info = await readInfo()
+      return {
+        success: false,
+        open: info.service === 'running',
+        cancelled: elevated.cancelled,
+        error: elevated.error ?? 'Não foi possível abrir o ZeroTier.',
+        info
+      }
+    }
+  }
+
+  const opened = await openGui()
+  const info = await readInfo()
+  if (!opened.success) {
+    return {
+      success: false,
+      open: info.service === 'running',
+      error: opened.error ?? 'Não foi possível abrir o ZeroTier.',
+      info
+    }
+  }
+  logger.info(
+    'remote-access',
+    `ZeroTier aberto (serviço: ${info.service}, janela: ${info.uiOpen ? 'aberta' : 'fechada'})`
+  )
+  return { success: true, open: info.service === 'running', info }
 }
 
 /** Instala o ZeroTier via winget (abre UAC). Idempotente. */

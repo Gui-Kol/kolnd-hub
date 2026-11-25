@@ -6,8 +6,10 @@ import {
   isCGNAT,
   isIPv4,
   isZeroTierInterfaceName,
+  parseServiceState,
   parseZeroTierNetworks,
-  parseZeroTierStatus
+  parseZeroTierStatus,
+  parseZeroTierUiOpen
 } from './remote'
 
 describe('isIPv4', () => {
@@ -186,6 +188,8 @@ describe('parseZeroTierStatus', () => {
     expect(status).toEqual({
       connected: true,
       online: true,
+      service: 'unknown',
+      uiOpen: false,
       nodeId: 'a1b2c3d4e5',
       version: '1.16.2',
       network: 'casa',
@@ -221,6 +225,8 @@ describe('parseZeroTierStatus', () => {
     const empty = {
       connected: false,
       online: false,
+      service: 'unknown',
+      uiOpen: false,
       nodeId: null,
       version: null,
       network: null,
@@ -234,6 +240,46 @@ describe('parseZeroTierStatus', () => {
       expect(parseZeroTierStatus(raw, raw)).toEqual(empty)
     }
     expect(parseZeroTierStatus({ address: 'xyz', online: 'sim', version: 'v1' }, [])).toEqual(empty)
+  })
+})
+
+describe('parseServiceState', () => {
+  it('reconhece sc query, Get-Service e estados pendentes', () => {
+    expect(parseServiceState('STATE              : 4  RUNNING')).toBe('running')
+    expect(parseServiceState('STATE              : 1  STOPPED')).toBe('stopped')
+    expect(parseServiceState('STATE              : 2  START_PENDING')).toBe('running')
+    expect(parseServiceState('STATE              : 3  STOP_PENDING')).toBe('stopped')
+    expect(
+      parseServiceState('Status   Name               DisplayName\nRunning  ZeroTierOneService')
+    ).toBe('running')
+    expect(parseServiceState('Status: Stopped')).toBe('stopped')
+  })
+
+  it('trata saída vazia/ambígua/serviço ausente como unknown', () => {
+    expect(parseServiceState('')).toBe('unknown')
+    expect(parseServiceState('   ')).toBe('unknown')
+    expect(parseServiceState('O serviço especificado não existe como serviço instalado.')).toBe(
+      'unknown'
+    )
+    expect(parseServiceState('ACCESS_DENIED')).toBe('unknown')
+  })
+})
+
+describe('parseZeroTierUiOpen', () => {
+  it('detecta a GUI pela primeira coluna do tasklist CSV', () => {
+    expect(
+      parseZeroTierUiOpen('"zerotier_desktop_ui.exe","4321","Console","1","10.000 K"\r\n')
+    ).toBe(true)
+    expect(parseZeroTierUiOpen('"zerotier_desktop_ui.exe","4321","Console"')).toBe(true)
+  })
+
+  it('devolve false para lista vazia, outro processo ou saída inesperada', () => {
+    expect(
+      parseZeroTierUiOpen('INFO: No tasks are running which match the specified criteria.')
+    ).toBe(false)
+    expect(parseZeroTierUiOpen('"explorer.exe","1000","Console"')).toBe(false)
+    expect(parseZeroTierUiOpen('')).toBe(false)
+    expect(parseZeroTierUiOpen('   ')).toBe(false)
   })
 })
 

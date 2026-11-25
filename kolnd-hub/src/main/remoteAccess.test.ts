@@ -201,6 +201,8 @@ describe('requestRemoteMode', () => {
     installed: true,
     connected: true,
     online: true,
+    service: 'running',
+    uiOpen: true,
     nodeId: 'a1b2c3d4e5',
     version: '1.16.2',
     network: 'casa',

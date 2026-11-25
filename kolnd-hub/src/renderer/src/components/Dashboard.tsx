@@ -8,7 +8,7 @@ import { AppDetailModal } from './AppDetailModal'
 import { RemoteHelpModal } from './RemoteHelpModal'
 import { Badge, EmptyState } from './ui'
 import { AppConfig, AppState, Game } from '../types'
-import type { RemoteModeReason } from '../../../shared/remote'
+import type { RemoteModeReason, ZeroTierInfo } from '../../../shared/remote'
 import { bestRemoteAddress, parseRemoteStatus } from '../lib/remoteAccess'
 import { formatLastPlayed, recentGames } from '../lib/gameStats'
 
@@ -83,7 +83,9 @@ export function Dashboard({
   // Modo remoto do Kloud Games: lido do store (null = carregando).
   const [remoteMode, setRemoteMode] = useState<boolean | null>(null)
   const [remoteAddress, setRemoteAddress] = useState<string | null>(null)
+  const [remoteZeroTier, setRemoteZeroTier] = useState<ZeroTierInfo | null>(null)
   const [remoteBusy, setRemoteBusy] = useState(false)
+  const [remoteInstalling, setRemoteInstalling] = useState(false)
   const [remoteHelp, setRemoteHelp] = useState<{ blockedReason?: RemoteModeReason } | null>(null)
   // "Continuar jogando" (T5): o Dashboard busca os jogos sozinho (sem tocar no
   // App.tsx). A faixa some por completo quando não há `lastPlayedAt`.
@@ -111,6 +113,7 @@ export function Dashboard({
           // Só exibe um endereço utilizável: se o ZeroTier caiu/saiu da rede
           // depois de ligar o modo, o card mostra o aviso de desconectado.
           if (alive && parsed) {
+            setRemoteZeroTier(parsed.zerotier)
             setRemoteAddress(parsed.zerotier.connected ? bestRemoteAddress(parsed.zerotier) : null)
           }
         } catch {
@@ -206,22 +209,78 @@ export function Dashboard({
     }
   }
 
+  /** Relê o ZeroTier sem adivinhar: selo (serviço/GUI) e IP do card vêm daqui. */
+  const syncRemoteStatus = async (): Promise<void> => {
+    try {
+      const parsed = parseRemoteStatus(await window.api.remoteStatus())
+      if (!parsed) return
+      setRemoteZeroTier(parsed.zerotier)
+      setRemoteAddress(parsed.zerotier.connected ? bestRemoteAddress(parsed.zerotier) : null)
+    } catch {
+      // Mantém o último estado conhecido; o card avisa que está desconectado.
+    }
+  }
+
   const handleToggleRemote = async (): Promise<void> => {
-    if (remoteMode === null || remoteBusy) return
+    if (remoteMode === null || remoteBusy || remoteInstalling) return
     const next = !remoteMode
     setRemoteBusy(true)
     try {
-      const result = await window.api.remoteSetMode(next)
+      let result = await window.api.remoteSetMode(next)
+
+      // D3: clique com ZeroTier ausente instala a última versão e re-tenta. Nada
+      // instala sozinho — só neste clique explícito.
+      if (!result.success && result.reason === 'zerotier-missing') {
+        setRemoteInstalling(true)
+        onToast?.('ZeroTier não encontrado — instalando a versão mais recente…', 'info')
+        try {
+          const installed = await window.api.remoteInstallZeroTier()
+          if (!installed.success) {
+            onToast?.(
+              `Não foi possível instalar o ZeroTier: ${installed.error ?? 'erro desconhecido'}`,
+              'error'
+            )
+            setRemoteHelp({ blockedReason: 'zerotier-missing' })
+            return
+          }
+          onToast?.('ZeroTier instalado. Tentando ligar o modo remoto…', 'success')
+          result = await window.api.remoteSetMode(true)
+          if (!result.success) {
+            setRemoteMode(false)
+            await syncRemoteStatus()
+            setRemoteHelp({ blockedReason: result.reason })
+            return
+          }
+
+          setRemoteMode(true)
+          setRemoteAddress(result.address ?? null)
+          await syncRemoteStatus()
+          onToast?.(
+            result.address
+              ? `Modo remoto ativado — use ${result.address} no Moonlight.`
+              : 'Modo remoto ativado.',
+            'success'
+          )
+          // Após instalar, o tutorial abre sozinho (D4) no passo de entrar na rede.
+          setRemoteHelp({})
+          return
+        } finally {
+          setRemoteInstalling(false)
+        }
+      }
+
       if (!result.success) {
-        // O main recusou (sem ZeroTier instalado/conectado): volta ao estado
-        // real e abre a ajuda já explicando o que falta.
+        // O main recusou (sem rede conectada): volta ao estado real e abre o
+        // tutorial já explicando o que falta.
         setRemoteMode(false)
         setRemoteAddress(null)
         setRemoteHelp({ blockedReason: result.reason })
         return
       }
+
       setRemoteMode(result.enabled)
       setRemoteAddress(result.address ?? null)
+      if (result.enabled) await syncRemoteStatus()
       onToast?.(
         result.enabled
           ? result.address
@@ -237,6 +296,17 @@ export function Dashboard({
       onToast?.('Não foi possível alterar o modo remoto.', 'error')
     } finally {
       setRemoteBusy(false)
+    }
+  }
+
+  const handleCopyRemoteAddress = async (): Promise<void> => {
+    if (!remoteAddress) return
+    try {
+      const result = await window.api.remoteCopy(remoteAddress)
+      if (!result.success) throw new Error(result.error ?? 'Não foi possível copiar.')
+      onToast?.(`IP do ZeroTier copiado: ${remoteAddress}`, 'success')
+    } catch (err) {
+      onToast?.(err instanceof Error ? err.message : 'Não foi possível copiar.', 'error')
     }
   }
 
@@ -456,9 +526,15 @@ export function Dashboard({
                           enabled: remoteMode === true,
                           loading: remoteMode === null,
                           busy: remoteBusy,
+                          installing: remoteInstalling,
                           address: remoteAddress,
+                          zerotier: remoteZeroTier,
                           onToggle: () => void handleToggleRemote(),
-                          onHelp: () => setRemoteHelp({})
+                          onCopyAddress: () => void handleCopyRemoteAddress(),
+                          onHelp: () => {
+                            void syncRemoteStatus()
+                            setRemoteHelp({})
+                          }
                         }
                       : undefined
                   }

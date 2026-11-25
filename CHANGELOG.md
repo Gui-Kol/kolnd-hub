@@ -8,6 +8,10 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Modo remoto do Kloud Games virou um fluxo completo de ZeroTier**: o clique instala a última versão pelo winget quando o ZeroTier está ausente e re-tenta ligar o modo; o tutorial do card ganhou abas **No PC (este computador)** e **No celular**, com passos simples e botões de copiar (IP do ZeroTier, ID da rede, IP local e "Copiar tudo"). O ZeroTier agora pode ser **aberto/fechado** pelo Hub com selo **Aberto / Aberto em segundo plano / Fechado** (serviço lido por `sc.exe` + GUI por `tasklist`; abrir/fechar o serviço usa UAC e relê o estado) e o card mostra o IP do ZeroTier em destaque com botão de copiar
+
 ## [1.2.1] - 2026-11-24
 
 ### Alterado

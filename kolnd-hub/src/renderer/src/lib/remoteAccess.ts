@@ -6,7 +6,8 @@ import {
   type PortTargetResult,
   type RemoteNetworkKind,
   type RemoteStatus,
-  type ZeroTierInfo
+  type ZeroTierInfo,
+  type ZeroTierServiceState
 } from '../../../shared/remote'
 
 /**
@@ -69,6 +70,10 @@ function parsePortTargets(raw: unknown): PortTargetResult[] {
   return out
 }
 
+function parseServiceState(raw: unknown): ZeroTierServiceState {
+  return raw === 'running' || raw === 'stopped' ? raw : 'unknown'
+}
+
 function parseZeroTier(raw: unknown): ZeroTierInfo | null {
   if (!isRecord(raw)) return null
   if (typeof raw.installed !== 'boolean' || typeof raw.connected !== 'boolean') return null
@@ -77,6 +82,8 @@ function parseZeroTier(raw: unknown): ZeroTierInfo | null {
     installed: raw.installed,
     connected: raw.connected,
     online: raw.online === true,
+    service: parseServiceState(raw.service),
+    uiOpen: raw.uiOpen === true,
     nodeId: stringOrNull(raw.nodeId),
     version: stringOrNull(raw.version),
     network: stringOrNull(raw.network),
@@ -122,11 +129,19 @@ export function parseRemoteStatus(raw: unknown): RemoteStatus | null {
 }
 
 /**
- * Selo do estado do ZeroTier na UI. Diferencia serviço desligado, ausência de
- * rede e rede recusada/aguardando — estados que exigem ações diferentes.
+ * Selo do estado do ZeroTier na UI. O serviço/GUI (aberto/fechado) vem ANTES
+ * do estado de rede: "Aberto" responde à pergunta do botão, enquanto
+ * "Conectado/Acesso negado…" responde se há rede utilizável.
  */
 export function zeroTierBadge(info: ZeroTierInfo): { tone: RemoteTone; label: string } {
   if (!info.installed) return { tone: 'neutral', label: 'Não instalado' }
+  if (info.service === 'running') {
+    return info.uiOpen
+      ? { tone: 'success', label: 'Aberto' }
+      : { tone: 'accent', label: 'Aberto em segundo plano' }
+  }
+  if (info.service === 'stopped') return { tone: 'neutral', label: 'Fechado' }
+
   if (info.connected) return { tone: 'success', label: 'Conectado' }
   if (!info.online) return { tone: 'neutral', label: 'Desligado' }
 
@@ -197,6 +212,36 @@ export function summarizePorts(targets: PortTargetResult[]): PortSummary {
 /** Endereço mais seguro para digitar no Moonlight (IPv4 ganha do IPv6). */
 export function bestRemoteAddress(info: ZeroTierInfo): string | null {
   return info.ipv4 ?? info.ipv6
+}
+
+export interface RemoteAddressSummary {
+  zerotierIp: string | null
+  networkId: string | null
+  lanIp: string | null
+  /** Texto pronto para "Copiar tudo" — só linhas com valor. */
+  text: string
+}
+
+/**
+ * Bloco "Endereços" do tutorial/card: IP do ZeroTier, ID da rede e IP local,
+ * com um texto pronto para colar no Moonlight/celular. Nada é inventado —
+ * campo ausente vira `null` e some do texto.
+ */
+export function buildAddressSummary(status: RemoteStatus): RemoteAddressSummary {
+  const zerotierIp = bestRemoteAddress(status.zerotier)
+  const rawNetworkId = status.zerotier.networkId
+  const networkId =
+    typeof rawNetworkId === 'string' && /^[0-9a-f]{16}$/i.test(rawNetworkId)
+      ? rawNetworkId.toLowerCase()
+      : null
+  const lanIp = status.addresses.lan[0] ?? null
+
+  const lines: string[] = []
+  if (zerotierIp) lines.push(`IP do ZeroTier: ${zerotierIp}`)
+  if (networkId) lines.push(`ID da rede: ${networkId}`)
+  if (lanIp) lines.push(`IP local: ${lanIp}`)
+
+  return { zerotierIp, networkId, lanIp, text: lines.join('\n') }
 }
 
 /** Quais portas esperadas ficaram fechadas em localhost (para a lista da UI). */

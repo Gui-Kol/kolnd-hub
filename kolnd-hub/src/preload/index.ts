@@ -26,7 +26,8 @@ import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
-  RemoteStatus
+  RemoteStatus,
+  ZeroTierPowerResult
 } from '../shared/remote'
 
 const api = {
@@ -67,6 +68,9 @@ const api = {
     ipcRenderer.invoke('remote:install-zerotier'),
 
   remoteOpenZeroTier: (): Promise<RemoteActionResult> => ipcRenderer.invoke('remote:open-zerotier'),
+
+  remoteSetZeroTierOpen: (value: boolean): Promise<ZeroTierPowerResult> =>
+    ipcRenderer.invoke('remote:set-zerotier-open', value),
 
   remoteOpenKloudWeb: (): Promise<RemoteActionResult> =>
     ipcRenderer.invoke('remote:open-kloud-web'),

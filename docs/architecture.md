@@ -147,11 +147,24 @@ mais handlers inline em `index.ts`:
 | `registerDisplayIpc`                     | `displaySettings.ts`                                                           | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
 | `registerGamesIpc`                       | `games.ts`                                                                     | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
 | `registerGameImportIpc`                  | `gameImport.ts` (+ `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`) | `games:import-all`                                                                                                                                                                                                                    |
-| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`public-ip`/`install-zerotier`/`open-zerotier`/`open-kloud-web`/`copy`                                                                                                                                                |
+| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`get-mode`/`set-mode`/`public-ip`/`install-zerotier`/`open-zerotier`/`set-zerotier-open`/`open-kloud-web`/`copy`                                                                                                                                                |
 | `registerUpdatesIpc`                     | `ipc/updates.ts`                                                               | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
 | `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`)        | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
 | inline em `index.ts`                     | —                                                                              | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
+### Acesso remoto (ZeroTier)
+
+`remoteAccess.ts` lê `zerotier-cli -j info|listnetworks`, `sc.exe query ZeroTierOneService` e
+`tasklist` da GUI **em paralelo** (timeout curto, sempre `execFile` assíncrono — nada de
+`execFileSync`). O selo do card combina serviço + janela: **Aberto**, **Aberto em segundo
+plano**, **Fechado**, **Não instalado**; o estado de rede existente (Conectado/Sem rede/Acesso
+negado…) continua separado. `remote:set-zerotier-open` recebe `unknown`, valida boolean e
+abre/fecha pelo `setZeroTierOpen`: abrir liga o serviço (se parado) e a GUI oficial; fechar
+encerra a GUI (best-effort, sem elevação) e para o serviço. A elevação vai por
+`Start-Process powershell -Verb RunAs -Wait -PassThru` com `-EncodedCommand`; UAC recusado vira
+`cancelled: true` e a ação sempre devolve `info` relida. A instalação continua sendo winget **no
+clique** (o card instala e re-tenta quando o main responde `zerotier-missing`); o tutorial
+PC/celular só mostra IPs e ID da rede vindos de `remote:status`.
 **Regra de ouro: o main nunca confia no que chega por IPC, e o renderer também não confia
 no main sem checagem.** Os handlers recebem os argumentos como `unknown` (ou validam de
 imediato) e aplicam, conforme o canal:
