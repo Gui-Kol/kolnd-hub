@@ -14,7 +14,12 @@ import {
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
-import { nextIconRetryIds, pruneIconsForReload, retryDelayForAttempt } from '../lib/libraryIcons'
+import {
+  nextIconRetryIds,
+  pruneIconsForReload,
+  requestIconsForIds,
+  retryDelayForAttempt
+} from '../lib/libraryIcons'
 import {
   applyLibraryFilters,
   DEFAULT_LIBRARY_FILTERS,
@@ -67,6 +72,17 @@ export function Biblioteca(): JSX.Element {
   // Retentativa com backoff: tentativas por id e timers pendentes.
   const iconRetryAttempts = useRef<Map<string, number>>(new Map())
   const iconRetryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // `true` enquanto o componente está montado. Respostas de IPC antigas NÃO
+  // podem ser descartadas só porque o estado mudou (o cleanup de um efeito roda
+  // a cada re-render e era o que deixava 9 de 10 ícones de fora).
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return (): void => {
+      mountedRef.current = false
+    }
+  }, [])
   // Capas por id (T6): mesma cache em memória; `null` = sem capa (card usa ícone).
   const [covers, setCovers] = useState<Record<string, string | null>>({})
   const coverRequests = useRef<Set<string>>(new Set())
@@ -273,28 +289,27 @@ export function Biblioteca(): JSX.Element {
   )
 
   // Busca os ícones dos jogos que ainda não têm um cacheado. Cada id é
-  // solicitado no máximo uma vez por montagem (iconRequests).
+  // solicitado no máximo uma vez por montagem (iconRequests). A aplicação da
+  // resposta usa `mountedRef` — re-render nenhum descarta as respostas em voo.
   useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in icons) continue
-      if (iconRequests.current.has(game.id)) continue
-      iconRequests.current.add(game.id)
-      window.api
-        .getGameIcon(game.id)
-        .then((dataUrl) => {
-          if (cancelled) return
-          if (dataUrl) clearIconRetry(game.id)
-          setIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (cancelled) return
-          setIcons((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
+    const pendingIds = games
+      .filter((game) => !(game.id in icons) && !iconRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) iconRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameIcon(id),
+      apply: (id, dataUrl) => {
+        if (dataUrl) clearIconRetry(id)
+        setIcons((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        // Falha/ausência: libera o id para uma nova tentativa (backoff).
+        if (!dataUrl) iconRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
   }, [games, icons, clearIconRetry])
 
   // Retentativa com backoff (1 s, 2 s, 4 s) para ids que voltaram `null`.
@@ -309,6 +324,7 @@ export function Biblioteca(): JSX.Element {
       window.api
         .getGameIcon(id)
         .then((dataUrl) => {
+          if (!mountedRef.current) return
           if (dataUrl) iconRetryAttempts.current.delete(id)
           setIcons((prev) => {
             if (!dataUrl) return { ...prev, [id]: null }
@@ -316,6 +332,7 @@ export function Biblioteca(): JSX.Element {
           })
         })
         .catch(() => {
+          if (!mountedRef.current) return
           setIcons((prev) => ({ ...prev, [id]: null }))
         })
     }, delay)
@@ -336,27 +353,24 @@ export function Biblioteca(): JSX.Element {
   // Cancela todos os timers ao desmontar (sem setState depois).
   useEffect(() => () => clearAllIconRetries(), [clearAllIconRetries])
 
-  // Capas: mesma estratégia dos ícones, uma requisição por id por montagem.
+  // Capas: mesma estratégia dos ícones (mountedRef + liberação em falha).
   useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in covers) continue
-      if (coverRequests.current.has(game.id)) continue
-      coverRequests.current.add(game.id)
-      window.api
-        .getGameCover(game.id)
-        .then((dataUrl) => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
+    const pendingIds = games
+      .filter((game) => !(game.id in covers) && !coverRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) coverRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameCover(id),
+      apply: (id, dataUrl) => {
+        setCovers((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        if (!dataUrl) coverRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
   }, [games, covers])
 
   const handleLaunch = useCallback(

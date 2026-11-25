@@ -50,6 +50,40 @@ export function pruneIconsForReload(
 }
 
 /**
+ * Dispara os pedidos de ícone de uma vez e **nunca descarta respostas por causa
+ * de re-render**: a decisão de aplicar é o `mountedRef` do componente, não o
+ * cleanup de um efeito (que era a corrida que deixava 9 de 10 cards vazios).
+ *
+ * `onSettled` roda mesmo quando o resultado é `null`/erro — é onde o chamador
+ * remove o id de `iconRequests` para permitir nova tentativa.
+ */
+export interface IconRequestHandlers {
+  fetchIcon: (id: string) => Promise<string | null>
+  apply: (id: string, value: string | null) => void
+  onSettled?: (id: string, value: string | null) => void
+  isMounted: () => boolean
+}
+
+export async function requestIconsForIds(
+  ids: ReadonlyArray<string>,
+  handlers: IconRequestHandlers
+): Promise<void> {
+  await Promise.all(
+    ids.map(async (id) => {
+      let value: string | null
+      try {
+        value = await handlers.fetchIcon(id)
+      } catch {
+        value = null
+      }
+      handlers.onSettled?.(id, value)
+      if (!handlers.isMounted()) return
+      handlers.apply(id, value)
+    })
+  )
+}
+
+/**
  * Ids que voltaram `null`, ainda têm tentativa disponível e não estão com
  * timer agendado. A ordem é a dos jogos e cada id aparece uma única vez.
  */

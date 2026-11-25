@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ICON_RETRY_DELAYS_MS,
   ICON_RETRY_MAX,
   isGeneratedIconDataUrl,
   nextIconRetryIds,
   pruneIconsForReload,
+  requestIconsForIds,
   retryDelayForAttempt
 } from './libraryIcons'
 
@@ -40,6 +41,64 @@ describe('pruneIconsForReload', () => {
     expect(isGeneratedIconDataUrl('data:image/svg+xml;base64,AA==')).toBe(true)
     expect(isGeneratedIconDataUrl('data:image/png;base64,AA==')).toBe(false)
     expect(isGeneratedIconDataUrl(null)).toBe(false)
+  })
+})
+
+describe('requestIconsForIds', () => {
+  it('aplica as 10 respostas mesmo quando a primeira resolve antes das outras', async () => {
+    const ids = Array.from({ length: 10 }, (_, index) => `g${index}`)
+    const resolvers = new Map<string, (value: string | null) => void>()
+    const applied: string[] = []
+    const mounted = true
+
+    const pending = requestIconsForIds(ids, {
+      fetchIcon: (id) =>
+        new Promise<string | null>((resolve) => {
+          resolvers.set(id, resolve)
+        }),
+      apply: (id) => applied.push(id),
+      isMounted: () => mounted
+    })
+
+    // Primeira resposta chega e "muda o estado" (re-render), mas o componente
+    // continua montado — as outras 9 respostas não podem ser descartadas.
+    resolvers.get('g0')?.('data:g0')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(applied).toEqual(['g0'])
+
+    for (const id of ids.slice(1)) resolvers.get(id)?.(`data:${id}`)
+    await pending
+    expect(applied).toHaveLength(10)
+    expect(new Set(applied).size).toBe(10)
+  })
+
+  it('sinaliza falha em onSettled para liberar nova tentativa', async () => {
+    const settled: Array<[string, string | null]> = []
+    await requestIconsForIds(['a', 'b'], {
+      fetchIcon: async (id) => {
+        if (id === 'a') throw new Error('falhou')
+        return 'data:b'
+      },
+      apply: () => undefined,
+      onSettled: (id, value) => settled.push([id, value]),
+      isMounted: () => true
+    })
+    expect(settled).toContainEqual(['a', null])
+    expect(settled).toContainEqual(['b', 'data:b'])
+  })
+
+  it('não aplica nada quando desmontado, mas sinaliza o término', async () => {
+    const apply = vi.fn()
+    const onSettled = vi.fn()
+    await requestIconsForIds(['a'], {
+      fetchIcon: async () => 'data:a',
+      apply,
+      onSettled,
+      isMounted: () => false
+    })
+    expect(apply).not.toHaveBeenCalled()
+    expect(onSettled).toHaveBeenCalledWith('a', 'data:a')
   })
 })
 
