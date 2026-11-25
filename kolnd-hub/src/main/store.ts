@@ -25,6 +25,7 @@ import {
   type HudSize
 } from '../shared/hud'
 import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../shared/hwmon'
+import { defaultUsageLogPrefs, isUsageRetentionDays, type UsageLogPrefs } from '../shared/usage'
 export type {
   GamepadProfile,
   GamepadAction,
@@ -143,6 +144,11 @@ export interface HubStoreSchema {
    * Sempre lido/gravado normalizado por `normalizeHwmonIntervalMs`.
    */
   hwmonIntervalMs: number
+  /**
+   * Registro de uso local: liga/desliga e retenção em dias (7/30/90).
+   * Conteúdo sempre revalidado por `normalizeUsageLogPrefs`.
+   */
+  usageLog: UsageLogPrefs
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -200,6 +206,25 @@ export function normalizeRemoteAccessPrefs(input: unknown): RemoteAccessPrefs {
   // Sem IP válido o timestamp perde o sentido — mas o modo é independente.
   if (!lastPublicIp) return { mode, lastPublicIp: null, lastPublicIpCheckedAt: null }
   return { mode, lastPublicIp, lastPublicIpCheckedAt }
+}
+
+/**
+ * Normaliza as preferências do registro de uso.
+ *
+ * `enabled` inválido volta ao padrão (ligado) e a retenção fora de
+ * `{7, 30, 90}` também — uma leitura de config editado à mão nunca impede o
+ * app de abrir. Um `enabled: false` explícito é preservado.
+ */
+export function normalizeUsageLogPrefs(input: unknown): UsageLogPrefs {
+  const defaults = defaultUsageLogPrefs()
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return defaults
+  const raw = input as Record<string, unknown>
+  return {
+    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : defaults.enabled,
+    retentionDays: isUsageRetentionDays(raw.retentionDays)
+      ? raw.retentionDays
+      : defaults.retentionDays
+  }
 }
 
 /** Nota de um teste individual do benchmark (MOps/s em cada fase). */
@@ -820,6 +845,18 @@ const schema: Store.Schema<HubStoreSchema> = {
   hwmonIntervalMs: {
     type: 'number',
     default: HWMON_INTERVAL_DEFAULT_MS
+  },
+  // Registro de uso local. Sem `enum` no schema de propósito: um valor editado
+  // à mão fora da faixa não pode derrubar a criação do config.json inteiro —
+  // normalizeUsageLogPrefs() corrige na leitura e na escrita.
+  usageLog: {
+    type: 'object',
+    default: { enabled: true, retentionDays: 30 },
+    properties: {
+      enabled: { type: 'boolean' },
+      retentionDays: { type: 'number' }
+    },
+    additionalProperties: false
   }
 }
 
@@ -856,6 +893,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.8.0 garante a chave `remoteAccess` (último IP público consultado).
       // 1.9.0 acrescenta `mode` ao `remoteAccess` (modo remoto do Kloud Games).
       // 1.10.0 existiu para as chaves do OpenOffice, recurso removido.
+      // 1.11.0 garante a chave `usageLog` (registro de uso local, ligado, 30 dias).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -944,6 +982,14 @@ function createStore(): Store<HubStoreSchema> | null {
         '1.10.0': (): void => {
           // No-op: a migração original só normalizava as chaves do OpenOffice,
           // recurso removido do Hub. Mantida para não abrir buraco na cadeia.
+        },
+        '1.11.0': (s): void => {
+          try {
+            // Chave nova do registro de uso; valores válidos são preservados.
+            s.set('usageLog', normalizeUsageLogPrefs(s.get('usageLog', defaultUsageLogPrefs())))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
         }
       }
     })
@@ -1179,6 +1225,46 @@ export function setNotifyOnCrash(value: unknown): { success: boolean; error?: st
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar notifyOnCrash:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lê as preferências do registro de uso local (default ligado, 30 dias). */
+export function getUsageLogPrefs(): UsageLogPrefs {
+  if (!store) return defaultUsageLogPrefs()
+  try {
+    return normalizeUsageLogPrefs(store.get('usageLog', defaultUsageLogPrefs()))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler usageLog:', err)
+    return defaultUsageLogPrefs()
+  }
+}
+
+/**
+ * Persiste as preferências do registro de uso.
+ * Exige `{ enabled: boolean, retentionDays: 7|30|90 }` — inválido não grava.
+ */
+export function setUsageLogPrefs(value: unknown): { success: boolean; error?: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { success: false, error: 'Preferências do registro de uso inválidas.' }
+  }
+  const raw = value as Record<string, unknown>
+  if (typeof raw.enabled !== 'boolean') {
+    return {
+      success: false,
+      error: 'Preferências do registro de uso inválidas: `enabled` deve ser booleano.'
+    }
+  }
+  if (!isUsageRetentionDays(raw.retentionDays)) {
+    return { success: false, error: 'Retenção inválida: use 7, 30 ou 90 dias.' }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('usageLog', { enabled: raw.enabled, retentionDays: raw.retentionDays })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar usageLog:', message)
     return { success: false, error: message }
   }
 }
@@ -1555,4 +1641,8 @@ export function registerPrefsIpc(): void {
   ipcMain.handle('prefs:get-notify', () => getNotifyOnCrash())
 
   ipcMain.handle('prefs:set-notify', (_event, value: unknown) => setNotifyOnCrash(value))
+
+  ipcMain.handle('prefs:get-usage-log', () => getUsageLogPrefs())
+
+  ipcMain.handle('prefs:set-usage-log', (_event, value: unknown) => setUsageLogPrefs(value))
 }

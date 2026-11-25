@@ -6,6 +6,7 @@ import { getStoredGames, setStoredGames } from '../store'
 import { isValidId } from './naming'
 import { listRunningProcesses, type RunningProcess } from '../startupManager'
 import { logger } from '../logger'
+import { appendUsageEvent, buildUsageEvent } from '../usageLog'
 import { createPlaytimeTracker, PLAYTIME_TICK_MS } from './playtime'
 
 /**
@@ -230,6 +231,8 @@ export async function launchGame(id: unknown): Promise<LaunchGameResult> {
       logger.info('games', `Jogo iniciado: ${game.name} (${game.exePath})`)
       // Só conta sessões abertas PELO Hub; o `lastPlayedAt` é gravado agora.
       playtimeTracker.start(game.id, game.exePath)
+      // Registro de uso: id + nome exibido do jogo (nunca o caminho do exe).
+      appendUsageEvent(buildUsageEvent('game-launch', { gameId: game.id, name: game.name }))
       finish({ ok: true })
     })
     child.once('error', (err: Error) => {

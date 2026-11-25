@@ -13,6 +13,15 @@ import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
+  ClearUsageResult,
+  UsageExportResult,
+  UsageLogPrefs,
+  UsagePage,
+  UsageReadOptions,
+  UsageReadResult,
+  UsageSummaryResult
+} from '../shared/usage'
+import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
@@ -80,6 +89,9 @@ declare global {
       setLaunchKloudOnStart: (value: boolean) => Promise<{ success: boolean; error?: string }>
       getNotifyOnCrash: () => Promise<boolean>
       setNotifyOnCrash: (value: boolean) => Promise<{ success: boolean; error?: string }>
+      // Registro de uso local (preferências).
+      getUsagePrefs: () => Promise<UsageLogPrefs>
+      setUsagePrefs: (prefs: UsageLogPrefs) => Promise<{ success: boolean; error?: string }>
       // ── Autostart do Hub no Windows (07-7.3) ─────
       getHubAutostart: () => Promise<{ enabled: boolean; supported: boolean }>
       setHubAutostart: (value: boolean) => Promise<{ success: boolean; error?: string }>
@@ -416,6 +428,13 @@ declare global {
 
       // ── Diagnóstico ─────────────────────────────────
       exportDiagnostic: () => Promise<{ success: boolean; error?: string }>
+
+      // ── Registro de uso local ───────────────────────
+      readUsage: (options?: UsageReadOptions) => Promise<UsageReadResult>
+      getUsageSummary: (options?: UsageReadOptions) => Promise<UsageSummaryResult>
+      exportUsage: (format: 'json' | 'csv') => Promise<UsageExportResult>
+      clearUsage: () => Promise<ClearUsageResult>
+      logPageView: (page: UsagePage) => Promise<{ success: boolean; error?: string }>
 
       // ── Backup e restauração (07-7.6) ──────────────
       exportConfig: () => Promise<{

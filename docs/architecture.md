@@ -231,6 +231,29 @@ Regras para quem mexer no store:
 5. Migração do legado `localStorage` → store acontece via IPC `config:migrate`
    (renderer envia o que tinha; main normaliza e grava; chaves antigas viram `.bak`).
 
+## 4.1 Registro de uso local
+
+O Hub grava eventos reais de uso em **JSONL local**, um arquivo por dia:
+`%APPDATA%\kolnd-hub\logs\usage-AAAA-MM-DD.jsonl` (data local). A lista de
+eventos é fechada: `session-start`/`session-end` (com a duração da sessão),
+`page-view`, `app-launch`/`app-stop`, `game-launch` e `action`
+(exportar/importar configuração).
+
+- **Privacidade:** só ids, nomes exibidos, página e duração. Nunca linha de
+  comando, caminho de executável, IP, URL, token ou título de janela. Nada sai
+  da máquina — o registro não entra no `diagnostic:export`.
+- **Preferências:** chave `usageLog` (`{ enabled, retentionDays }`, retenção
+  ∈ `{7, 30, 90}`, padrão 30) no electron-store, migração `1.11.0`. Desligado =
+  nenhum evento novo é gravado.
+- **Retenção:** a poda roda na troca de dia e apaga somente arquivos
+  `usage-YYYY-MM-DD.jsonl`; `kolnd-hub.log*` nunca é tocado. Acima de 2 MB no
+  arquivo do dia, o dia para de anexar (um aviso no log).
+- **Escrita best-effort** (`src/main/usageLog.ts`): falha de disco nunca lança
+  nem derruba o app.
+- **IPC** `usage:read|summary|export|clear|page-view` valida tudo; exportar
+  JSON/CSV usa o diálogo nativo e limpar apaga só os arquivos do registro.
+- **UI:** Configurações → Registro de uso (ver/filtrar/exportar/limpar).
+
 ## 5. First-run
 
 Detecção (`firstRun.ts`): a ausência do flag `%APPDATA%\kolnd-hub\first-run-complete.flag`

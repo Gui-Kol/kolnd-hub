@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     () => { applied: string[]; failed: Array<{ section: string; error: string }> }
   >(() => ({ applied: ['apps'], failed: [] })),
   isStoreAvailable: vi.fn(() => true),
+  appendUsageEvent: vi.fn(() => true),
   logInfo: vi.fn(),
   logError: vi.fn()
 }))
@@ -40,6 +41,14 @@ vi.mock('../configTransfer', () => ({
   applyImport: mocks.applyImport
 }))
 vi.mock('../store', () => ({ isStoreAvailable: mocks.isStoreAvailable }))
+vi.mock('../usageLog', () => ({
+  appendUsageEvent: mocks.appendUsageEvent,
+  buildUsageEvent: (type: string, input: Record<string, unknown> = {}) => ({
+    ts: '2026-11-25T10:00:00.000Z',
+    type,
+    ...input
+  })
+}))
 vi.mock('../logger', () => ({
   logger: { info: mocks.logInfo, warn: vi.fn(), error: mocks.logError, debug: vi.fn() }
 }))
@@ -84,6 +93,9 @@ describe('config:export', () => {
       JSON.stringify({ apps: [], games: [] }, null, 2),
       'utf8'
     )
+    expect(mocks.appendUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'action', action: 'config-export' })
+    )
   })
 
   it('sem janela principal usa o diálogo sem parent', async () => {
@@ -97,6 +109,7 @@ describe('config:export', () => {
     mocks.showSaveDialog.mockResolvedValue({ canceled: true })
     expect(await call('config:export')).toEqual({ success: false, canceled: true })
     expect(mocks.writeFileSync).not.toHaveBeenCalled()
+    expect(mocks.appendUsageEvent).not.toHaveBeenCalled()
   })
 
   it('filePath vazio também conta como cancelado', async () => {
@@ -291,6 +304,9 @@ describe('config:import — apply', () => {
     expect(result.backupPath).toContain('config-backup-')
     expect(mocks.mkdirSync).toHaveBeenCalledWith('C:\\fake\\userdata\\backups', { recursive: true })
     expect(mocks.applyImport).toHaveBeenCalled()
+    expect(mocks.appendUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'action', action: 'config-import' })
+    )
   })
 
   it('aplica só uma vez (prévia é consumida)', async () => {

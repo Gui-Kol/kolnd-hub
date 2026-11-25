@@ -129,6 +129,17 @@ function App(): JSX.Element {
   // identidade estável evita resetar o auto-dismiss a cada render do App).
   const closeNotice = useCallback((): void => setNotice(null), [])
 
+  // Registro de uso: uma chamada por troca de página. O ref evita evento
+  // duplicado quando o StrictMode monta o efeito duas vezes no dev.
+  const loggedPageViewRef = useRef<Page | null>(null)
+  useEffect(() => {
+    if (loggedPageViewRef.current === currentPage) return
+    loggedPageViewRef.current = currentPage
+    window.api.logPageView(currentPage).catch(() => {
+      // Registro é best-effort: falha não afeta a navegação.
+    })
+  }, [currentPage])
+
   // Aplica o caminho resolvido do KLOUD_GAMES.exe na config do app (e persiste),
   // para que abrir/fechar pelo Hub funcione sempre com o caminho real.
   const applyKloudGamesConfig = useCallback((exePath: string): void => {

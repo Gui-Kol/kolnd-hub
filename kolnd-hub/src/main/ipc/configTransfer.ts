@@ -10,6 +10,7 @@ import {
 } from '../configTransfer'
 import { isStoreAvailable } from '../store'
 import { logger } from '../logger'
+import { appendUsageEvent, buildUsageEvent } from '../usageLog'
 import type { IpcContext } from './lifecycle'
 
 /**
@@ -85,6 +86,7 @@ export function registerConfigTransferIpc(ctx: IpcContext): void {
         if (canceled || !filePath) return { success: false, canceled: true }
         writeFileSync(filePath, JSON.stringify(buildExport(), null, 2), 'utf8')
         logger.info('configTransfer', 'Configuração exportada para arquivo JSON')
+        appendUsageEvent(buildUsageEvent('action', { action: 'config-export' }))
         return { success: true, path: filePath }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -199,6 +201,7 @@ function applyPendingImport(): ImportApplyResult {
   logger.info('configTransfer', 'Backup pré-import criado em backups/')
 
   const report = applyImport(data)
+  appendUsageEvent(buildUsageEvent('action', { action: 'config-import' }))
   pendingImport = null
   return { success: true, applied: report.applied, failed: report.failed, backupPath }
 }

@@ -15,6 +15,15 @@ import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
+  ClearUsageResult,
+  UsageExportResult,
+  UsageLogPrefs,
+  UsagePage,
+  UsageReadOptions,
+  UsageReadResult,
+  UsageSummaryResult
+} from '../shared/usage'
+import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
@@ -97,6 +106,12 @@ const api = {
 
   setNotifyOnCrash: (value: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('prefs:set-notify', value),
+
+  // Registro de uso local (preferências).
+  getUsagePrefs: (): Promise<UsageLogPrefs> => ipcRenderer.invoke('prefs:get-usage-log'),
+
+  setUsagePrefs: (prefs: UsageLogPrefs): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('prefs:set-usage-log', prefs),
 
   // ── Autostart do Hub no Windows (07-7.3) ─────────
   getHubAutostart: (): Promise<{ enabled: boolean; supported: boolean }> =>
@@ -648,6 +663,21 @@ const api = {
   // ── Diagnóstico ─────────────────────────────────
   exportDiagnostic: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('diagnostic:export'),
+
+  // ── Registro de uso local ───────────────────────
+  readUsage: (options?: UsageReadOptions): Promise<UsageReadResult> =>
+    ipcRenderer.invoke('usage:read', options ?? {}),
+
+  getUsageSummary: (options?: UsageReadOptions): Promise<UsageSummaryResult> =>
+    ipcRenderer.invoke('usage:summary', options ?? {}),
+
+  exportUsage: (format: 'json' | 'csv'): Promise<UsageExportResult> =>
+    ipcRenderer.invoke('usage:export', { format }),
+
+  clearUsage: (): Promise<ClearUsageResult> => ipcRenderer.invoke('usage:clear'),
+
+  logPageView: (page: UsagePage): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('usage:page-view', page),
 
   // ── Backup e restauração (07-7.6) ──────────────
   exportConfig: (): Promise<{
