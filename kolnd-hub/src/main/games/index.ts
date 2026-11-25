@@ -6,10 +6,11 @@ import {
   updateGame,
   checkExePaths,
   removeGame,
+  removeGames,
   getGameCollections,
   createGameCollection
 } from './store'
-import type { Game, AddCustomGameResult, CreateCollectionResult } from './store'
+import type { Game, AddCustomGameResult, CreateCollectionResult, RemoveGamesResult } from './store'
 import type { GameResult } from './naming'
 import {
   pickGameIcon,
@@ -80,10 +81,11 @@ export {
   updateGame,
   checkExePaths,
   removeGame,
+  removeGames,
   getGameCollections,
   createGameCollection
 } from './store'
-export type { Game, AddCustomGameResult, CreateCollectionResult } from './store'
+export type { Game, AddCustomGameResult, CreateCollectionResult, RemoveGamesResult } from './store'
 
 /** Registra os canais IPC da biblioteca de jogos. */
 export function registerGamesIpc(): void {
@@ -136,6 +138,8 @@ export function registerGamesIpc(): void {
   ipcMain.handle('games:check-exes', (_event, paths: unknown): boolean[] => checkExePaths(paths))
 
   ipcMain.handle('games:remove', (_event, id: unknown): GameResult => removeGame(id))
+
+  ipcMain.handle('games:remove-many', (_event, ids: unknown): RemoveGamesResult => removeGames(ids))
 
   ipcMain.handle('games:launch', (_event, id: unknown): Promise<LaunchGameResult> => launchGame(id))
 

@@ -70,6 +70,11 @@ export interface AddCustomGameResult extends GameResult {
   name?: string
 }
 
+/** Resultado de `games:remove-many` — lista os ids efetivamente removidos. */
+export interface RemoveGamesResult extends GameResult {
+  removed?: string[]
+}
+
 export function getGames(): Game[] {
   return getStoredGames()
 }
@@ -429,4 +434,47 @@ export function removeGame(id: unknown): GameResult {
   deleteCachedCover(removed)
   logger.info('games', `Jogo removido: ${removed.name} (${removed.id})`)
   return { success: true }
+}
+
+/** Limite de ids por chamada de `games:remove-many` (defesa contra IPC abusivo). */
+const MAX_BULK_REMOVE = 500
+
+/**
+ * Remove VÁRIOS jogos numa única escrita do store (`games:remove-many`).
+ * Validação tudo-ou-nada: lista inválida (não-array, fora de 1..500 ou com
+ * qualquer id inválido) não toca no store. Ícone/capa só são apagados DEPOIS
+ * de persistir — falha de escrita não deixa órfãos nem remove nada de fato.
+ */
+export function removeGames(ids: unknown): RemoveGamesResult {
+  const invalidError = 'Lista de jogos inválida.'
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BULK_REMOVE) {
+    return { success: false, error: invalidError }
+  }
+
+  // `Set` deduplica preservando a ordem de entrada; o trim é feito aqui para
+  // casar com os ids persistidos (isValidId só valida, não normaliza).
+  const uniqueIds = new Set<string>()
+  for (const id of ids) {
+    if (!isValidId(id)) return { success: false, error: invalidError }
+    uniqueIds.add(id.trim())
+  }
+
+  const games = getStoredGames()
+  const removed = games.filter((game) => uniqueIds.has(game.id))
+  if (removed.length === 0) {
+    return { success: false, error: 'Nenhum desses jogos está na biblioteca.' }
+  }
+
+  const remaining = games.filter((game) => !uniqueIds.has(game.id))
+  const saved = setStoredGames(remaining)
+  if (!saved.success) {
+    return { success: false, error: saved.error ?? 'Não foi possível remover o jogo.' }
+  }
+
+  for (const game of removed) {
+    deleteCachedIcon(game)
+    deleteCachedCover(game)
+  }
+  logger.info('games', `Jogos removidos em lote: ${removed.length}`)
+  return { success: true, removed: removed.map((game) => game.id) }
 }

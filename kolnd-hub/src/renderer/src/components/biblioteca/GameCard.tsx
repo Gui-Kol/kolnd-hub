@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { AlertTriangle, Gamepad2, Pencil, Star } from 'lucide-react'
+import { AlertTriangle, Check, Gamepad2, Pencil, Star } from 'lucide-react'
 import type { Game } from '../../types'
 import { formatLastPlayed, formatPlaytime, weekPlaytimeSeconds } from '../../lib/gameStats'
 import { Badge } from '../ui'
@@ -15,6 +15,11 @@ export interface GameCardProps {
   running: boolean
   /** Executável não existe mais no disco (selo de alerta). */
   exeMissing: boolean
+  /** Modo de seleção em lote: o clique marca/desmarca em vez de lançar. */
+  selectable?: boolean
+  /** Marcado no modo de seleção (`aria-pressed`). */
+  selected?: boolean
+  onToggleSelect?: (game: Game) => void
   onLaunch: (game: Game) => void
   onEdit: (game: Game) => void
   onToggleFavorite: (game: Game) => void
@@ -34,6 +39,9 @@ export const GameCard = memo(function GameCard({
   cover,
   running,
   exeMissing,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
   onLaunch,
   onEdit,
   onToggleFavorite,
@@ -58,66 +66,103 @@ export const GameCard = memo(function GameCard({
   return (
     <button
       type="button"
-      onClick={() => void onLaunch(game)}
-      title={`Jogar ${game.name}`}
-      className="group relative flex flex-col items-center gap-3 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-5 pt-6 text-center shadow-elevation-1 transition-all duration-2 ease-standard hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2"
+      onClick={() => {
+        if (selectable) onToggleSelect?.(game)
+        else void onLaunch(game)
+      }}
+      title={
+        selectable
+          ? selected
+            ? `Desmarcar ${game.name}`
+            : `Selecionar ${game.name}`
+          : `Jogar ${game.name}`
+      }
+      aria-label={
+        selectable ? (selected ? `Desmarcar ${game.name}` : `Selecionar ${game.name}`) : undefined
+      }
+      aria-pressed={selectable ? selected : undefined}
+      className={`group relative flex flex-col items-center gap-3 rounded-card border bg-surface-1 p-5 pt-6 text-center shadow-elevation-1 transition-all duration-2 ease-standard hover:bg-surface-2 hover:shadow-elevation-2 ${
+        selected
+          ? 'border-accent-border ring-2 ring-accent-border'
+          : 'border-[var(--border-subtle)] hover:border-[var(--accent-border)]'
+      }`}
     >
+      {/* Modo seleção: o card inteiro é o toggle; controles próprios somem para
+          não haver clique cruzado (favoritar/editar/encerrar continuam fora). */}
+      {selectable && (
+        <span
+          aria-hidden="true"
+          className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border shadow-elevation-1 ${
+            selected
+              ? 'border-accent bg-accent text-accent-contrast'
+              : 'border-[var(--border-strong)] bg-surface-1 text-transparent'
+          }`}
+        >
+          <Check size={14} aria-hidden="true" />
+        </span>
+      )}
+
       {/* Encerramento pelo Hub — só fica habilitado com o jogo aberto */}
-      <StopGameButton game={game} running={running} onStopped={onStopped} />
+      {!selectable && <StopGameButton game={game} running={running} onStopped={onStopped} />}
 
       {/* Favorito — botão próprio (span com role para não aninhar <button>). */}
-      <span
-        role="button"
-        tabIndex={0}
-        aria-pressed={game.favorite === true}
-        aria-label={
-          game.favorite
-            ? `Remover ${game.name} dos favoritos`
-            : `Adicionar ${game.name} aos favoritos`
-        }
-        title={game.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-        onClick={(event) => {
-          event.stopPropagation()
-          onToggleFavorite(game)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
+      {!selectable && (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-pressed={game.favorite === true}
+          aria-label={
+            game.favorite
+              ? `Remover ${game.name} dos favoritos`
+              : `Adicionar ${game.name} aos favoritos`
+          }
+          title={game.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          onClick={(event) => {
             event.stopPropagation()
             onToggleFavorite(game)
-          }
-        }}
-        className={`absolute left-2 top-2 z-10 rounded-sm p-2 transition-colors hover:bg-surface-3 ${
-          game.favorite ? 'text-warn' : 'text-ink-tertiary hover:text-ink-primary'
-        }`}
-      >
-        <Star size={15} aria-hidden="true" fill={game.favorite ? 'currentColor' : 'none'} />
-      </span>
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              event.stopPropagation()
+              onToggleFavorite(game)
+            }
+          }}
+          className={`absolute left-2 top-2 z-10 rounded-sm p-2 transition-colors hover:bg-surface-3 ${
+            game.favorite ? 'text-warn' : 'text-ink-tertiary hover:text-ink-primary'
+          }`}
+        >
+          <Star size={15} aria-hidden="true" fill={game.favorite ? 'currentColor' : 'none'} />
+        </span>
+      )}
 
       {/* Edição (T9) — abre o modal "Editar Game" */}
-      <span
-        role="button"
-        tabIndex={0}
-        title="Editar jogo"
-        aria-label={`Editar ${game.name}`}
-        onClick={(event) => {
-          event.stopPropagation()
-          onEdit(game)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
+      {!selectable && (
+        <span
+          role="button"
+          tabIndex={0}
+          title="Editar jogo"
+          aria-label={`Editar ${game.name}`}
+          onClick={(event) => {
             event.stopPropagation()
             onEdit(game)
-          }
-        }}
-        className="absolute right-2 top-2 rounded-sm p-2 text-ink-tertiary transition-colors hover:bg-surface-3 hover:text-ink-primary"
-      >
-        <Pencil size={14} aria-hidden="true" />
-      </span>
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              event.stopPropagation()
+              onEdit(game)
+            }
+          }}
+          className="absolute right-2 top-2 rounded-sm p-2 text-ink-tertiary transition-colors hover:bg-surface-3 hover:text-ink-primary"
+        >
+          <Pencil size={14} aria-hidden="true" />
+        </span>
+      )}
 
-      {/* Selo discreto quando o executável não existe mais no disco */}
-      {exeMissing && (
+      {/* Selo discreto quando o executável não existe mais no disco (é um atalho
+          para editar — também some no modo seleção). */}
+      {exeMissing && !selectable && (
         <span
           role="button"
           tabIndex={0}

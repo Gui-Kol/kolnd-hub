@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   updateGame: vi.fn(),
   checkExePaths: vi.fn(),
   removeGame: vi.fn(),
+  removeGames: vi.fn(),
   getGameCollections: vi.fn(),
   createGameCollection: vi.fn(),
   pickGameIcon: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('./store', () => ({
   updateGame: mocks.updateGame,
   checkExePaths: mocks.checkExePaths,
   removeGame: mocks.removeGame,
+  removeGames: mocks.removeGames,
   getGameCollections: mocks.getGameCollections,
   createGameCollection: mocks.createGameCollection
 }))
@@ -95,6 +97,7 @@ describe('registerGamesIpc', () => {
       'games:refresh-icons',
       'games:reload-icons',
       'games:remove',
+      'games:remove-many',
       'games:restore-exe-icon',
       'games:running-map',
       'games:set-cover',
@@ -110,6 +113,7 @@ describe('registerGamesIpc', () => {
     mocks.updateGame.mockReturnValue({ success: true })
     mocks.checkExePaths.mockReturnValue([true])
     mocks.removeGame.mockReturnValue({ success: true })
+    mocks.removeGames.mockReturnValue({ success: true, removed: ['g1', 'g2'] })
 
     expect(call('games:get')).toEqual([{ id: 'g1' }])
     expect(call('games:add', { id: 'g1' })).toEqual({ success: true })
@@ -119,6 +123,11 @@ describe('registerGamesIpc', () => {
     expect(call('games:check-exes', ['C:\\a.exe'])).toEqual([true])
     expect(call('games:remove', 'g1')).toEqual({ success: true })
     expect(mocks.removeGame).toHaveBeenCalledWith('g1')
+    expect(call('games:remove-many', ['g1', 'g2'])).toEqual({
+      success: true,
+      removed: ['g1', 'g2']
+    })
+    expect(mocks.removeGames).toHaveBeenCalledWith(['g1', 'g2'])
 
     mocks.getGameCollections.mockReturnValue(['RPG'])
     mocks.createGameCollection.mockReturnValue({ success: true, collections: ['RPG', 'Ação'] })

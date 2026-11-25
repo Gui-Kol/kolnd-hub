@@ -330,6 +330,9 @@ declare global {
         name: string
       ) => Promise<{ success: boolean; error?: string; collections?: string[] }>
       removeGame: (id: string) => Promise<{ success: boolean; error?: string }>
+      removeGames: (
+        ids: string[]
+      ) => Promise<{ success: boolean; error?: string; removed?: string[] }>
       // Edição de jogos (T9)
       pickGameIcon: () => Promise<{
         success: boolean

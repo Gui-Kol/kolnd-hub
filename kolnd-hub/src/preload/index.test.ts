@@ -78,6 +78,9 @@ describe('preload — contrato de window.api', () => {
     await api.createGameCollection('RPG')
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:collection-create', 'RPG')
 
+    await api.removeGames(['g1', 'g2'])
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:remove-many', ['g1', 'g2'])
+
     await api.pickGameCover()
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:pick-cover')
 

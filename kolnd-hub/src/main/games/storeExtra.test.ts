@@ -68,6 +68,7 @@ import {
   createGameCollection,
   getGames,
   removeGame,
+  removeGames,
   updateGame
 } from './store'
 import type { Game } from './store'
@@ -393,6 +394,82 @@ describe('removeGame — falha do store', () => {
       error: 'Não foi possível remover o jogo.'
     })
     expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+  })
+})
+
+describe('removeGames — remoção em lote', () => {
+  it('remove 2 de 3 numa única escrita e apaga os caches depois de persistir', () => {
+    mocks.getStoredGames.mockReturnValue([
+      game({ id: 'g1', name: 'Um' }),
+      game({ id: 'g2', name: 'Dois' }),
+      game({ id: 'g3', name: 'Três' })
+    ])
+
+    expect(removeGames(['g1', 'g3'])).toEqual({ success: true, removed: ['g1', 'g3'] })
+    expect(mocks.setStoredGames).toHaveBeenCalledTimes(1)
+    expect((mocks.setStoredGames.mock.calls[0]?.[0] as Game[]).map((item) => item.id)).toEqual([
+      'g2'
+    ])
+    expect(mocks.deleteCachedIcon).toHaveBeenCalledTimes(2)
+    expect(mocks.deleteCachedCover).toHaveBeenCalledTimes(2)
+  })
+
+  it('deduplica ids (com trim) preservando a ordem da lista', () => {
+    mocks.getStoredGames.mockReturnValue([
+      game({ id: 'g1' }),
+      game({ id: 'g2' }),
+      game({ id: 'g3' })
+    ])
+
+    expect(removeGames([' g1 ', 'g1', 'g3', 'g3'])).toEqual({
+      success: true,
+      removed: ['g1', 'g3']
+    })
+    expect(mocks.setStoredGames).toHaveBeenCalledTimes(1)
+    expect((mocks.setStoredGames.mock.calls[0]?.[0] as Game[]).map((item) => item.id)).toEqual([
+      'g2'
+    ])
+  })
+
+  it('recusa lista inválida sem tocar no store nem nos caches', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' })])
+
+    expect(removeGames([])).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames('g1')).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames(['g1', 42])).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames(['g1', '   '])).toEqual({
+      success: false,
+      error: 'Lista de jogos inválida.'
+    })
+    expect(removeGames(Array.from({ length: 501 }, (_, index) => `g${index}`))).toEqual({
+      success: false,
+      error: 'Lista de jogos inválida.'
+    })
+
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
+  })
+
+  it('recusa quando nenhum id existe na biblioteca', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' })])
+
+    expect(removeGames(['nao-existe', 'outro'])).toEqual({
+      success: false,
+      error: 'Nenhum desses jogos está na biblioteca.'
+    })
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
+  })
+
+  it('não apaga ícone/capa quando a persistência falha', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' }), game({ id: 'g2' })])
+    mocks.setStoredGames.mockReturnValue({ success: false, error: 'sem disco' })
+
+    expect(removeGames(['g1'])).toEqual({ success: false, error: 'sem disco' })
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
   })
 })
 

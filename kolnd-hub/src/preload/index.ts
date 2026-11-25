@@ -498,6 +498,9 @@ const api = {
   removeGame: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('games:remove', id),
 
+  removeGames: (ids: string[]): Promise<{ success: boolean; error?: string; removed?: string[] }> =>
+    ipcRenderer.invoke('games:remove-many', ids),
+
   // Edição de jogos (T9)
   pickGameIcon: (): Promise<{
     success: boolean

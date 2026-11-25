@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, exitProps, useReducedMotion } from '../lib/motion'
-import { Gamepad2, Plus, ChevronDown, Search, FilePlus2, AlertTriangle } from 'lucide-react'
+import {
+  Gamepad2,
+  Plus,
+  ChevronDown,
+  Search,
+  FilePlus2,
+  AlertTriangle,
+  ListChecks,
+  Trash2
+} from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
+import { pruneSelected, toggleSelectAllVisible, toggleSelected } from '../lib/librarySelection'
 import {
   nextIconRetryIds,
   pruneIconsForReload,
@@ -32,6 +42,7 @@ import {
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { BuscarJogosModal, BuscarJogosState } from './biblioteca/BuscarJogosModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
+import { RemoveGamesModal } from './biblioteca/RemoveGamesModal'
 
 interface LocalToast {
   id: number
@@ -83,6 +94,11 @@ export function Biblioteca(): JSX.Element {
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
+  // Remoção em lote: modo de seleção, ids marcados e confirmação destrutiva.
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [removeModalOpen, setRemoveModalOpen] = useState(false)
+  const [removing, setRemoving] = useState(false)
   // Filtros da Biblioteca (T3/T4) — só em memória, nunca persistidos.
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [collectionFilter, setCollectionFilter] = useState('')
@@ -255,6 +271,87 @@ export function Biblioteca(): JSX.Element {
     },
     [dropIconCache, dropCoverCache, loadGames]
   )
+
+  // ── Remoção em lote (modo de seleção) ─────────────────────────────
+  // Sai do modo e limpa a seleção (usado pelo botão "Sair da seleção").
+  const exitSelectionMode = useCallback((): void => {
+    setSelecting(false)
+    setSelectedIds(new Set())
+    setRemoveModalOpen(false)
+  }, [])
+
+  const handleToggleSelectionMode = useCallback((): void => {
+    if (selecting) exitSelectionMode()
+    else setSelecting(true)
+  }, [selecting, exitSelectionMode])
+
+  // Handler estável: o card é `memo` (identidade não pode mudar a cada render).
+  const handleToggleSelect = useCallback((game: Game): void => {
+    setSelectedIds((prev) => toggleSelected(prev, game.id))
+  }, [])
+
+  const handleClearSelection = useCallback((): void => {
+    setSelectedIds(new Set())
+  }, [])
+
+  // Confirmar o modal: um único IPC remove todos; na falha o modo e a seleção
+  // continuam intactos para o usuário tentar de novo.
+  const handleConfirmRemoveSelected = useCallback(async (): Promise<void> => {
+    if (removing || selectedIds.size === 0) return
+    const ids = [...selectedIds]
+    setRemoving(true)
+    try {
+      const result = await window.api.removeGames(ids)
+      if (!result.success) {
+        setRemoveModalOpen(false)
+        showToast(result.error ?? 'Não foi possível remover os jogos.')
+        return
+      }
+      const removedIds = result.removed ?? ids
+      for (const id of removedIds) {
+        dropIconCache(id)
+        dropCoverCache(id)
+      }
+      const removedGames = games.filter((game) => removedIds.includes(game.id))
+      setRemoveModalOpen(false)
+      setSelecting(false)
+      setSelectedIds(new Set())
+      void loadGames()
+      // Coleções podem ter ficado sem jogos; recarrega o seletor de filtros.
+      void loadCollections()
+      showToast(
+        removedIds.length === 1
+          ? `Jogo removido: ${removedGames[0]?.name ?? 'jogo'}`
+          : `${removedIds.length} jogos removidos da biblioteca`
+      )
+    } catch (err) {
+      setRemoveModalOpen(false)
+      showToast(err instanceof Error ? err.message : 'Não foi possível remover os jogos.')
+    } finally {
+      setRemoving(false)
+    }
+  }, [
+    removing,
+    selectedIds,
+    games,
+    dropIconCache,
+    dropCoverCache,
+    loadGames,
+    loadCollections,
+    showToast
+  ])
+
+  // A lista recarregou (ex.: jogo removido em outra tela): poda ids que não
+  // existem mais. `pruneSelected` devolve a mesma instância quando nada muda.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedIds((prev) =>
+      pruneSelected(
+        prev,
+        games.map((game) => game.id)
+      )
+    )
+  }, [games])
 
   // Estrela do card: patch `favorite` na whitelist do main. Handler estável —
   // o card é `memo`, então a identidade não pode mudar a cada render.
@@ -468,6 +565,7 @@ export function Biblioteca(): JSX.Element {
   const visibleGames = favoriteOnly
     ? filteredByLib.filter((game) => game.favorite === true)
     : filteredByLib
+  const selectedGames = games.filter((game) => selectedIds.has(game.id))
   const filtersActive = favoriteOnly || hasActiveLibraryFilters(filterState)
   const clearFilters = (): void => {
     setFavoriteOnly(false)
@@ -500,6 +598,18 @@ export function Biblioteca(): JSX.Element {
               {games.length} {games.length === 1 ? 'jogo' : 'jogos'}
             </span>
           </Badge>
+
+          {/* ── Modo de seleção em lote ──────────────── */}
+          <Button
+            variant="secondary"
+            onClick={handleToggleSelectionMode}
+            aria-pressed={selecting}
+            data-testid="biblioteca-select-toggle"
+            disabled={loading || Boolean(loadError) || games.length === 0}
+          >
+            <ListChecks size={16} aria-hidden="true" />
+            Selecionar
+          </Button>
 
           {/* ── Botão "Adicionar Games" + menu ───────── */}
           <div className="relative">
@@ -686,6 +796,63 @@ export function Biblioteca(): JSX.Element {
         </div>
       )}
 
+      {/* ── Barra de seleção em lote ────────────────── */}
+      {selecting && !loading && !loadError && games.length > 0 && (
+        <div
+          role="region"
+          aria-label="Seleção da biblioteca"
+          data-testid="biblioteca-selection-bar"
+          className="flex flex-col gap-3 rounded-card border border-accent-border bg-accent-muted p-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="text-sm font-semibold text-ink-primary">
+            {selectedIds.size} {selectedIds.size === 1 ? 'selecionado' : 'selecionados'}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="biblioteca-select-all"
+              onClick={() =>
+                setSelectedIds((prev) =>
+                  toggleSelectAllVisible(
+                    prev,
+                    visibleGames.map((game) => game.id)
+                  )
+                )
+              }
+              disabled={visibleGames.length === 0}
+            >
+              <ListChecks size={14} aria-hidden="true" />
+              {visibleGames.length !== games.length
+                ? `Selecionar todos (${visibleGames.length} visíveis)`
+                : 'Selecionar todos'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="biblioteca-clear-selection"
+              onClick={handleClearSelection}
+              disabled={selectedIds.size === 0}
+            >
+              Limpar seleção
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              data-testid="biblioteca-remove-selected"
+              onClick={() => setRemoveModalOpen(true)}
+              disabled={selectedIds.size === 0}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Remover selecionados
+            </Button>
+            <Button variant="ghost" size="sm" onClick={exitSelectionMode}>
+              Sair da seleção
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
         <div aria-busy="true" className="flex flex-col gap-6">
@@ -755,6 +922,9 @@ export function Biblioteca(): JSX.Element {
           covers={covers}
           runningIds={runningIds}
           missingExes={missingExes}
+          selectable={selecting}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
           onLaunch={handleLaunch}
           onEdit={openEdit}
           onToggleFavorite={handleToggleFavorite}
@@ -781,6 +951,17 @@ export function Biblioteca(): JSX.Element {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Modal "Remover jogos" (remoção em lote) ──────── */}
+      {removeModalOpen && (
+        <RemoveGamesModal
+          games={selectedGames}
+          runningIds={runningIds}
+          removing={removing}
+          onCancel={() => setRemoveModalOpen(false)}
+          onConfirm={() => void handleConfirmRemoveSelected()}
+        />
+      )}
 
       {/* ── Toast local (primitivo Toast; coexiste com o toast global do App) ── */}
       {toast && (
