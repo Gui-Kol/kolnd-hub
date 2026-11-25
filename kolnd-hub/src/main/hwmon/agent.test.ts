@@ -1,5 +1,4 @@
 import { promises as fs } from 'fs'
-import { createHash } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,8 +21,8 @@ import {
   buildSensorsAgentRemoveScript,
   buildSensorsAgentScript,
   createSensorsAgentReader,
+  hasLeftoverFpsArtifacts,
   interpretSensorsAgentQuery,
-  isFpsCollectorStaged,
   missingAgentRegisters,
   parseSensorsLatest,
   readSensorsLatestFile,
@@ -31,8 +30,6 @@ import {
   resolveSensorsSinkDir,
   SENSORS_AGENT_STALE_MS,
   SENSORS_AGENT_TASK_NAME,
-  sensorsAgentFpsHelperPath,
-  sensorsAgentFpsStopPath,
   sensorsAgentLatestPath,
   sensorsAgentRegisters,
   sensorsAgentStopPath,
@@ -372,13 +369,7 @@ describe('script persistente do agent', () => {
   })
 })
 
-describe('coletor de FPS dentro do agente', () => {
-  const FPS_COLLECTOR = {
-    sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
-    sourceExePath: 'C:\\Users\\dev\\AppData\\Roaming\\kolnd-hub\\fps\\KolndFpsEtw.exe',
-    stagedExePath: 'C:\\ProgramData\\Kolnd Hub\\sensors\\agent\\KolndFpsEtw.exe',
-    expectedSha256: 'a'.repeat(64)
-  }
+describe('limpeza das sobras do FPS antigo', () => {
   const STAGED_OPTIONS = {
     ...OPTIONS,
     stagedDir: 'C:\\ProgramData\\Kolnd Hub\\sensors\\agent',
@@ -386,123 +377,51 @@ describe('coletor de FPS dentro do agente', () => {
     helperSourcePath: 'C:\\Users\\dev\\AppData\\Roaming\\kolnd-hub\\hwmon\\KolndPawnIo.dll',
     stagedHelperPath: 'C:\\ProgramData\\Kolnd Hub\\sensors\\agent\\KolndPawnIo.dll'
   }
+  const legacyDir = join(process.env.ProgramData ?? 'C:\\ProgramData', 'Kolnd Hub', 'fps')
+  const stagedExe = join(OPTIONS.sinkDir, 'agent', 'KolndFpsEtw.exe')
 
-  it('monta os caminhos do coletor dentro da pasta estagiada e do sink', () => {
-    expect(sensorsAgentFpsHelperPath('C:\\ProgramData\\Kolnd Hub\\sensors')).toBe(
-      'C:\\ProgramData\\Kolnd Hub\\sensors\\agent\\KolndFpsEtw.exe'
-    )
-    expect(sensorsAgentFpsStopPath('C:\\ProgramData\\Kolnd Hub\\fps')).toBe(
-      'C:\\ProgramData\\Kolnd Hub\\fps\\collector.stop'
-    )
-  })
-
-  it('o script persistente inicia o coletor com --sink e o encerra no finally', () => {
-    const script = buildSensorsAgentScript({
-      helperDllPath: 'C:\\ProgramData\\Kolnd Hub\\sensors\\agent\\KolndPawnIo.dll',
-      pawnIoDllPath: 'C:\\Program Files\\PawnIO\\PawnIOLib.dll',
-      modulePath: 'C:\\App\\resources\\pawnio\\AMDFamily17.bin',
-      vendor: 'amd',
-      sinkPath: 'C:\\ProgramData\\Kolnd Hub\\sensors\\latest.json',
-      stopPath: 'C:\\ProgramData\\Kolnd Hub\\sensors\\stop.flag',
-      msr: [1],
-      smn: [2],
-      fpsCollector: {
-        exePath: FPS_COLLECTOR.stagedExePath,
-        sinkDir: FPS_COLLECTOR.sinkDir,
-        stopPath: sensorsAgentFpsStopPath(FPS_COLLECTOR.sinkDir)
-      }
-    })
-    expect(script).toContain('Start-Process -FilePath $fpsExe')
-    expect(script).toContain('--sink "')
-    expect(script).toContain('collector.stop')
-    expect(script).toContain('WaitForExit(3000)')
-    expect(script).toContain('Stop-Process -Id $fps.Id -Force')
-    expect(script).toContain('finally {')
-    // O coletor só começa depois do helper estar no disco; o loop de sensores
-    // continua sendo o corpo principal.
-    expect(script.indexOf('Start-Process')).toBeLessThan(script.indexOf('Add-Type'))
-  })
-
-  it('o instalador estagia o .exe com hash/ACL e apaga a tarefa legada', () => {
-    const script = buildSensorsAgentInstallScript({
-      ...STAGED_OPTIONS,
-      fpsCollector: FPS_COLLECTOR
-    })
+  it('o instalador limpa tarefa, processo e diretório legado sem depender de coletor', () => {
+    const script = buildSensorsAgentInstallScript(STAGED_OPTIONS)
     expect(script).toContain("& schtasks.exe /End /TN 'KolndHubFpsAgent' 2>$null | Out-Null")
     expect(script).toContain(
       "& schtasks.exe '/Delete' '/TN' 'KolndHubFpsAgent' '/F' 2>$null | Out-Null"
     )
-    expect(script).toContain('Get-CimInstance Win32_Process')
-    expect(script).toContain("$_.CommandLine -like '*--sink*'")
+    expect(script).toContain(`Get-CimInstance Win32_Process -Filter "Name='KolndFpsEtw.exe'"`)
+    expect(script).toContain('Stop-Process -Id $_.ProcessId -Force')
+    expect(script).toContain('Start-Sleep -Milliseconds 400')
     expect(script).toContain(
-      `Copy-Item -LiteralPath '${FPS_COLLECTOR.sourceExePath}' -Destination '${FPS_COLLECTOR.stagedExePath}' -Force`
+      `Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${legacyDir}'`
     )
-    expect(script).toContain(
-      `$fpsHash = (Get-FileHash -LiteralPath '${FPS_COLLECTOR.stagedExePath}' -Algorithm SHA256)`
-    )
-    expect(script).toContain(`if ($fpsHash -ne '${FPS_COLLECTOR.expectedSha256}')`)
-    expect(script).toContain(
-      "New-Item -ItemType Directory -Force -Path 'C:\\ProgramData\\Kolnd Hub\\fps'"
-    )
-    expect(script).toContain(
-      "& icacls.exe 'C:\\ProgramData\\Kolnd Hub\\fps' /grant '*S-1-5-32-545:(OI)(CI)RX'"
-    )
+    expect(script).toContain(`Remove-Item -Force -ErrorAction SilentlyContinue '${stagedExe}'`)
   })
 
-  it('recusa coletor com caminho ou hash inválido', () => {
-    expect(() =>
-      buildSensorsAgentInstallScript({
-        ...OPTIONS,
-        fpsCollector: { ...FPS_COLLECTOR, stagedExePath: 'relativo.exe' }
-      })
-    ).toThrow(/Coletor de FPS inválido/)
-    expect(() =>
-      buildSensorsAgentInstallScript({
-        ...OPTIONS,
-        fpsCollector: { ...FPS_COLLECTOR, expectedSha256: 'abc' }
-      })
-    ).toThrow(/Coletor de FPS inválido/)
-    expect(() =>
-      buildSensorsAgentScript({
-        helperDllPath: 'C:\\a\\helper.dll',
-        pawnIoDllPath: 'C:\\a\\PawnIOLib.dll',
-        modulePath: 'C:\\a\\mod.bin',
-        vendor: 'amd',
-        sinkPath: 'C:\\a\\latest.json',
-        stopPath: 'C:\\a\\stop.flag',
-        msr: [],
-        smn: [],
-        fpsCollector: { exePath: 'C:\\a\\fps.exe', sinkDir: 'relativo' }
-      })
-    ).toThrow(/Caminho do coletor de FPS inválido/)
-  })
-
-  it('a remoção também derruba o coletor e apaga a amostra de FPS', () => {
-    const script = buildSensorsAgentRemoveScript(OPTIONS.sinkDir, undefined, FPS_COLLECTOR.sinkDir)
-    expect(script).toContain(
-      "New-Item -ItemType File -Force -Path 'C:\\ProgramData\\Kolnd Hub\\fps\\collector.stop'"
-    )
-    expect(script).toContain(
-      "Remove-Item -Force -ErrorAction SilentlyContinue 'C:\\ProgramData\\Kolnd Hub\\fps\\latest.json'"
-    )
+  it('o removedor também limpa a tarefa legada, o processo e o diretório de FPS', () => {
+    const script = buildSensorsAgentRemoveScript(OPTIONS.sinkDir)
+    expect(script).toContain("& schtasks.exe /End /TN 'KolndHubFpsAgent'")
     expect(script).toContain("& schtasks.exe '/Delete' '/TN' 'KolndHubFpsAgent' '/F'")
-    expect(script).toContain('Get-CimInstance Win32_Process')
+    expect(script).toContain(`Get-CimInstance Win32_Process -Filter "Name='KolndFpsEtw.exe'"`)
+    expect(script).toContain(
+      `Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '${legacyDir}'`
+    )
+    expect(script).toContain(`Remove-Item -Force -ErrorAction SilentlyContinue '${stagedExe}'`)
   })
 
-  it('detecta a cópia instalada e compara o SHA-256 quando há referência', async () => {
+  it('hasLeftoverFpsArtifacts detecta o diretório legado e a cópia estagiada', async () => {
     const dir = await tempDir()
-    const staged = join(dir, 'agent')
-    await fs.mkdir(staged, { recursive: true })
-    const exe = join(staged, 'KolndFpsEtw.exe')
-    const content = Buffer.from('coletor de teste')
-    const hash = createHash('sha256').update(content).digest('hex')
-    await fs.writeFile(exe, content)
+    const programData = join(dir, 'ProgramData')
+    const sinkDir = join(dir, 'sensors')
 
-    await expect(isFpsCollectorStaged(null, dir)).resolves.toBe(true)
-    await expect(isFpsCollectorStaged(hash, dir)).resolves.toBe(true)
-    await expect(isFpsCollectorStaged('b'.repeat(64), dir)).resolves.toBe(false)
-    await fs.rm(exe, { force: true })
-    await expect(isFpsCollectorStaged(null, dir)).resolves.toBe(false)
+    expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(false)
+
+    const legacy = join(programData, 'Kolnd Hub', 'fps')
+    await fs.mkdir(legacy, { recursive: true })
+    expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(true)
+
+    await fs.rm(legacy, { recursive: true, force: true })
+    const staged = join(sinkDir, 'agent')
+    await fs.mkdir(staged, { recursive: true })
+    await fs.writeFile(join(staged, 'KolndFpsEtw.exe'), 'resto')
+    expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(true)
   })
 })
 

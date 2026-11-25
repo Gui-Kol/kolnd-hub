@@ -1,6 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import type { E2eContext } from './global-setup'
@@ -10,34 +10,28 @@ import type { E2eContext } from './global-setup'
  *
  * Verifica o caminho completo: atalho global registrado, janela transparente
  * always-on-top criada sem foco, HUD sem título no canto superior esquerdo,
- * largura configurável + altura automática, todas as seções e FPS automático
- * lido de `KOLDND_HUB_FPS_DIR` (sink do agent, sem UAC no teste).
+ * largura configurável + altura automática e todas as seções.
  *
  * O teste NUNCA depende de UAC nem instala driver/tarefa: lê o snapshot nativo
- * do `hwmon` (CPU/RAM sempre disponíveis) e escreve a amostra de FPS direto no
- * arquivo `latest.json` que o agent produziria.
+ * do `hwmon` (CPU/RAM sempre disponíveis).
  */
 const CONTEXT_FILE =
   process.env.KOLDND_HUB_E2E_CONTEXT ?? join(tmpdir(), 'kolnd-hub-e2e-context.json')
 
 const TEST_SHORTCUT = 'Control+Alt+Shift+F11'
 const ALT_TEST_SHORTCUT = 'Control+Alt+Shift+F12'
-const TEST_FPS = 60
-const TEST_FRAMETIME = 16.7
 
 function loadContext(): E2eContext {
   return JSON.parse(readFileSync(CONTEXT_FILE, 'utf8')) as E2eContext
 }
 
-async function launchApp(fpsDir: string): Promise<ElectronApplication> {
+async function launchApp(): Promise<ElectronApplication> {
   const ctx = loadContext()
   return electron.launch({
     args: ['.'],
     env: {
       ...process.env,
       KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
-      // Sink do agent: o main lê este diretório sem privilégio (o E2E escreve).
-      KOLDND_HUB_FPS_DIR: fpsDir,
       PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
     }
   })
@@ -100,53 +94,20 @@ async function shortcutState(
   }, accelerators)
 }
 
-/** Escreve a amostra que o agent gravaria (atômica o suficiente para o teste). */
-function writeFpsSample(fpsDir: string, timestamp: string): void {
-  mkdirSync(fpsDir, { recursive: true })
-  writeFileSync(
-    join(fpsDir, 'latest.json'),
-    JSON.stringify({
-      pid: 4242,
-      name: 'e2e-game.exe',
-      fps: TEST_FPS,
-      frametimeMs: TEST_FRAMETIME,
-      timestamp
-    }),
-    'utf8'
-  )
-}
-
-/** Amostra fresca sem alvo: o coletor publica o motivo do "—". */
-function writeFpsNoTarget(fpsDir: string, timestamp: string): void {
-  mkdirSync(fpsDir, { recursive: true })
-  writeFileSync(
-    join(fpsDir, 'latest.json'),
-    JSON.stringify({
-      pid: null,
-      name: null,
-      fps: null,
-      frametimeMs: null,
-      reason: 'no-target',
-      timestamp
-    }),
-    'utf8'
-  )
-}
-
 interface HudLayoutSnapshot {
   /** Elementos cujo conteúdo é mais largo que a própria caixa. */
   overflow: string[]
   /** Nós de VALOR (`dd`/rótulos) que saem do painel ou ficam meio cortados. */
   outside: string[]
-  /** Rodapé (hora/origem do FPS) fora da janela — permitido em tela baixa. */
+  /** Rodapé (hora da última atualização) fora da janela — permitido em tela baixa. */
   outsideChrome: string[]
   /** Valores inteiramente abaixo da janela (físico quando o conteúdo excede a tela). */
   belowFold: string[]
   cpuX: number
   gpuX: number
   contentHeight: number
-  /** Tamanho computado do número de FPS — prova que a escala já foi aplicada. */
-  fpsFontPx: number
+  /** Tamanho computado do uso de CPU — prova que a escala já foi aplicada. */
+  cpuUsageFontPx: number
 }
 
 /**
@@ -233,10 +194,11 @@ async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
     const gpuX = xOf('hud-gpu')
     if (cpuX === null || gpuX === null) return null
 
-    // A escala também chega por push; a fonte do FPS é a prova barata de que o
-    // renderer já aplicou o tamanho novo (sem isso o screenshot pode sair velho).
-    const fps = document.querySelector('[data-testid="hud-fps"]')
-    const fpsFontPx = fps ? Number.parseFloat(getComputedStyle(fps).fontSize) : 0
+    // A escala também chega por push; a fonte do uso de CPU é a prova barata de
+    // que o renderer já aplicou o tamanho novo (sem isso o screenshot pode sair
+    // velho). O valor de CPU sempre existe (— quando indisponível).
+    const cpuUsage = document.querySelector('[data-testid="hud-cpu-usage"]')
+    const cpuUsageFontPx = cpuUsage ? Number.parseFloat(getComputedStyle(cpuUsage).fontSize) : 0
 
     return {
       overflow,
@@ -246,17 +208,14 @@ async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
       cpuX,
       gpuX,
       contentHeight: panel.height,
-      fpsFontPx
+      cpuUsageFontPx
     }
   })
 }
 
-test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS automático', async () => {
+test('sobreposição (HUD): sem título, canto superior esquerdo e tamanho automático', async () => {
   test.setTimeout(300_000)
-  const ctx = loadContext()
-  const fpsDir = join(ctx.root, 'fps-auto')
-  mkdirSync(fpsDir, { recursive: true })
-  const app = await launchApp(fpsDir)
+  const app = await launchApp()
 
   try {
     const window = await app.firstWindow()
@@ -292,8 +251,7 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     await expect(window.getByTestId('hud-width-select')).toBeVisible()
     await expect(window.getByTestId('hud-position')).toContainText(/canto superior esquerdo/i)
 
-    // (a) IPC cria a janela visível (nunca `show()`) com a amostra fresca.
-    writeFpsSample(fpsDir, new Date().toISOString())
+    // (a) IPC cria a janela visível (nunca `show()`).
     await window.evaluate(() => window.api.hudSetVisible(true))
     const hud = await waitForHudPage(app)
     await expect(hud.getByTestId('hud-overlay')).toBeVisible({ timeout: 30_000 })
@@ -301,14 +259,7 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     // (b) Sem título ("KOLND HUB · MONITOR") e com todas as seções.
     const overlayText = await hud.getByTestId('hud-overlay').innerText()
     expect(overlayText.toLowerCase()).not.toContain('kolnd hub')
-    for (const testId of [
-      'hud-fps',
-      'hud-frametime',
-      'hud-cpu',
-      'hud-gpu',
-      'hud-ram',
-      'hud-energy'
-    ]) {
+    for (const testId of ['hud-cpu', 'hud-gpu', 'hud-ram', 'hud-energy']) {
       await expect(hud.getByTestId(testId)).toBeVisible()
     }
     // Vcore é uma métrica da seção CPU; com o agente elevado ativo vem um
@@ -345,16 +296,7 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     expect(info!.bounds.height).toBeLessThanOrEqual(info!.workArea.height)
     expect(contentHeight).toBeLessThanOrEqual(info!.workArea.height - 24)
 
-    // (d) FPS automático via `latest.json` (sem UAC, sem tarefa).
-    writeFpsSample(fpsDir, new Date().toISOString())
-    await expect
-      .poll(async () => hud.getByTestId('hud-fps').innerText(), {
-        timeout: 20_000,
-        intervals: [500]
-      })
-      .toBe('60')
-    await expect(hud.getByTestId('hud-frametime')).toContainText('16,7')
-    await expect(hud.getByTestId('hud-fps-state')).toHaveText('ETW local · sem injeção')
+    // (d) Métricas vivas: CPU e RAM chegam pelo push (nunca um painel vazio).
     await expect(hud.getByTestId('hud-cpu-usage')).not.toHaveText('—')
     await expect(hud.getByTestId('hud-ram')).not.toHaveText('—')
 
@@ -374,8 +316,7 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     console.log(
       `[e2e/hud] visível · alwaysOnTop=${info!.alwaysOnTop} · focusable=${info!.focusable}` +
         ` · bounds=${info!.bounds.width}×${info!.bounds.height}@${info!.bounds.x},${info!.bounds.y}` +
-        ` · conteúdo=${contentHeight}px · fps=${await hud.getByTestId('hud-fps').innerText()}` +
-        ` · frametime=${await hud.getByTestId('hud-frametime').innerText()}` +
+        ` · conteúdo=${contentHeight}px` +
         ` · vcore=${cpuVoltageLive} (monitor=${monitorVoltageText})`
     )
 
@@ -419,33 +360,6 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
       .toBe(300)
     const restored = await window.evaluate(() => window.api.hudGet())
     expect(restored.config.scale).toBe('normal')
-
-    // (f) Amostra fresca sem alvo: "—" com o motivo publicado pelo coletor.
-    writeFpsNoTarget(fpsDir, new Date().toISOString())
-    await expect
-      .poll(async () => hud.getByTestId('hud-fps').innerText(), {
-        timeout: 15_000,
-        intervals: [500]
-      })
-      .toBe('—')
-    await expect(hud.getByTestId('hud-fps-state')).toHaveText('sem alvo em primeiro plano')
-
-    // Amostra velha (> 3 s) vira "—" com motivo de amostra velha: nunca
-    // inventa FPS nem deixa um traço mudo.
-    writeFpsSample(fpsDir, new Date(Date.now() - 10_000).toISOString())
-    await expect
-      .poll(async () => hud.getByTestId('hud-fps').innerText(), {
-        timeout: 15_000,
-        intervals: [500]
-      })
-      .toBe('—')
-    await expect(hud.getByTestId('hud-frametime')).toHaveText('—')
-    await expect
-      .poll(async () => hud.getByTestId('hud-fps-state').innerText(), {
-        timeout: 15_000,
-        intervals: [500]
-      })
-      .toBe('amostra de FPS velha')
 
     // (g) Ocultar pelo IPC esconde a janela.
     await window.evaluate(() => window.api.hudSetVisible(false))
@@ -496,7 +410,7 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
     await app.close()
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    const reopened = await launchApp(fpsDir)
+    const reopened = await launchApp()
     try {
       const main = await reopened.firstWindow()
       await expect(main.getByRole('heading', { name: 'Ferramentas' })).toBeVisible({
@@ -539,13 +453,10 @@ test('sobreposição (HUD): sem título, canto superior esquerdo, tamanho e FPS 
  */
 test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async () => {
   test.setTimeout(300_000)
-  const ctx = loadContext()
-  const fpsDir = join(ctx.root, 'fps-layout')
-  mkdirSync(fpsDir, { recursive: true })
   const shotsDir = join(__dirname, '..', '..', 'out', 'hud-fix')
   mkdirSync(shotsDir, { recursive: true })
 
-  const app = await launchApp(fpsDir)
+  const app = await launchApp()
   let mainWindow: Page | null = null
 
   try {
@@ -555,7 +466,6 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
       timeout: 45_000
     })
 
-    writeFpsSample(fpsDir, new Date().toISOString())
     await window.evaluate(() => window.api.hudSetVisible(true))
     const hud = await waitForHudPage(app)
     await expect(hud.getByTestId('hud-overlay')).toBeVisible({ timeout: 30_000 })
@@ -576,19 +486,6 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
         scale
       })
       expect(resized.success, `hudSetSize ${width}px/${scale}`).toBe(true)
-
-      // Amostra fresca: o cabeçalho precisa aparecer completo no screenshot.
-      // Reescrevemos a cada 500 ms enquanto esperamos: o agent só aceita a
-      // amostra por 3 s e um `schtasks` lento pode atrasar a leitura (flake).
-      let fpsText = ''
-      const fpsDeadline = Date.now() + 20_000
-      while (Date.now() < fpsDeadline) {
-        writeFpsSample(fpsDir, new Date().toISOString())
-        fpsText = await hud.getByTestId('hud-fps').innerText()
-        if (fpsText === '60') break
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-      expect(fpsText, `FPS em ${width}px/${scale}`).toBe('60')
 
       // A janela acompanha a largura configurada e a altura é
       // `min(conteúdo, área útil)` (D7': nunca maior que a área de trabalho).
@@ -611,14 +508,14 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
 
       // O grid usa a largura do último push (~1 Hz); espera a coluna esperada.
       const stacked = width < 300
-      const expectedFpsFontPx = scale === 'grande' ? 46 : 38
+      const expectedCpuUsageFontPx = scale === 'grande' ? 16 : scale === 'normal' ? 14 : 12
       await expect
         .poll(
           async () => {
             const current = await inspectHudLayout(hud)
             if (!current) return false
             const sameX = Math.abs(current.cpuX - current.gpuX) <= 0.5
-            const scaleApplied = Math.abs(current.fpsFontPx - expectedFpsFontPx) <= 0.5
+            const scaleApplied = Math.abs(current.cpuUsageFontPx - expectedCpuUsageFontPx) <= 0.5
             return (stacked ? sameX : !sameX) && scaleApplied
           },
           { timeout: 15_000, intervals: [200] }

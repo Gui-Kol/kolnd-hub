@@ -16,8 +16,6 @@ const mocks = vi.hoisted(() => ({
   releaseHwPolling: vi.fn(),
   onHwSnapshot: vi.fn(),
   collectHwSnapshot: vi.fn(),
-  getFpsAutoUpdate: vi.fn(),
-  getFpsAutoStatus: vi.fn(),
   showHudWindow: vi.fn(),
   hideHudWindow: vi.fn(),
   getHudWindow: vi.fn(),
@@ -37,10 +35,6 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-}))
-vi.mock('../fps/agent', () => ({
-  getFpsAutoUpdate: mocks.getFpsAutoUpdate,
-  getFpsAutoStatus: mocks.getFpsAutoStatus
 }))
 vi.mock('../hwmon', () => ({
   acquireHwPolling: mocks.acquireHwPolling,
@@ -167,14 +161,6 @@ beforeEach(() => {
   mocks.setHudSize.mockReturnValue({ success: true, size: { width: 420, scale: 'grande' } })
   mocks.onHwSnapshot.mockImplementation(() => vi.fn())
   mocks.collectHwSnapshot.mockResolvedValue(snapshotFixture())
-  mocks.getFpsAutoUpdate.mockReturnValue(null)
-  mocks.getFpsAutoStatus.mockReturnValue({
-    state: 'off',
-    installed: false,
-    sample: null,
-    sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
-    reason: 'source-stopped'
-  })
   mocks.showHudWindow.mockReturnValue(fakeWindow)
   mocks.getHudWindow.mockReturnValue(fakeWindow)
   mocks.setHudWidth.mockImplementation((width: number) => width)
@@ -240,7 +226,11 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(fakeWindow.webContents.send).toHaveBeenCalledWith(
       'hud:update',
-      expect.objectContaining({ fps: null })
+      expect.objectContaining({
+        snapshot: expect.objectContaining({ capturedAt: expect.any(String) }),
+        size: { width: 300, scale: 'normal' },
+        capturedAt: expect.any(String)
+      })
     )
 
     const hidden = getHandler('hud:set-visible')({}, false) as HudStatus
@@ -378,7 +368,7 @@ describe('hud:set-shortcut', () => {
 })
 
 describe('push hud:update', () => {
-  it('usa o snapshot do polling e a fonte elevada, com motivo quando não há número', () => {
+  it('usa o snapshot do polling com o tamanho vigente e o instante da captura', () => {
     register()
     getHandler('hud:set-visible')({}, true)
     const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
@@ -389,75 +379,7 @@ describe('push hud:update', () => {
       expect.objectContaining({
         snapshot: expect.objectContaining({ capturedAt: expect.any(String) }),
         size: { width: 300, scale: 'normal' },
-        fps: null,
-        fpsStatus: { state: 'off', reason: 'source-stopped' }
-      })
-    )
-
-    const activeUpdate = {
-      state: 'running',
-      active: true,
-      pid: 123,
-      processName: 'jogo.exe',
-      fps: 144,
-      frametimeMs: 6.9,
-      capturedAt: '2026-11-17T12:00:01.000Z'
-    }
-    mocks.getFpsAutoUpdate.mockReturnValue(activeUpdate)
-    mocks.getFpsAutoStatus.mockReturnValue({
-      state: 'running',
-      installed: false,
-      sample: {
-        pid: 123,
-        name: 'jogo.exe',
-        fps: 144,
-        frametimeMs: 6.9,
-        timestamp: '2026-11-17T12:00:01.000Z'
-      },
-      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
-      fresh: true
-    })
-    listener(snapshotFixture())
-    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
-      'hud:update',
-      expect.objectContaining({ fps: activeUpdate, fpsStatus: { state: 'running' } })
-    )
-
-    // Rodando sem alvo: o número continua null (nunca 0 FPS) e o motivo vai
-    // junto para o rodapé explicar o "—".
-    mocks.getFpsAutoUpdate.mockReturnValue(null)
-    mocks.getFpsAutoStatus.mockReturnValue({
-      state: 'running',
-      installed: false,
-      sample: null,
-      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
-      fresh: true,
-      reason: 'no-target'
-    })
-    listener(snapshotFixture())
-    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
-      'hud:update',
-      expect.objectContaining({ fps: null, fpsStatus: { state: 'running', reason: 'no-target' } })
-    )
-  })
-
-  it('propaga erro da fonte de FPS sem inventar número', () => {
-    register()
-    getHandler('hud:set-visible')({}, true)
-    const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
-    mocks.getFpsAutoStatus.mockReturnValue({
-      state: 'error',
-      installed: false,
-      sample: null,
-      sinkDir: 'C:\\ProgramData\\Kolnd Hub\\fps',
-      error: 'falha ao ler o sink'
-    })
-    listener(snapshotFixture())
-    expect(fakeWindow.webContents.send).toHaveBeenLastCalledWith(
-      'hud:update',
-      expect.objectContaining({
-        fps: null,
-        fpsStatus: { state: 'error', error: 'falha ao ler o sink' }
+        capturedAt: expect.any(String)
       })
     )
   })

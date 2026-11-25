@@ -12,10 +12,12 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 - **PR automático de `Dev` para `main`** (`.github/workflows/dev-to-main-pr.yml`): todo push em `Dev` garante um PR aberto para `main`; se ele ainda não existe, é criado, e nos pushes seguintes apenas a descrição é atualizada (os commits novos entram sozinhos, porque o head do PR é a própria `Dev`). O bloco automático fica entre os marcadores `dev-to-main:auto` e o texto manual fora deles é preservado
 - **Modo remoto do Kloud Games virou um fluxo completo de ZeroTier**: o clique instala a última versão pelo winget quando o ZeroTier está ausente e re-tenta ligar o modo; o tutorial do card ganhou abas **No PC (este computador)** e **No celular**, com passos simples e botões de copiar (IP do ZeroTier, ID da rede, IP local e "Copiar tudo"). O ZeroTier agora pode ser **aberto/fechado** pelo Hub com selo **Aberto / Aberto em segundo plano / Fechado** (serviço lido por `sc.exe` + GUI por `tasklist`; abrir/fechar o serviço usa UAC e relê o estado) e o card mostra o IP do ZeroTier em destaque com botão de copiar
+- **Remoção de jogos em lote na Biblioteca**: modo de seleção com barra de ações (contador, selecionar todos/visíveis, limpar seleção e sair do modo), cards com `aria-pressed` e indicador de check, confirmação destrutiva em `RemoveGamesModal` (avisa que os arquivos do jogo **não** são apagados e que remover não encerra o processo em execução) e um único IPC `games:remove-many` que valida tudo-ou-nada (lista de 1 a 500 ids), grava o store **uma vez** e só então apaga ícone/capa dos removidos
 
 ### Removido
 
 - **Dependabot**: `.github/dependabot.yml` removido do projeto; atualizações de dependências voltam a ser manuais
+- **FPS e frametime removidos do app**: saíram o bloco de FPS do HUD, o card "Desempenho" do Monitor, os IPCs `fps:*`/`fps:auto-*`, o preload/tipos correspondentes e o módulo `src/main/fps/`. As sobras de instalações antigas (tarefa `KolndHubFpsAgent`, processo `KolndFpsEtw.exe` e `%ProgramData%\Kolnd Hub\fps`) são limpas no re-estágio do agente elevado de sensores (install e remove) e a presença delas marca o agente como desatualizado na UI
 
 ## [1.2.1] - 2026-11-24
 

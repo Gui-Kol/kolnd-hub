@@ -82,30 +82,8 @@ export type {
   DisplaySetResult
 } from '../../shared/display'
 
-// Tipos da medição de FPS/frametime por ETW — fonte única em `src/shared/fps.ts`.
-export type {
-  FpsAutoActionResult,
-  FpsAutoReason,
-  FpsAutoSample,
-  FpsAutoState,
-  FpsAutoStatus,
-  FpsInactiveReason,
-  FpsStartResult,
-  FpsState,
-  FpsStatusInfo,
-  FpsStopResult,
-  FpsUpdate
-} from '../../shared/fps'
-
 // Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
-export type {
-  HudConfig,
-  HudFpsStatus,
-  HudScale,
-  HudSize,
-  HudStatus,
-  HudUpdate
-} from '../../shared/hud'
+export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
 
 export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 

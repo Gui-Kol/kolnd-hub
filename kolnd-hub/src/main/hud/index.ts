@@ -1,7 +1,6 @@
 import { app, globalShortcut, ipcMain } from 'electron'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
-import { getFpsAutoStatus, getFpsAutoUpdate } from '../fps/agent'
 import { acquireHwPolling, collectHwSnapshot, onHwSnapshot, releaseHwPolling } from '../hwmon'
 import { getHudConfig, setHudShortcut, setHudSize, setHudVisible } from '../store'
 import {
@@ -65,20 +64,12 @@ function currentStatus(): HudStatus {
 }
 
 /**
- * Monta o payload do push. A fonte única é a leitura elevada (coletor dentro
- * do agente de sensores); `fps` só vem preenchido com alvo ativo e
- * `fpsStatus` carrega estado/motivo para o rodapé mesmo quando é `null`.
- * Nada de zero falso: sem alvo/amostra a UI mostra "—" com o motivo.
+ * Monta o payload do push. A fonte única é a leitura do `hwmon`; o overlay só
+ * recebe o snapshot, o tamanho vigente e o instante da captura.
  */
 function buildHudUpdate(snapshot: HwSnapshot): HudUpdate {
-  const status = getFpsAutoStatus()
-  const fpsStatus: HudUpdate['fpsStatus'] = { state: status.state }
-  if (status.reason) fpsStatus.reason = status.reason
-  if (status.error) fpsStatus.error = status.error
   return {
     snapshot,
-    fps: getFpsAutoUpdate(),
-    fpsStatus,
     size: { width: size.width, scale: size.scale },
     capturedAt: new Date().toISOString()
   }

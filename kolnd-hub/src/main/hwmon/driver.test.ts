@@ -19,7 +19,7 @@ const sensors = vi.hoisted(() => ({
   readLatest: vi.fn(),
   latestPath: vi.fn(() => 'C:\\ProgramData\\Kolnd Hub\\sensors\\latest.json'),
   install: vi.fn(),
-  fpsCollectorStaged: vi.fn()
+  leftover: vi.fn()
 }))
 
 vi.mock('./pawnio', () => ({
@@ -40,7 +40,7 @@ vi.mock('./agent', async (importOriginal) => {
     readSensorsLatestFile: sensors.readLatest,
     sensorsAgentLatestPath: sensors.latestPath,
     installSensorsAgent: sensors.install,
-    isFpsCollectorStaged: sensors.fpsCollectorStaged
+    hasLeftoverFpsArtifacts: sensors.leftover
   }
 })
 
@@ -118,7 +118,7 @@ beforeEach(() => {
   sensors.latestPath.mockReturnValue('C:\\ProgramData\\Kolnd Hub\\sensors\\latest.json')
   sensors.readLatest.mockResolvedValue(STALE_SINK)
   sensors.install.mockResolvedValue({ ok: true })
-  sensors.fpsCollectorStaged.mockResolvedValue(true)
+  sensors.leftover.mockReturnValue(false)
 })
 
 afterEach(async () => {
@@ -209,7 +209,7 @@ describe('getDriverStatus', () => {
     expect(status.outdated).toBe(true)
   })
 
-  it('marca outdated quando o coletor de FPS não está estagiado no agente', async () => {
+  it('marca outdated quando sobrou artefato do FPS antigo no disco', async () => {
     pawnio.detect.mockResolvedValue({
       registered: true,
       installDir: 'C:\\Program Files\\PawnIO',
@@ -217,14 +217,14 @@ describe('getDriverStatus', () => {
       dllPresent: true
     })
     sensors.readLatest.mockResolvedValue(FRESH_SINK)
-    sensors.fpsCollectorStaged.mockResolvedValue(false)
+    sensors.leftover.mockReturnValue(true)
 
     const status = await getDriverStatus()
     expect(status.state).toBe('ready')
     expect(status.outdated).toBe(true)
   })
 
-  it('não marca outdated com registradores e coletor de FPS atuais', async () => {
+  it('não marca outdated com registradores completos e nenhuma sobra', async () => {
     pawnio.detect.mockResolvedValue({
       registered: true,
       installDir: 'C:\\Program Files\\PawnIO',
@@ -232,7 +232,7 @@ describe('getDriverStatus', () => {
       dllPresent: true
     })
     sensors.readLatest.mockResolvedValue(FRESH_SINK)
-    sensors.fpsCollectorStaged.mockResolvedValue(true)
+    sensors.leftover.mockReturnValue(false)
 
     await expect(getDriverStatus()).resolves.toMatchObject({ outdated: false })
   })
@@ -503,7 +503,7 @@ describe('readInstallFailure', () => {
 })
 
 describe('isUacCancelled', () => {
-  it('reconhece os textos de UAC recusado (usado também pelo FPS)', () => {
+  it('reconhece os textos de UAC recusado (instalador e agente de sensores)', () => {
     expect(isUacCancelled('The operation was canceled by the user. (0x800704C7)')).toBe(true)
     expect(isUacCancelled('1223')).toBe(true)
     expect(isUacCancelled('cancelado pelo usuário')).toBe(true)

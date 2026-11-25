@@ -72,28 +72,6 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     const cpuModelBox = await window.getByTestId('hw-cpu-model').boundingBox()
     expect(advancedBox && cpuModelBox && advancedBox.y < cpuModelBox.y).toBe(true)
 
-    // Desempenho/FPS: o card existe desde o primeiro render e usa a leitura
-    // elevada (sem botão manual por uso). Sem coletor ativo, mostra "—" com o
-    // motivo; com ele, mostra o alvo atual. O teste NUNCA clica em nada que
-    // peça UAC.
-    const fpsCard = window.getByTestId('fps-card')
-    await expect(fpsCard).toBeVisible()
-    const fpsBadge = window.getByTestId('fps-badge')
-    await expect(fpsBadge).toHaveText(
-      /ao vivo|sem alvo|sem quadros|amostra velha|fonte parada|carregando…/
-    )
-    await expect(window.getByTestId('fps-value')).toHaveText(/^(—|\d[\d.]*)$/)
-    await expect(window.getByTestId('fps-frametime')).toHaveText(/^(—|\d+,\d+\s*ms)$/)
-    await expect(window.getByTestId('fps-process')).toHaveText(/^(—|\S+)$/)
-    await expect(window.getByTestId('fps-reason')).not.toHaveText('')
-    await expect(fpsCard).toContainText('Leitura elevada')
-    await expect(fpsCard).toContainText(/nada é injetado no jogo/i)
-    // O caminho manual (UAC por uso) e a tarefa legada saíram da UI.
-    await expect(window.getByTestId('fps-start')).toHaveCount(0)
-    await expect(window.getByTestId('fps-stop')).toHaveCount(0)
-    await expect(window.getByTestId('fps-auto-install')).toHaveCount(0)
-    await expect(window.getByTestId('fps-auto-remove')).toHaveCount(0)
-
     // GPU e RAM medidas de verdade (nvidia-smi + CIM), sem configuração manual.
     await expect(window.getByTestId('hw-gpu-model')).toContainText('NVIDIA GeForce RTX 5060 Ti', {
       timeout: 45_000

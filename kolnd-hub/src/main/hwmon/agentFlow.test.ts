@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
   runPowerShellCommand: vi.fn(),
   runProcess: vi.fn(),
   resolvePowershellPath: vi.fn(() => 'C:\\ps.exe'),
-  ensureStagedHelper: vi.fn(),
-  sha256File: vi.fn(),
   logWarn: vi.fn(),
   logInfo: vi.fn()
 }))
@@ -36,10 +34,6 @@ vi.mock('./powershell', () => ({
   runProcess: mocks.runProcess
 }))
 vi.mock('./systemPaths', () => ({ resolvePowershellPath: mocks.resolvePowershellPath }))
-vi.mock('../fps/helper', () => ({
-  ensureStagedHelper: mocks.ensureStagedHelper,
-  sha256File: mocks.sha256File
-}))
 vi.mock('../logger', () => ({
   logger: { info: mocks.logInfo, warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
 }))
@@ -104,10 +98,6 @@ beforeEach(() => {
   mocks.readFile.mockResolvedValue(latest())
   mocks.runPowerShellCommand.mockResolvedValue(processResult())
   mocks.runProcess.mockResolvedValue(processResult({ stdout: 'TaskName: KolndHubSensorsAgent' }))
-  mocks.ensureStagedHelper.mockResolvedValue({
-    stagingExePath: 'C:\\stage\\KolndFpsEtw.exe'
-  })
-  mocks.sha256File.mockResolvedValue('a'.repeat(64))
 })
 
 describe('readSensorsLatestFile', () => {
@@ -288,42 +278,19 @@ describe('installSensorsAgent', () => {
     expect(mocks.logInfo).toHaveBeenCalled()
   })
 
-  it('caminho feliz estagia e inicia o coletor de FPS junto do agente', async () => {
+  it('caminho feliz gera scripts com a limpeza incondicional das sobras antigas', async () => {
     await expect(installSensorsAgent()).resolves.toEqual({ ok: true })
     const agentScript = writtenFile('sensors-agent.ps1')
     const installScript = writtenFile('sensors-agent-install.ps1')
 
-    // O script persistente inicia o coletor e o instalador copia o .exe
-    // conferido por hash para a pasta estagiada do agente.
-    expect(agentScript).toContain('Start-Process -FilePath $fpsExe')
-    expect(agentScript).toContain('--sink "')
-    expect(installScript).toContain("Copy-Item -LiteralPath 'C:\\stage\\KolndFpsEtw.exe'")
-    expect(installScript).toContain('KolndFpsEtw.exe')
-    expect(installScript).toContain('collector.stop')
-    expect(installScript).toContain('$fpsHash = (Get-FileHash')
-  })
-
-  it('falha ao preparar o coletor não impede os sensores (best-effort)', async () => {
-    mocks.ensureStagedHelper.mockRejectedValueOnce(new Error('Add-Type falhou'))
-
-    const result = await installSensorsAgent()
-    expect(result).toMatchObject({ ok: true })
-    expect(result.error).toContain('coletor de FPS')
-    expect(result.error).toContain('FPS continuará indisponível')
-    expect(mocks.logWarn).toHaveBeenCalledWith(
-      'hwmon',
-      expect.stringContaining('sem o coletor de FPS')
+    // O script persistente só cuida dos sensores; as sobras do FPS antigo saem
+    // no instalador elevado, sem depender de o coletor existir nesta versão.
+    expect(agentScript).not.toContain('KolndFpsEtw.exe')
+    expect(installScript).toContain("'/TN' 'KolndHubFpsAgent'")
+    expect(installScript).toContain(
+      `Get-CimInstance Win32_Process -Filter "Name='KolndFpsEtw.exe'"`
     )
-
-    // Sem coletor, o script e o instalador são gerados sem o estagiamento do
-    // KolndFpsEtw.exe — os sensores são instalados normalmente.
-    const agentScript = writtenFile('sensors-agent.ps1')
-    const installScript = writtenFile('sensors-agent-install.ps1')
-    expect(agentScript).not.toContain('Start-Process -FilePath $fpsExe')
-    expect(installScript).not.toContain('KolndFpsEtw.exe')
-    expect(installScript).not.toContain('collector.stop')
-    // O agente em si continua sendo criado/iniciado.
-    expect(installScript).toContain("& schtasks.exe '/Create'")
+    expect(installScript).toContain('Kolnd Hub\\fps')
     expect(installScript).toContain('& schtasks.exe /Run /TN')
   })
 

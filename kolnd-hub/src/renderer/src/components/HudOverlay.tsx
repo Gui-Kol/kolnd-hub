@@ -11,7 +11,7 @@ import type { HudScale, HudUpdate } from '../types'
  * somente por push (`hud:update`, ~1 Hz) do main — o overlay não faz polling
  * próprio nem acessa Node.
  *
- * Sem título/cabeçalho (pedido do usuário): o painel começa direto no FPS.
+ * Sem título/cabeçalho (pedido do usuário): o painel começa direto no CPU.
  * A altura é automática — este componente mede o conteúdo com `ResizeObserver`
  * e informa o main (`hud:report-size`), que aplica `setBounds`. Nada de
  * `overflow: hidden`: nomes longos quebram linha em vez de serem cortados.
@@ -27,22 +27,6 @@ function isHudScaleValue(value: unknown): value is HudScale {
   return value === 'compacta' || value === 'normal' || value === 'grande'
 }
 
-const FPS_AUTO_STATES = ['off', 'installing', 'running', 'stale', 'error'] as const
-const FPS_AUTO_REASONS = ['source-stopped', 'stale', 'no-target', 'no-presents'] as const
-
-/** Valida o estado compacto do FPS que chega junto do push da sobreposição. */
-function isHudFpsStatus(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  if (!(FPS_AUTO_STATES as readonly unknown[]).includes(value.state)) return false
-  if (
-    value.reason !== undefined &&
-    !(FPS_AUTO_REASONS as readonly unknown[]).includes(value.reason)
-  )
-    return false
-  if (value.error !== undefined && typeof value.error !== 'string') return false
-  return true
-}
-
 /** O renderer não confia no IPC: valida a forma antes de renderizar qualquer número. */
 function isHudUpdate(value: unknown): value is HudUpdate {
   if (!isRecord(value)) return false
@@ -55,13 +39,6 @@ function isHudUpdate(value: unknown): value is HudUpdate {
   if (!isRecord(value.size)) return false
   if (typeof value.size.width !== 'number' || !Number.isFinite(value.size.width)) return false
   if (!isHudScaleValue(value.size.scale)) return false
-  if (value.fps !== null) {
-    if (!isRecord(value.fps)) return false
-    if (typeof value.fps.active !== 'boolean') return false
-    if (value.fps.error !== undefined && typeof value.fps.error !== 'string') return false
-  }
-  // Aditivo: payload de versão anterior (sem fpsStatus) continua válido.
-  if (value.fpsStatus !== undefined && !isHudFpsStatus(value.fpsStatus)) return false
   return true
 }
 
@@ -90,27 +67,10 @@ function formatTime(iso: string): string {
   return date.toLocaleTimeString('pt-BR')
 }
 
-/**
- * Rodapé explica o "—": a mesma fonte elevada pode estar parada, com amostra
- * velha, sem alvo em primeiro plano ou sem presents — nunca um traço mudo.
- */
-function fpsStatusLabel(status: HudUpdate['fpsStatus'] | null): string {
-  if (!status) return 'aguardando FPS'
-  if (status.state === 'error' || status.error) return 'erro na fonte de FPS'
-  if (status.reason === 'source-stopped') return 'fonte de FPS parada'
-  if (status.reason === 'stale') return 'amostra de FPS velha'
-  if (status.reason === 'no-target') return 'sem alvo em primeiro plano'
-  if (status.reason === 'no-presents') return 'sem quadros do alvo'
-  if (status.state === 'installing') return 'ativando leitura elevada'
-  if (status.state === 'running') return 'ETW local · sem injeção'
-  return 'aguardando FPS'
-}
-
 interface Typography {
   label: string
   value: string
   unit: string
-  fps: string
 }
 
 /**
@@ -122,20 +82,17 @@ const TYPOGRAPHY: Record<HudScale, Typography> = {
   compacta: {
     label: 'text-[9px]',
     value: 'text-[12px]',
-    unit: 'text-[9px]',
-    fps: 'text-[30px]'
+    unit: 'text-[9px]'
   },
   normal: {
     label: 'text-[9px]',
     value: 'text-[14px]',
-    unit: 'text-[10px]',
-    fps: 'text-[38px]'
+    unit: 'text-[10px]'
   },
   grande: {
     label: 'text-[10px]',
     value: 'text-[16px]',
-    unit: 'text-[11px]',
-    fps: 'text-[46px]'
+    unit: 'text-[11px]'
   }
 }
 
@@ -190,7 +147,7 @@ function Section({ title, testId, typography, subtitle, children }: SectionProps
   return (
     <section
       data-testid={testId}
-      className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-2 pb-1.5 pt-1"
+      className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-1.5 pb-1.5 pt-1"
     >
       <p
         className={`${typography.label} border-b border-white/[0.06] pb-1 font-semibold uppercase tracking-[0.18em] text-white/45`}
@@ -239,10 +196,6 @@ export function HudOverlay(): JSX.Element {
 
   const typography = TYPOGRAPHY[update?.size.scale ?? 'normal']
   const snapshot = update?.snapshot ?? null
-  const fpsUpdate = update?.fps ?? null
-  const fpsStatus = update?.fpsStatus ?? null
-  const fps = fpsUpdate?.active === true ? finite(fpsUpdate?.fps) : null
-  const frametime = fpsUpdate?.active === true ? finite(fpsUpdate?.frametimeMs) : null
 
   const cpu = snapshot?.cpu ?? null
   const gpu = snapshot?.gpu ?? null
@@ -290,45 +243,6 @@ export function HudOverlay(): JSX.Element {
       data-testid="hud-overlay"
       className="flex w-full flex-col gap-2 overflow-visible rounded-[14px] border border-white/[0.08] bg-[rgba(8,12,17,0.78)] p-2.5 text-white backdrop-blur-md"
     >
-      {/* Destaque: FPS + frametime, sem título acima. Também quebra linha
-          (`flex-wrap` + `ml-auto`) em escalas grandes com largura estreita,
-          para o número do FPS ou o frametime nunca vazar do painel. */}
-      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-white/[0.07] pb-1.5">
-        <div className="min-w-0">
-          <p
-            className={`${typography.label} whitespace-nowrap font-medium uppercase tracking-[0.2em] text-white/40`}
-          >
-            FPS
-          </p>
-          <p
-            className={`${typography.fps} whitespace-nowrap font-semibold leading-none tracking-tight text-accent tabular-nums`}
-            data-testid="hud-fps"
-          >
-            {fps === null ? <Dash /> : formatInt(fps)}
-          </p>
-        </div>
-        <div className="ml-auto min-w-0 text-right">
-          <p
-            className={`${typography.label} whitespace-nowrap font-medium uppercase tracking-[0.2em] text-white/40`}
-          >
-            Frametime
-          </p>
-          <p
-            className={`${typography.value} whitespace-nowrap font-semibold leading-none text-white/90 tabular-nums`}
-            data-testid="hud-frametime"
-          >
-            {frametime === null ? (
-              <Dash />
-            ) : (
-              <>
-                {formatDecimal(frametime, 1)}
-                <span className={`${typography.unit} ml-1 font-normal text-white/40`}>ms</span>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-
       <div className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <Section title="CPU" testId="hud-cpu" typography={typography} subtitle={cpu?.model ?? null}>
           <Metric
@@ -510,18 +424,12 @@ export function HudOverlay(): JSX.Element {
         </Section>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-white/[0.07] pt-1">
+      <div className="flex items-center border-t border-white/[0.07] pt-1">
         <span
           className={`${typography.label} whitespace-nowrap text-white/35`}
           data-testid="hud-updated"
         >
           {update ? formatTime(update.capturedAt) : 'aguardando…'}
-        </span>
-        <span
-          className={`${typography.label} ml-auto whitespace-nowrap text-white/30`}
-          data-testid="hud-fps-state"
-        >
-          {fpsStatusLabel(fpsStatus)}
         </span>
       </div>
     </div>

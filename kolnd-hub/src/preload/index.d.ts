@@ -9,14 +9,6 @@ import type {
   DisplayRevertedEvent,
   DisplaySetResult
 } from '../shared/display'
-import type {
-  FpsAutoActionResult,
-  FpsAutoStatus,
-  FpsStartResult,
-  FpsStatusInfo,
-  FpsStopResult,
-  FpsUpdate
-} from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
@@ -256,19 +248,6 @@ declare global {
       confirmDisplayChange: () => Promise<DisplayConfirmResult>
       revertDisplayChange: () => Promise<{ ok: boolean; error?: string }>
       onDisplayReverted: (callback: (event: DisplayRevertedEvent) => void) => () => void
-
-      // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
-      // Tipos canônicos em `src/shared/fps.ts`; `fpsStart` pede UAC.
-      fpsStatus: () => Promise<FpsStatusInfo>
-      fpsStart: () => Promise<FpsStartResult>
-      fpsStop: () => Promise<FpsStopResult>
-      onFpsUpdate: (callback: (update: FpsUpdate) => void) => () => void
-
-      // ── FPS automático (tarefa agendada no logon) ────
-      fpsAutoStatus: () => Promise<FpsAutoStatus>
-      fpsAutoInstall: () => Promise<FpsAutoActionResult>
-      fpsAutoRemove: () => Promise<FpsAutoActionResult>
-      onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void) => () => void
 
       // ── Sobreposição (HUD) ───────────────────────────
       // Tipos canônicos em `src/shared/hud.ts`.

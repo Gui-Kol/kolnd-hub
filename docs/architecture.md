@@ -372,12 +372,11 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
 - **Artefato elevado**: nunca em diretório gravável pelo usuário. O agente de sensores
   (`KolndHubSensorsAgent`) copia para `%ProgramData%\Kolnd Hub\sensors\agent` o helper do
-  PawnIO, o script persistente e o coletor de FPS `KolndFpsEtw.exe` (ACL: Usuários só `RX`,
-  sem herança) e confere o **SHA-256** de cada cópia antes de rodar; a elevação vai por
-  `-EncodedCommand` — nada de `.ps1` em `%APPDATA%` esperando o UAC. O coletor grava o sink
-  em `%ProgramData%\Kolnd Hub\fps` (Usuários: RX) e morre junto com o agente.
+  PawnIO e o script persistente (ACL: Usuários só `RX`, sem herança) e confere o **SHA-256**
+  de cada cópia antes de rodar; a elevação vai por `-EncodedCommand` — nada de `.ps1` em
+  `%APPDATA%` esperando o UAC.
 
-## 9. Sensores elevados e FPS
+## 9. Sensores elevados
 
 - **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
@@ -388,23 +387,11 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
   fora de 0,3–1,8 V vira `null` (nunca estimativa). O HUD publica em `hud-cpu-voltage` e o
   Monitor em `hw-cpu-voltage`.
-- **Coletor de FPS**: o mesmo agente inicia `KolndFpsEtw.exe --sink` apontando para
-  `%ProgramData%\Kolnd Hub\fps` como processo filho (cópia protegida + hash conferido). O
-  script passa `--stop` e no `finally` encerra o filho; o removedor grava o stop e ainda mata
-  por `CommandLine --sink` como rede de segurança. A preparação do coletor é **best-effort**:
-  se a compilação/cópia falhar, o agente instala os sensores sem FPS e a UI mostra um aviso
-  não fatal — o FPS nunca bloqueia a leitura de temperatura/potência. A tarefa legada
-  `KolndHubFpsAgent` é encerrada e apagada no install/remove.
-- **Leitura única no main**: `fps/agent.ts` lê `latest.json` a 1 Hz, valida timestamp (3 s),
-  pid/nome/fps e publica `fps:auto-update`. O motivo do "—" (`source-stopped`, `stale`,
-  `no-target`, `no-presents`) acompanha o status e o `hud:update.fpsStatus`, então o Monitor
-  e o rodapé do HUD explicam o traço. Os IPCs `fps:*` manuais continuam registrados por
-  compatibilidade, mas a aba não usa dois caminhos.
-- **Cobertura assumida**: os provedores habilitados são DXGI `Present_Start` (0x2a) e DxgKrnl
-  `PresentHistory_Start` (0xab), constantes do PresentMon. D3D11/12 é coberto; Vulkan/OpenGL
-  só aparece se o driver encaminhar a apresentação pelo DxgKrnl, e D3D9 puro não é coberto.
-  Valorant é D3D11, mas a cobertura ao vivo depende do jogo/anti-cheat e não foi medida
-  nesta máquina — nenhum provider ou event id foi inventado.
+- **FPS removido**: a medição de FPS/frametime por ETW saiu do app (HUD, card do Monitor,
+  IPCs, preload e módulo `src/main/fps/`). As sobras de máquinas antigas — tarefa
+  `KolndHubFpsAgent`, processo `KolndFpsEtw.exe` e `%ProgramData%\Kolnd Hub\fps` — são limpas
+  no re-estágio do agente de sensores (install e remove), e a presença delas marca o agente
+  como desatualizado na UI.
 
 ## 10. Mapa de arquivos
 
@@ -426,7 +413,6 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
 | Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
 | Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
-| FPS/frametime (ETW + leitura elevada)   | `kolnd-hub/src/main/fps/` (`helper.ts`, `agent.ts`, `paths.ts`, `target.ts`), `src/main/hud/index.ts`                                                        |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
 | Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |

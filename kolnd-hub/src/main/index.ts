@@ -21,8 +21,6 @@ import { registerTempCleanerIpc } from './tempCleaner'
 import { registerBenchmarkIpc } from './benchmark'
 import { registerHwMonitorIpc } from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
-import { registerFpsIpc } from './fps'
-import { registerFpsAutoIpc } from './fps/agent'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
@@ -332,12 +330,6 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC de escala/resolução de tela (aba Tela em Meu PC).
   registerDisplayIpc(ctx)
-
-  // Registra os canais IPC da medição de FPS/frametime por ETW (opt-in com UAC).
-  registerFpsIpc(ctx)
-
-  // FPS automático: tarefa no logon + leitura passiva de latest.json (sem UAC por uso).
-  registerFpsAutoIpc(ctx)
 
   // Registra os canais IPC da sobreposição (HUD): atalho global + janela
   // transparente always-on-top. Restaura a preferência persistida.

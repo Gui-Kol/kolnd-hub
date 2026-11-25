@@ -48,7 +48,6 @@ describe('preload — contrato de window.api', () => {
       'onStatusChanged',
       'firstRunCheck',
       'hwmonSnapshot',
-      'fpsStart',
       'hudGet',
       'remoteSetZeroTierOpen',
       'uninstallHub',
@@ -149,9 +148,6 @@ describe('preload — contrato de window.api', () => {
   })
 
   it('eventos específicos usam os canais documentados', () => {
-    api.onFpsUpdate(vi.fn() as never)
-    expect(mocks.on).toHaveBeenLastCalledWith('fps:update', expect.any(Function))
-
     api.onHudStatus(vi.fn() as never)
     expect(mocks.on).toHaveBeenLastCalledWith('hud:status', expect.any(Function))
 

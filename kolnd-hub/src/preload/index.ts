@@ -11,14 +11,6 @@ import type {
   DisplayRevertedEvent,
   DisplaySetResult
 } from '../shared/display'
-import type {
-  FpsAutoActionResult,
-  FpsAutoStatus,
-  FpsStartResult,
-  FpsStatusInfo,
-  FpsStopResult,
-  FpsUpdate
-} from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
@@ -380,35 +372,6 @@ const api = {
       callback(payload)
     ipcRenderer.on('display:change-reverted', handler)
     return () => ipcRenderer.removeListener('display:change-reverted', handler)
-  },
-
-  // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
-  // Opt-in explícito: `fpsStart` pede permissão de administrador (UAC).
-  fpsStatus: (): Promise<FpsStatusInfo> => ipcRenderer.invoke('fps:status'),
-
-  fpsStart: (): Promise<FpsStartResult> => ipcRenderer.invoke('fps:start'),
-
-  fpsStop: (): Promise<FpsStopResult> => ipcRenderer.invoke('fps:stop'),
-
-  onFpsUpdate: (callback: (update: FpsUpdate) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, update: FpsUpdate): void => callback(update)
-    ipcRenderer.on('fps:update', handler)
-    return () => ipcRenderer.removeListener('fps:update', handler)
-  },
-
-  // ── FPS automático (tarefa no logon) ──────────────
-  // Instalar/remover pede UAC explícito; a leitura de `latest.json` é passiva.
-  fpsAutoStatus: (): Promise<FpsAutoStatus> => ipcRenderer.invoke('fps:auto-status'),
-
-  fpsAutoInstall: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-install'),
-
-  fpsAutoRemove: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-remove'),
-
-  onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: FpsAutoStatus): void =>
-      callback(status)
-    ipcRenderer.on('fps:auto-update', handler)
-    return () => ipcRenderer.removeListener('fps:auto-update', handler)
   },
 
   // ── Sobreposição (HUD) ────────────────────────────
