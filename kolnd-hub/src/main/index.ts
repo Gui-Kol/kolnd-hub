@@ -28,7 +28,6 @@ import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
 import { registerGameImportIpc } from './gameImport'
-import { seedMarkLviData } from './programsDeployer'
 import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
 import { registerDialogIpc } from './ipc/dialog'
 import { registerWindowIpc } from './ipc/window'
@@ -104,15 +103,14 @@ if (gotSingleInstanceLock) {
 let postWindowWorkDone = false
 
 /**
- * Seed do Mark LVI + reparo de ícones: fora do caminho crítico da janela.
- * Rodam uma vez por sessão, depois de `ready-to-show`, mantendo os mesmos gates
- * de versão/idempotência de quando eram aguardados antes de criar a janela.
+ * Reparo de ícones: fora do caminho crítico da janela. Roda uma vez por sessão,
+ * depois de `ready-to-show`, mantendo os mesmos gates de versão/idempotência de
+ * quando era aguardado antes de criar a janela.
  */
 function runPostWindowWork(): void {
   if (postWindowWorkDone) return
   postWindowWorkDone = true
-  logger.info('window', 'janela pronta: seed do Mark LVI e reparo de ícones em segundo plano')
-  seedMarkLviData()
+  logger.info('window', 'janela pronta: reparo de ícones em segundo plano')
   void repairGameIconsIfNeeded().then((repaired) => {
     logger.info('games', `reparo de ícones pós-abertura concluído (${repaired} regravado(s))`)
   })

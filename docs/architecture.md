@@ -10,7 +10,7 @@
 ## 1. Visão geral
 
 O Kolnd Hub é a central de controle do ecossistema Kolnd: inicia/para/monitora os
-programas (Mark LVI, Kloud Games), gerencia a inicialização do PC, a biblioteca de
+programas (Mark LVII, Kloud Games), gerencia a inicialização do PC, a biblioteca de
 jogos (Steam, Epic Games e Minecraft Launcher), o modo Big Picture (gamepad/TV) e a própria
 desinstalação. É um app Electron empacotado como instalador NSIS único.
 
@@ -47,7 +47,7 @@ O appId é `com.kolnd.hub` (`electron-builder.yml`; `app.setAppUserModelId` em `
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                  │
 │  Disco (%APPDATA%\kolnd-hub): config.json · first-run-complete.flag · logs\      │
-│                               Crashpad\ (minidumps) · game-icons\ · mark-lvi\    │
+│                               Crashpad\ (minidumps) · game-icons\                │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -231,7 +231,7 @@ As etapas (`firstRunInstaller.ts`, em ordem, todas canceladas/logadas via evento
 
 ```
 check ─► python ─► kloud-games ─► programs ─► finalize
-verificar   winget      MSI embutido   Mark LVI        marca o
+verificar   winget      MSI embutido   Mark LVII        marca o
 python/pip  --silent    via UAC        e Kloud Games   flag e pronto
 ```
 
@@ -242,8 +242,8 @@ python/pip  --silent    via UAC        e Kloud Games   flag e pronto
    é instalado com `msiexec /i … /quiet /norestart`, elevado com
    `Start-Process -Verb RunAs`. **Falha aqui não bloqueia o Hub** — o MSI segue
    disponível para instalação manual.
-4. **programs** — `programsDeployer.ts` verifica/implanta o Mark LVI e o Kloud Games
-   (e semeia `%APPDATA%\kolnd-hub\mark-lvi` a partir do bundle, migração transparente).
+4. **programs** — `programsDeployer.ts` verifica/implanta o Mark LVII (bundle em
+   `resources/programs/MarkLVII`) e o Kloud Games.
 5. **finalize** — grava o flag (`markFirstRunComplete`).
 
 Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para o dashboard.
@@ -313,11 +313,10 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
 
 O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`
-(config, flag de first-run, logs, `mark-lvi\` sobrevivem por padrão), mas **sempre remove
+(config, flag de first-run e logs sobrevivem por padrão), mas **sempre remove
 o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
-`resources\programs\MarkLVI\` com os dados que o `MarkLVI.exe` grava ao lado de si
-(mitigado pelo espelho parcial em `%APPDATA%\kolnd-hub\mark-lvi`, mantido a cada boot
-pelo `programsDeployer`). Durante qualquer desinstalação destrutiva, o tray, o X da
+`resources\programs\MarkLVII\` com os dados que o `MarkLVII.exe` grava ao lado de si
+(chave de API e memória — não há espelho em `%APPDATA%`). Durante qualquer desinstalação destrutiva, o tray, o X da
 janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
 `isAnyUninstallInProgress`).
 
@@ -426,4 +425,4 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 Documentos relacionados: [`kolnd-hub/README.md`](../kolnd-hub/README.md) (comandos,
 qualidade/CI, primeira execução, desinstalação), [`kolnd-hub/AGENTS.md`](../kolnd-hub/AGENTS.md)
 (regras para agentes), [`RELEASE.md`](RELEASE.md) (release), `../kloud-games/AGENTS.md` e
-`../Mark-LVI/AGENTS.md` (outros componentes do monorepo).
+`../Mark-LVII/AGENTS.md` (outros componentes do monorepo).

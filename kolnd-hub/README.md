@@ -40,7 +40,7 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.
 - **ESLint 10** (flat config) + **Prettier** mantêm o estilo consistente.
-- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVI`, que não vai para o git) → **Generate SHA256SUMS** (informativo; gera `dist/SHA256SUMS.txt`). Artefatos: `dist/Kolnd Hub Setup *.exe` + `dist/SHA256SUMS.txt` e `coverage/` (ambos 7 dias).
+- **GitHub Actions** (`.github/workflows/ci.yml`, `windows-latest`): `npm ci` → **Audit (informativo)** → typecheck → lint → format:check → testes → **Coverage (informativo)** → build → `npm run package` (com placeholders de `resources/programs/MarkLVII`, que não vai para o git) → **Generate SHA256SUMS** (informativo; gera `dist/SHA256SUMS.txt`). Artefatos: `dist/Kolnd Hub Setup *.exe` + `dist/SHA256SUMS.txt` e `coverage/` (ambos 7 dias).
 
 - **Baseline de bundle do renderer (16/11/2026)**: números e comando de reprodução (`$env:BUNDLE_ANALYZE='1'; npm run build`, gera `dist/bundle-report.html`, gitignored) em [`../docs/bundle-baseline.md`](../docs/bundle-baseline.md).
 
@@ -102,7 +102,7 @@ Na primeira abertura, o app detecta a ausência do marcador `first-run-complete.
 1. **Verificação de dependências** — Python e pip;
 2. **Python** — instala silenciosamente via `winget` (`--silent --accept-package-agreements`), apenas se necessário;
 3. **Kloud Games** — instala o MSI embutido em `resources/programs/kloud-games/KLOUD_GAMES.msi` via UAC (assistente visível: `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs` — não usa `/quiet`). Falha aqui **não bloqueia** o uso do Hub;
-4. **Programas** — verifica a implantação do Mark LVI e do Kloud Games;
+4. **Programas** — verifica a implantação do Mark LVII e do Kloud Games;
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Nas próximas aberturas o app vai direto para o dashboard. A flag fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
@@ -115,10 +115,10 @@ O roteiro de validação desse fluxo em máquina/VM limpa — pré-requisitos, p
 
 O instalador único (`Kolnd Hub Setup <versão>.exe`) embute os programas que o Hub precisa, via `extraResources` no `electron-builder.yml` (eles ficam em `<instalação>/resources/programs/...`):
 
-| Programa          | Origem                         | Status                                                                                                                                            |
-| ----------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mark LVI (JARVIS) | `Mark-LVI/` (PyInstaller)      | ✅ Embutido no instalador em `resources/programs/MarkLVI`                                                                                         |
-| Kloud Games       | `kloud-games/` (CMake + MSYS2) | ✅ Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`, ~53 MB), instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` |
+| Programa           | Origem                         | Status                                                                                                                                            |
+| ------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mark LVII (JARVIS) | `Mark-LVII/` (PyInstaller)     | ✅ Embutido no instalador em `resources/programs/MarkLVII`                                                                                        |
+| Kloud Games        | `kloud-games/` (CMake + MSYS2) | ✅ Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`, ~53 MB), instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` |
 
 Na raiz do repositório, `build-installer.bat` faz tudo em um comando: compila o Kloud Games e gera o MSI (`scripts/build-kloud-games.ps1`), depois empacota o Hub (`npm run package`) e, ao final, gera `dist/SHA256SUMS.txt` (passo best-effort — falha do hash não quebra o build). Para o passo a passo:
 
@@ -126,18 +126,18 @@ Na raiz do repositório, `build-installer.bat` faz tudo em um comando: compila o
 # 1) compilar o Kloud Games e gerar o MSI (heavy: MSYS2 + toolchain, ~30-60 min)
 powershell -ExecutionPolicy Bypass -File scripts\build-kloud-games.ps1
 
-# 2) reconstruir o Mark LVI (opcional, PyInstaller)
-powershell -ExecutionPolicy Bypass -File scripts\build-mark-lvi.ps1
+# 2) reconstruir o Mark LVII (opcional, PyInstaller)
+powershell -ExecutionPolicy Bypass -File scripts\build-mark-lvii.ps1
 
 # 3) gerar o instalador
 npm run package
 ```
 
-Ou tudo de uma vez (Mark LVI + Kloud Games + instalador):
+Ou tudo de uma vez (Mark LVII + Kloud Games + instalador):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
-# opções: -SkipMarkLvi, -SkipKloudGames, -SkipPackage
+# opções: -SkipMarkLVII, -SkipKloudGames, -SkipPackage
 ```
 
 Depois de rodar a build de um programa, rode `npm run package` de novo para que o instalador pegue a versão nova.
@@ -147,9 +147,7 @@ Depois de rodar a build de um programa, rode `npm run package` de novo para que 
 **Segredos nunca vão para o instalador**: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`
 e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `electron-builder.yml`).
 
-> ⚠️ **Dados do Mark LVI e desinstalador**: o `MarkLVI.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVI/`). Ao desinstalar o Kolnd Hub (botão **"Desinstalar Kolnd Hub"** nas Configurações → zona de perigo, ou pelo aplicativo Configurações do Windows), o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. O botão **"Fazer backup dos meus dados"** copia apenas `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss`; ele **não** cobre os dados ao lado do `MarkLVI.exe`. Copie manualmente `<instalação>\resources\programs\MarkLVI\config` e `<instalação>\resources\programs\MarkLVI\memory` antes de desinstalar (ou confie na semente migrada para `%APPDATA%\kolnd-hub\mark-lvi` pelo `programsDeployer`). O backup não é automático.
->
-> **Migração para a pasta de dados do usuário**: a partir da próxima reconstrução do Mark LVI (`scripts/build-mark-lvi.ps1`, com `core/paths.py` honrando `MARK_LVI_HOME`), o assistente passa a gravar em `%APPDATA%\kolnd-hub\mark-lvi`. O Hub define `MARK_LVI_HOME` automaticamente ao iniciar o `mark-lvi`, e **semeia** (copia, sem apagar) `config/` e `memory/` do bundle empacotado para essa pasta a cada boot — quem já usava a versão anterior não perde a chave de API nem a memória na troca. Dados já existentes ao lado do `.exe` continuam sendo uma cópia válida e só deixam de ser atualizados depois que o Mark LVI reconstruído assume.
+> ⚠️ **Dados do Mark LVII e desinstalador**: o `MarkLVII.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVII/`). Ao desinstalar o Kolnd Hub (botão **"Desinstalar Kolnd Hub"** nas Configurações → zona de perigo, ou pelo aplicativo Configurações do Windows), o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. O botão **"Fazer backup dos meus dados"** copia apenas `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` e **não** cobre os dados ao lado do `MarkLVII.exe`. Copie manualmente `<instalação>\resources\programs\MarkLVII\config` e `<instalação>\resources\programs\MarkLVII\memory` antes de desinstalar. O backup não é automático.
 
 ## Verificar integridade
 
@@ -176,7 +174,7 @@ Get-FileHash -Algorithm SHA256 "Kolnd Hub Setup <versao>.exe"
 
 Caminhos aceitam:
 
-- caminhos relativos (resolvidos a partir do diretório do Hub), ex.: `../Mark-LVI`
+- caminhos relativos (resolvidos a partir do diretório do Hub), ex.: `../Mark-LVII`
 - caminhos absolutos, ex.: `C:\Program Files\KLOUD_GAMES`
 - variáveis de ambiente, ex.: `%USERPROFILE%\Documents\My Games\kloud-games`
 
@@ -208,7 +206,7 @@ A instalação do Hub em si (NSIS) é **por usuário** e não pede administrador
 1. **Python** — instalado via `winget` (`--silent --accept-package-agreements`), apenas se faltar no sistema;
 2. **Kloud Games** — o MSI embutido é instalado com `msiexec /i … /norestart` elevado via `Start-Process -Verb RunAs` — assistente **visível**, sem `/quiet` (instala o serviço `KLOUD_GAMESsvc`, regras de firewall e o autostart).
 
-Se você **negar o UAC do Kloud Games**, a etapa falha mas não bloqueia o uso do Hub — o MSI continua disponível em `<instalação>/resources/programs/kloud-games/KLOUD_GAMES.msi` para instalação manual posterior (`msiexec /i …` como administrador). Se negar o UAC do Python (quando ele faltar), o Mark LVI não funciona até o Python ser instalado.
+Se você **negar o UAC do Kloud Games**, a etapa falha mas não bloqueia o uso do Hub — o MSI continua disponível em `<instalação>/resources/programs/kloud-games/KLOUD_GAMES.msi` para instalação manual posterior (`msiexec /i …` como administrador). Se negar o UAC do Python (quando ele faltar), o Mark LVII não funciona até o Python ser instalado.
 
 ### Abrir o Kloud Games sempre pede UAC
 
@@ -254,11 +252,11 @@ Sequência, nesta ordem:
 4. **Spawn** — inicia o desinstalador NSIS desanexado e o Hub se encerra sozinho (killAll + destroy + `app.quit`). Se o spawn falhar, o Hub **não** fecha e **nada é apagado** — o erro aparece na tela com a instrução: desinstale pelo aplicativo **Configurações do Windows → Aplicativos → Kolnd Hub**;
 5. **Wipe** — somente se você escolheu "Apagar também meus dados e configurações (irreversível)": depois do spawn confirmado, apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (antivírus/arquivo travado) — os itens que falharem são listados no final.
 
-O **NSIS não mudou**: `deleteAppDataOnUninstall: false` no `electron-builder.yml` permanece — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub` por conta própria, ou seja, `config.json` (electron-store), a flag de primeira execução, `logs\kolnd-hub.log` e o espelho `mark-lvi\` sobrevivem por padrão. A decisão de apagar ou manter os dados é sempre sua, na confirmação do Hub ("Apagar também meus dados e configurações" é a única coisa que os remove). Em compensação, **o NSIS sempre remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVI\`** — os dados que a build atual do `MarkLVI.exe` grava ao lado do executável (config/api_keys.json, memory/) **são perdidos**, descontando o espelho parcial em `%APPDATA%\kolnd-hub\mark-lvi` mantido pelo Hub a cada boot (arquivos de nível superior de `config/`/`memory/`; subpastas como `certs/` e `whatsapp_web/` nunca são espelhadas). O texto completo está na seção "O que acontece com seus dados" do README raiz.
+O **NSIS não mudou**: `deleteAppDataOnUninstall: false` no `electron-builder.yml` permanece — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub` por conta própria, ou seja, `config.json` (electron-store), a flag de primeira execução e `logs\kolnd-hub.log` sobrevivem por padrão. A decisão de apagar ou manter os dados é sempre sua, na confirmação do Hub ("Apagar também meus dados e configurações" é a única coisa que os remove). Em compensação, **o NSIS sempre remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`** — os dados que o `MarkLVII.exe` grava ao lado do executável (config/api_keys.json, memory/) **são perdidos**, sem espelho em `%APPDATA%`. O texto completo está na seção "O que acontece com seus dados" do README raiz.
 
 ### Dados do usuário e logs
 
-- `%APPDATA%\kolnd-hub` é **preservado por padrão** — inclusive `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log` e o espelho `mark-lvi\`. Apagado **somente** pela opção irreversível acima (ou manualmente por você). O que o NSIS **sempre** remove é o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo `resources\programs\MarkLVI\` com os dados ao lado do `MarkLVI.exe` (ver a seção "Desinstalar Kolnd Hub" acima e o README raiz).
+- `%APPDATA%\kolnd-hub` é **preservado por padrão** — inclusive `config.json`, `first-run-complete.flag` e `logs\kolnd-hub.log`. Apagado **somente** pela opção irreversível acima (ou manualmente por você). O que o NSIS **sempre** remove é o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo `resources\programs\MarkLVII\` com os dados ao lado do `MarkLVII.exe` (ver a seção "Desinstalar Kolnd Hub" acima e o README raiz).
 - **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss`; execuções repetidas criam sufixos `-2`, `-3`, … — nunca sobrescreve um backup existente.
 - **Logs**: `%APPDATA%\kolnd-hub\logs\kloud-games-uninstall.log` registra o fluxo do Kloud Games (etapas, código de retorno do `msiexec`, laudo final) — inclusive a pausa da etapa do Kloud no fluxo do Hub (UAC negado etc.). O log completo do fluxo do Hub aparece **ao vivo** no modal de progresso; não há arquivo próprio para ele além desse. O botão **"Abrir pasta de logs"** (nas telas de resultado/erro) abre `%APPDATA%\kolnd-hub\logs` no Explorer.
 - A preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`) fica no `config.json` — sobrevive à desinstalação se os dados forem mantidos; quem decide apagá-la é a opção irreversível.
@@ -266,10 +264,10 @@ O **NSIS não mudou**: `deleteAppDataOnUninstall: false` no `electron-builder.ym
 
 ## Programas gerenciados
 
-| Programa          | Comando padrão                                 | Observação                                                                                                           |
-| ----------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Mark LVI (JARVIS) | `MarkLVI.exe`                                  | Embutido no instalador em `resources/programs/MarkLVI` (PyInstaller)                                                 |
-| Kloud Games       | `"%ProgramFiles%\KLOUD_GAMES\KLOUD_GAMES.exe"` | Embutido como MSI; instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` (serviço + firewall + autostart) |
+| Programa           | Comando padrão                                 | Observação                                                                                                           |
+| ------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Mark LVII (JARVIS) | `MarkLVII.exe`                                 | Embutido no instalador em `resources/programs/MarkLVII` (PyInstaller)                                                |
+| Kloud Games        | `"%ProgramFiles%\KLOUD_GAMES\KLOUD_GAMES.exe"` | Embutido como MSI; instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` (serviço + firewall + autostart) |
 
 ## Estrutura
 
@@ -278,7 +276,7 @@ src/
 ├── main/          # processo principal, janela, tray, IPC, primeira execução
 │                  # (firstRun*, dependencyChecker, silentInstaller,
 │                  #  programsDeployer, store), gerenciamento de processos
-│                  # (processManager, commandLine) e seed dos dados do Mark LVI
+│                  # (processManager, commandLine) e seed dos dados do Mark LVII
 ├── preload/       # bridge segura (contextBridge; sandbox habilitado)
 ├── shared/        # tipos/consts compartilhados main/preload/renderer (gamepad)
 └── renderer/      # React (Dashboard, Settings, Inicialização, FirstRunInstall,

@@ -6,7 +6,7 @@
 #   2. confere o tamanho minimo (o bundle real passa de 100 MB; o placeholder nao);
 #   3. lista o payload do .exe com 7-Zip (`7z l`, sem extrair nada) e confirma a
 #      presenca de:
-#        - programs/MarkLVI/MarkLVI.exe         (na saida do 7z aparece com prefixo,
+#        - programs/MarkLVII/MarkLVII.exe         (na saida do 7z aparece com prefixo,
 #        - programs/kloud-games/KLOUD_GAMES.msi  ex.: resources\programs\...);
 #   4. se existir `dist/win-unpacked/` (intermediario do electron-builder), confere
 #      os mesmos dois arquivos la tambem.
@@ -122,7 +122,7 @@ if ($sevenZipExit -ge 2) {
 # `win-unpacked/` (o electron-builder extraResources leva `programs/` para
 # `resources/programs/` no instalado).
 $expected = @(
-    @{ Label = 'MarkLVI.exe';     Pattern = 'programs[\\/]MarkLVI[\\/]MarkLVI\.exe';     Relative = 'resources\programs\MarkLVI\MarkLVI.exe' },
+    @{ Label = 'MarkLVII.exe';     Pattern = 'programs[\\/]MarkLVII[\\/]MarkLVII\.exe';     Relative = 'resources\programs\MarkLVII\MarkLVII.exe' },
     @{ Label = 'KLOUD_GAMES.msi'; Pattern = 'programs[\\/]kloud-games[\\/]KLOUD_GAMES\.msi'; Relative = 'resources\programs\kloud-games\KLOUD_GAMES.msi' }
 )
 

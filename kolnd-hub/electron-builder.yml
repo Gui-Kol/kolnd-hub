@@ -11,24 +11,24 @@ files:
   - '!{tailwind.config.js,postcss.config.js}'
   - '!scripts/*'
   - '!resources/programs/**'
-  - '!Mark-LVI/**'
+  - '!Mark-LVII/**'
   - '!*.log'
   - '!electron-builder.yml'
 # The managed programs are bundled as extraResources so they land in
-# <install dir>/resources/programs/... and Mark LVI/Kloud Games find their
+# <install dir>/resources/programs/... and Mark LVII/Kloud Games find their
 # data files relative to the executable working directory.
 extraResources:
   - from: resources/programs
     to: programs
     filter:
       - '**/*'
-      # Never ship user data with the installer: Mark LVI writes its API
+      # Never ship user data with the installer: Mark LVII writes its API
       # key and conversation memory next to the exe, and the bundled copy
       # may therefore hold real user data while being good for testing.
-      - '!MarkLVI/config/api_keys.json'
-      - '!MarkLVI/config/certs/**'
-      - '!MarkLVI/config/whatsapp_web/**'
-      - '!MarkLVI/memory/**'
+      - '!MarkLVII/config/api_keys.json'
+      - '!MarkLVII/config/certs/**'
+      - '!MarkLVII/config/whatsapp_web/**'
+      - '!MarkLVII/memory/**'
   # O ícone da bandeja (lido via nativeImage.createFromPath em src/main/index.ts)
   # fica na raiz de resources/ em produção.
   - from: resources/tray-icon.png
@@ -54,25 +54,20 @@ win:
 nsis:
   oneClick: false
   # Per-user install (%LOCALAPPDATA%\Programs\Kolnd Hub): the install folder
-  # stays writable, which the currently bundled MarkLVI.exe still needs to
-  # create config/ and memory/ next to its executable on first run (the next
-  # Mark LVI rebuild honors MARK_LVI_HOME and writes to %APPDATA%\kolnd-hub\mark-lvi).
-  # Changing the install directory is disallowed on purpose: picking a
-  # Program Files location would make the bundled Mark LVI unable to write
-  # its data files there.
+  # stays writable, which MarkLVII.exe needs to create config/ and memory/
+  # next to its executable on first run. Changing the install directory is
+  # disallowed on purpose: picking a Program Files location would make the
+  # bundled Mark LVII unable to write its data files there.
   perMachine: false
   allowToChangeInstallationDirectory: false
   # PRESERVADO na desinstalacao (deleteAppDataOnUninstall: false — o default):
   # %APPDATA%\kolnd-hub inteiro — first-run flag, config.json (electron-store),
-  # logs\ (kolnd-hub.log, kloud-games-uninstall.log), kloud-games.paths.json,
-  # mark-lvi\ (dados do assistente assim que o rebuild 01-1.9, que honra
-  # MARK_LVI_HOME, estiver no ar). REMOVIDO sempre pelo desinstalador:
-  # o diretorio de instalacao inteiro ($INSTDIR, per-user em
-  # %LOCALAPPDATA%\Programs\Kolnd Hub), INCLUINDO resources/programs/MarkLVI
-  # com os dados que a build atual do MarkLVI.exe grava ao lado do exe
-  # (config/api_keys.json, memory/). O Hub mantem a cada boot um espelho
-  # parcial desses dados em %APPDATA%\kolnd-hub\mark-lvi (ver programsDeployer),
-  # que sobrevive — mas o conteudo ao lado do exe e perdido. Ver READMEs.
+  # logs\ (kolnd-hub.log, kloud-games-uninstall.log), kloud-games.paths.json.
+  # REMOVIDO sempre pelo desinstalador: o diretorio de instalacao inteiro
+  # ($INSTDIR, per-user em %LOCALAPPDATA%\Programs\Kolnd Hub), INCLUINDO
+  # resources/programs/MarkLVII com os dados que o MarkLVII.exe grava ao lado
+  # do exe (config/api_keys.json, memory/). Quem quiser guardar a chave/ memoria
+  # do assistente deve usar o backup da tela de desinstalacao. Ver READMEs.
   # Sobre texto de aviso na tela de desinstalacao: o electron-builder nao
   # expoe um texto de desinstalacao configuravel para o usuario final —
   # nsis.uninstallDisplayName muda so o rotulo no "Aplicativos instalados" e

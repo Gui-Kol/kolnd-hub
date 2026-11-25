@@ -51,12 +51,32 @@ describe('migrateLegacyDefaults', () => {
     expect(migrateLegacyDefaults(custom)).toEqual(custom)
   })
 
-  it('atualiza default legado do Mark LVI para o embutido', () => {
-    const legacy = app({ id: 'mark-lvi', command: 'py main.py', cwd: '../Mark-LVI' })
+  it('atualiza default legado do Mark LVI (fonte) para o Mark LVII embutido', () => {
+    const legacy = app({
+      id: 'mark-lvi',
+      name: 'Mark LVI (JARVIS)',
+      command: 'py main.py',
+      cwd: '../Mark-LVI'
+    })
     const migrated = migrateLegacyDefaults(legacy)
     const def = defaultApps.find((d) => d.id === 'mark-lvi')!
     expect(migrated.command).toBe(def.command)
     expect(migrated.cwd).toBe(def.cwd)
+    expect(migrated.name).toBe(def.name)
+  })
+
+  it('atualiza default legado do Mark LVI (bundle antigo) para o Mark LVII', () => {
+    const legacy = app({
+      id: 'mark-lvi',
+      name: 'Mark LVI',
+      command: 'MarkLVI.exe',
+      cwd: 'resources/programs/MarkLVI'
+    })
+    const migrated = migrateLegacyDefaults(legacy)
+    const def = defaultApps.find((d) => d.id === 'mark-lvi')!
+    expect(migrated.command).toBe(def.command)
+    expect(migrated.cwd).toBe(def.cwd)
+    expect(migrated.name).toBe(def.name)
   })
 
   it('atualiza default legado do Kloud Games (pré-MSI)', () => {
@@ -89,7 +109,7 @@ describe('mergeAppConfigs', () => {
     const merged = mergeAppConfigs([partial])
     const mark = merged.find((a) => a.id === 'mark-lvi')!
     expect(mark.command).toBe('custom.exe')
-    expect(mark.name).toBe('Mark LVI (JARVIS)')
+    expect(mark.name).toBe('Mark LVII (JARVIS)')
     expect(mark.category).toBe('ai')
   })
 

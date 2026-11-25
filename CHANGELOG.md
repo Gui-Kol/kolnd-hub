@@ -8,6 +8,17 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+## [1.2.1] - 2026-11-24
+
+### Alterado
+
+- **JARVIS atualizado para o Mark LVII**: o Mark LVI saiu do monorepo e o Hub passou a apontar para o novo projeto em `Mark-LVII/` — bundle `resources/programs/MarkLVII/MarkLVII.exe`, script `kolnd-hub/scripts/build-mark-lvii.ps1` (PyInstaller) e migração automática das configurações salvas do Mark LVI (`MarkLVI.exe` em `resources/programs/MarkLVI` e `py main.py` em `../Mark-LVI`) para o novo executável
+- **Dados do assistente sem espelho**: o Mark LVII grava `config/` (chave de API) e `memory/` ao lado do executável; o Hub não define mais `MARK_LVI_HOME`, não semeia `%APPDATA%\kolnd-hub\mark-lvi` e não lista essa pasta na desinstalação (os dados vão junto com a instalação, como antes do patch de migração)
+
+### Removido
+
+- Vestígios do Mark LVI: pasta do bundle antigo, referências em CI/release/`build-all.ps1`/`verify-release.ps1`, textos de desinstalação e o seed `seedMarkLviData`/`getMarkLviDataDir`
+
 ## [1.2.0] - 2026-11-24
 
 ### Adicionado

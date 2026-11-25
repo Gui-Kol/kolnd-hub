@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   killProcessesForCommand: vi.fn(),
   invalidateKloudGamesRunningCache: vi.fn(),
   stopKloudGamesElevated: vi.fn(),
-  getMarkLviDataDir: vi.fn(() => 'C:\\fake\\userdata\\mark-lvi'),
   isAnyUninstallInProgress: vi.fn(() => false),
   shutdownHub: vi.fn(),
   logWarn: vi.fn()
@@ -29,7 +28,6 @@ vi.mock('../kloudGames', () => ({
   invalidateKloudGamesRunningCache: mocks.invalidateKloudGamesRunningCache,
   stopKloudGamesElevated: mocks.stopKloudGamesElevated
 }))
-vi.mock('../programsDeployer', () => ({ getMarkLviDataDir: mocks.getMarkLviDataDir }))
 vi.mock('../uninstaller', () => ({ isAnyUninstallInProgress: mocks.isAnyUninstallInProgress }))
 vi.mock('./lifecycle', () => ({ shutdownHub: mocks.shutdownHub }))
 vi.mock('../logger', () => ({
@@ -99,17 +97,15 @@ describe('app:launch', () => {
       success: true
     })
     expect(processManager.launch).toHaveBeenCalledWith('app1', 'run.exe', 'C:\\app', {
-      shell: true,
-      env: undefined
+      shell: true
     })
   })
 
-  it('useShell=false é preservado e Mark LVI recebe MARK_LVI_HOME', async () => {
+  it('useShell=false é preservado (sem env extra para o Mark LVII)', async () => {
     processManager.launch.mockResolvedValue({ success: true })
-    await call('app:launch', 'mark-lvi', 'MarkLVI.exe', 'C:\\mark', false)
-    expect(processManager.launch).toHaveBeenCalledWith('mark-lvi', 'MarkLVI.exe', 'C:\\mark', {
-      shell: false,
-      env: { MARK_LVI_HOME: 'C:\\fake\\userdata\\mark-lvi' }
+    await call('app:launch', 'mark-lvi', 'MarkLVII.exe', 'C:\\mark', false)
+    expect(processManager.launch).toHaveBeenCalledWith('mark-lvi', 'MarkLVII.exe', 'C:\\mark', {
+      shell: false
     })
   })
 })

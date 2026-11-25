@@ -21,12 +21,21 @@ export const LEGACY_IMPORTANCE_BACKUP_KEY = 'kolnd-hub-startup-importance.bak'
  * personalizou fica intacto.
  */
 const LEGACY_DEFAULTS: Record<string, Array<{ command: string; cwd: string }>> = {
-  'mark-lvi': [{ command: 'py main.py', cwd: '../Mark-LVI' }],
+  'mark-lvi': [
+    // Mark LVI (fonte, antes do bundle) e Mark LVI empacotado → Mark LVII.
+    { command: 'py main.py', cwd: '../Mark-LVI' },
+    { command: 'MarkLVI.exe', cwd: 'resources/programs/MarkLVI' }
+  ],
   'kloud-games': [
     { command: 'kloud-games.exe', cwd: '../kloud-games' },
     // Default da era MSI: jogo instalado pelo Hub na 1ª execução
     { command: 'KLOUD_GAMES.exe', cwd: 'resources/programs/kloud-games' }
   ]
+}
+
+/** Nomes default antigos — atualizados junto com o comando/cwd migrados. */
+const LEGACY_NAMES: Record<string, string[]> = {
+  'mark-lvi': ['Mark LVI (JARVIS)', 'Mark LVI']
 }
 
 /** Atualiza uma entrada se ela ainda tiver os valores default legados. */
@@ -36,7 +45,9 @@ export function migrateLegacyDefaults(app: AppConfig): AppConfig {
   )
   if (!legacy) return app
   const def = defaultApps.find((d) => d.id === app.id)
-  return def ? { ...def, ...app, command: def.command, cwd: def.cwd } : app
+  if (!def) return app
+  const renamed = (LEGACY_NAMES[app.id] ?? []).includes(app.name) ? { name: def.name } : {}
+  return { ...def, ...app, ...renamed, command: def.command, cwd: def.cwd }
 }
 
 /** Faz o parse do JSON salvo. Retorna null se corrompido/inválido. */

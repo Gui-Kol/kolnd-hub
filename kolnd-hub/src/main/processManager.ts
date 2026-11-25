@@ -163,7 +163,7 @@ export interface LaunchOptions {
    * de shell; ideal para comandos simples e caminhos sem aspas especiais.
    */
   shell?: boolean
-  /** Variáveis de ambiente extras (ex.: MARK_LVI_HOME para o Mark LVI). */
+  /** Variáveis de ambiente extras para o processo filho. */
   env?: NodeJS.ProcessEnv
 }
 
