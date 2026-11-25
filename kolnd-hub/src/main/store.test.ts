@@ -58,6 +58,10 @@ let normalizeAppConfigs: typeof import('./store').normalizeAppConfigs
 let normalizeStartupImportance: typeof import('./store').normalizeStartupImportance
 let normalizeGame: typeof import('./store').normalizeGame
 let normalizeGames: typeof import('./store').normalizeGames
+let normalizeGameCollections: typeof import('./store').normalizeGameCollections
+let normalizePlaytimeDays: typeof import('./store').normalizePlaytimeDays
+let getGameCollections: typeof import('./store').getGameCollections
+let setGameCollections: typeof import('./store').setGameCollections
 let normalizeGamepadConfig: typeof import('./store').normalizeGamepadConfig
 let normalizeBigPicturePrefs: typeof import('./store').normalizeBigPicturePrefs
 let normalizeBenchmarkEntry: typeof import('./store').normalizeBenchmarkEntry
@@ -77,14 +81,6 @@ let getRemoteMode: typeof import('./store').getRemoteMode
 let setRemoteMode: typeof import('./store').setRemoteMode
 let getHwmonIntervalMs: typeof import('./store').getHwmonIntervalMs
 let setHwmonIntervalMs: typeof import('./store').setHwmonIntervalMs
-let normalizeOfficeDepartment: typeof import('./store').normalizeOfficeDepartment
-let normalizeOfficeDepartments: typeof import('./store').normalizeOfficeDepartments
-let normalizeOfficeAvatars: typeof import('./store').normalizeOfficeAvatars
-let getOfficeDepartments: typeof import('./store').getOfficeDepartments
-let setOfficeDepartments: typeof import('./store').setOfficeDepartments
-let getOfficeAvatars: typeof import('./store').getOfficeAvatars
-let setOfficeAvatars: typeof import('./store').setOfficeAvatars
-let setOfficeAvatar: typeof import('./store').setOfficeAvatar
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -108,6 +104,10 @@ beforeAll(async () => {
   normalizeStartupImportance = storeMod.normalizeStartupImportance
   normalizeGame = storeMod.normalizeGame
   normalizeGames = storeMod.normalizeGames
+  normalizeGameCollections = storeMod.normalizeGameCollections
+  normalizePlaytimeDays = storeMod.normalizePlaytimeDays
+  getGameCollections = storeMod.getGameCollections
+  setGameCollections = storeMod.setGameCollections
   normalizeGamepadConfig = storeMod.normalizeGamepadConfig
   normalizeBigPicturePrefs = storeMod.normalizeBigPicturePrefs
   normalizeBenchmarkEntry = storeMod.normalizeBenchmarkEntry
@@ -127,14 +127,6 @@ beforeAll(async () => {
   setRemoteMode = storeMod.setRemoteMode
   getHwmonIntervalMs = storeMod.getHwmonIntervalMs
   setHwmonIntervalMs = storeMod.setHwmonIntervalMs
-  normalizeOfficeDepartment = storeMod.normalizeOfficeDepartment
-  normalizeOfficeDepartments = storeMod.normalizeOfficeDepartments
-  normalizeOfficeAvatars = storeMod.normalizeOfficeAvatars
-  getOfficeDepartments = storeMod.getOfficeDepartments
-  setOfficeDepartments = storeMod.setOfficeDepartments
-  getOfficeAvatars = storeMod.getOfficeAvatars
-  setOfficeAvatars = storeMod.setOfficeAvatars
-  setOfficeAvatar = storeMod.setOfficeAvatar
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -301,6 +293,32 @@ describe('normalizeGame', () => {
     }) as StoredGame
     expect(out.steamAppId).toBeUndefined()
   })
+
+  it('aceita as origens novas (epic/minecraft) e cai em custom quando inválida', () => {
+    const epic = normalizeGame({
+      id: 'e1',
+      name: 'Epic',
+      exePath: 'D:\\Epic\\e.exe',
+      origin: 'epic'
+    }) as StoredGame
+    expect(epic.origin).toBe('epic')
+
+    const minecraft = normalizeGame({
+      id: 'm1',
+      name: 'Minecraft',
+      exePath: 'C:\\XboxGames\\Minecraft.exe',
+      origin: 'minecraft'
+    }) as StoredGame
+    expect(minecraft.origin).toBe('minecraft')
+
+    const invalid = normalizeGame({
+      id: 'i1',
+      name: 'Inválido',
+      exePath: 'C:\\inv.exe',
+      origin: 'playnite'
+    }) as StoredGame
+    expect(invalid.origin).toBe('custom')
+  })
 })
 
 describe('normalizeGames', () => {
@@ -317,6 +335,94 @@ describe('normalizeGames', () => {
       { id: 'd', name: 'D', exePath: 'C:\\D\\d.exe', origin: 'steam', steamAppId: 7 }
     ])
     expect(out.map((g) => g.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+// ── Biblioteca: favoritos, coleções e tempo de jogo ────────────
+
+describe('normalizeGame — campos novos da Biblioteca', () => {
+  const base = { id: 'g1', name: 'Jogo', exePath: 'C:\\g.exe', origin: 'custom' }
+
+  it('preserva favorite booleano e descarta outros tipos', () => {
+    expect((normalizeGame({ ...base, favorite: true }) as StoredGame).favorite).toBe(true)
+    expect((normalizeGame({ ...base, favorite: false }) as StoredGame).favorite).toBe(false)
+    expect((normalizeGame({ ...base, favorite: 'sim' }) as StoredGame).favorite).toBeUndefined()
+  })
+
+  it('normaliza collections: trim, dedupe sem caixa, limite de 8 e nomes longos', () => {
+    const out = normalizeGame({
+      ...base,
+      collections: ['  RPG ', 'rpg', '', 1, 'Ação']
+    }) as StoredGame
+    expect(out.collections).toEqual(['RPG', 'Ação'])
+
+    const many = normalizeGame({
+      ...base,
+      collections: Array.from({ length: 12 }, (_, i) => `Coleção ${i}`)
+    }) as StoredGame
+    expect(many.collections).toHaveLength(8)
+
+    const long = normalizeGame({ ...base, collections: ['x'.repeat(25)] }) as StoredGame
+    expect(long.collections).toBeUndefined()
+  })
+
+  it('normaliza playtimeSeconds (inteiro ≥ 0)', () => {
+    expect((normalizeGame({ ...base, playtimeSeconds: 90.7 }) as StoredGame).playtimeSeconds).toBe(
+      90
+    )
+    expect(
+      (normalizeGame({ ...base, playtimeSeconds: -1 }) as StoredGame).playtimeSeconds
+    ).toBeUndefined()
+    expect(
+      (normalizeGame({ ...base, playtimeSeconds: Number.NaN }) as StoredGame).playtimeSeconds
+    ).toBeUndefined()
+  })
+
+  it('normaliza playtimeDays: só datas válidas, valores positivos e 60 dias recentes', () => {
+    const days: Record<string, number> = { '2026-01-01': 60, invalido: 3, '2026-01-02': -1 }
+    for (let i = 0; i < 65; i += 1) {
+      const day = String(i + 1).padStart(2, '0')
+      days[`2025-12-${day}`] = 10
+    }
+    const out = normalizePlaytimeDays(days)
+    expect(Object.keys(out)).toHaveLength(60)
+    expect(out['2026-01-01']).toBe(60)
+    expect(out['2026-01-02']).toBeUndefined()
+    expect(out['invalido']).toBeUndefined()
+    // Mantém os mais recentes: 2025-12-01 (o mais antigo) fica de fora.
+    expect(out['2025-12-01']).toBeUndefined()
+    expect(out['2025-12-31']).toBe(10)
+  })
+
+  it('lastPlayedAt inválido é descartado', () => {
+    expect(
+      (normalizeGame({ ...base, lastPlayedAt: '2026-01-01T00:00:00.000Z' }) as StoredGame)
+        .lastPlayedAt
+    ).toBe('2026-01-01T00:00:00.000Z')
+    expect(
+      (normalizeGame({ ...base, lastPlayedAt: 'ontem' }) as StoredGame).lastPlayedAt
+    ).toBeUndefined()
+  })
+})
+
+describe('gameCollections', () => {
+  it('normaliza: trim, cap 30 e dedupe sem diferenciar caixa', () => {
+    expect(normalizeGameCollections(null)).toEqual([])
+    expect(normalizeGameCollections([' RPG ', 'rpg', '', 'Ação'])).toEqual(['RPG', 'Ação'])
+
+    const many = normalizeGameCollections(Array.from({ length: 35 }, (_, i) => `Coleção ${i}`))
+    expect(many).toHaveLength(30)
+  })
+
+  it('getGameCollections lê normalizado do store e setGameCollections persiste normalizado', () => {
+    const h = holder()
+    h.get.mockImplementation((key: string, def: unknown) =>
+      key === 'gameCollections' ? ['  Favoritos ', 'favoritos', 'x'.repeat(30)] : def
+    )
+    expect(getGameCollections()).toEqual(['Favoritos'])
+
+    expect(setGameCollections(['  A ', 'a', 'B'])).toEqual({ success: true })
+    expect(h.set).toHaveBeenCalledWith('gameCollections', ['A', 'B'])
   })
 })
 
@@ -1468,171 +1574,5 @@ describe('store indisponível (construtor do electron-store lança)', () => {
       vi.doUnmock('./logger')
       vi.resetModules()
     }
-  })
-})
-
-// ── OpenOffice: salas-departamento e aparência ─────────────────────────────
-
-describe('OpenOffice — normalizeOfficeDepartment(s)', () => {
-  const base = {
-    id: 'dep_1a2b3c4d',
-    name: 'Gerentes',
-    agentID: 'build',
-    sessionIDs: ['ses_1', 'ses_2'],
-    createdAt: 1_795_000_000_000
-  }
-
-  it('aceita um departamento válido e colapsa espaços do nome', () => {
-    expect(normalizeOfficeDepartment({ ...base, name: '  Gerentes   de build ' })).toEqual({
-      ...base,
-      name: 'Gerentes de build'
-    })
-  })
-
-  it('rejeita id/agente/nome/data inválidos e nome com controle', () => {
-    expect(normalizeOfficeDepartment(null)).toBeNull()
-    expect(normalizeOfficeDepartment([])).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, id: 'dep_xyz' })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, id: 'dep_1A2B3C4D' })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, name: '' })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, name: 'a'.repeat(25) })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, name: 'ruim\u0007' })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, agentID: 'a b' })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, createdAt: 0 })).toBeNull()
-    expect(normalizeOfficeDepartment({ ...base, createdAt: 'agora' })).toBeNull()
-  })
-
-  it('descarta sessões inválidas/duplicadas e corta em 60 membros', () => {
-    const many = Array.from({ length: 80 }, (_, index) => `ses_m${index}`)
-    const out = normalizeOfficeDepartment({
-      ...base,
-      sessionIDs: ['ses_ok', 'ses_ok', 'invalido', 42, ...many]
-    })
-    expect(out?.sessionIDs).toHaveLength(60)
-    expect(out?.sessionIDs[0]).toBe('ses_ok')
-    expect(out?.sessionIDs[1]).toBe('ses_m0')
-    expect(new Set(out?.sessionIDs).size).toBe(60)
-  })
-
-  it('lista deduplica ids/sessões, ignora lixo e corta em 30 salas', () => {
-    const departments = Array.from({ length: 35 }, (_, index) => ({
-      ...base,
-      id: `dep_0000${index.toString(16).padStart(4, '0')}`,
-      name: `Sala ${index}`,
-      sessionIDs: index === 0 ? ['ses_repetida'] : [`ses_${index}`]
-    }))
-    const out = normalizeOfficeDepartments([
-      ...departments,
-      { ...base, id: 'dep_1a2b3c4d', name: 'Duplicada', sessionIDs: ['ses_repetida'] },
-      'lixo'
-    ])
-    expect(out).toHaveLength(30)
-    expect(out[0].sessionIDs).toEqual(['ses_repetida'])
-    // A sessão repetida na sala duplicada não entra duas vezes.
-    expect(out.flatMap((department) => department.sessionIDs)).toHaveLength(30)
-    expect(normalizeOfficeDepartments('nada')).toEqual([])
-  })
-
-  it('1.10.0 normaliza as chaves novas (corrompido vira vazio, válido é preservado)', () => {
-    type FakeStore = {
-      data: Record<string, unknown>
-      get: (key: string, def?: unknown) => unknown
-      set: (key: string, value: unknown) => void
-    }
-    const migrations = (globalThis as { __kolndStoreOptions?: { migrations?: unknown } })
-      .__kolndStoreOptions?.migrations as Record<string, (s: FakeStore) => void>
-    const makeFakeStore = (data: Record<string, unknown>): FakeStore => ({
-      data,
-      get: (key, def) => (key in data ? data[key] : def),
-      set: (key, value) => {
-        data[key] = value
-      }
-    })
-
-    const invalid = makeFakeStore({
-      officeDepartments: [{ id: 'nope' }, 'lixo', { ...base }],
-      officeAvatars: {
-        ses_valido: { sex: 'neutro', hairStyle: 2, hairColor: 1, skin: 3, shirt: 4, pants: 5 },
-        'chave-invalida': {
-          sex: 'neutro',
-          hairStyle: 0,
-          hairColor: 0,
-          skin: 0,
-          shirt: 0,
-          pants: 0
-        },
-        ses_quebrado: { sex: 'alien' }
-      }
-    })
-    migrations['1.10.0'](invalid)
-    expect(invalid.data.officeDepartments).toEqual([{ ...base }])
-    expect(Object.keys(invalid.data.officeAvatars as object)).toEqual(['ses_valido'])
-
-    const corrupted = makeFakeStore({ officeDepartments: 'x', officeAvatars: [1, 2] })
-    migrations['1.10.0'](corrupted)
-    expect(corrupted.data.officeDepartments).toEqual([])
-    expect(corrupted.data.officeAvatars).toEqual({})
-  })
-
-  it('getters/setters normalizam a lista antes de gravar', () => {
-    const raw = [{ ...base }, { ...base, id: 'dep_0000face', name: 'Build', sessionIDs: ['ses_3'] }]
-    holder().get.mockImplementation((key: string, def: unknown) =>
-      key === 'officeDepartments' ? raw : def
-    )
-    expect(getOfficeDepartments()).toHaveLength(2)
-
-    expect(setOfficeDepartments([...raw, { id: 'ruim' }])).toEqual({ success: true })
-    expect(holder().set).toHaveBeenCalledWith('officeDepartments', [
-      { ...base },
-      {
-        id: 'dep_0000face',
-        name: 'Build',
-        agentID: 'build',
-        sessionIDs: ['ses_3'],
-        createdAt: base.createdAt
-      }
-    ])
-  })
-})
-
-describe('OpenOffice — normalizeOfficeAvatars', () => {
-  const look = { sex: 'feminino' as const, hairStyle: 1, hairColor: 6, skin: 2, shirt: 3, pants: 4 }
-
-  it('mantém looks válidos, descarta inválidos e chaves fora do padrão de sessão', () => {
-    const out = normalizeOfficeAvatars({
-      ses_a: look,
-      ses_b: { ...look, pants: 99 },
-      dep_12345678: look,
-      ses_c: 'lixo'
-    })
-    expect(out).toEqual({ ses_a: look })
-  })
-
-  it('corta em 300 entradas mantendo as mais recentes', () => {
-    const input: Record<string, unknown> = {}
-    for (let index = 0; index < 305; index++) input[`ses_a${index}`] = look
-    const out = normalizeOfficeAvatars(input)
-    expect(Object.keys(out)).toHaveLength(300)
-    expect(out.ses_a0).toBeUndefined()
-    expect(out.ses_a4).toBeUndefined()
-    expect(out.ses_a5).toEqual(look)
-    expect(out.ses_a304).toEqual(look)
-  })
-
-  it('setOfficeAvatar valida a sessão/look e mantém o mapa na ordem de escrita', () => {
-    holder().get.mockImplementation((key: string, def: unknown) =>
-      key === 'officeAvatars' ? { ses_a: look } : def
-    )
-    expect(setOfficeAvatar('invalido', look).success).toBe(false)
-    expect(setOfficeAvatar('ses_b', { sex: 'alien' }).success).toBe(false)
-    expect(setOfficeAvatar('ses_b', look)).toEqual({ success: true })
-    expect(holder().set).toHaveBeenCalledWith('officeAvatars', { ses_a: look, ses_b: look })
-
-    expect(setOfficeAvatars({ ses_c: look })).toEqual({ success: true })
-    expect(holder().set).toHaveBeenCalledWith('officeAvatars', { ses_c: look })
-    holder().get.mockImplementation((key: string, def: unknown) =>
-      key === 'officeAvatars' ? { ses_c: look } : def
-    )
-    expect(getOfficeAvatars()).toEqual({ ses_c: look })
   })
 })

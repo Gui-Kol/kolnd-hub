@@ -57,6 +57,13 @@ export const GAMEPAD_PROFILES = [
   'generic'
 ] as const satisfies readonly GamepadProfile[]
 
+/**
+ * Índice do botão Guide/Home (PS no DualShock/DualSense, Xbox Guide no
+ * XInputGetStateEx) na Gamepad API. Usado APENAS para detecção (atalho de
+ * entrada no Big Picture) — o mapeamento das 12 ações continua proibindo 16.
+ */
+export const GAMEPAD_GUIDE_BUTTON_INDEX = 16
+
 /** As 12 ações, na ordem canônica — iteração/validação/serialização. */
 export const GAMEPAD_ACTIONS = [
   'confirm',

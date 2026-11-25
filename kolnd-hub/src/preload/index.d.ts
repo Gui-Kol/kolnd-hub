@@ -18,25 +18,8 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type {
-  OfficeArchiveAllResult,
-  OfficeArchivedListResult,
-  OfficeAvatarLook,
-  OfficeAvatarResult,
-  OfficeDepartmentApplyResult,
-  OfficeDepartmentDeleteResult,
-  OfficeDepartmentResult,
-  OfficeHealth,
-  OfficeHireInput,
-  OfficeManageResult,
-  OfficePromptSendInput,
-  OfficeRosterResult,
-  OfficeSessionsListResult,
-  OfficeSetRoleInput,
-  OfficeSnapshot,
-  OfficeTranscriptResult
-} from '../shared/office'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { GameImportReport } from '../shared/gameImport'
 import type {
   PublicIpResult,
   RemoteActionResult,
@@ -67,13 +50,13 @@ declare global {
         running: boolean
       }>
 
-      // ── Acesso remoto (Tailscale) ───────────────────
+      // ── Acesso remoto (ZeroTier) ────────────────────
       remoteStatus: () => Promise<RemoteStatus>
       remoteGetMode: () => Promise<boolean>
       remoteSetMode: (value: boolean) => Promise<RemoteModeResult>
       remotePublicIp: () => Promise<PublicIpResult>
-      remoteInstallTailscale: () => Promise<RemoteActionResult>
-      remoteOpenTailscale: () => Promise<RemoteActionResult>
+      remoteInstallZeroTier: () => Promise<RemoteActionResult>
+      remoteOpenZeroTier: () => Promise<RemoteActionResult>
       remoteOpenKloudWeb: () => Promise<RemoteActionResult>
       remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
 
@@ -300,133 +283,6 @@ declare global {
       hudToggle: () => Promise<HudStatus>
       onHudUpdate: (callback: (update: HudUpdate) => void) => () => void
 
-      // ── OpenOffice (sessões do OpenCode) ─────────────
-      officeSubscribe: () => Promise<OfficeSnapshot | null>
-      officeUnsubscribe: () => Promise<{ ok: boolean }>
-      officeSnapshot: () => Promise<OfficeSnapshot | null>
-      officeStatus: () => Promise<OfficeHealth>
-      onOfficeSnapshot: (callback: (snapshot: OfficeSnapshot) => void) => () => void
-      // Ações (Fase 3). O main valida tudo; recusa vem como
-      // `{ ok: false, reason }` e o modo somente leitura usa 'somente-leitura'.
-      officeApprovePermission: (input: {
-        sessionID: string
-        requestID: string
-        decision: 'once' | 'always'
-        message?: string
-      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
-      officeDenyPermission: (input: {
-        sessionID: string
-        requestID: string
-        message?: string
-      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
-      officeSendMessage: (input: {
-        sessionID: string
-        text: string
-      }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>
-      officeSetActionMode: (input: {
-        enabled: boolean
-      }) => Promise<{ ok: boolean; enabled: boolean }>
-      onOfficeActionResult: (
-        callback: (result: { id: string; ok: boolean; error?: string }) => void
-      ) => () => void
-      // Instalador do plugin do OpenCode (T12). Os tipos canônicos vivem em
-      // `src/main/office/pluginInstaller.ts`; aqui ficam estruturais porque o
-      // tsconfig.web não inclui `src/main` (projeto composite).
-      officePluginStatus: () => Promise<{
-        installed: boolean
-        pluginDirExists: boolean
-        versionInstalled: string | null
-        versionBundled: string
-        stale: boolean
-        configKind: 'json' | 'jsonc' | 'none'
-        entry?: string
-        needsManual: boolean
-        configPath: string
-        pluginDir: string
-        error?: string
-      }>
-      officePluginInstall: () => Promise<{
-        ok: boolean
-        reason?:
-          | 'comentarios'
-          | 'json-invalido'
-          | 'config-nao-objeto'
-          | 'plugins-invalido'
-          | 'io'
-          | 'verificacao'
-        message?: string
-        snippet?: string
-        configPath: string
-        pluginDir: string
-        entry: string
-        changed: boolean
-        backupPath?: string
-      }>
-      officePluginRemove: () => Promise<{
-        ok: boolean
-        removed: boolean
-        reason?:
-          | 'comentarios'
-          | 'json-invalido'
-          | 'config-nao-objeto'
-          | 'plugins-invalido'
-          | 'io'
-          | 'verificacao'
-        message?: string
-        configPath: string
-        backupPath?: string
-      }>
-      officePluginSnippet: () => Promise<{
-        ok: boolean
-        entry: string
-        snippet: string
-        configPath: string
-      }>
-      officePluginStatus: () => Promise<PluginStatus>
-      officePluginInstall: () => Promise<PluginInstallResult>
-      officePluginRemove: () => Promise<PluginRemoveResult>
-      officePluginSnippet: () => Promise<PluginSnippetResult>
-      // Funcionários (Fase 4): sessões reais do OpenCode. "Apagar todos" ARQUIVA
-      // (reversível); exclusão definitiva não faz parte do contrato.
-      officeRosterOptions: (input: { directory: string }) => Promise<OfficeRosterResult>
-      officeHire: (input: OfficeHireInput) => Promise<OfficeManageResult>
-      officeSetRole: (input: OfficeSetRoleInput) => Promise<OfficeManageResult>
-      // Operação direta pelo CLI (sem depender do plugin): prompt, parar e conversa.
-      officePrompt: (input: OfficePromptSendInput) => Promise<OfficeManageResult>
-      officeInterrupt: (input: { sessionID: string }) => Promise<OfficeManageResult>
-      officeTranscript: (input: {
-        sessionID: string
-        limit?: number
-      }) => Promise<OfficeTranscriptResult>
-      officeSessionsList: (input: Record<string, never>) => Promise<OfficeSessionsListResult>
-      officeArchiveAll: (input: Record<string, never>) => Promise<OfficeArchiveAllResult>
-      officeArchivedList: (input: Record<string, never>) => Promise<OfficeArchivedListResult>
-      officeRestore: (input: { sessionID: string }) => Promise<OfficeManageResult>
-      // Aparência e salas-departamento (OpenOffice isométrico). O main valida
-      // sessão, ids `dep_…`, nome e índices de paleta.
-      officeAvatarGet: (input: { sessionID: string }) => Promise<OfficeAvatarResult>
-      officeAvatarSave: (input: {
-        sessionID: string
-        look: OfficeAvatarLook
-      }) => Promise<OfficeManageResult>
-      officeDepartmentCreate: (input: {
-        name: string
-        agentID: string
-      }) => Promise<OfficeDepartmentResult>
-      officeDepartmentUpdate: (input: {
-        id: string
-        name?: string
-        agentID?: string
-      }) => Promise<OfficeDepartmentResult>
-      officeDepartmentDelete: (input: { id: string }) => Promise<OfficeDepartmentDeleteResult>
-      officeDepartmentAssign: (input: {
-        sessionID: string
-        departmentID: string
-        applyRole: boolean
-      }) => Promise<OfficeDepartmentApplyResult>
-      officeDepartmentUnassign: (input: { sessionID: string }) => Promise<OfficeManageResult>
-      officeDepartmentApplyRole: (input: { id: string }) => Promise<OfficeDepartmentApplyResult>
-
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<
         Array<{
@@ -434,9 +290,15 @@ declare global {
           name: string
           exePath: string
           iconPath: string | null
-          origin: 'steam' | 'custom'
+          origin: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number
           addedAt: string
+          favorite?: boolean
+          collections?: string[]
+          playtimeSeconds?: number
+          playtimeDays?: Record<string, number>
+          lastPlayedAt?: string
+          coverPath?: string | null
         }>
       >
       addGame: (game: {
@@ -444,7 +306,7 @@ declare global {
         name: string
         exePath: string
         iconPath?: string | null
-        origin: 'steam' | 'custom'
+        origin: 'steam' | 'epic' | 'minecraft' | 'custom'
         steamAppId?: number
         addedAt?: string
       }) => Promise<{ success: boolean; error?: string }>
@@ -454,10 +316,17 @@ declare global {
           name?: string
           exePath?: string
           iconPath?: string | null
-          origin?: 'steam' | 'custom'
+          origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
           steamAppId?: number | null
+          favorite?: boolean
+          collections?: string[]
+          coverPath?: string | null
         }
       ) => Promise<{ success: boolean; error?: string }>
+      getGameCollections: () => Promise<string[]>
+      createGameCollection: (
+        name: string
+      ) => Promise<{ success: boolean; error?: string; collections?: string[] }>
       removeGame: (id: string) => Promise<{ success: boolean; error?: string }>
       // Edição de jogos (T9)
       pickGameIcon: () => Promise<{
@@ -489,20 +358,23 @@ declare global {
       stopGame: (id: string) => Promise<{ ok: boolean; error?: string; killed?: number }>
       getRunningGames: (ids: string[]) => Promise<{ ok: boolean; running: Record<string, boolean> }>
       getGameIcon: (id: string) => Promise<string | null>
+      pickGameCover: () => Promise<{
+        success: boolean
+        canceled?: boolean
+        dataUrl?: string
+        error?: string
+      }>
+      setGameCover: (
+        id: string,
+        dataUrl: string
+      ) => Promise<{ success: boolean; coverPath?: string | null; error?: string }>
+      getGameCover: (id: string) => Promise<string | null>
       addCustomGame: (
         exePath: string
       ) => Promise<{ success: boolean; id?: string; name?: string; error?: string }>
 
-      // ── Steam ───────────────────────────────────
-      importSteamGames: () => Promise<{
-        ok: boolean
-        imported: number
-        alreadyInLibrary: number
-        ignoredTools: number
-        noExe: number
-        errors: string[]
-        error?: string
-      }>
+      // ── Busca de jogos (Steam + Epic Games + Minecraft Launcher) ──
+      importGames: () => Promise<GameImportReport>
 
       // ── Diálogos (Configurações) ────────────────────
       pickAppPath: (

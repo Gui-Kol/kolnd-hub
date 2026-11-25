@@ -8,7 +8,7 @@ import type { E2eContext } from './global-setup'
  * Acesso remoto (Configurações): a seção renderiza com o estado REAL do main.
  *
  * A lista de passos só aparece depois de `remote:status` responder, então
- * encontrá-la prova o caminho IPC → detecção de Tailscale/interfaces → probes
+ * encontrá-la prova o caminho IPC → detecção de ZeroTier/interfaces → probes
  * TCP → renderer. Nenhuma ação externa é clicada aqui (nem winget, nem IP
  * público, nem abrir navegador).
  */
@@ -27,6 +27,7 @@ test('configurações: seção de acesso remoto renderiza com status do main', a
     env: {
       ...process.env,
       KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
+      ZEROTIER_CLI: join(ctx.stubsDir, 'zerotier-cli.exe'),
       PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
     }
   })
@@ -72,6 +73,7 @@ test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
     env: {
       ...process.env,
       KOLDND_HUB_TEST_USERDATA: ctx.userDataDir,
+      ZEROTIER_CLI: join(ctx.stubsDir, 'zerotier-cli.exe'),
       PATH: `${ctx.stubsDir}${delimiter}${process.env.PATH ?? ''}`
     }
   })
@@ -85,8 +87,8 @@ test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
     const kloudCard = window.locator('[data-testid="app-card"]').filter({ hasText: 'Kloud Games' })
     await expect(kloudCard).toBeVisible()
 
-    // Começa desligado; com o `tailscale.exe` stubado (conectado, IP fixo) o
-    // modo liga de verdade, e o card mostra o endereço para o Moonlight.
+    // Começa desligado; com o `zerotier-cli.exe` stubado (online, rede OK, IP
+    // fixo) o modo liga de verdade e o card mostra o endereço para o Moonlight.
     const offButton = kloudCard.getByRole('button', { name: 'Modo remoto' })
     await expect(offButton).toHaveAttribute('aria-pressed', 'false')
     await offButton.click()
@@ -94,17 +96,17 @@ test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
     const onButton = kloudCard.getByRole('button', { name: 'Remoto ativo' })
     await expect(onButton).toBeVisible()
     await expect(onButton).toHaveAttribute('aria-pressed', 'true')
-    await expect(kloudCard.getByText('100.101.102.103')).toBeVisible()
+    await expect(kloudCard.getByText('10.147.20.5')).toBeVisible()
 
-    // Desligar não derruba o Tailscale — só o modo do Hub.
+    // Desligar não derruba o ZeroTier — só o modo do Hub.
     await onButton.click()
     await expect(kloudCard.getByRole('button', { name: 'Modo remoto' })).toHaveAttribute(
       'aria-pressed',
       'false'
     )
-    await expect(kloudCard.getByText('100.101.102.103')).toHaveCount(0)
+    await expect(kloudCard.getByText('10.147.20.5')).toHaveCount(0)
 
-    // Ajuda: instruções local + remoto, com o endereço real da tailnet.
+    // Ajuda: instruções local + remoto, com o endereço real da rede ZeroTier.
     await kloudCard
       .getByRole('button', { name: 'Como conectar no Moonlight (local e remoto)' })
       .click()
@@ -112,7 +114,7 @@ test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('Na mesma rede (local)', { exact: true })).toBeVisible()
     await expect(dialog.getByText('De qualquer lugar (remoto)', { exact: true })).toBeVisible()
-    await expect(dialog.getByText('100.101.102.103').first()).toBeVisible()
+    await expect(dialog.getByText('10.147.20.5').first()).toBeVisible()
 
     // O atalho leva para a seção completa em Configurações.
     await dialog.getByRole('button', { name: /Abrir Acesso remoto/ }).click()

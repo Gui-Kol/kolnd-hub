@@ -25,9 +25,9 @@ import { registerFpsIpc } from './fps'
 import { registerFpsAutoIpc } from './fps/agent'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
-import { registerGamesIpc, repairGameIconsIfNeeded } from './games'
+import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
-import { registerSteamIpc } from './steamScanner'
+import { registerGameImportIpc } from './gameImport'
 import { seedMarkLviData } from './programsDeployer'
 import { registerShellIpc, isAllowedExternalUrl } from './ipc/shell'
 import { registerDialogIpc } from './ipc/dialog'
@@ -40,7 +40,6 @@ import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
-import { registerOfficeIpc } from './ipc/office'
 import type { IpcContext } from './ipc/lifecycle'
 import { isQuitting, markQuitting } from './quitState'
 import { logger } from './logger'
@@ -346,14 +345,11 @@ app.whenReady().then(() => {
   // transparente always-on-top. Restaura a preferência persistida.
   registerHudIpc(ctx)
 
-  // Registra os canais IPC do escritório (sessões do OpenCode na página OpenOffice).
-  registerOfficeIpc(ctx)
-
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()
 
-  // Registra os canais IPC da importação de jogos da Steam.
-  registerSteamIpc()
+  // Registra o canal IPC único da busca de jogos (Steam + Epic + Minecraft).
+  registerGameImportIpc()
 
   // Registra os canais IPC de validação de linha de comando (Configurações).
   registerCommandValidateIpc()
@@ -429,6 +425,16 @@ if (gotSingleInstanceLock) {
   app.on('before-quit', () => {
     // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
     markQuitting()
+    // Tempo de jogo pendente: flush síncrono no store. Durante a desinstalação
+    // destrutiva NÃO grava (o fluxo pode estar apagando o userData; o
+    // travamento do app continua intacto).
+    if (!isAnyUninstallInProgress()) {
+      try {
+        flushPlaytimeTracking()
+      } catch (err) {
+        logger.warn('games', 'Falha ao salvar tempo de jogo na saída:', err)
+      }
+    }
     // Aqui a opção mais simples e determinística é o kill SÍNCRONO: o quit do
     // Electron não espera promises e preventDefault + espera assíncrona poderia
     // prender a saída se um filho travasse. taskkill /T /F leva poucos ms e

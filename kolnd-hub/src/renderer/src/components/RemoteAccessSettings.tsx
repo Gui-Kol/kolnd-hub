@@ -20,7 +20,7 @@ import {
   networkKindBadge,
   parseRemoteStatus,
   summarizePorts,
-  tailscaleBadge,
+  zeroTierBadge,
   type RemoteTone
 } from '../lib/remoteAccess'
 import type { ReactNode } from 'react'
@@ -56,7 +56,7 @@ function toneForText(tone: RemoteTone): string {
   }
 }
 
-/** Cartão de estado dentro do bloco (Tailscale · Kloud Games · Rede). */
+/** Cartão de estado dentro do bloco (ZeroTier · Kloud Games · Rede). */
 function StatusTile({
   icon,
   title,
@@ -173,12 +173,12 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
     if (action) return
     setAction('install')
     try {
-      const result = await window.api.remoteInstallTailscale()
+      const result = await window.api.remoteInstallZeroTier()
       if (!result.success) throw new Error(result.error ?? 'A instalação falhou.')
       notify(
         result.installedNow
-          ? 'Tailscale instalado. Clique em “Abrir Tailscale” e entre com sua conta.'
-          : 'O Tailscale já está instalado.',
+          ? 'ZeroTier instalado. Clique em “Abrir ZeroTier” e entre na sua rede.'
+          : 'O ZeroTier já está instalado.',
         'success'
       )
       await refresh()
@@ -190,22 +190,23 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
     }
   }
 
-  const openTailscale = async (): Promise<void> => {
+  const openZeroTier = async (): Promise<void> => {
     if (action) return
     setAction('open')
     try {
-      const result = await window.api.remoteOpenTailscale()
-      if (!result.success) throw new Error(result.error ?? 'Não foi possível abrir o Tailscale.')
+      const result = await window.api.remoteOpenZeroTier()
+      if (!result.success) throw new Error(result.error ?? 'Não foi possível abrir o ZeroTier.')
       if (result.opened === 'download') {
-        notify('Abrimos a página de download do Tailscale no navegador.', 'info')
-      } else if (result.opened === 'login') {
-        notify('Login do Tailscale iniciado — conclua pelo navegador.', 'info')
+        notify('Abrimos a página de download do ZeroTier no navegador.', 'info')
       } else {
-        notify('Tailscale aberto. Entre com a mesma conta nos aparelhos.', 'info')
+        notify(
+          'ZeroTier aberto. Entre na sua rede e aguarde o status OK nos dois aparelhos.',
+          'info'
+        )
       }
       await refresh()
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Não foi possível abrir o Tailscale.', 'error')
+      notify(err instanceof Error ? err.message : 'Não foi possível abrir o ZeroTier.', 'error')
     } finally {
       setAction(null)
     }
@@ -257,9 +258,9 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
     }
   }
 
-  const ts = status?.tailscale
-  const tsBadge = ts ? tailscaleBadge(ts) : { tone: 'neutral' as RemoteTone, label: 'Lendo…' }
-  const address = ts ? bestRemoteAddress(ts) : null
+  const zt = status?.zerotier
+  const ztBadge = zt ? zeroTierBadge(zt) : { tone: 'neutral' as RemoteTone, label: 'Lendo…' }
+  const address = zt ? bestRemoteAddress(zt) : null
   const ports = status ? summarizePorts(status.ports) : null
   const closed = status ? closedLocalhostPorts(status.ports) : []
   const netBadge = networkKindBadge(status?.publicIp.kind ?? 'unknown')
@@ -280,8 +281,8 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
               <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
                 O Moonlight transmite vídeo, áudio e controle por <strong>UDP</strong>. Proxy HTTP
                 (Cloudflare Tunnel, ngrok) não carrega esse tráfego — por isso o caminho recomendado
-                é o <strong>Tailscale</strong>: uma rede privada WireGuard que atravessa NAT e CGNAT
-                sem abrir porta no roteador.
+                é o <strong>ZeroTier</strong>: uma rede privada que atravessa NAT e CGNAT sem abrir
+                porta no roteador.
               </p>
             </div>
           </div>
@@ -309,23 +310,25 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
             </p>
           )}
 
-          {status && ts && (
+          {status && zt && (
             <>
               <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
                 <StatusTile
                   icon={<Network size={16} aria-hidden="true" />}
-                  title="Tailscale"
-                  badge={tsBadge}
+                  title="ZeroTier"
+                  badge={ztBadge}
                 >
-                  {!ts.installed && <p>Não instalado. Instale para criar sua rede privada.</p>}
-                  {ts.installed && !ts.connected && (
+                  {!zt.installed && <p>Não instalado. Instale para entrar na sua rede privada.</p>}
+                  {zt.installed && !zt.connected && (
                     <p>
-                      Instalado, mas desconectado
-                      {ts.backendState ? ` (${ts.backendState})` : ''}. Abra o Tailscale e entre com
-                      sua conta.
+                      {!zt.online
+                        ? 'Instalado, mas o serviço está desligado. Abra o ZeroTier para conectar.'
+                        : zt.networkId
+                          ? `Rede “${zt.network ?? zt.networkId}”${zt.networkStatus ? ` (${zt.networkStatus})` : ''} — sem endereço utilizável. Autorize este nó no painel do ZeroTier e aguarde o status OK.`
+                          : 'Instalado e on-line, mas nenhuma rede foi ingressada. Abra o ZeroTier e entre na sua rede.'}
                     </p>
                   )}
-                  {ts.connected && (
+                  {zt.connected && (
                     <>
                       <p className="text-ink-primary">
                         Endereço para o Moonlight:{' '}
@@ -344,16 +347,22 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                           <ClipboardCopy size={12} aria-hidden="true" /> Copiar endereço
                         </Button>
                       )}
-                      {ts.dnsName && address !== ts.dnsName && (
-                        <p className="break-all">MagicDNS: {ts.dnsName}</p>
-                      )}
-                      {ts.onlinePeers > 0 && (
-                        <p>{ts.onlinePeers} aparelho(s) on-line na tailnet.</p>
+                      {zt.network && (
+                        <p className="break-all">
+                          Rede: {zt.network}
+                          {zt.networkId ? ` (${zt.networkId})` : ''}
+                        </p>
                       )}
                     </>
                   )}
-                  {ts.error && (
-                    <p className="break-words text-[10px] text-ink-tertiary">{ts.error}</p>
+                  {zt.nodeId && (
+                    <p className="break-all text-[10px] text-ink-tertiary">
+                      Node ID: {zt.nodeId}
+                      {zt.version ? ` · v${zt.version}` : ''}
+                    </p>
+                  )}
+                  {zt.error && (
+                    <p className="break-words text-[10px] text-ink-tertiary">{zt.error}</p>
                   )}
                 </StatusTile>
 
@@ -387,9 +396,9 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                       abertas.
                     </p>
                   )}
-                  {ts.connected && ports && (
+                  {zt.connected && ports && (
                     <p>
-                      No IP da tailnet: <strong>{ports.tailscaleOpen}</strong> de{' '}
+                      No IP da VPN: <strong>{ports.zerotierOpen}</strong> de{' '}
                       {KLOUD_TCP_PORTS.length} abertas.
                     </p>
                   )}
@@ -413,14 +422,14 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                   )}
                   {status.publicIp.kind === 'cgnat' && (
                     <p className={toneForText('warning')}>
-                      Sua operadora usa CGNAT: port forward não funciona. Use o Tailscale.
+                      Sua operadora usa CGNAT: port forward não funciona. Use o ZeroTier.
                     </p>
                   )}
                 </StatusTile>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                {!ts.installed ? (
+                {!zt.installed ? (
                   confirmInstall ? (
                     <>
                       <Button
@@ -446,13 +455,13 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                     </>
                   ) : (
                     <Button variant="primary" onClick={() => setConfirmInstall(true)}>
-                      <ExternalLink size={14} aria-hidden="true" /> Instalar Tailscale
+                      <ExternalLink size={14} aria-hidden="true" /> Instalar ZeroTier
                     </Button>
                   )
                 ) : (
                   <Button
                     variant="primary"
-                    onClick={() => void openTailscale()}
+                    onClick={() => void openZeroTier()}
                     disabled={action !== null}
                     className="disabled:cursor-wait"
                   >
@@ -461,7 +470,7 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                     ) : (
                       <Monitor size={14} aria-hidden="true" />
                     )}
-                    {ts.connected ? 'Abrir Tailscale' : 'Conectar Tailscale'}
+                    {zt.connected ? 'Abrir ZeroTier' : 'Abrir ZeroTier e entrar na rede'}
                   </Button>
                 )}
 
@@ -492,8 +501,8 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                 <div className="mt-3 rounded-control border border-warn-border bg-warn-bg px-4 py-3">
                   <p className="text-[11px] leading-relaxed text-warn">
                     A instalação usa o <strong>winget</strong> e abre o Windows UAC (precisa de
-                    administrador). O Tailscale é um cliente oficial, BSD-3-Clause. Nada é
-                    configurado sem você entrar com a sua conta depois.
+                    administrador). O ZeroTier One é um cliente oficial, BSL 1.1. Nada é configurado
+                    sem você entrar na sua rede depois.
                   </p>
                 </div>
               )}
@@ -503,7 +512,7 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                   O IP público só é consultado quando você clicar, em{' '}
                   <code className="font-mono">{PUBLIC_IP_ENDPOINT}</code>. O Hub guarda apenas o
                   resultado no seu <code className="font-mono">config.json</code> — nenhuma
-                  credencial do Tailscale passa por aqui.
+                  credencial do ZeroTier passa por aqui.
                 </p>
                 <Button
                   variant="secondary"
@@ -523,13 +532,17 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
 
               <ol className="mt-5 list-decimal space-y-1.5 pl-5 text-[11px] leading-relaxed text-ink-secondary">
                 <li>
-                  Instale o Tailscale <strong>neste PC</strong> e no aparelho onde vai jogar
-                  (celular/notebook/TV), entrando com a mesma conta.
+                  Instale o ZeroTier <strong>neste PC</strong> e no aparelho onde vai jogar
+                  (celular/notebook/TV).
+                </li>
+                <li>
+                  Entre em <strong>my.zerotier.com</strong>, crie ou abra a sua rede e ingresse os
+                  dois aparelhos pelo app do ZeroTier (o Hub não entra na rede por você).
                 </li>
                 <li>Mantenha o Kloud Games em execução (Dashboard do Hub).</li>
                 <li>
                   No Moonlight, adicione um PC com o endereço{' '}
-                  <code className="font-mono text-ink-primary">{address ?? '100.x.y.z'}</code>.
+                  <code className="font-mono text-ink-primary">{address ?? '10.x.y.z'}</code>.
                 </li>
                 <li>
                   O Moonlight mostra um PIN. Abra o painel do Kloud Games e digite o PIN para
@@ -537,7 +550,7 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                 </li>
                 <li>
                   Jogue de qualquer rede — nenhuma porta do roteador precisa ser aberta. No celular,
-                  deixe a VPN do Tailscale ativa antes de abrir o Moonlight.
+                  deixe o ZeroTier conectado antes de abrir o Moonlight.
                 </li>
               </ol>
             </>

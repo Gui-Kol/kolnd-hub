@@ -27,6 +27,22 @@ function isHudScaleValue(value: unknown): value is HudScale {
   return value === 'compacta' || value === 'normal' || value === 'grande'
 }
 
+const FPS_AUTO_STATES = ['off', 'installing', 'running', 'stale', 'error'] as const
+const FPS_AUTO_REASONS = ['source-stopped', 'stale', 'no-target', 'no-presents'] as const
+
+/** Valida o estado compacto do FPS que chega junto do push da sobreposição. */
+function isHudFpsStatus(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (!(FPS_AUTO_STATES as readonly unknown[]).includes(value.state)) return false
+  if (
+    value.reason !== undefined &&
+    !(FPS_AUTO_REASONS as readonly unknown[]).includes(value.reason)
+  )
+    return false
+  if (value.error !== undefined && typeof value.error !== 'string') return false
+  return true
+}
+
 /** O renderer não confia no IPC: valida a forma antes de renderizar qualquer número. */
 function isHudUpdate(value: unknown): value is HudUpdate {
   if (!isRecord(value)) return false
@@ -44,6 +60,8 @@ function isHudUpdate(value: unknown): value is HudUpdate {
     if (typeof value.fps.active !== 'boolean') return false
     if (value.fps.error !== undefined && typeof value.fps.error !== 'string') return false
   }
+  // Aditivo: payload de versão anterior (sem fpsStatus) continua válido.
+  if (value.fpsStatus !== undefined && !isHudFpsStatus(value.fpsStatus)) return false
   return true
 }
 
@@ -70,6 +88,22 @@ function formatTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return DASH
   return date.toLocaleTimeString('pt-BR')
+}
+
+/**
+ * Rodapé explica o "—": a mesma fonte elevada pode estar parada, com amostra
+ * velha, sem alvo em primeiro plano ou sem presents — nunca um traço mudo.
+ */
+function fpsStatusLabel(status: HudUpdate['fpsStatus'] | null): string {
+  if (!status) return 'aguardando FPS'
+  if (status.state === 'error' || status.error) return 'erro na fonte de FPS'
+  if (status.reason === 'source-stopped') return 'fonte de FPS parada'
+  if (status.reason === 'stale') return 'amostra de FPS velha'
+  if (status.reason === 'no-target') return 'sem alvo em primeiro plano'
+  if (status.reason === 'no-presents') return 'sem quadros do alvo'
+  if (status.state === 'installing') return 'ativando leitura elevada'
+  if (status.state === 'running') return 'ETW local · sem injeção'
+  return 'aguardando FPS'
 }
 
 interface Typography {
@@ -206,9 +240,9 @@ export function HudOverlay(): JSX.Element {
   const typography = TYPOGRAPHY[update?.size.scale ?? 'normal']
   const snapshot = update?.snapshot ?? null
   const fpsUpdate = update?.fps ?? null
-  const fpsActive = fpsUpdate?.active === true
-  const fps = fpsActive ? finite(fpsUpdate?.fps) : null
-  const frametime = fpsActive ? finite(fpsUpdate?.frametimeMs) : null
+  const fpsStatus = update?.fpsStatus ?? null
+  const fps = fpsUpdate?.active === true ? finite(fpsUpdate?.fps) : null
+  const frametime = fpsUpdate?.active === true ? finite(fpsUpdate?.frametimeMs) : null
 
   const cpu = snapshot?.cpu ?? null
   const gpu = snapshot?.gpu ?? null
@@ -218,6 +252,9 @@ export function HudOverlay(): JSX.Element {
   const cpuUsage = finite(cpu?.usagePercent)
   const cpuClock = finite(cpu?.clockMhz)
   const cpuTemp = finite(cpu?.tempC)
+  // Vcore só existe quando a leitura elevada (SVI2/IA32_PERF_STATUS) responde;
+  // `null` continua "—" para não exibir estimativa como medição.
+  const cpuVoltage = finite(cpu?.voltageV)
   const cpuWatts = finite(power?.cpuW) ?? finite(cpu?.watts) ?? finite(power?.cpuEstimatedW)
 
   const gpuUsage = finite(gpu?.usagePercent)
@@ -313,6 +350,13 @@ export function HudOverlay(): JSX.Element {
             value={cpuTemp === null ? <Dash /> : formatDecimal(cpuTemp, 1)}
             unit="°C"
             testId="hud-cpu-temp"
+            typography={typography}
+          />
+          <Metric
+            label="Vcore"
+            value={cpuVoltage === null ? <Dash /> : formatDecimal(cpuVoltage, 3)}
+            unit="V"
+            testId="hud-cpu-voltage"
             typography={typography}
           />
           <Metric
@@ -473,8 +517,11 @@ export function HudOverlay(): JSX.Element {
         >
           {update ? formatTime(update.capturedAt) : 'aguardando…'}
         </span>
-        <span className={`${typography.label} ml-auto whitespace-nowrap text-white/30`}>
-          {fpsActive ? 'ETW local · sem injeção' : 'sem medição de FPS'}
+        <span
+          className={`${typography.label} ml-auto whitespace-nowrap text-white/30`}
+          data-testid="hud-fps-state"
+        >
+          {fpsStatusLabel(fpsStatus)}
         </span>
       </div>
     </div>

@@ -59,6 +59,28 @@ const config = ref(props.config)
       <div class="kg-help">{{ $t('config.av1_mode_desc') }}</div>
     </div>
 
+    <!-- MPEG-2 Support -->
+    <div class="kg-field">
+      <label for="mpeg2_mode" class="kg-label">{{ $t('config.mpeg2_mode') }}</label>
+      <select id="mpeg2_mode" class="kg-select" v-model="config.mpeg2_mode">
+        <option value="0">{{ $t('config.mpeg2_mode_0') }}</option>
+        <option value="1">{{ $t('config.mpeg2_mode_1') }}</option>
+        <option value="2">{{ $t('config.mpeg2_mode_2') }}</option>
+      </select>
+      <div class="kg-help">{{ $t('config.mpeg2_mode_desc') }}</div>
+    </div>
+
+    <!-- H.263+ Support -->
+    <div class="kg-field">
+      <label for="h263p_mode" class="kg-label">{{ $t('config.h263p_mode') }}</label>
+      <select id="h263p_mode" class="kg-select" v-model="config.h263p_mode">
+        <option value="0">{{ $t('config.h263p_mode_0') }}</option>
+        <option value="1">{{ $t('config.h263p_mode_1') }}</option>
+        <option value="2">{{ $t('config.h263p_mode_2') }}</option>
+      </select>
+      <div class="kg-help">{{ $t('config.h263p_mode_desc') }}</div>
+    </div>
+
     <!-- Capture -->
     <div class="kg-field" v-if="platform !== 'macos'">
       <label for="capture" class="kg-label">{{ $t('config.capture') }}</label>

@@ -1,6 +1,16 @@
 import { existsSync, rmSync, statSync } from 'fs'
 import { basename, extname, isAbsolute, join } from 'path'
-import { getStoredGames, setStoredGames, normalizeGame, GameOrigin } from '../store'
+import {
+  getStoredGames,
+  setStoredGames,
+  getGameCollections,
+  setGameCollections,
+  normalizeGame,
+  normalizeGameCollections,
+  MAX_GAME_COLLECTIONS,
+  MAX_GAME_COLLECTION_TAGS,
+  GameOrigin
+} from '../store'
 import {
   formatGameName,
   exePathHash,
@@ -16,6 +26,7 @@ import {
   extractIconPng,
   deleteCachedIcon
 } from './icons'
+import { resolveCoverInsideGameCovers, deleteStaleCovers, deleteCachedCover } from './covers'
 import { logger } from '../logger'
 
 /**
@@ -32,6 +43,17 @@ export interface Game {
   origin: GameOrigin
   steamAppId?: number
   addedAt: string
+  favorite?: boolean
+  collections?: string[]
+  playtimeSeconds?: number
+  playtimeDays?: Record<string, number>
+  lastPlayedAt?: string
+  coverPath?: string | null
+}
+
+/** Resultado de `games:collection-create` — inclui a lista atualizada. */
+export interface CreateCollectionResult extends GameResult {
+  collections?: string[]
 }
 
 /** Resultado de `games:add-custom` — inclui o nome formatado para o toast de confirmação. */
@@ -42,6 +64,45 @@ export interface AddCustomGameResult extends GameResult {
 
 export function getGames(): Game[] {
   return getStoredGames()
+}
+
+/** Reexporta a leitura das coleções (mesma fonte da chave `gameCollections`). */
+export { getGameCollections } from '../store'
+
+/**
+ * Cria uma coleção nova (`games:collection-create`). Deduplica sem diferenciar
+ * caixa, respeita o cap de 30 e devolve a lista atualizada para a UI.
+ */
+export function createGameCollection(nameInput: unknown): CreateCollectionResult {
+  const invalidError = 'Informe um nome de coleção entre 1 e 24 caracteres.'
+  if (typeof nameInput !== 'string') return { success: false, error: invalidError }
+  const [name] = normalizeGameCollections([nameInput], 1)
+  if (!name) return { success: false, error: invalidError }
+
+  const current = getGameCollections()
+  const key = name.toLowerCase()
+  if (current.some((collection) => collection.toLowerCase() === key)) {
+    return { success: false, error: 'Já existe uma coleção com esse nome.', collections: current }
+  }
+  if (current.length >= MAX_GAME_COLLECTIONS) {
+    return {
+      success: false,
+      error: `Você já tem o máximo de ${MAX_GAME_COLLECTIONS} coleções.`,
+      collections: current
+    }
+  }
+
+  const next = [...current, name]
+  const saved = setGameCollections(next)
+  if (!saved.success) {
+    return {
+      success: false,
+      error: saved.error ?? 'Não foi possível criar a coleção.',
+      collections: current
+    }
+  }
+  logger.info('games', `Coleção criada: ${name}`)
+  return { success: true, collections: next }
 }
 
 export function addGame(input: unknown): GameResult {
@@ -153,7 +214,16 @@ export function checkExePaths(pathsInput: unknown): boolean[] {
 }
 
 /** Campos do patch que o renderer pode alterar (whitelist). */
-const PATCHABLE_FIELDS = ['name', 'exePath', 'iconPath', 'origin', 'steamAppId'] as const
+const PATCHABLE_FIELDS = [
+  'name',
+  'exePath',
+  'iconPath',
+  'origin',
+  'steamAppId',
+  'favorite',
+  'collections',
+  'coverPath'
+] as const
 
 export function updateGame(id: unknown, patch: unknown): GameResult {
   if (!isValidId(id)) {
@@ -208,7 +278,7 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         }
         break
       case 'origin':
-        if (value !== 'steam' && value !== 'custom') {
+        if (value !== 'steam' && value !== 'epic' && value !== 'minecraft' && value !== 'custom') {
           return { success: false, error: 'Origem do jogo inválida.' }
         }
         merged.origin = value
@@ -222,6 +292,35 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
           return { success: false, error: 'steamAppId inválido.' }
         }
         merged.steamAppId = value
+        break
+      case 'favorite':
+        if (typeof value !== 'boolean') {
+          return { success: false, error: 'Valor inválido para favorito.' }
+        }
+        merged.favorite = value
+        break
+      case 'collections':
+        if (!Array.isArray(value)) {
+          return { success: false, error: 'Lista de coleções inválida.' }
+        }
+        merged.collections = normalizeGameCollections(value, MAX_GAME_COLLECTION_TAGS)
+        break
+      case 'coverPath':
+        // null limpa a capa (o card volta ao ícone/fallback visual).
+        if (value === null) {
+          merged.coverPath = null
+          break
+        }
+        {
+          const resolved = resolveCoverInsideGameCovers(value)
+          if (!resolved) {
+            return {
+              success: false,
+              error: 'A capa deve estar dentro da pasta de capas do Kolnd Hub.'
+            }
+          }
+          merged.coverPath = resolved
+        }
         break
     }
   }
@@ -252,6 +351,21 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
     }
     deleteStaleIcons(updated.id, resolvedNew)
   }
+
+  // Capa trocada/limpa: depois de persistir com sucesso, apaga o arquivo antigo
+  // (se estava na pasta de capas e não é mais o referenciado) e sobras do id.
+  if ('coverPath' in raw) {
+    const resolvedNew = resolveCoverInsideGameCovers(updated.coverPath)
+    const resolvedOld = resolveCoverInsideGameCovers(current.coverPath)
+    if (resolvedOld && resolvedOld !== resolvedNew) {
+      try {
+        rmSync(resolvedOld, { force: true })
+      } catch (err) {
+        logger.warn('games', `Não foi possível apagar a capa antiga ${resolvedOld}:`, err)
+      }
+    }
+    deleteStaleCovers(updated.id, resolvedNew)
+  }
   logger.info('games', `Jogo atualizado: ${updated.name} (${updated.id})`)
   return { success: true }
 }
@@ -275,6 +389,7 @@ export function removeGame(id: unknown): GameResult {
 
   // Só apaga o ícone cacheado DEPOIS de persistir a remoção.
   deleteCachedIcon(removed)
+  deleteCachedCover(removed)
   logger.info('games', `Jogo removido: ${removed.name} (${removed.id})`)
   return { success: true }
 }

@@ -39,7 +39,7 @@ export interface AppState {
   source?: 'hub' | 'background'
 }
 
-export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca' | 'openoffice'
+export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca'
 
 // Tipos do modo Big Picture (lib/gamepad, T1) re-exportados para consumo único.
 export type {
@@ -85,6 +85,7 @@ export type {
 // Tipos da medição de FPS/frametime por ETW — fonte única em `src/shared/fps.ts`.
 export type {
   FpsAutoActionResult,
+  FpsAutoReason,
   FpsAutoSample,
   FpsAutoState,
   FpsAutoStatus,
@@ -97,26 +98,24 @@ export type {
 } from '../../shared/fps'
 
 // Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
-export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
+export type {
+  HudConfig,
+  HudFpsStatus,
+  HudScale,
+  HudSize,
+  HudStatus,
+  HudUpdate
+} from '../../shared/hud'
 
-/** Relatório da importação de jogos da Steam (IPC `steam:import`). */
-export interface SteamImportResult {
-  ok: boolean
-  /** Jogos efetivamente adicionados nesta importação. */
-  imported: number
-  /** Jogos já presentes na biblioteca (mesmo `steamAppId`) — reimportar não duplica. */
-  alreadyInLibrary: number
-  /** Entradas descartadas por serem ferramentas/redistribuíveis ou inválidas. */
-  ignoredTools: number
-  /** Jogos válidos sem executável localizado na pasta de instalação. */
-  noExe: number
-  /** Falhas por jogo — nunca abortam a importação dos demais. */
-  errors: string[]
-  /** Mensagem de erro global (ex.: Steam não detectada). */
-  error?: string
-}
+export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 
-export type GameOrigin = 'steam' | 'custom'
+// Contratos da busca de jogos (Steam + Epic Games + Minecraft Launcher).
+// Fonte única em `src/shared/gameImport.ts` — não duplicar aqui.
+export type {
+  GameImportReport,
+  GameImportSourceId,
+  GameSourceImportReport
+} from '../../shared/gameImport'
 
 /** Resultado da adição de um jogo personalizado (IPC `games:add-custom`). */
 export interface AddCustomGameResult {
@@ -139,6 +138,18 @@ export interface Game {
   origin: GameOrigin
   steamAppId?: number
   addedAt: string
+  /** Marcado como favorito na Biblioteca/Big Picture. */
+  favorite?: boolean
+  /** Coleções do jogo (máx. 8 nomes, 1–24 chars cada). */
+  collections?: string[]
+  /** Total acumulado de tempo de jogo, em segundos. */
+  playtimeSeconds?: number
+  /** Segundos por dia local (`YYYY-MM-DD`), até 60 dias. */
+  playtimeDays?: Record<string, number>
+  /** ISO da última vez que o jogo foi aberto pelo Hub. */
+  lastPlayedAt?: string
+  /** Caminho absoluto da capa escolhida (dentro de `game-covers/`); null = sem capa. */
+  coverPath?: string | null
 }
 
 export interface SystemProcess {

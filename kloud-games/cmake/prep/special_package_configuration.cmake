@@ -1,4 +1,4 @@
-﻿if(UNIX)
+if(UNIX)
     if(${KLOUD_GAMES_CONFIGURE_HOMEBREW})
         configure_file(packaging/KLOUD_GAMES.rb KLOUD_GAMES.rb @ONLY)
     endif()

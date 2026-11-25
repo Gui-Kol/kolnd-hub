@@ -47,8 +47,8 @@ npm run verify:build # verify + build (gate completo antes de empacotar)
 ### Cobertura de testes (V8)
 
 - `npm run test:coverage` roda `vitest run --coverage` (provider **V8**, reporters `text`/`html`/`lcov`, saída em `kolnd-hub/coverage/`, gitignored).
-- **Medição atual (13/11/2026):** `src/main` ≈ **44,36%** linhas/statements, **79,36%** branches, **72,8%** functions; `renderer/src/lib` ≈ **98,87%** linhas; `renderer/src/lib/gamepad` ≈ **98,56%**; renderer de componentes e `preload` ≈ **0%** (não há testes de React/preload hoje). "All files" ≈ 17,9% porque a suíte só cobre lógica pura.
-- **Limiares** (`vitest.config.ts`, escopados a `src/main/**`): lines/statements **39**, functions **67**, branches **74** — ~5 p.p. abaixo da medição, conservadores de propósito. Hoje eles são **informativos**: o CI tem o step **Coverage (informativo)** com `continue-on-error: true`, que imprime o resumo e sobe o artifact `coverage/` (7 dias). Falha de limiar no log = sinal de regressão, **não** de build quebrado; promover para bloqueante é decisão futura, com a base já verde e medida.
+- **Medição atual (24/11/2026, 1.893 testes passando):** `src/main` **93,83%** linhas (86,68% branches, 97,13% funções); `src/shared` **98,13%** linhas; `src/preload` **100%** (contrato de `window.api`); `renderer/src/lib` **98,97%** linhas; `renderer/src/hooks` **99,64%** linhas. "All files" ≈ **95,06%**.
+- **Limiares** (`vitest.config.ts`): `src/main/**` ≥ **90%** linhas/statements, ≥84% branches, ≥94% funções; `src/shared/**`, `src/preload/**` e `renderer/src/lib/**` ≥ **95%** linhas; `renderer/src/hooks/**` ≥ **96%** linhas — margem de ~2–4 p.p. abaixo do medido. Bootstrap/glue (`src/main/index.ts`, `App.tsx`, `main.tsx`, `components/**`, arquivos só de tipos) ficam fora da medição e são cobertos pelo e2e. No CI o step **Coverage (informativo)** continua com `continue-on-error: true` (falha de limiar = sinal de regressão, não build quebrado).
 - `npm test` (sem coverage) permanece inalterado e é o gate de `npm run verify`.
 
 ### Smoke E2E (Playwright)
@@ -190,7 +190,7 @@ Por padrão os comandos rodam via **shell (cmd.exe)** — preserva aspas e argum
 
 Interface em tela cheia otimizada para gamepad e TV (estilo Steam Big Picture).
 
-- **Entrar:** ícone **Big Picture** na topbar (ou o item **Big Picture** no menu **Mais**). Sem controle configurado, o Hub abre a configuração antes de liberar a home ("pressione qualquer botão" detecta Xbox, PlayStation, Switch Pro ou genérico e aplica o perfil certo).
+- **Entrar:** ícone **Big Picture** na topbar (ou o item **Big Picture** no menu **Mais**); com a janela do Hub em foco, o botão **PS/Guide** do controle também abre o modo. Sem controle configurado, o Hub abre a configuração antes de liberar a home ("pressione qualquer botão" detecta Xbox, PlayStation, Switch Pro ou genérico e aplica o perfil certo). Controles cujo driver não expõe esse botão (e a Barra de Jogos do Windows, que pode capturá-lo) continuam entrando pelo botão da topbar.
 - **Usar:** D-Pad ou stick esquerdo navega, A/Cross confirma, B/Circle volta, LB/RB alternam as seções (**Jogos · Controle**), Start abre as opções. Mouse e teclado funcionam por inteiro em paralelo; os jogos da Biblioteca abrem direto da grade.
 - **Configurar:** em **Configurações → Big Picture** dá para remapear botão a botão (conflito entre ações pede confirmação) e ligar/desligar os efeitos sonoros. Se o controle desconectar no meio do uso, um aviso aparece na hora e some ao reconectar.
 - **Sair:** item **Sair do Big Picture** no rail, **B** na raiz ou **Esc** — devolve ao Hub normal sem fechar nada.

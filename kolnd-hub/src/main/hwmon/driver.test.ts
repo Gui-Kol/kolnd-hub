@@ -18,7 +18,8 @@ const pawnio = vi.hoisted(() => ({
 const sensors = vi.hoisted(() => ({
   readLatest: vi.fn(),
   latestPath: vi.fn(() => 'C:\\ProgramData\\Kolnd Hub\\sensors\\latest.json'),
-  install: vi.fn()
+  install: vi.fn(),
+  fpsCollectorStaged: vi.fn()
 }))
 
 vi.mock('./pawnio', () => ({
@@ -38,7 +39,8 @@ vi.mock('./agent', async (importOriginal) => {
     ...actual,
     readSensorsLatestFile: sensors.readLatest,
     sensorsAgentLatestPath: sensors.latestPath,
-    installSensorsAgent: sensors.install
+    installSensorsAgent: sensors.install,
+    isFpsCollectorStaged: sensors.fpsCollectorStaged
   }
 })
 
@@ -116,6 +118,7 @@ beforeEach(() => {
   sensors.latestPath.mockReturnValue('C:\\ProgramData\\Kolnd Hub\\sensors\\latest.json')
   sensors.readLatest.mockResolvedValue(STALE_SINK)
   sensors.install.mockResolvedValue({ ok: true })
+  sensors.fpsCollectorStaged.mockResolvedValue(true)
 })
 
 afterEach(async () => {
@@ -204,6 +207,34 @@ describe('getDriverStatus', () => {
     expect(status.state).toBe('ready')
     expect(status.deviceAccessible).toBe(true)
     expect(status.outdated).toBe(true)
+  })
+
+  it('marca outdated quando o coletor de FPS não está estagiado no agente', async () => {
+    pawnio.detect.mockResolvedValue({
+      registered: true,
+      installDir: 'C:\\Program Files\\PawnIO',
+      dllPath: 'C:\\Program Files\\PawnIO\\PawnIOLib.dll',
+      dllPresent: true
+    })
+    sensors.readLatest.mockResolvedValue(FRESH_SINK)
+    sensors.fpsCollectorStaged.mockResolvedValue(false)
+
+    const status = await getDriverStatus()
+    expect(status.state).toBe('ready')
+    expect(status.outdated).toBe(true)
+  })
+
+  it('não marca outdated com registradores e coletor de FPS atuais', async () => {
+    pawnio.detect.mockResolvedValue({
+      registered: true,
+      installDir: 'C:\\Program Files\\PawnIO',
+      dllPath: 'C:\\Program Files\\PawnIO\\PawnIOLib.dll',
+      dllPresent: true
+    })
+    sensors.readLatest.mockResolvedValue(FRESH_SINK)
+    sensors.fpsCollectorStaged.mockResolvedValue(true)
+
+    await expect(getDriverStatus()).resolves.toMatchObject({ outdated: false })
   })
 
   it('present com motivo quando o PawnIO existe mas o sink está stale', async () => {

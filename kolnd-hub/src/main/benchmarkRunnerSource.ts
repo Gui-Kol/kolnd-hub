@@ -8,14 +8,26 @@
  * - Web Worker no renderer é bloqueado em produção (`file://` + CSP `script-src
  *   'self'`).
  *
- * O script é CommonJS autocontido e **só** usa `node:crypto`: ele é gravado em
- * `<userData>/benchmark/kolnd-bench-runner.js` (não há caminho confiável dentro do
- * asar) e executado por `process.execPath` com `ELECTRON_RUN_AS_NODE=1`.
+ * O script é CommonJS autocontido e **só** usa `node:crypto` e `node:os`: ele é
+ * gravado em `<userData>/benchmark/kolnd-bench-runner.js` (não há caminho confiável
+ * dentro do asar) e executado por `process.execPath` com `ELECTRON_RUN_AS_NODE=1`.
  *
  * Protocolo: uma linha de JSON por evento no stdout; nada de texto livre.
+ *   {"type":"ready"}                           → aquecimento concluído; espera `go` no stdin
  *   {"type":"load","id":"integers"}            → carga concluída
  *   {"type":"result","v":1,"loads":[...]}      → resultado final (última linha)
  *   {"type":"error","message":"..."}           → falha da carga
+ *   {"type":"stress","checksumOk":true,...}    → amostra do modo `stress`
+ *
+ * Modos:
+ * - `bench` (padrão): aquece as cargas, avisa `ready` e só mede depois do `go`.
+ *   A barreira elimina a cauda ociosa do multi (filhos spawnados em sequência
+ *   começavam/terminavam em momentos diferentes).
+ * - `stress`: carga contínua mista **sem sleep** até o processo ser morto, com
+ *   checksum de integridade a cada ~500 ms. Sem duty cycle e sem worker threads:
+ *   é a mecânica do CPU-Z (1 processo/thread por núcleo lógico) com prioridade
+ *   BELOW_NORMAL, que mantém a CPU em 100% sem matar de fome a janela do Hub
+ *   (prioridade normal).
  *
  * Trabalho **fixo** (não duração fixa): o mesmo número de operações em toda
  * repetição, para que o resultado não dependa do relógio do sistema. As
@@ -31,11 +43,25 @@ export const BENCHMARK_RUNNER_SOURCE = `'use strict'
  */
 
 const crypto = require('node:crypto')
+const os = require('node:os')
 
 const DEFAULT_LOADS = ['integers', 'floats', 'memory', 'aes', 'sha']
 const DEFAULT_REPEATS = 3
 const REPS_MIN = 1
 const REPS_MAX = 5
+
+/**
+ * Prioridade BELOW_NORMAL desde o início do processo.
+ *
+ * É a peça que substitui o duty cycle antigo: numa máquina ociosa o processo
+ * continua recebendo 100% de um núcleo, mas quando a janela do Hub (prioridade
+ * normal) precisa de tempo ela passa na frente. Nunca limitamos a carga.
+ */
+try {
+  os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL)
+} catch (err) {
+  // Sem permissão para mudar prioridade o teste continua (só não terá a folga).
+}
 
 /**
  * Trabalho fixo por carga, em unidades do kernel (iterações ou blocos de
@@ -62,7 +88,7 @@ const OPS_PER_WORK = {
 
 function readConfig() {
   const raw = process.argv[2]
-  const fallback = { loads: DEFAULT_LOADS.slice(), repeats: DEFAULT_REPEATS }
+  const fallback = { mode: 'bench', loads: DEFAULT_LOADS.slice(), repeats: DEFAULT_REPEATS }
   if (!raw) return fallback
   let parsed
   try {
@@ -79,7 +105,11 @@ function readConfig() {
     REPS_MAX,
     Math.max(REPS_MIN, Math.trunc(Number(parsed.repeats)) || DEFAULT_REPEATS)
   )
-  return { loads: loads.length > 0 ? loads : DEFAULT_LOADS.slice(), repeats }
+  return {
+    mode: parsed.mode === 'stress' ? 'stress' : 'bench',
+    loads: loads.length > 0 ? loads : DEFAULT_LOADS.slice(),
+    repeats: repeats
+  }
 }
 
 function emit(event) {
@@ -184,16 +214,21 @@ const KERNELS = {
 }
 
 /**
- * Mede uma carga: dois aquecimentos descartados (a fração 1/16 e 1/4 do
- * trabalho) para dar tempo de o V8 otimizar os laços e depois as repetições
- * pedidas. O aquecimento é descartado da mediana.
+ * Aquece uma carga com dois trabalhos descartados (frações 1/16 e 1/4) para dar
+ * tempo de o V8 otimizar os laços. Roda inteiro **antes** do ready, para que
+ * o go libere todos os filhos já otimizados.
  */
-function measureLoad(id, repeats) {
+function warmLoad(id) {
   const kernel = KERNELS[id]
   const work = WORK[id]
   kernel(Math.max(1, work >> 4))
   kernel(Math.max(1, work >> 2))
+}
 
+/** Mede as repetições pedidas (o aquecimento já aconteceu antes do ready). */
+function measureLoad(id, repeats) {
+  const kernel = KERNELS[id]
+  const work = WORK[id]
   const ops = []
   const ms = []
   let guard = ''
@@ -224,16 +259,136 @@ function primeCrypto() {
   cipher.final()
 }
 
+/** Espera a linha go no stdin (barreira do main) e chama callback uma vez. */
+function waitForGo(callback) {
+  let started = false
+  let buffer = ''
+  const start = function () {
+    if (started) return
+    started = true
+    process.stdin.removeAllListeners('data')
+    process.stdin.pause()
+    // Libera o handle do stdin: sem isso o processo não termina depois do
+    // resultado (o pipe aberto mantém o event loop vivo).
+    process.stdin.destroy()
+    callback()
+  }
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', function (chunk) {
+    buffer += chunk
+    let newline = buffer.indexOf('\\n')
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line === 'go') {
+        start()
+        return
+      }
+      newline = buffer.indexOf('\\n')
+    }
+  })
+  process.stdin.on('end', function () {
+    // O main fechou o stdin sem liberar a medição: não há mais dono, encerra.
+    process.exit(0)
+  })
+  process.stdin.resume()
+}
+
+/**
+ * Amostra determinística: se o mesmo cálculo com a mesma semente divergir do
+ * baseline, algo inconsistente aconteceu na CPU (erro de hardware, throttling
+ * agressivo). O custo é irrisório perto da carga contínua.
+ */
+function sampleChecksum(seed) {
+  let x = seed | 0
+  let f = 0.25
+  for (let i = 0; i < 512; i++) {
+    x ^= x << 13
+    x ^= x >>> 17
+    x ^= x << 5
+    f = f * 1.0000001 + (x & 1023) / 1024
+    if (f > 1000) f = f - 999
+  }
+  return (x >>> 0) * 1000003 + Math.round(f * 1000)
+}
+
+/**
+ * Carga contínua mista (inteiro + ponto flutuante) até o main matar o processo.
+ *
+ * Sem pausa de propósito: é um teste de estresse (a mecânica do CPU-Z é a mesma).
+ * A fluidez da interface vem da prioridade BELOW_NORMAL definida no topo do
+ * script — o renderer (prioridade normal) passa na frente quando disputa o
+ * núcleo, e a carga nunca é capada.
+ */
+function runStress() {
+  const seed = 0x51ed270b
+  const baseline = sampleChecksum(seed)
+  const startedAt = nowNs()
+  let lastReportAt = startedAt
+  let lastParentCheckAt = startedAt
+  let x = 123456789
+  let f = 1.5
+  let integrous = true
+
+  for (;;) {
+    // Bloco fixo de trabalho entre verificações de relógio (~microssegundos).
+    for (let i = 0; i < 8192; i++) {
+      x ^= x << 13
+      x ^= x >>> 17
+      x ^= x << 5
+      f = f * 0.9999999 + (x & 255) * 0.000001
+      if (f > 1e6) f = f - 1e6
+    }
+    if (!Number.isFinite(f)) {
+      f = 1.5
+      integrous = false
+    }
+    const now = nowNs()
+    // A cada ~2 s confere se o Hub (processo pai) ainda existe. Se ele morrer
+    // sem passar pelo encerramento normal (Task Manager/crash), ninguém mais
+    // vai nos matar: sem esta checagem os N processos continuariam girando a
+    // CPU para sempre. Não usamos timer porque o loop é síncrono — setTimeout
+    // nunca rodaria.
+    if (now - lastParentCheckAt >= 2000000000n) {
+      lastParentCheckAt = now
+      try {
+        process.kill(process.ppid, 0)
+      } catch (err) {
+        process.exit(0)
+      }
+    }
+    if (now - lastReportAt >= 500000000n) {
+      lastReportAt = now
+      const checksumOk = integrous && sampleChecksum(seed) === baseline
+      emit({
+        type: 'stress',
+        elapsedMs: Math.round(Number(now - startedAt) / 1e6),
+        checksumOk: checksumOk
+      })
+    }
+  }
+}
+
 function main() {
   const config = readConfig()
-  primeCrypto()
-  const loads = []
-  for (let i = 0; i < config.loads.length; i++) {
-    const id = config.loads[i]
-    emit({ type: 'load', id: id })
-    loads.push(measureLoad(id, config.repeats))
+  if (config.mode === 'stress') {
+    emit({ type: 'ready' })
+    runStress()
+    return
   }
-  emit({ type: 'result', v: 1, loads: loads })
+
+  primeCrypto()
+  for (let i = 0; i < config.loads.length; i++) warmLoad(config.loads[i])
+  emit({ type: 'ready' })
+  waitForGo(function () {
+    const loads = []
+    for (let i = 0; i < config.loads.length; i++) {
+      const id = config.loads[i]
+      emit({ type: 'load', id: id })
+      loads.push(measureLoad(id, config.repeats))
+    }
+    emit({ type: 'result', v: 1, loads: loads })
+  })
 }
 
 try {

@@ -20,39 +20,8 @@ import type {
   FpsUpdate
 } from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
-import type {
-  OfficeArchiveAllResult,
-  OfficeArchivedListResult,
-  OfficeAvatarLook,
-  OfficeAvatarResult,
-  OfficeDepartmentApplyResult,
-  OfficeDepartmentDeleteResult,
-  OfficeDepartmentResult,
-  OfficeHealth,
-  OfficeHireInput,
-  OfficeManageResult,
-  OfficePromptSendInput,
-  OfficeRosterResult,
-  OfficeSessionsListResult,
-  OfficeSetRoleInput,
-  OfficeSnapshot,
-  OfficeTranscriptResult
-} from '../shared/office'
-import type {
-  PluginInstallResult,
-  PluginRemoveResult,
-  PluginSnippetResult,
-  PluginStatus
-} from '../main/office/pluginInstaller'
-import type {
-  OfficeActionEnqueueResult,
-  OfficeActionModeInput,
-  OfficeActionOutcome,
-  OfficeApprovePermissionInput,
-  OfficeDenyPermissionInput,
-  OfficeSendMessageInput
-} from '../main/office/actions'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { GameImportReport } from '../shared/gameImport'
 import type {
   PublicIpResult,
   RemoteActionResult,
@@ -84,7 +53,7 @@ const api = {
     running: boolean
   }> => ipcRenderer.invoke('kloud-games:status'),
 
-  // ── Acesso remoto (Tailscale) ───────────────────
+  // ── Acesso remoto (ZeroTier) ────────────────────
   remoteStatus: (): Promise<RemoteStatus> => ipcRenderer.invoke('remote:status'),
 
   remoteGetMode: (): Promise<boolean> => ipcRenderer.invoke('remote:get-mode'),
@@ -94,11 +63,10 @@ const api = {
 
   remotePublicIp: (): Promise<PublicIpResult> => ipcRenderer.invoke('remote:public-ip'),
 
-  remoteInstallTailscale: (): Promise<RemoteActionResult> =>
-    ipcRenderer.invoke('remote:install-tailscale'),
+  remoteInstallZeroTier: (): Promise<RemoteActionResult> =>
+    ipcRenderer.invoke('remote:install-zerotier'),
 
-  remoteOpenTailscale: (): Promise<RemoteActionResult> =>
-    ipcRenderer.invoke('remote:open-tailscale'),
+  remoteOpenZeroTier: (): Promise<RemoteActionResult> => ipcRenderer.invoke('remote:open-zerotier'),
 
   remoteOpenKloudWeb: (): Promise<RemoteActionResult> =>
     ipcRenderer.invoke('remote:open-kloud-web'),
@@ -473,129 +441,6 @@ const api = {
     return () => ipcRenderer.removeListener('hud:update', handler)
   },
 
-  // ── OpenOffice (sessões do OpenCode) ─────────────
-  // O refcount do coletor vive no main: assinar liga o poller, desassinar para.
-  officeSubscribe: (): Promise<OfficeSnapshot | null> => ipcRenderer.invoke('office:subscribe'),
-
-  officeUnsubscribe: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('office:unsubscribe'),
-
-  officeSnapshot: (): Promise<OfficeSnapshot | null> => ipcRenderer.invoke('office:snapshot'),
-
-  officeStatus: (): Promise<OfficeHealth> => ipcRenderer.invoke('office:status'),
-
-  onOfficeSnapshot: (callback: (snapshot: OfficeSnapshot) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, snapshot: OfficeSnapshot): void =>
-      callback(snapshot)
-    ipcRenderer.on('office:snapshot', handler)
-    return () => ipcRenderer.removeListener('office:snapshot', handler)
-  },
-
-  // Ações (Fase 3). O main valida tudo e o modo é por execução; o texto da
-  // mensagem só trafega aqui, nunca é logado.
-  officeApprovePermission: (
-    input: OfficeApprovePermissionInput
-  ): Promise<OfficeActionEnqueueResult> => ipcRenderer.invoke('office:approve-permission', input),
-
-  officeDenyPermission: (input: OfficeDenyPermissionInput): Promise<OfficeActionEnqueueResult> =>
-    ipcRenderer.invoke('office:deny-permission', input),
-
-  officeSendMessage: (input: OfficeSendMessageInput): Promise<OfficeActionEnqueueResult> =>
-    ipcRenderer.invoke('office:send-message', input),
-
-  officeSetActionMode: (input: OfficeActionModeInput): Promise<{ ok: boolean; enabled: boolean }> =>
-    ipcRenderer.invoke('office:action-mode', input),
-
-  onOfficeActionResult: (callback: (result: OfficeActionOutcome) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, result: OfficeActionOutcome): void =>
-      callback(result)
-    ipcRenderer.on('office:action-result', handler)
-    return () => ipcRenderer.removeListener('office:action-result', handler)
-  },
-
-  // Instalador do plugin do OpenCode (T12). Qualquer escrita no config global
-  // exige confirmação na UI; aqui só há transporte.
-  officePluginStatus: (): Promise<PluginStatus> => ipcRenderer.invoke('office:plugin-status'),
-
-  officePluginInstall: (): Promise<PluginInstallResult> =>
-    ipcRenderer.invoke('office:plugin-install'),
-
-  officePluginRemove: (): Promise<PluginRemoveResult> => ipcRenderer.invoke('office:plugin-remove'),
-
-  officePluginSnippet: (): Promise<PluginSnippetResult> =>
-    ipcRenderer.invoke('office:plugin-snippet'),
-
-  // Funcionários (Fase 4): contratar, dar função e arquivar/restaurar. O main
-  // valida tudo de novo; aqui é só transporte tipado.
-  officeRosterOptions: (input: { directory: string }): Promise<OfficeRosterResult> =>
-    ipcRenderer.invoke('office:roster-options', input),
-
-  officeHire: (input: OfficeHireInput): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:hire', input),
-
-  officeSetRole: (input: OfficeSetRoleInput): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:set-role', input),
-
-  // Operação direta pelo CLI (não depende do plugin): prompt, parar e conversa.
-  // O texto do prompt nunca é logado pelo main.
-  officePrompt: (input: OfficePromptSendInput): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:prompt', input),
-
-  officeInterrupt: (input: { sessionID: string }): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:interrupt', input),
-
-  officeTranscript: (input: {
-    sessionID: string
-    limit?: number
-  }): Promise<OfficeTranscriptResult> => ipcRenderer.invoke('office:transcript', input),
-
-  officeSessionsList: (input: Record<string, never>): Promise<OfficeSessionsListResult> =>
-    ipcRenderer.invoke('office:sessions-list', input),
-
-  officeArchiveAll: (input: Record<string, never>): Promise<OfficeArchiveAllResult> =>
-    ipcRenderer.invoke('office:archive-all', input),
-
-  officeArchivedList: (input: Record<string, never>): Promise<OfficeArchivedListResult> =>
-    ipcRenderer.invoke('office:archived-list', input),
-
-  officeRestore: (input: { sessionID: string }): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:restore', input),
-
-  // Aparência e salas-departamento (OpenOffice isométrico). O main valida
-  // sessão, ids `dep_…`, nome e índices de paleta; aqui é só transporte.
-  officeAvatarGet: (input: { sessionID: string }): Promise<OfficeAvatarResult> =>
-    ipcRenderer.invoke('office:avatar-get', input),
-
-  officeAvatarSave: (input: {
-    sessionID: string
-    look: OfficeAvatarLook
-  }): Promise<OfficeManageResult> => ipcRenderer.invoke('office:avatar-save', input),
-
-  officeDepartmentCreate: (input: {
-    name: string
-    agentID: string
-  }): Promise<OfficeDepartmentResult> => ipcRenderer.invoke('office:department-create', input),
-
-  officeDepartmentUpdate: (input: {
-    id: string
-    name?: string
-    agentID?: string
-  }): Promise<OfficeDepartmentResult> => ipcRenderer.invoke('office:department-update', input),
-
-  officeDepartmentDelete: (input: { id: string }): Promise<OfficeDepartmentDeleteResult> =>
-    ipcRenderer.invoke('office:department-delete', input),
-
-  officeDepartmentAssign: (input: {
-    sessionID: string
-    departmentID: string
-    applyRole: boolean
-  }): Promise<OfficeDepartmentApplyResult> => ipcRenderer.invoke('office:department-assign', input),
-
-  officeDepartmentUnassign: (input: { sessionID: string }): Promise<OfficeManageResult> =>
-    ipcRenderer.invoke('office:department-unassign', input),
-
-  officeDepartmentApplyRole: (input: { id: string }): Promise<OfficeDepartmentApplyResult> =>
-    ipcRenderer.invoke('office:department-apply-role', input),
-
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<
     Array<{
@@ -603,9 +448,15 @@ const api = {
       name: string
       exePath: string
       iconPath: string | null
-      origin: 'steam' | 'custom'
+      origin: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number
       addedAt: string
+      favorite?: boolean
+      collections?: string[]
+      playtimeSeconds?: number
+      playtimeDays?: Record<string, number>
+      lastPlayedAt?: string
+      coverPath?: string | null
     }>
   > => ipcRenderer.invoke('games:get'),
 
@@ -614,7 +465,7 @@ const api = {
     name: string
     exePath: string
     iconPath?: string | null
-    origin: 'steam' | 'custom'
+    origin: 'steam' | 'epic' | 'minecraft' | 'custom'
     steamAppId?: number
     addedAt?: string
   }): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('games:add', game),
@@ -625,10 +476,20 @@ const api = {
       name?: string
       exePath?: string
       iconPath?: string | null
-      origin?: 'steam' | 'custom'
+      origin?: 'steam' | 'epic' | 'minecraft' | 'custom'
       steamAppId?: number | null
+      favorite?: boolean
+      collections?: string[]
+      coverPath?: string | null
     }
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('games:update', id, patch),
+
+  getGameCollections: (): Promise<string[]> => ipcRenderer.invoke('games:collections'),
+
+  createGameCollection: (
+    name: string
+  ): Promise<{ success: boolean; error?: string; collections?: string[] }> =>
+    ipcRenderer.invoke('games:collection-create', name),
 
   removeGame: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('games:remove', id),
@@ -684,6 +545,21 @@ const api = {
 
   getGameIcon: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-icon', id),
 
+  pickGameCover: (): Promise<{
+    success: boolean
+    canceled?: boolean
+    dataUrl?: string
+    error?: string
+  }> => ipcRenderer.invoke('games:pick-cover'),
+
+  setGameCover: (
+    id: string,
+    dataUrl: string
+  ): Promise<{ success: boolean; coverPath?: string | null; error?: string }> =>
+    ipcRenderer.invoke('games:set-cover', id, dataUrl),
+
+  getGameCover: (id: string): Promise<string | null> => ipcRenderer.invoke('games:get-cover', id),
+
   addCustomGame: (
     exePath: string
   ): Promise<{
@@ -693,16 +569,8 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('games:add-custom', exePath),
 
-  // ── Steam ─────────────────────────────────────────
-  importSteamGames: (): Promise<{
-    ok: boolean
-    imported: number
-    alreadyInLibrary: number
-    ignoredTools: number
-    noExe: number
-    errors: string[]
-    error?: string
-  }> => ipcRenderer.invoke('steam:import'),
+  // ── Busca de jogos (Steam + Epic Games + Minecraft Launcher) ──
+  importGames: (): Promise<GameImportReport> => ipcRenderer.invoke('games:import-all'),
 
   // ── Diálogos (Configurações) ────────────────────
   pickAppPath: (

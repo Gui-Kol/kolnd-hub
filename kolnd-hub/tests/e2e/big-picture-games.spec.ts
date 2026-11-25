@@ -172,12 +172,14 @@ test('big picture: grade virtualizada e navegação por D-pad', async () => {
       .not.toBe(rowLabel)
 
     // Passando da dobra, o scroller da grade rola (sem mexer no <main>).
+    // A barra de filtros ocupa altura acima do scroller, então a dobra pode já
+    // ter rolado um pouco depois do ArrowDown — o que importa é que ela avance.
     const scroller = window.locator('[data-bp-games-scroller]')
-    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(0)
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop)
     for (let i = 0; i < 8; i += 1) await window.keyboard.press('ArrowDown')
     await expect
       .poll(() => scroller.evaluate((el) => el.scrollTop), { timeout: 10_000 })
-      .toBeGreaterThan(0)
+      .toBeGreaterThan(scrollTopBefore)
 
     // O card focado continua montado e a janela continua menor que o total.
     await expect(selected).toHaveCount(1)

@@ -1,6 +1,7 @@
 import { memo } from 'react'
-import { AlertTriangle, Gamepad2, Pencil } from 'lucide-react'
+import { AlertTriangle, Gamepad2, Pencil, Star } from 'lucide-react'
 import type { Game } from '../../types'
+import { formatLastPlayed, formatPlaytime, weekPlaytimeSeconds } from '../../lib/gameStats'
 import { Badge } from '../ui'
 import { StopGameButton } from './StopGameButton'
 
@@ -8,12 +9,15 @@ export interface GameCardProps {
   game: Game
   /** dataURL do ícone cacheado (`undefined`/`null` = ainda não carregado ou sem ícone). */
   icon: string | null | undefined
+  /** dataURL da capa escolhida (`undefined`/`null` = sem capa; usa o ícone). */
+  cover: string | null | undefined
   /** Processo do jogo detectado pela sondagem (habilita "Encerrar"). */
   running: boolean
   /** Executável não existe mais no disco (selo de alerta). */
   exeMissing: boolean
   onLaunch: (game: Game) => void
   onEdit: (game: Game) => void
+  onToggleFavorite: (game: Game) => void
   onStopped: (game: Game, result: { ok: boolean; error?: string }) => void
 }
 
@@ -27,12 +31,24 @@ export interface GameCardProps {
 export const GameCard = memo(function GameCard({
   game,
   icon,
+  cover,
   running,
   exeMissing,
   onLaunch,
   onEdit,
+  onToggleFavorite,
   onStopped
 }: GameCardProps): JSX.Element {
+  // Estatísticas da Biblioteca (T2): total · semana · última vez. Só aparece
+  // quando existe algum dado — cards antigos continuam com o mesmo layout.
+  const totalSeconds = game.playtimeSeconds ?? 0
+  const weekSeconds = weekPlaytimeSeconds(game.playtimeDays)
+  const lastPlayed = formatLastPlayed(game.lastPlayedAt)
+  const stats: string[] = []
+  if (totalSeconds > 0) stats.push(`${formatPlaytime(totalSeconds)} no total`)
+  if (weekSeconds > 0) stats.push(`${formatPlaytime(weekSeconds)} nesta semana`)
+  if (lastPlayed) stats.push(lastPlayed)
+
   return (
     <button
       type="button"
@@ -42,6 +58,35 @@ export const GameCard = memo(function GameCard({
     >
       {/* Encerramento pelo Hub — só fica habilitado com o jogo aberto */}
       <StopGameButton game={game} running={running} onStopped={onStopped} />
+
+      {/* Favorito — botão próprio (span com role para não aninhar <button>). */}
+      <span
+        role="button"
+        tabIndex={0}
+        aria-pressed={game.favorite === true}
+        aria-label={
+          game.favorite
+            ? `Remover ${game.name} dos favoritos`
+            : `Adicionar ${game.name} aos favoritos`
+        }
+        title={game.favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggleFavorite(game)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleFavorite(game)
+          }
+        }}
+        className={`absolute left-2 top-2 z-10 rounded-sm p-2 transition-colors hover:bg-surface-3 ${
+          game.favorite ? 'text-warn' : 'text-ink-tertiary hover:text-ink-primary'
+        }`}
+      >
+        <Star size={15} aria-hidden="true" fill={game.favorite ? 'currentColor' : 'none'} />
+      </span>
 
       {/* Edição (T9) — abre o modal "Editar Game" */}
       <span
@@ -83,7 +128,7 @@ export const GameCard = memo(function GameCard({
               onEdit(game)
             }
           }}
-          className="absolute left-2 top-2 cursor-pointer"
+          className="absolute left-2 top-11 cursor-pointer"
         >
           <Badge tone="warning" className="transition-colors hover:border-[var(--warning)]">
             <AlertTriangle size={12} aria-hidden="true" />
@@ -92,26 +137,45 @@ export const GameCard = memo(function GameCard({
         </span>
       )}
 
-      <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
-        {icon ? (
+      {cover ? (
+        <div className="aspect-[2/3] w-full max-w-[124px] shrink-0 overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
           <img
-            src={icon}
-            alt={`Ícone de ${game.name}`}
-            className="h-full w-full object-contain"
+            src={cover}
+            alt={`Capa de ${game.name}`}
+            className="h-full w-full object-cover"
             draggable={false}
           />
-        ) : (
-          <Gamepad2
-            size={32}
-            aria-hidden="true"
-            className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
-          />
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
+          {icon ? (
+            <img
+              src={icon}
+              alt={`Ícone de ${game.name}`}
+              className="h-full w-full object-contain"
+              draggable={false}
+            />
+          ) : (
+            <Gamepad2
+              size={32}
+              aria-hidden="true"
+              className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
+            />
+          )}
+        </div>
+      )}
 
       <p className="line-clamp-2 w-full text-sm font-semibold leading-snug tracking-tight text-ink-primary">
         {game.name}
       </p>
+      {stats.length > 0 && (
+        <p
+          className="tnum w-full text-[10.5px] leading-snug text-ink-tertiary"
+          title={stats.join(' · ')}
+        >
+          {stats.join(' · ')}
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-center gap-2">
         {running && (
           <Badge tone="success" title="O jogo está aberto (processo detectado)">
@@ -122,8 +186,16 @@ export const GameCard = memo(function GameCard({
             Em execução
           </Badge>
         )}
-        {/* Badge de origem neutra (STEAM/CUSTOM), sem cor de marca */}
-        <Badge tone="neutral">{game.origin === 'steam' ? 'Steam' : 'Custom'}</Badge>
+        {/* Badge de origem neutra (STEAM/EPIC/MINECRAFT/CUSTOM), sem cor de marca */}
+        <Badge tone="neutral">
+          {game.origin === 'steam'
+            ? 'Steam'
+            : game.origin === 'epic'
+              ? 'Epic'
+              : game.origin === 'minecraft'
+                ? 'Minecraft'
+                : 'Custom'}
+        </Badge>
       </div>
     </button>
   )

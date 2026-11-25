@@ -1,18 +1,20 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { readFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { cpus, tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import type { E2eContext } from './global-setup'
 
 /**
  * Regressão do teste de estresse de CPU (aba Benchmark em Meu PC).
  *
- * Objetivo: provar que, com o estresse rodando em TODOS os núcleos, a interface
- * continua respondendo (o bug relatado foi o Hub "parar de funcionar" ao iniciar
- * o teste). Mede, a cada segundo, a latência de um `evaluate` no renderer e a
- * latência do event loop do main; depois para o teste e confere que o cronômetro
- * parou e o estado voltou ao normal.
+ * Objetivo: provar que o estresse usa **100% da CPU** (um processo por núcleo
+ * lógico, como no CPU-Z) e que, mesmo assim, a interface continua respondendo
+ * (o bug relatado foi o Hub "parar de funcionar" ao iniciar o teste). Mede, a
+ * cada segundo, a latência de um `evaluate` no renderer e a latência do event
+ * loop do main; durante a carga, mede a CPU do sistema por núcleo lógico; depois
+ * para o teste e confere que o cronômetro parou, os processos morreram e a CPU
+ * voltou ao normal.
  */
 const CONTEXT_FILE =
   process.env.KOLDND_HUB_E2E_CONTEXT ?? join(tmpdir(), 'kolnd-hub-e2e-context.json')
@@ -114,6 +116,57 @@ async function stopFrameProbe(window: Page): Promise<FrameStats> {
   })
 }
 
+interface CoreTimes {
+  idle: number
+  total: number
+}
+
+/** Tempos acumulados de cada núcleo lógico (`os.cpus()`), para medir deltas. */
+function coreTimes(): CoreTimes[] {
+  return cpus().map((cpu) => ({
+    idle: cpu.times.idle,
+    total: cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq
+  }))
+}
+
+interface SystemCpu {
+  /** Média de ocupação de todos os núcleos lógicos (0–100). */
+  avg: number
+  /** Quantos núcleos lógicos ficaram ≥ 90% ocupados. */
+  coresAt90: number
+  cores: number
+  perCore: number[]
+}
+
+/**
+ * Mede a CPU do sistema (todos os processos) num intervalo, por núcleo lógico.
+ * `os.cpus()` devolve tempos acumulados: o delta entre duas leituras é a
+ * ocupação real da máquina, que é onde os processos filhos do estresse vivem.
+ */
+async function measureSystemCpu(window: Page, durationMs: number): Promise<SystemCpu> {
+  const before = coreTimes()
+  await window.waitForTimeout(durationMs)
+  const after = coreTimes()
+  const cores = Math.min(before.length, after.length)
+  let totalBusy = 0
+  let coresAt90 = 0
+  const perCore: number[] = []
+  for (let index = 0; index < cores; index++) {
+    const total = after[index].total - before[index].total
+    const idle = after[index].idle - before[index].idle
+    const busy = total > 0 ? (total - idle) / total : 0
+    totalBusy += busy
+    if (busy >= 0.9) coresAt90 += 1
+    perCore.push(Math.round(busy * 1000) / 10)
+  }
+  return {
+    avg: cores > 0 ? Math.round((totalBusy / cores) * 1000) / 10 : 0,
+    coresAt90,
+    cores,
+    perCore
+  }
+}
+
 test('estresse de CPU não deixa o Hub sem responder', async () => {
   test.setTimeout(180_000)
   const app = await launchApp()
@@ -156,19 +209,16 @@ test('estresse de CPU não deixa o Hub sem responder', async () => {
     const clockAfter = await window.locator('span.tabular-nums').first().innerText()
     expect(clockAfter).not.toBe(clockBefore)
 
-    // Carga real: mede ms de CPU do processo em 2 s (≈ núcleos ocupados).
-    const coresUsed = await app
-      .evaluate(async () => {
-        const before = process.cpuUsage()
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        const after = process.cpuUsage(before)
-        // cpuUsage vem em microssegundos: µs / µs de 2 s = núcleos ocupados.
-        return Math.round(((after.user + after.system) / 2_000_000) * 100) / 100
-      })
-      .catch(() => -1)
-    console.log('[e2e][stress] coresUsed:', coresUsed)
+    // Carga real: 5 s de CPU do sistema por núcleo lógico (os processos filhos
+    // do estresse não pertencem ao main, então medir `process.cpuUsage()` ali
+    // diria zero — o alvo é a máquina).
+    const cpu = await measureSystemCpu(window, 5000)
+    console.log('[e2e][stress] cpu:', JSON.stringify(cpu))
 
-    // Parada: precisa responder rápido e devolver a CPU (workers encerrados).
+    // Integridade reportada pelos próprios filhos durante a carga.
+    await expect(window.getByText('Integridade OK')).toBeVisible({ timeout: 10_000 })
+
+    // Parada: precisa responder rápido e devolver a CPU (filhos encerrados).
     const stopStartedAt = Date.now()
     await window.getByRole('button', { name: 'Parar teste' }).click()
     await expect(window.getByRole('button', { name: 'Iniciar teste de estresse' })).toBeVisible({
@@ -176,23 +226,24 @@ test('estresse de CPU não deixa o Hub sem responder', async () => {
     })
     const stopMs = Date.now() - stopStartedAt
 
-    const cpuAfterStop = await app
-      .evaluate(async () => {
-        const before = process.cpuUsage()
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const after = process.cpuUsage(before)
-        return Math.round((after.user + after.system) / 10000) / 100
-      })
-      .catch(() => -1)
-    console.log('[e2e][stress] stopMs:', stopMs, 'cpuAfterStopMs:', cpuAfterStop)
+    const cpuAfterStop = await measureSystemCpu(window, 1500)
+    console.log('[e2e][stress] stopMs:', stopMs, 'cpuAfterStop:', JSON.stringify(cpuAfterStop))
 
-    expect(stopMs).toBeLessThan(10_000)
-    // O duty cycle precisa segurar parte dos núcleos livres (app utilizável):
-    // não pode consumir 100% de TODOS os núcleos, nem ficar baixo demais.
-    expect(coresUsed).toBeGreaterThan(1)
-    expect(coresUsed).toBeLessThan(16)
-    // 1 s de processo sem estresse não pode consumir ~1 s de CPU (100%).
-    expect(cpuAfterStop).toBeLessThan(600)
+    // A interface nunca pode ficar muda (timeout de 5 s) durante o estresse.
+    expect(samples.filter((s) => s.renderer === -1)).toEqual([])
+
+    // Fluidez: a interface pode pular frames, não travar por segundos.
+    expect(frameStats.maxGapMs).toBeLessThan(200)
+    expect(frameStats.p95GapMs).toBeLessThan(50)
+
+    // Carga real: 100% da CPU (a mecânica do CPU-Z), sem duty cycle.
+    expect(cpu.avg).toBeGreaterThanOrEqual(95)
+    // Pelo menos 90% dos núcleos lógicos a ≥ 90%.
+    expect(cpu.coresAt90).toBeGreaterThanOrEqual(Math.ceil(cpu.cores * 0.9))
+
+    // Parada rápida e sem carga residual (nenhum filho órfão girando).
+    expect(stopMs).toBeLessThan(1000)
+    expect(cpuAfterStop.avg).toBeLessThan(50)
 
     // App continua vivo e navegável depois de parar.
     const pcName = (await window.locator('.title-bar [title]').first().innerText()).trim()

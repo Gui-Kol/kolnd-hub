@@ -1,10 +1,10 @@
-// Acesso remoto (Tailscale + diagnóstico de rede).
+// Acesso remoto (ZeroTier + diagnóstico de rede).
 //
 // FRONTEIRA: este arquivo é importável por `main/`, `preload/` e `renderer/`
 // (mesmo padrão de `shared/hud.ts` e `shared/gamepad.ts`). Só entram aqui
 // tipos e lógica PURA — nada de Electron, `fs`, `net` ou `child_process`.
 //
-// Por que Tailscale e não um proxy HTTP: o Moonlight transmite vídeo, áudio e
+// Por que ZeroTier e não um proxy HTTP: o Moonlight transmite vídeo, áudio e
 // controle por UDP (47998–48002). Cloudflare Tunnel/ngrok carregam HTTP e TCP,
 // não UDP, então servem para o painel web — nunca para jogar.
 
@@ -17,7 +17,7 @@ export const KLOUD_WEB_PORT = 47990
 /** Painel web local — abrir no navegador para digitar o PIN do Moonlight. */
 export const KLOUD_WEB_URL = `http://localhost:${KLOUD_WEB_PORT}`
 
-export const TAILSCALE_DOWNLOAD_URL = 'https://tailscale.com/download/windows'
+export const ZEROTIER_DOWNLOAD_URL = 'https://www.zerotier.com/download/'
 
 /**
  * Endpoint usado APENAS quando o usuário clica em "Descobrir meu IP público".
@@ -30,31 +30,37 @@ export const PUBLIC_IP_ENDPOINT = 'https://api.ipify.org?format=json'
 /** Como o IP público se relaciona com as interfaces locais. */
 export type RemoteNetworkKind = 'direct' | 'nat' | 'cgnat' | 'unknown'
 
-/** Estado do Tailscale nesta máquina (saída de `tailscale status --json`). */
-export interface TailscaleInfo {
+/**
+ * Estado do ZeroTier nesta máquina (saída de `zerotier-cli -j info` +
+ * `zerotier-cli -j listnetworks`).
+ */
+export interface ZeroTierInfo {
   installed: boolean
-  /** Backend "Running" e nó online. */
+  /** Serviço on-line E com pelo menos uma rede `OK` que tenha endereço. */
   connected: boolean
-  /** BackendState cru (`Running`, `NeedsLogin`, `Stopped`…). */
-  backendState: string | null
-  hostname: string | null
-  /** Nome MagicDNS sem o ponto final (ex.: `pc.tailnet.ts.net`). */
-  dnsName: string | null
-  /** IP 100.x.y.z — o endereço que o Moonlight deve usar. */
+  /** O serviço respondeu `online: true` (independe de ter rede ingressada). */
+  online: boolean
+  /** Node ID de 10 hex — o mesmo que aparece em my.zerotier.com. */
+  nodeId: string | null
+  version: string | null
+  /** Nome da rede principal (primeira `OK` com endereço; senão a primeira). */
+  network: string | null
+  /** ID de 16 hex da rede principal. */
+  networkId: string | null
+  /** Status cru da rede principal (`OK`, `ACCESS_DENIED`, `REQUESTING_CONFIGURATION`…). */
+  networkStatus: string | null
+  /** IPv4 atribuído, sem o prefixo CIDR — o endereço que o Moonlight deve usar. */
   ipv4: string | null
   ipv6: string | null
-  /** Nome da tailnet (ou sufixo MagicDNS quando o nome não vem). */
-  tailnet: string | null
-  onlinePeers: number
   exePath: string | null
   error?: string
 }
 
 export interface LocalAddresses {
-  /** IPv4 privados/roteáveis da LAN (exclui loopback e 100.64/10). */
+  /** IPv4 privados/roteáveis da LAN (sem loopback e sem endereços da VPN). */
   lan: string[]
-  /** IPv4 na faixa 100.64/10 (Tailscale/CGNAT). */
-  tailscale: string[]
+  /** IPv4 das interfaces/endereços atribuídos pelo ZeroTier. */
+  zerotier: string[]
   /** IPv6 globais (link-local fica de fora). */
   ipv6: string[]
 }
@@ -65,7 +71,7 @@ export interface PortProbe {
 }
 
 export interface PortTargetResult {
-  target: 'localhost' | 'tailscale'
+  target: 'localhost' | 'zerotier'
   host: string
   probes: PortProbe[]
 }
@@ -78,7 +84,7 @@ export interface PublicIpState {
 }
 
 export interface RemoteStatus {
-  tailscale: TailscaleInfo
+  zerotier: ZeroTierInfo
   addresses: LocalAddresses
   kloud: { installed: boolean; running: boolean }
   ports: PortTargetResult[]
@@ -95,14 +101,14 @@ export interface PublicIpResult {
 
 /** Por que o modo remoto não pôde ser ligado (mostrado no modal de ajuda). */
 export type RemoteModeReason =
-  'invalid' | 'tailscale-missing' | 'tailscale-disconnected' | 'store-unavailable'
+  'invalid' | 'zerotier-missing' | 'zerotier-disconnected' | 'store-unavailable'
 
 export interface RemoteModeResult {
   success: boolean
   enabled: boolean
   reason?: RemoteModeReason
   error?: string
-  /** Endereço que o Moonlight deve usar (IP 100.x ou MagicDNS). */
+  /** Endereço que o Moonlight deve usar (IP da rede ZeroTier). */
   address?: string | null
 }
 
@@ -110,7 +116,7 @@ export interface RemoteActionResult {
   success: boolean
   error?: string
   /** O que a ação abriu, para a UI explicar sem adivinhar. */
-  opened?: 'app' | 'download' | 'login' | 'web'
+  opened?: 'app' | 'download' | 'web'
   installedNow?: boolean
 }
 
@@ -131,9 +137,17 @@ export function isIPv4(value: unknown): boolean {
   })
 }
 
+/** IPv6 em forma textual (tolerante: só descarta o que claramente não é IPv6). */
+export function isIPv6(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const text = value.trim()
+  return text.includes(':') && text.length <= 45 && /^[0-9a-f:.]+$/i.test(text)
+}
+
 /**
- * Faixa 100.64.0.0/10 (RFC 6598). No contexto doméstico significa CGNAT —
- * e é a mesma faixa que o Tailscale usa para os IPs da tailnet.
+ * Faixa 100.64.0.0/10 (RFC 6598). No contexto doméstico significa CGNAT da
+ * operadora. NÃO identifica mais a VPN: o ZeroTier usa a faixa que o
+ * administrador da rede escolher (normalmente 10.x ou 172.x).
  */
 export function isCGNAT(ip: string): boolean {
   if (!isIPv4(ip)) return false
@@ -151,11 +165,39 @@ function isPrivateLanIPv4(ip: string): boolean {
   return false
 }
 
-/** Classifica um IPv4 local pela interface provável. */
-export function classifyLocalIPv4(ip: string): 'loopback' | 'tailscale' | 'lan' | 'other' {
+/**
+ * Nome de interface do ZeroTier no Windows. O `portDeviceName` do CLI é a
+ * fonte oficial; o fallback por texto cobre instalações em que o adapter
+ * aparece como "ZeroTier One [<network id>]".
+ */
+export function isZeroTierInterfaceName(
+  name: string | null | undefined,
+  devices: readonly string[] = []
+): boolean {
+  const value = (name ?? '').trim().toLowerCase()
+  if (!value) return false
+  if (value.includes('zerotier')) return true
+  return devices.some((device) => device.trim().toLowerCase() === value)
+}
+
+export interface LocalIPv4Context {
+  /** Nome da interface dona do endereço (Windows: "ZeroTier One [id]"). */
+  interfaceName?: string | null
+  /** `portDeviceName` de todas as redes do `-j listnetworks`. */
+  zerotierDevices?: readonly string[]
+  /** `assignedAddresses` (sem prefixo) de todas as redes do CLI. */
+  zerotierAddresses?: readonly string[]
+}
+
+/** Classifica um IPv4 local pela interface e pelos endereços do ZeroTier. */
+export function classifyLocalIPv4(
+  ip: string,
+  context: LocalIPv4Context = {}
+): 'loopback' | 'zerotier' | 'lan' | 'other' {
   if (!isIPv4(ip)) return 'other'
   if (ip.startsWith('127.')) return 'loopback'
-  if (isCGNAT(ip)) return 'tailscale'
+  if (context.zerotierAddresses?.includes(ip)) return 'zerotier'
+  if (isZeroTierInterfaceName(context.interfaceName, context.zerotierDevices)) return 'zerotier'
   if (isPrivateLanIPv4(ip)) return 'lan'
   return 'other'
 }
@@ -175,65 +217,106 @@ export function comparePublicIp(publicIp: string, localIps: readonly string[]): 
   return 'nat'
 }
 
+/** Uma rede normalizada de `-j listnetworks`. */
+export interface ZeroTierNetworkEntry {
+  id: string | null
+  name: string | null
+  status: string | null
+  /** Nome do adapter no SO (`portDeviceName`). */
+  deviceName: string | null
+  /** Endereços atribuídos, já sem o prefixo CIDR. */
+  assigned: string[]
+  allowManaged: boolean
+}
+
 /**
- * Interpreta `tailscale status --json` sem confiar no formato: campos
- * ausentes/estranhos viram `null`/`0` e nunca derrubam a tela.
+ * Normaliza `-j listnetworks` sem confiar no formato: aceita a lista do CLI,
+ * um objeto indexado por ID (saída de emergência) e descarta o resto. Puro.
  */
-export function parseTailscaleStatus(
-  raw: unknown
-): Omit<TailscaleInfo, 'installed' | 'exePath' | 'error'> {
-  const empty = {
-    connected: false,
-    backendState: null as string | null,
-    hostname: null as string | null,
-    dnsName: null as string | null,
-    ipv4: null as string | null,
-    ipv6: null as string | null,
-    tailnet: null as string | null,
-    onlinePeers: 0
+export function parseZeroTierNetworks(raw: unknown): ZeroTierNetworkEntry[] {
+  const entries: Array<Record<string, unknown>> = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (isRecord(item)) entries.push(item)
+    }
+  } else if (isRecord(raw)) {
+    for (const [id, item] of Object.entries(raw)) {
+      if (isRecord(item)) entries.push({ ...item, id })
+    }
   }
-  if (!isRecord(raw)) return empty
 
-  const backendState = typeof raw.BackendState === 'string' ? raw.BackendState : null
-  const self = isRecord(raw.Self) ? raw.Self : null
+  return entries.map((entry) => {
+    const rawId = typeof entry.id === 'string' ? entry.id.trim().toLowerCase() : ''
+    const rawStatus = typeof entry.status === 'string' ? entry.status.trim() : ''
+    const assignedRaw = Array.isArray(entry.assignedAddresses) ? entry.assignedAddresses : []
+    const assigned = [
+      ...new Set(
+        assignedRaw
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.split('/')[0].trim().toLowerCase())
+          .filter((item) => isIPv4(item) || isIPv6(item))
+      )
+    ]
 
-  const ips =
-    self && Array.isArray(self.TailscaleIPs)
-      ? self.TailscaleIPs.filter((ip): ip is string => typeof ip === 'string')
-      : []
-  const ipv4 = ips.find(isIPv4) ?? null
-  const ipv6 = ips.find((ip) => !isIPv4(ip) && ip.includes(':')) ?? null
+    return {
+      id: /^[0-9a-f]{16}$/.test(rawId) ? rawId : null,
+      name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null,
+      status: rawStatus || null,
+      deviceName:
+        typeof entry.portDeviceName === 'string' && entry.portDeviceName.trim()
+          ? entry.portDeviceName.trim()
+          : null,
+      assigned,
+      allowManaged: entry.allowManaged === true
+    }
+  })
+}
 
-  const rawDnsName = self && typeof self.DNSName === 'string' ? self.DNSName : ''
-  const dnsName = rawDnsName ? rawDnsName.replace(/\.$/, '') : null
-  const hostname = self && typeof self.HostName === 'string' ? self.HostName : null
+/**
+ * Interpreta `zerotier-cli -j info` + `-j listnetworks` sem confiar no formato:
+ * campos ausentes/estranhos viram `null`/`false` e nunca derrubam a tela.
+ *
+ * Regra de conexão: serviço on-line (`online === true`) E pelo menos uma rede
+ * `status === 'OK'` com endereço. Ter o CLI instalado mas nenhuma rede
+ * ingressada é um estado distinto (`connected: false`, `networkId: null`).
+ */
+export function parseZeroTierStatus(
+  rawInfo: unknown,
+  rawNetworks: unknown
+): Omit<ZeroTierInfo, 'installed' | 'exePath' | 'error'> {
+  const info = isRecord(rawInfo) ? rawInfo : null
+  const online = info?.online === true
 
-  const tailnetObj = isRecord(raw.CurrentTailnet) ? raw.CurrentTailnet : null
-  const tailnet =
-    (tailnetObj && typeof tailnetObj.MagicDNSSuffix === 'string'
-      ? tailnetObj.MagicDNSSuffix
-      : null) ?? (tailnetObj && typeof tailnetObj.Name === 'string' ? tailnetObj.Name : null)
+  const rawAddress = typeof info?.address === 'string' ? info.address.trim().toLowerCase() : ''
+  const nodeId = /^[0-9a-f]{10}$/.test(rawAddress) ? rawAddress : null
 
-  const peers = isRecord(raw.Peer) ? Object.values(raw.Peer) : []
-  const onlinePeers = peers.filter((peer) => isRecord(peer) && peer.Online === true).length
+  const rawVersion = typeof info?.version === 'string' ? info.version.trim() : ''
+  const version = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(rawVersion) ? rawVersion : null
 
-  // `Self.Online` ausente em algumas versões/saídas parciais: nesse caso o
-  // BackendState decide sozinho.
-  const selfOnline = self === null || self.Online !== false
+  const networks = parseZeroTierNetworks(rawNetworks)
+  const ok = networks.filter((network) => network.status === 'OK')
+  const primary =
+    ok.find((network) => network.assigned.some((ip) => isIPv4(ip))) ??
+    ok.find((network) => network.assigned.some((ip) => isIPv6(ip))) ??
+    null
+  // Sem rede utilizável, ainda mostramos a primeira para a UI explicar o porquê
+  // (ex.: ACCESS_DENIED) em vez de fingir que o nó não tem rede nenhuma.
+  const shown = primary ?? networks[0] ?? null
 
   return {
-    connected: backendState === 'Running' && selfOnline,
-    backendState,
-    hostname,
-    dnsName,
-    ipv4,
-    ipv6,
-    tailnet,
-    onlinePeers
+    connected: online && primary !== null,
+    online,
+    nodeId,
+    version,
+    network: shown?.name ?? null,
+    networkId: shown?.id ?? null,
+    networkStatus: shown?.status ?? null,
+    ipv4: primary?.assigned.find((ip) => isIPv4(ip)) ?? null,
+    ipv6: primary?.assigned.find((ip) => isIPv6(ip)) ?? null
   }
 }
 
 /** Todos os IPs que podem identificar esta máquina na comparação com o IP público. */
 export function flattenAddresses(addresses: LocalAddresses): string[] {
-  return [...addresses.lan, ...addresses.tailscale, ...addresses.ipv6]
+  return [...addresses.lan, ...addresses.zerotier, ...addresses.ipv6]
 }

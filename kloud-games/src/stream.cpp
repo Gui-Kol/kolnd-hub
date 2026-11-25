@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file src/stream.cpp
  * @brief Definitions for the streaming protocols.
  */
@@ -17,7 +17,8 @@
 #include <openssl/err.h>
 #include <rs.h>
 
-#include <moonlight-common-c/src/Limelight-internal.h>
+// Keep this separate so clang-format preserves the include order.
+#include "compat/moonlight.h"
 
 // local includes
 #include "config.h"

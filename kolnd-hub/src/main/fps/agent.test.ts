@@ -21,6 +21,7 @@ import {
   buildFpsAgentInstallScript,
   buildFpsAgentRemoveScript,
   buildFpsAgentTaskAction,
+  deriveFpsAutoStatus,
   FPS_AUTO_STALE_MS,
   interpretFpsAgentQuery,
   parseFpsAutoLatest,
@@ -243,7 +244,12 @@ describe('parseFpsAutoLatest', () => {
 
   it('marca stale acima de 3 s e rejeita timestamp inválido', () => {
     const old = { ...valid, timestamp: '2026-11-17T11:59:56.000Z' }
-    expect(parseFpsAutoLatest(old, now)).toEqual({ fresh: false, sample: null, capturedAtMs: null })
+    expect(parseFpsAutoLatest(old, now)).toEqual({
+      fresh: false,
+      sample: null,
+      capturedAtMs: now - 4000,
+      stale: true
+    })
     expect(parseFpsAutoLatest({ ...valid, timestamp: 'agora' }, now)).toEqual({
       fresh: false,
       sample: null,
@@ -258,17 +264,31 @@ describe('parseFpsAutoLatest', () => {
     ).toBe(true)
   })
 
-  it('arquivo fresco sem alvo continua fresco (desktop) mas sem número', () => {
+  it('arquivo fresco sem alvo continua fresco (desktop) mas sem número e com motivo', () => {
     expect(
       parseFpsAutoLatest({ ...valid, pid: null, name: null, fps: null, frametimeMs: null }, now)
-    ).toEqual({ fresh: true, sample: null, capturedAtMs: now - 1000 })
+    ).toEqual({
+      fresh: true,
+      sample: null,
+      capturedAtMs: now - 1000,
+      reason: 'no-target'
+    })
+    // O coletor publica `no-presents` quando o app em primeiro plano existe mas
+    // não apresentou quadros nesta janela.
+    expect(
+      parseFpsAutoLatest(
+        { ...valid, pid: null, name: null, fps: null, frametimeMs: null, reason: 'no-presents' },
+        now
+      ).reason
+    ).toBe('no-presents')
   })
 
   it('ignora processos-casca (Explorer/DWM/Hub) e campos fora do contrato', () => {
     expect(parseFpsAutoLatest({ ...valid, name: 'explorer.exe' }, now)).toEqual({
       fresh: true,
       sample: null,
-      capturedAtMs: now - 1000
+      capturedAtMs: now - 1000,
+      reason: 'no-target'
     })
     expect(parseFpsAutoLatest({ ...valid, fps: Number.NaN }, now).sample).toBeNull()
     expect(parseFpsAutoLatest({ ...valid, frametimeMs: -1 }, now).sample).toBeNull()
@@ -278,6 +298,31 @@ describe('parseFpsAutoLatest', () => {
       sample: null,
       capturedAtMs: null
     })
+  })
+
+  it('deriva estado e motivo do "—" (parada, velha, sem alvo)', () => {
+    const freshSample = parseFpsAutoLatest(valid, now)
+    expect(deriveFpsAutoStatus(freshSample, false)).toEqual({ state: 'running' })
+
+    const freshNoTarget = parseFpsAutoLatest(
+      { ...valid, pid: null, name: null, fps: null, frametimeMs: null },
+      now
+    )
+    expect(deriveFpsAutoStatus(freshNoTarget, false)).toEqual({
+      state: 'running',
+      reason: 'no-target'
+    })
+
+    const stale = parseFpsAutoLatest({ ...valid, timestamp: '2026-11-17T11:59:00.000Z' }, now)
+    expect(deriveFpsAutoStatus(stale, false)).toEqual({ state: 'stale', reason: 'stale' })
+
+    const missing = parseFpsAutoLatest(null, now)
+    expect(deriveFpsAutoStatus(missing, false)).toEqual({
+      state: 'off',
+      reason: 'source-stopped'
+    })
+    // Tarefa legada ainda instalada sem arquivo: o agente deveria publicar.
+    expect(deriveFpsAutoStatus(missing, true)).toEqual({ state: 'stale', reason: 'stale' })
   })
 })
 

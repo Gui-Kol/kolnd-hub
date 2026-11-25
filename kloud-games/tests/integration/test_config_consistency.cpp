@@ -412,7 +412,7 @@ TEST_F(ConfigConsistencyTest, AllConfigSidebarTabsUseEnglishLocaleKeys) {
 
 TEST_F(ConfigConsistencyTest, ConfigSidebarTabsDoNotNavigateAway) {
   const std::string content = readFixture("src_assets/common/assets/web/Config.vue");
-  const std::regex tabButtonPattern(R"(<button\s+type="button"\s+class="nav-link")");
+  const std::regex tabButtonPattern(R"REGEX(<button\s+v-for="tab in (?:generalTabs|encoderTabs)"[\s\S]*?type="button")REGEX");
   const std::sregex_iterator tabButtonBegin(content.begin(), content.end(), tabButtonPattern);
   const std::sregex_iterator tabButtonEnd;
 
@@ -425,10 +425,8 @@ TEST_F(ConfigConsistencyTest, KeybindingsAreAvailableInWebUi) {
   const std::string selectContent = readFixture("src_assets/common/assets/web/configs/VirtualKeyCodeSelect.vue");
   const std::string keyCodeContent = readFixture("src_assets/common/assets/web/configs/virtual_key_codes.js");
 
-  EXPECT_NE(
-    content.find("id=\"keybindings\" class=\"mb-3\" v-if=\"config.keyboard === 'enabled'\""),
-    std::string::npos
-  );
+  EXPECT_NE(content.find("id=\"keybindings\""), std::string::npos);
+  EXPECT_NE(content.find("v-if=\"config.keyboard === 'enabled'\""), std::string::npos);
   EXPECT_NE(content.find("class=\"keybinding-grid\""), std::string::npos);
   EXPECT_NE(content.find("v-for=\"(binding, index) in keybindingPairs\""), std::string::npos);
   EXPECT_NE(content.find("v-model=\"binding.source\""), std::string::npos);

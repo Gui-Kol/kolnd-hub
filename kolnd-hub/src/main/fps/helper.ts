@@ -3,9 +3,10 @@ import { createHash } from 'crypto'
 import { existsSync, statSync, writeFileSync } from 'fs'
 import { promises as fs } from 'fs'
 import { isAbsolute, join } from 'path'
-import { isUacCancelled } from '../hwmon/driver'
 import { runPowerShell, runPowerShellCommand } from '../hwmon/powershell'
+import { isUacCancelled } from '../hwmon/uac'
 import { logger } from '../logger'
+import { FPS_DIR_NAME, resolveFpsStagingPaths, type FpsStagingPaths } from './paths'
 
 /**
  * Helper C# da medição de FPS/frametime por ETW (sem injeção).
@@ -299,6 +300,7 @@ public static class KolndFpsEtw
         var minutes = 240;
         var selfTest = false;
         var selfTestEvents = false;
+        var selfTestStop = false;
         var session = "KolndHubFps";
 
         for (var i = 0; i < args.Length; i++)
@@ -312,6 +314,11 @@ public static class KolndFpsEtw
             if (arg == "--self-test-events")
             {
                 selfTestEvents = true;
+                continue;
+            }
+            if (arg == "--self-test-stop")
+            {
+                selfTestStop = true;
                 continue;
             }
             if (arg == "--out" && i + 1 < args.Length) { outPath = args[++i]; continue; }
@@ -381,6 +388,46 @@ public static class KolndFpsEtw
                 _writer = null;
             }
             return 0;
+        }
+
+        if (selfTestStop)
+        {
+            // Sem elevacao nao da para abrir a sessao ETW. Este modo roda o
+            // MESMO WaitLoop do modo --sink e prova que o arquivo --stop
+            // encerra o coletor no ritmo do loop (200 ms), sem depender do
+            // Stop-Process de fallback do script do agente.
+            if (string.IsNullOrEmpty(_stopPath))
+            {
+                Console.Error.WriteLine("missing required --stop for --self-test-stop");
+                return 2;
+            }
+            if (!string.IsNullOrEmpty(_sinkDir))
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetFullPath(_sinkDir));
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("cannot create sink: " + ex.Message);
+                    return 3;
+                }
+            }
+            _writer = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
+            _writer.AutoFlush = true;
+            try
+            {
+                WriteLine("{\"type\":\"ready\",\"pid\":" + Process.GetCurrentProcess().Id +
+                          ",\"selfTestStop\":true}");
+                var testReason = WaitLoop(minutes, () => 0u);
+                WriteLine("{\"type\":\"stopped\",\"reason\":" + JsonString(testReason) + "}");
+                return 0;
+            }
+            finally
+            {
+                _writer.Dispose();
+                _writer = null;
+            }
         }
 
         if (string.IsNullOrEmpty(_sinkDir))
@@ -507,42 +554,7 @@ public static class KolndFpsEtw
                   ",\"session\":" + JsonString(_sessionName) +
                   ",\"dxgi\":true,\"dxgk\":" + (dxgkEnabled ? "true" : "false") + "}");
 
-        var started = Stopwatch.StartNew();
-        var lastFlush = Stopwatch.StartNew();
-        var reason = "timeout";
-
-        while (!_stop)
-        {
-            Thread.Sleep(200);
-
-            if (_stopPath != null && File.Exists(_stopPath))
-            {
-                reason = "stop-file";
-                break;
-            }
-            if (_heartbeatPath != null && HeartbeatExpired())
-            {
-                reason = "heartbeat";
-                break;
-            }
-            if (minutes > 0 && started.Elapsed.TotalMinutes >= minutes)
-            {
-                reason = "max-duration";
-                break;
-            }
-            if (traceError != 0)
-            {
-                reason = "trace-error";
-                break;
-            }
-            if (lastFlush.ElapsedMilliseconds >= 1000)
-            {
-                FlushSample(lastFlush.Elapsed.TotalMilliseconds);
-                lastFlush.Restart();
-            }
-        }
-
-        _stop = true;
+        var reason = WaitLoop(minutes, () => traceError);
 
         // Ordem importa: parar a sessao faz ProcessTrace retornar; so entao o
         // handle de consumo pode ser fechado. Sessao orfa deixaria o ETW aberto.
@@ -567,6 +579,52 @@ public static class KolndFpsEtw
 
         WriteLine("{\"type\":\"stopped\",\"reason\":" + JsonString(reason) + "}");
         return 0;
+    }
+
+    /**
+     * Loop comum ao modo --out/manual e ao modo --sink/agente. O stop-file e
+     * checado a cada 200 ms em AMBOS os modos; o --self-test-stop chama este
+     * mesmo metodo para provar o comportamento sem ETW/elevacao.
+     */
+    private static string WaitLoop(int minutes, Func<uint> traceError)
+    {
+        var started = Stopwatch.StartNew();
+        var lastFlush = Stopwatch.StartNew();
+        var reason = "timeout";
+
+        while (!_stop)
+        {
+            Thread.Sleep(200);
+
+            if (_stopPath != null && File.Exists(_stopPath))
+            {
+                reason = "stop-file";
+                break;
+            }
+            if (_heartbeatPath != null && HeartbeatExpired())
+            {
+                reason = "heartbeat";
+                break;
+            }
+            if (minutes > 0 && started.Elapsed.TotalMinutes >= minutes)
+            {
+                reason = "max-duration";
+                break;
+            }
+            if (traceError() != 0)
+            {
+                reason = "trace-error";
+                break;
+            }
+            if (lastFlush.ElapsedMilliseconds >= 1000)
+            {
+                FlushSample(lastFlush.Elapsed.TotalMilliseconds);
+                lastFlush.Restart();
+            }
+        }
+
+        _stop = true;
+        return reason;
     }
 
     private static void SelfTestEvents()
@@ -883,7 +941,13 @@ public static class KolndFpsEtw
         var sb = new StringBuilder();
         if (target == null)
         {
-            sb.Append("{\"pid\":null,\"name\":null,\"fps\":null,\"frametimeMs\":null");
+            // Sem alvo o Hub precisa saber POR QUE nao ha FPS: primeiro plano
+            // que nao apresenta (Explorer/DWM/Hub) ou app sem presents na janela.
+            var reason = (foregroundPid == 0 || IsIgnoredTarget(foregroundName))
+                ? "no-target"
+                : "no-presents";
+            sb.Append("{\"pid\":null,\"name\":null,\"fps\":null,\"frametimeMs\":null,\"reason\":");
+            sb.Append(JsonString(reason));
         }
         else
         {
@@ -1007,10 +1071,9 @@ public static class KolndFpsEtw
 }
 `
 
-const HELPER_DIR = 'fps'
+const HELPER_DIR = FPS_DIR_NAME
 const RUN_DIR = 'run'
 const HELPER_EXE = 'KolndFpsEtw.exe'
-const HELPER_SOURCE = 'KolndFpsEtw.cs'
 const OUTPUT_FILE = 'fps.ndjson'
 const STOP_FILE = 'fps.stop'
 const HEARTBEAT_FILE = 'fps.heartbeat'
@@ -1025,11 +1088,8 @@ const MAX_READ_BYTES = 256 * 1024
 const PS_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
 
 /** Staging gravável (userData): onde o main escreve o `.cs` e compila o `.exe`. */
-export interface FpsStagingPaths {
-  dir: string
-  sourcePath: string
-  stagingExePath: string
-}
+export type { FpsStagingPaths } from './paths'
+export { resolveFpsStagingPaths } from './paths'
 
 /**
  * Arquivos de controle da execução interativa em userData. Só o main (não
@@ -1056,15 +1116,6 @@ export interface FpsHelperPaths extends FpsStagingPaths, FpsRunPaths {
 }
 
 /** Caminhos puros (recebem a base para não depender de Electron nos testes). */
-export function resolveFpsStagingPaths(userDataDir: string): FpsStagingPaths {
-  const dir = join(userDataDir, HELPER_DIR)
-  return {
-    dir,
-    sourcePath: join(dir, HELPER_SOURCE),
-    stagingExePath: join(dir, HELPER_EXE)
-  }
-}
-
 export function resolveFpsRunPaths(userDataDir: string): FpsRunPaths {
   const runDir = join(userDataDir, HELPER_DIR, RUN_DIR)
   return {

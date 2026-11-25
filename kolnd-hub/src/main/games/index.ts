@@ -1,6 +1,15 @@
 import { ipcMain } from 'electron'
-import { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
-import type { Game, AddCustomGameResult } from './store'
+import {
+  getGames,
+  addGame,
+  addCustomGame,
+  updateGame,
+  checkExePaths,
+  removeGame,
+  getGameCollections,
+  createGameCollection
+} from './store'
+import type { Game, AddCustomGameResult, CreateCollectionResult } from './store'
 import type { GameResult } from './naming'
 import {
   pickGameIcon,
@@ -12,8 +21,10 @@ import {
   refreshGameIcons
 } from './icons'
 import type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+import { pickGameCover, setGameCover, getGameCover } from './covers'
+import type { PickCoverResult, CoverPathResult } from './covers'
 import type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
-import { launchGame, stopGame, runningGamesMap } from './launch'
+import { launchGame, stopGame, runningGamesMap, startPlaytimeMonitoring } from './launch'
 import type { LaunchGameResult } from './launch'
 
 /**
@@ -49,14 +60,37 @@ export {
   GAME_ICON_PIPELINE_VERSION
 } from './icons'
 export type { PickIconResult, IconPathResult, PreviewExeIconResult } from './icons'
+export { pickGameCover, setGameCover, getGameCover } from './covers'
+export type { PickCoverResult, CoverPathResult } from './covers'
 export type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
-export { findGameProcesses, launchGame, stopGame, runningGamesMap } from './launch'
+export {
+  findGameProcesses,
+  launchGame,
+  stopGame,
+  runningGamesMap,
+  startPlaytimeMonitoring,
+  flushPlaytimeTracking,
+  playtimeTracker
+} from './launch'
 export type { LaunchGameResult, GameProcess } from './launch'
-export { getGames, addGame, addCustomGame, updateGame, checkExePaths, removeGame } from './store'
-export type { Game, AddCustomGameResult } from './store'
+export {
+  getGames,
+  addGame,
+  addCustomGame,
+  updateGame,
+  checkExePaths,
+  removeGame,
+  getGameCollections,
+  createGameCollection
+} from './store'
+export type { Game, AddCustomGameResult, CreateCollectionResult } from './store'
 
 /** Registra os canais IPC da biblioteca de jogos. */
 export function registerGamesIpc(): void {
+  // Tick de 20 s do tempo de jogo (uma listagem de processos por tick, e só
+  // enquanto houver sessão aberta pelo Hub).
+  startPlaytimeMonitoring()
+
   ipcMain.handle('games:get', (): Game[] => getGames())
 
   ipcMain.handle('games:add', (_event, input: unknown): GameResult => addGame(input))
@@ -69,11 +103,25 @@ export function registerGamesIpc(): void {
     updateGame(id, patch)
   )
 
+  ipcMain.handle('games:collections', (): string[] => getGameCollections())
+
+  ipcMain.handle('games:collection-create', (_event, name: unknown): CreateCollectionResult =>
+    createGameCollection(name)
+  )
+
   ipcMain.handle('games:pick-icon', (): Promise<PickIconResult> => pickGameIcon())
 
   ipcMain.handle('games:set-icon', (_event, id: unknown, dataUrl: unknown): IconPathResult =>
     setGameIcon(id, dataUrl)
   )
+
+  ipcMain.handle('games:pick-cover', (): Promise<PickCoverResult> => pickGameCover())
+
+  ipcMain.handle('games:set-cover', (_event, id: unknown, dataUrl: unknown): CoverPathResult =>
+    setGameCover(id, dataUrl)
+  )
+
+  ipcMain.handle('games:get-cover', (_event, id: unknown): string | null => getGameCover(id))
 
   ipcMain.handle(
     'games:preview-exe-icon',

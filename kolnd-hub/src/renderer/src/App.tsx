@@ -22,20 +22,18 @@ import {
 import { executableName, matchesProcess, classifyImportance } from './lib/startup'
 import { loadAppConfigs, saveAppConfigs, loadImportanceMap } from './lib/hubConfig'
 import { once } from './lib/once'
+import { useGuideButtonShortcut } from './hooks/useGuideButtonShortcut'
 
 // Code splitting: páginas fora da inicial viajam em chunks próprios, carregados
-// só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture/
-// Escritório inteiros). Fallback `null`: nenhum spinner/texto novo — a transição
-// de página existente continua idêntica.
+// só quando visitadas (o boot deixa de pagar Settings/Inicialização/Big Picture
+// inteiros). Fallback `null`: nenhum spinner/texto novo — a transição de página
+// existente continua idêntica.
 const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })))
 const Inicializacao = lazy(() =>
   import('./components/Inicializacao').then((m) => ({ default: m.Inicializacao }))
 )
 const Biblioteca = lazy(() =>
   import('./components/Biblioteca').then((m) => ({ default: m.Biblioteca }))
-)
-const OfficeView = lazy(() =>
-  import('./components/office/OfficeView').then((m) => ({ default: m.OfficeView }))
 )
 const BigPicture = lazy(() =>
   import('./components/BigPicture').then((m) => ({ default: m.BigPicture }))
@@ -628,6 +626,15 @@ function App(): JSX.Element {
     })()
   }, [])
 
+  // Atalho do botão PS/Guide (índice 16): só com o Hub em foco (gate dentro do
+  // hook) e no shell normal — setup/transição/home do Big Picture, modais,
+  // busca e primeira execução ficam de fora. Passar pelo `enterBigPicture`
+  // mantém o gate de configuração como única porta de entrada.
+  useGuideButtonShortcut({
+    enabled: !isFirstRun && !isLoading && bigPicture === 'hidden' && !exitModalOpen && !searchOpen,
+    onTrigger: enterBigPicture
+  })
+
   const exitBigPicture = useCallback((): void => {
     void window.api.setFullScreen(false)
     setBigPicture('hidden')
@@ -737,14 +744,7 @@ function App(): JSX.Element {
                     onStop={handleStop}
                     onToast={onToast}
                     onOpenSettings={() => setCurrentPage('settings')}
-                    onOpenOffice={() => setCurrentPage('openoffice')}
                   />
-                ) : currentPage === 'openoffice' ? (
-                  <ErrorBoundary>
-                    <Suspense fallback={null}>
-                      <OfficeView />
-                    </Suspense>
-                  </ErrorBoundary>
                 ) : currentPage === 'inicializacao' ? (
                   <ErrorBoundary>
                     <Suspense fallback={null}>

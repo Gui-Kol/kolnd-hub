@@ -60,6 +60,7 @@
         "refresh_rate_only": []
       },
       "max_bitrate": 0,
+      "max_stream_resolution": "",
       "minimum_fps_target": 0
     }
   },
@@ -102,6 +103,8 @@
       "min_threads": 2,
       "hevc_mode": 0,
       "av1_mode": 0,
+      "mpeg2_mode": 0,
+      "h263p_mode": 0,
       "capture": "",
       "fp16_sdr_gamma_encoded": "disabled",
       "encoder": ""
@@ -150,7 +153,6 @@
     "nameKey": "config.category_videotoolbox_encoder",
     "options": {
       "vt_coder": "auto",
-      "vt_software": "auto",
       "vt_realtime": "enabled"
     }
   },

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Gamepad2, AlertTriangle, Library, Square } from 'lucide-react'
+import { Clock, Gamepad2, AlertTriangle, Library, Square, Star } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Game } from '../types'
 import {
   useBigPictureFocus,
@@ -22,6 +23,7 @@ interface BigPictureGamesProps {
 interface GameCardProps {
   game: Game
   icon: string | null | undefined
+  cover: string | null | undefined
   launching: boolean
   /** Há um processo do jogo aberto (habilita o botão "Encerrar"). */
   running: boolean
@@ -96,6 +98,7 @@ function CardStopButton({
 const GameCard = memo(function GameCard({
   game,
   icon,
+  cover,
   launching,
   running,
   onLaunch,
@@ -187,23 +190,34 @@ const GameCard = memo(function GameCard({
             : 'border-[var(--border-subtle)]'
         }`}
       >
-        <div className="w-32 h-32 2xl:w-36 2xl:h-36 rounded-card border border-[var(--border-subtle)] bg-surface-2 flex items-center justify-center overflow-hidden shrink-0 transition-colors duration-2 ease-standard group-hover:border-[var(--accent-border)]">
-          {icon ? (
+        {cover ? (
+          <div className="aspect-[2/3] w-32 2xl:w-36 rounded-card border border-[var(--border-subtle)] bg-surface-2 flex items-center justify-center overflow-hidden shrink-0 transition-colors duration-2 ease-standard group-hover:border-[var(--accent-border)]">
             <img
-              src={icon}
+              src={cover}
               alt={`Capa de ${game.name}`}
-              className="h-full w-full object-contain"
+              className="h-full w-full object-cover"
               draggable={false}
             />
-          ) : (
-            <Gamepad2
-              size={56}
-              strokeWidth={1.5}
-              aria-hidden="true"
-              className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
-            />
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="w-32 h-32 2xl:w-36 2xl:h-36 rounded-card border border-[var(--border-subtle)] bg-surface-2 flex items-center justify-center overflow-hidden shrink-0 transition-colors duration-2 ease-standard group-hover:border-[var(--accent-border)]">
+            {icon ? (
+              <img
+                src={icon}
+                alt={`Capa de ${game.name}`}
+                className="h-full w-full object-contain"
+                draggable={false}
+              />
+            ) : (
+              <Gamepad2
+                size={56}
+                strokeWidth={1.5}
+                aria-hidden="true"
+                className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
+              />
+            )}
+          </div>
+        )}
         <p className="w-full text-2xl 3xl:text-3xl font-semibold leading-snug tracking-tight text-ink-primary line-clamp-2 min-h-[3.5rem] 3xl:min-h-[4.5rem]">
           {game.name}
         </p>
@@ -226,7 +240,13 @@ const GameCard = memo(function GameCard({
             // tone="neutral" do primitivo mede 3.76–4.12 (ink-tertiary) nos fundos
             // dos cards do BP; ink-secondary mantém a mesma linguagem discreta com AA (6.35–6.97).
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-[var(--border-subtle)] bg-white/[0.05] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink-secondary">
-              {game.origin === 'steam' ? 'Steam' : 'Personalizado'}
+              {game.origin === 'steam'
+                ? 'Steam'
+                : game.origin === 'epic'
+                  ? 'Epic Games'
+                  : game.origin === 'minecraft'
+                    ? 'Minecraft'
+                    : 'Personalizado'}
             </span>
           )}
         </span>
@@ -254,6 +274,46 @@ function RetryButton({ onClick }: { onClick: () => void }): JSX.Element {
   )
 }
 
+type GameFilterKind = 'all' | 'favorites' | 'recent'
+
+/**
+ * Chip da barra de filtros do Big Picture. Focável pelo controle e pelo
+ * teclado (mesmo contrato do `useFocusable` dos cards).
+ */
+function FilterChip({
+  id,
+  label,
+  active,
+  onSelect,
+  icon: Icon
+}: {
+  id: string
+  label: string
+  active: boolean
+  onSelect: () => void
+  icon?: LucideIcon
+}): JSX.Element {
+  const { ref, focused, focus } = useFocusable(id, () => `Jogos, Filtro ${label}`)
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      onMouseEnter={focus}
+      onFocus={focus}
+      className={`inline-flex min-h-[2.75rem] items-center gap-2 rounded-pill border px-4 py-2 text-sm font-semibold transition-all duration-2 ease-standard focus:outline-none ${BP_FOCUS_RING} ${
+        active
+          ? 'border-[var(--accent-border)] bg-accent-muted text-ink-primary'
+          : 'border-[var(--border-subtle)] bg-surface-1 text-ink-secondary hover:border-[var(--border-strong)] hover:text-ink-primary'
+      } ${focused ? BP_FOCUSED_RING : ''}`}
+    >
+      {Icon && <Icon size={14} aria-hidden="true" fill={active ? 'currentColor' : 'none'} />}
+      {label}
+    </button>
+  )
+}
+
 /**
  * Seção "Jogos" do Big Picture — grade de cards grandes alimentada por
  * `games:get`. Lançar um jogo usa `games:launch` (spawn direto, fora do
@@ -272,29 +332,88 @@ export const BigPictureGames = memo(function BigPictureGames({
   // Ícones por id: dataURL cacheada no estado; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
+  // Capas por id (T6): quando existe, o card mostra 2:3 com object-cover.
+  const [covers, setCovers] = useState<Record<string, string | null>>({})
+  const coverRequests = useRef<Set<string>>(new Set())
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   // Quais jogos estão com processo aberto (habilita o botão "Encerrar").
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
+  // Barra de filtros focável (T3): Todos · Favoritos · Recentes + coleções.
+  const [filterKind, setFilterKind] = useState<GameFilterKind>('all')
+  const [collectionFilter, setCollectionFilter] = useState('')
+  const [collections, setCollections] = useState<string[]>([])
+  // Referência de tempo do filtro "Recentes" (30 dias) — capturada uma vez por
+  // montagem para o useMemo continuar puro durante o render.
+  const [filterNow] = useState(() => Date.now())
 
   // Âncora da virtualização: índice do jogo cujo card está focado. O foco vem
   // do store externo (só a seção re-renderiza; os cards são `memo`), e a linha
   // da âncora é sempre montada para o card nunca sumir no meio da navegação.
   const focusedId = useFocusedId()
+
+  const filteredGames = useMemo(() => {
+    const collectionKey = collectionFilter.trim().toLowerCase()
+    const cutoff = filterNow - 30 * 24 * 3600_000
+    const list = games.filter((game) => {
+      if (filterKind === 'favorites' && game.favorite !== true) return false
+      if (filterKind === 'recent') {
+        const at = game.lastPlayedAt ? Date.parse(game.lastPlayedAt) : Number.NaN
+        if (Number.isNaN(at) || at < cutoff) return false
+      }
+      if (
+        collectionKey &&
+        !(game.collections ?? []).some((name) => name.trim().toLowerCase() === collectionKey)
+      ) {
+        return false
+      }
+      return true
+    })
+    if (filterKind !== 'recent') return list
+    return [...list].sort((a, b) => {
+      const aAt = a.lastPlayedAt ? Date.parse(a.lastPlayedAt) : 0
+      const bAt = b.lastPlayedAt ? Date.parse(b.lastPlayedAt) : 0
+      return bAt - aAt
+    })
+  }, [games, filterKind, collectionFilter, filterNow])
+
   const gameIndexById = useMemo(() => {
     const byId = new Map<string, number>()
-    games.forEach((game, index) => byId.set(game.id, index))
+    filteredGames.forEach((game, index) => byId.set(game.id, index))
     return byId
-  }, [games])
+  }, [filteredGames])
   // `game:stop:<id>` resolve para `stop:<id>` (ausente do mapa) → sem âncora.
   const anchorIndex =
     focusedId && focusedId.startsWith('game:')
       ? (gameIndexById.get(focusedId.slice('game:'.length)) ?? null)
       : null
   const { scrollRef, gridRef, onScroll, range } = useWindowedGrid({
-    itemCount: games.length,
+    itemCount: filteredGames.length,
     anchorIndex
   })
-  const visibleGames = games.slice(range.startIndex, range.endIndex)
+  const visibleGames = filteredGames.slice(range.startIndex, range.endIndex)
+
+  // Ao trocar o filtro a grade recomeça do topo (a âncora antiga pode nem
+  // existir na lista nova; o foco do controle fica no chip recém-acionado).
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (scroller) scroller.scrollTop = 0
+  }, [filterKind, collectionFilter, scrollRef])
+
+  // Coleções para os chips (falha silenciosa: a barra continua com 3 filtros).
+  useEffect(() => {
+    let alive = true
+    window.api
+      .getGameCollections()
+      .then((list) => {
+        if (alive) setCollections(list)
+      })
+      .catch(() => {
+        // Sem coleções — só os filtros fixos aparecem.
+      })
+    return (): void => {
+      alive = false
+    }
+  }, [])
 
   const loadGames = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -337,6 +456,29 @@ export const BigPictureGames = memo(function BigPictureGames({
       cancelled = true
     }
   }, [games, icons])
+
+  // Capas: mesma estratégia (uma requisição por id por montagem).
+  useEffect(() => {
+    let cancelled = false
+    for (const game of games) {
+      if (game.id in covers) continue
+      if (coverRequests.current.has(game.id)) continue
+      coverRequests.current.add(game.id)
+      window.api
+        .getGameCover(game.id)
+        .then((dataUrl) => {
+          if (cancelled) return
+          setCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
+        })
+        .catch(() => {
+          if (cancelled) return
+          setCovers((prev) => ({ ...prev, [game.id]: null }))
+        })
+    }
+    return (): void => {
+      cancelled = true
+    }
+  }, [games, covers])
 
   const handleLaunch = useCallback(
     async (game: Game): Promise<void> => {
@@ -425,6 +567,50 @@ export const BigPictureGames = memo(function BigPictureGames({
         </div>
       </header>
 
+      {/* ── Barra de filtros focável (T3) ─────────────── */}
+      {!loading && !loadError && games.length > 0 && (
+        <div
+          role="group"
+          aria-label="Filtros de jogos"
+          className="mt-6 flex flex-wrap items-center gap-3"
+        >
+          <FilterChip
+            id="games:filter:all"
+            label="Todos"
+            active={filterKind === 'all'}
+            onSelect={() => setFilterKind('all')}
+          />
+          <FilterChip
+            id="games:filter:favorites"
+            label="Favoritos"
+            icon={Star}
+            active={filterKind === 'favorites'}
+            onSelect={() => setFilterKind('favorites')}
+          />
+          <FilterChip
+            id="games:filter:recent"
+            label="Recentes"
+            icon={Clock}
+            active={filterKind === 'recent'}
+            onSelect={() => setFilterKind('recent')}
+          />
+          {collections.length > 0 && (
+            <span aria-hidden="true" className="h-6 w-px bg-[var(--border-subtle)]" />
+          )}
+          {collections.map((collection) => (
+            <FilterChip
+              key={collection}
+              id={`games:filter:collection:${collection}`}
+              label={collection}
+              active={collectionFilter === collection}
+              onSelect={() =>
+                setCollectionFilter((current) => (current === collection ? '' : collection))
+              }
+            />
+          ))}
+        </div>
+      )}
+
       {/* ── Conteúdo ─────────────────────────────────── */}
       <div className="mt-8 min-h-0 flex-1">
         {loading ? (
@@ -439,17 +625,32 @@ export const BigPictureGames = memo(function BigPictureGames({
             <p className="text-base text-ink-secondary">{loadError}</p>
             <RetryButton onClick={() => void loadGames()} />
           </div>
-        ) : games.length === 0 ? (
+        ) : filteredGames.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
             <div className="flex h-28 w-28 items-center justify-center rounded-card border border-[var(--accent-border)] bg-accent-muted">
               <Library size={52} strokeWidth={1.5} aria-hidden="true" className="text-accent" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-3xl font-bold text-ink-primary">Sua biblioteca está vazia</h3>
+              <h3 className="text-3xl font-bold text-ink-primary">
+                {games.length === 0 ? 'Sua biblioteca está vazia' : 'Nenhum jogo neste filtro'}
+              </h3>
               <p className="text-lg text-ink-secondary max-w-md">
-                Adicione jogos pelo Hub normal, na aba Biblioteca — eles aparecem aqui.
+                {games.length === 0
+                  ? 'Adicione jogos pelo Hub normal, na aba Biblioteca — eles aparecem aqui.'
+                  : 'Ajuste os filtros para encontrar seus jogos.'}
               </p>
             </div>
+            {games.length > 0 && (
+              <FilterChip
+                id="games:filter:clear-empty"
+                label="Limpar filtros"
+                active={false}
+                onSelect={() => {
+                  setFilterKind('all')
+                  setCollectionFilter('')
+                }}
+              />
+            )}
           </div>
         ) : (
           // Scroller próprio da grade (sem `scrollIntoView`: o reveal mexe
@@ -478,12 +679,13 @@ export const BigPictureGames = memo(function BigPictureGames({
                     key={game.id}
                     game={game}
                     icon={icons[game.id]}
+                    cover={covers[game.id]}
                     launching={launchingId === game.id}
                     running={runningIds.has(game.id)}
                     onLaunch={launchGame}
                     onStop={stopGame}
                     position={index + 1}
-                    total={games.length}
+                    total={filteredGames.length}
                   />
                 )
               })}

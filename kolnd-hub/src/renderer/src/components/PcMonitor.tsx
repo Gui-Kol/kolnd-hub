@@ -11,21 +11,16 @@ import {
   Loader2,
   MemoryStick,
   Monitor,
-  Play,
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
-  Square,
   Zap
 } from 'lucide-react'
 import type {
   DriverStatus,
   DriverStatusInfo,
+  FpsAutoReason,
   FpsAutoStatus,
-  FpsInactiveReason,
-  FpsState,
-  FpsStatusInfo,
-  FpsUpdate,
   HudScale,
   HudStatus,
   HwCpuTempSource,
@@ -136,12 +131,18 @@ const CPU_TEMP_SOURCE_LABEL: Record<HwCpuTempSource, string> = {
   unavailable: 'sem leitura'
 }
 
-const FPS_REASON_TEXT: Record<FpsInactiveReason, string> = {
-  'not-started': 'Ative a medição para ver o FPS da janela em primeiro plano.',
+/**
+ * Motivo do "—" do FPS elevado. A fonte é única (coletor dentro do agente de
+ * sensores); o texto diferencia parada, amostra velha e ausência de alvo.
+ */
+const FPS_AUTO_REASON_TEXT: Record<FpsAutoReason, string> = {
+  'source-stopped':
+    'A leitura elevada não está publicando FPS. Atualize a leitura elevada no card de sensores acima (1 confirmação do Windows).',
+  stale:
+    'A última amostra de FPS tem mais de 3 s. O agente pode ter sido encerrado ou o coletor travou; atualize a leitura elevada ou reinicie a sessão.',
   'no-target':
     'Nenhum app com apresentações em primeiro plano. O próprio Hub, o Explorer e o DWM são ignorados.',
-  'no-presents': 'O app em primeiro plano não apresentou quadros nesta janela.',
-  'helper-stopped': 'A medição está parada.'
+  'no-presents': 'O app em primeiro plano não apresentou quadros nesta janela.'
 }
 
 // Rótulo e tom de cada fonte de energia — estimativa nunca veste roupa de medição.
@@ -255,43 +256,6 @@ function isDriverStatusInfo(value: unknown): value is DriverStatusInfo {
   )
 }
 
-function isFpsState(value: unknown): value is FpsState {
-  return value === 'off' || value === 'starting' || value === 'running' || value === 'error'
-}
-
-/** O renderer não confia no IPC: valida forma e faixas antes de renderizar. */
-function isFpsUpdate(value: unknown): value is FpsUpdate {
-  if (!isRecord(value)) return false
-  if (!isFpsState(value.state)) return false
-  if (typeof value.active !== 'boolean') return false
-  if (!(
-    value.pid === null ||
-    (typeof value.pid === 'number' && Number.isSafeInteger(value.pid) && value.pid > 0)
-  )) {
-    return false
-  }
-  if (!(
-    value.processName === null ||
-    (typeof value.processName === 'string' && value.processName.length <= 260)
-  )) {
-    return false
-  }
-  const optionalNumber = (candidate: unknown): boolean =>
-    candidate === null ||
-    (typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0)
-  if (!optionalNumber(value.fps) || !optionalNumber(value.frametimeMs)) return false
-  if (typeof value.capturedAt !== 'string') return false
-  if (value.error !== undefined && typeof value.error !== 'string') return false
-  return true
-}
-
-function isFpsStatusInfo(value: unknown): value is FpsStatusInfo {
-  if (!isRecord(value)) return false
-  if (!isFpsState(value.state)) return false
-  if (value.error !== undefined && typeof value.error !== 'string') return false
-  return value.last === null || isFpsUpdate(value.last)
-}
-
 /** O renderer não confia no IPC: valida o estado da sobreposição antes de usar. */
 function isHudStatus(value: unknown): value is HudStatus {
   if (!isRecord(value)) return false
@@ -321,6 +285,16 @@ function isFpsAutoStatus(value: unknown): value is FpsAutoStatus {
   }
   if (typeof value.installed !== 'boolean' || typeof value.sinkDir !== 'string') return false
   if (value.error !== undefined && typeof value.error !== 'string') return false
+  if (value.fresh !== undefined && typeof value.fresh !== 'boolean') return false
+  if (
+    value.reason !== undefined &&
+    value.reason !== 'source-stopped' &&
+    value.reason !== 'stale' &&
+    value.reason !== 'no-target' &&
+    value.reason !== 'no-presents'
+  ) {
+    return false
+  }
   if (value.sample === null) return true
   if (!isRecord(value.sample)) return false
   const sample = value.sample
@@ -476,11 +450,6 @@ export function PcMonitor(): JSX.Element {
   const [installing, setInstalling] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fps, setFps] = useState<FpsUpdate | null>(null)
-  const [fpsStatus, setFpsStatus] = useState<FpsStatusInfo | null>(null)
-  const [fpsBusy, setFpsBusy] = useState(false)
-  const [fpsNotice, setFpsNotice] = useState<string | null>(null)
-  const [fpsError, setFpsError] = useState<string | null>(null)
   // Sobreposição (HUD): estado do atalho global + visibilidade persistida.
   const [hud, setHud] = useState<HudStatus | null>(null)
   const [hudRecording, setHudRecording] = useState(false)
@@ -491,11 +460,9 @@ export function PcMonitor(): JSX.Element {
   // Intervalo de atualização do monitor (aba + HUD usam o MESMO timer no main).
   const [hwIntervalMs, setHwIntervalMs] = useState(HWMON_INTERVAL_DEFAULT_MS)
   const [hwIntervalBusy, setHwIntervalBusy] = useState(false)
-  // FPS automático (tarefa agendada no logon): status passivo + instalar/remover.
+  // FPS da leitura elevada: status passivo; a ação que ativa/atualiza é a
+  // mesma dos sensores avançados.
   const [autoFps, setAutoFps] = useState<FpsAutoStatus | null>(null)
-  const [autoBusy, setAutoBusy] = useState(false)
-  const [autoNotice, setAutoNotice] = useState<string | null>(null)
-  const [autoError, setAutoError] = useState<string | null>(null)
 
   useEffect(() => {
     mountedRef.current = true
@@ -552,23 +519,8 @@ export function PcMonitor(): JSX.Element {
   useEffect(() => {
     mountedRef.current = true
 
-    const unsubscribe = window.api.onFpsUpdate((value) => {
-      if (!mountedRef.current || !isFpsUpdate(value)) return
-      setFps(value)
-      setFpsStatus({ state: value.state, last: value, error: value.error })
-    })
-
-    void window.api
-      .fpsStatus()
-      .then((info) => {
-        if (!mountedRef.current || !isFpsStatusInfo(info)) return
-        setFpsStatus(info)
-        if (info.last) setFps(info.last)
-      })
-      .catch(() => undefined)
-
-    // FPS automático: o main publica a cada mudança de amostra (1 Hz), então a
-    // UI reflete o agent sem polling próprio.
+    // Fonte única de FPS: a leitura elevada. O main publica a cada mudança de
+    // amostra (1 Hz), então a UI reflete o agente sem polling próprio.
     const unsubscribeAuto = window.api.onFpsAutoUpdate((value) => {
       if (mountedRef.current && isFpsAutoStatus(value)) setAutoFps(value)
     })
@@ -579,76 +531,12 @@ export function PcMonitor(): JSX.Element {
       })
       .catch(() => undefined)
 
-    // Não paramos a medição no unmount: ela é opt-in e explícita. O usuário
-    // pode voltar à aba sem um novo UAC; o helper é encerrado por "Parar
-    // medição" ou no will-quit, com heartbeat impedindo órfãos.
+    // O FPS é produzido pelo agente elevado, não por esta aba: sair do Monitor
+    // não interrompe a medição.
     return () => {
-      unsubscribe()
       unsubscribeAuto()
     }
   }, [])
-
-  const startFps = async (): Promise<void> => {
-    if (fpsBusy) return
-    setFpsBusy(true)
-    setFpsError(null)
-    setFpsNotice(null)
-    try {
-      const result = await window.api.fpsStart()
-      if (!mountedRef.current) return
-      if (isFpsStatusInfo(result.status)) setFpsStatus(result.status)
-      if (result.cancelled) {
-        setFpsNotice('Permissão de administrador não concedida. Nada foi alterado no sistema.')
-        return
-      }
-      if (!result.ok) {
-        setFpsError(result.error ?? 'Não foi possível iniciar a medição de FPS.')
-        return
-      }
-      setFps({
-        state: 'starting',
-        active: false,
-        pid: null,
-        processName: null,
-        fps: null,
-        frametimeMs: null,
-        capturedAt: new Date().toISOString(),
-        reason: 'not-started'
-      })
-      setFpsNotice('Aguardando o helper de eventos abrir a sessão do Windows…')
-    } catch {
-      if (mountedRef.current) {
-        setFpsError('Não foi possível iniciar a medição de FPS. Tente novamente.')
-      }
-    } finally {
-      if (mountedRef.current) setFpsBusy(false)
-    }
-  }
-
-  const stopFps = async (): Promise<void> => {
-    if (fpsBusy) return
-    setFpsBusy(true)
-    setFpsError(null)
-    try {
-      await window.api.fpsStop()
-      if (!mountedRef.current) return
-      setFps({
-        state: 'off',
-        active: false,
-        pid: null,
-        processName: null,
-        fps: null,
-        frametimeMs: null,
-        capturedAt: new Date().toISOString(),
-        reason: 'helper-stopped'
-      })
-      setFpsNotice('Medição de FPS parada.')
-    } catch {
-      if (mountedRef.current) setFpsError('Não foi possível parar a medição de FPS.')
-    } finally {
-      if (mountedRef.current) setFpsBusy(false)
-    }
-  }
 
   // ── Sobreposição (HUD) ─────────────────────────────
   // Um único caminho para salvar o atalho: valida/registra no main e, em erro
@@ -794,63 +682,6 @@ export function PcMonitor(): JSX.Element {
     }
   }
 
-  // FPS automático: instalar/remover sempre pede confirmação do Windows (UAC).
-  const installAutoFps = async (): Promise<void> => {
-    if (autoBusy) return
-    setAutoBusy(true)
-    setAutoError(null)
-    setAutoNotice(null)
-    try {
-      const result = await window.api.fpsAutoInstall()
-      if (!mountedRef.current) return
-      if (isFpsAutoStatus(result.status)) setAutoFps(result.status)
-      if (result.cancelled) {
-        setAutoNotice('Permissão do Windows não concedida. Nada foi alterado.')
-        return
-      }
-      if (!result.ok) {
-        setAutoError(result.error ?? 'Não foi possível ativar o FPS automático.')
-        return
-      }
-      setAutoNotice(
-        'FPS automático ativado. Ao apertar Shift+Insert no jogo, o FPS já aparece sem pedir nada.'
-      )
-    } catch {
-      if (mountedRef.current) {
-        setAutoError('Não foi possível ativar o FPS automático. Tente novamente.')
-      }
-    } finally {
-      if (mountedRef.current) setAutoBusy(false)
-    }
-  }
-
-  const removeAutoFps = async (): Promise<void> => {
-    if (autoBusy) return
-    setAutoBusy(true)
-    setAutoError(null)
-    setAutoNotice(null)
-    try {
-      const result = await window.api.fpsAutoRemove()
-      if (!mountedRef.current) return
-      if (isFpsAutoStatus(result.status)) setAutoFps(result.status)
-      if (result.cancelled) {
-        setAutoNotice('Permissão do Windows não concedida. Nada foi alterado.')
-        return
-      }
-      if (!result.ok) {
-        setAutoError(result.error ?? 'Não foi possível desativar o FPS automático.')
-        return
-      }
-      setAutoNotice('FPS automático desativado. A tarefa e a amostra foram removidas.')
-    } catch {
-      if (mountedRef.current) {
-        setAutoError('Não foi possível desativar o FPS automático. Tente novamente.')
-      }
-    } finally {
-      if (mountedRef.current) setAutoBusy(false)
-    }
-  }
-
   const installSensors = async (): Promise<void> => {
     if (installing) return
     setInstalling(true)
@@ -944,77 +775,57 @@ export function PcMonitor(): JSX.Element {
     totalW === null ? 'unavailable' : measuredTotalW !== null ? 'measured' : 'estimated'
   const barMaxW = Math.max(cpuPowerW ?? 0, gpuPowerW ?? 0, platformW ?? 0, 1)
 
-  // ── Desempenho (FPS por ETW) ───────────────────────
-  const fpsState: FpsState = fps?.state ?? fpsStatus?.state ?? 'off'
-  const fpsActive = fpsState === 'running' && fps?.active === true
-  const fpsValue = fpsActive ? (fps?.fps ?? null) : null
-  const fpsFrametime = fpsActive ? (fps?.frametimeMs ?? null) : null
-  const fpsProcessName = fpsActive ? (fps?.processName ?? null) : null
-  const fpsBadgeLabel = fpsActive
-    ? 'ao vivo'
-    : fpsState === 'starting'
-      ? 'iniciando…'
-      : fpsState === 'error'
-        ? 'erro'
-        : '—'
-  // Verde só com número na tela; rodando sem alvo continua "—" neutro.
-  const fpsBadgeTone = fpsActive
-    ? 'success'
-    : fpsState === 'starting'
-      ? 'accent'
-      : fpsState === 'error'
-        ? 'danger'
-        : 'neutral'
-  const fpsErrorText = fpsError ?? fps?.error ?? fpsStatus?.error ?? null
-  const fpsReason: FpsInactiveReason =
-    fps?.reason ?? (fpsState === 'off' && !fps ? 'not-started' : 'helper-stopped')
-  const fpsReasonText = fpsActive
-    ? 'Medindo a janela em primeiro plano agora.'
-    : fpsState === 'starting'
-      ? 'Abrindo a sessão de eventos com permissão de administrador…'
-      : fpsState === 'error'
-        ? 'A medição parou. Veja o erro acima e tente ativar de novo.'
-        : FPS_REASON_TEXT[fpsReason]
-  const canStartFps = fpsState === 'off' || fpsState === 'error'
-
-  // ── FPS automático (tarefa no logon) ──────────────
-  const autoInstalled = autoFps?.installed === true
-  const autoActive = autoFps?.state === 'running' && autoFps?.sample !== null
-  const autoBadgeLabel =
+  // ── Desempenho (FPS da leitura elevada) ────────────
+  // Fonte única: o coletor dentro do agente de sensores. Nunca há dois caminhos
+  // concorrentes (manual x automático) disputando o mesmo card.
+  const fpsSample = autoFps?.state === 'running' ? autoFps.sample : null
+  const fpsActive = fpsSample !== null
+  const fpsValue = fpsSample?.fps ?? null
+  const fpsFrametime = fpsSample?.frametimeMs ?? null
+  const fpsProcessName = fpsSample?.name ?? null
+  const fpsBadgeLabel =
     autoFps === null
       ? 'carregando…'
       : autoFps.state === 'installing'
         ? 'ativando…'
-        : autoFps.state === 'running'
-          ? autoActive
-            ? 'ao vivo'
-            : 'sem alvo'
-          : autoFps.state === 'stale'
-            ? 'agent parado'
-            : autoFps.state === 'error'
-              ? 'erro'
-              : 'desligado'
-  const autoBadgeTone: BadgeTone =
-    autoFps?.state === 'running' && autoActive
-      ? 'success'
-      : autoFps?.state === 'installing'
-        ? 'accent'
-        : autoFps?.state === 'error'
-          ? 'danger'
-          : autoFps?.state === 'stale'
-            ? 'warning'
-            : 'neutral'
-  const autoErrorText = autoError ?? autoFps?.error ?? null
-  // Motivo real do "—" no card automático: instalado sem amostra fresca é
-  // "agent parado" ou "nenhum jogo em primeiro plano" — nunca um traço mudo.
-  const autoReasonText =
-    autoFps === null || !autoInstalled
-      ? null
-      : autoFps.state === 'stale'
-        ? 'A tarefa está instalada, mas o agent não publica amostra há mais de 3 s. Ele inicia no logon: se você acabou de ativar, reinicie a sessão ou o PC.'
-        : autoFps.state === 'running' && autoFps.sample === null
-          ? 'Nenhum jogo em primeiro plano agora: o agent só publica FPS quando um app apresenta quadros.'
-          : null
+        : fpsActive
+          ? 'ao vivo'
+          : autoFps.state === 'error'
+            ? 'erro'
+            : autoFps.state === 'stale'
+              ? 'amostra velha'
+              : autoFps.reason === 'no-presents'
+                ? 'sem quadros'
+                : autoFps.state === 'running'
+                  ? 'sem alvo'
+                  : 'fonte parada'
+  // Verde só com número na tela; sem alvo continua "—" neutro.
+  const fpsBadgeTone: BadgeTone = fpsActive
+    ? 'success'
+    : autoFps?.state === 'installing'
+      ? 'accent'
+      : autoFps?.state === 'error'
+        ? 'danger'
+        : autoFps?.state === 'stale'
+          ? 'warning'
+          : 'neutral'
+  const fpsErrorText = autoFps?.error ?? null
+  const fpsReasonText = fpsActive
+    ? 'Medindo a janela em primeiro plano agora.'
+    : autoFps === null
+      ? 'Lendo o estado da leitura elevada…'
+      : autoFps.state === 'error'
+        ? 'A fonte de FPS reportou um erro; veja a mensagem abaixo.'
+        : autoFps.state === 'stale'
+          ? FPS_AUTO_REASON_TEXT.stale
+          : autoFps.reason
+            ? FPS_AUTO_REASON_TEXT[autoFps.reason]
+            : autoFps.state === 'installing'
+              ? 'Atualizando a leitura elevada…'
+              : FPS_AUTO_REASON_TEXT['source-stopped']
+  // O botão do card de FPS só atualiza um agente já ativo, mas antigo. Sem
+  // leitura ativa, a ação certa é a do card de sensores acima (instalar/ativar).
+  const canUpdateFps = driverReady && sensorsOutdated
   // Intervalo vigente no texto do cabeçalho (a fonte da verdade é o main).
   const intervalLabel = formatIntervalLabel(hwIntervalMs)
 
@@ -1101,7 +912,7 @@ export function PcMonitor(): JSX.Element {
                   : driverState === 'present'
                     ? 'Instalado, mas a leitura não está ativa — clique para ativar.'
                     : sensorsOutdated
-                      ? 'Sensores ativos, mas sem os registradores novos — clique para atualizar.'
+                      ? 'Sensores ativos, mas a leitura elevada está incompleta (registradores ou coletor de FPS) — clique para atualizar.'
                       : 'Sensores avançados ativos — leitura elevada em segundo plano.'}
               </p>
               {driver?.error && !driverReady && (
@@ -1541,144 +1352,44 @@ export function PcMonitor(): JSX.Element {
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
-            {canStartFps ? (
+            <span className="text-[10px] text-ink-tertiary">
+              Leitura elevada · sem injeção · ETW do Windows
+            </span>
+            {canUpdateFps && (
               <Button
                 variant="secondary"
                 size="md"
-                onClick={() => void startFps()}
-                disabled={fpsBusy}
-                data-testid="fps-start"
+                onClick={() => void installSensors()}
+                disabled={installing}
+                data-testid="fps-elevated-update"
               >
-                {fpsBusy ? (
+                {installing ? (
                   <Loader2 size={14} className="animate-spin" aria-hidden="true" />
                 ) : (
-                  <Play size={14} aria-hidden="true" />
+                  <ShieldCheck size={14} aria-hidden="true" />
                 )}
-                Ativar medição de FPS (pede permissão de administrador)
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => void stopFps()}
-                disabled={fpsBusy}
-                data-testid="fps-stop"
-              >
-                {fpsBusy ? (
-                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <Square size={14} aria-hidden="true" />
-                )}
-                Parar medição
+                Atualizar leitura elevada (1 confirmação do Windows)
               </Button>
             )}
-            <span className="text-[10px] text-ink-tertiary">Sem injeção · ETW do Windows</span>
           </div>
 
           {fpsErrorText && (
-            <p role="alert" className="text-[11px] text-danger">
+            <p role="alert" className="text-[11px] text-danger" data-testid="fps-error">
               {fpsErrorText}
             </p>
           )}
-          {fpsNotice && (
-            <p role="status" className="text-[11px] text-ink-tertiary">
-              {fpsNotice}
+
+          {autoFps && (
+            <p className="break-all text-[10px] text-ink-tertiary" data-testid="fps-sink">
+              Fonte: {autoFps.sinkDir}
             </p>
           )}
 
-          <div
-            className="space-y-3 rounded-control border border-[var(--border-subtle)] bg-surface-2 p-3.5"
-            data-testid="fps-auto"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h4 className="text-sm font-bold text-ink-primary">FPS automático (recomendado)</h4>
-                <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
-                  Instala <strong>uma tarefa no logon do Windows</strong> que mede o FPS desde o
-                  início da sessão. Assim o HUD mostra FPS ao apertar{' '}
-                  <strong>{formatAcceleratorLabel(HUD_DEFAULT_SHORTCUT)}</strong> dentro do jogo,
-                  sem pedir permissão a cada uso. A instalação pede{' '}
-                  <strong>1 confirmação de administrador</strong>; a remoção também é manual.
-                </p>
-              </div>
-              <Badge tone={autoBadgeTone} data-testid="fps-auto-badge">
-                {autoBadgeLabel}
-              </Badge>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {autoInstalled ? (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() => void removeAutoFps()}
-                  disabled={autoBusy || autoFps?.state === 'installing'}
-                  data-testid="fps-auto-remove"
-                >
-                  {autoBusy ? (
-                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <ShieldAlert size={14} aria-hidden="true" />
-                  )}
-                  Desativar FPS automático
-                </Button>
-              ) : (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() => void installAutoFps()}
-                  disabled={autoBusy || autoFps?.state === 'installing'}
-                  data-testid="fps-auto-install"
-                >
-                  {autoBusy ? (
-                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <ShieldCheck size={14} aria-hidden="true" />
-                  )}
-                  Ativar FPS automático (1 confirmação do Windows)
-                </Button>
-              )}
-              <span className="text-[10px] leading-relaxed text-ink-tertiary">
-                Amostra velha (mais de 3 s) mostra “{DASH}”. Nada é injetado no jogo.
-              </span>
-            </div>
-
-            {autoReasonText && (
-              <p
-                className="text-[11px] leading-relaxed text-ink-tertiary"
-                data-testid="fps-auto-reason"
-              >
-                {autoReasonText}
-              </p>
-            )}
-            {autoActive && autoFps?.sample && (
-              <p className="text-[11px] text-ink-secondary" data-testid="fps-auto-sample">
-                Agora: {formatInt(autoFps.sample.fps)} FPS ·{' '}
-                {formatDecimal(autoFps.sample.frametimeMs, 1)} ms · {autoFps.sample.name ?? DASH}
-              </p>
-            )}
-            {autoErrorText && (
-              <p role="alert" className="text-[11px] text-danger" data-testid="fps-auto-error">
-                {autoErrorText}
-              </p>
-            )}
-            {autoNotice && (
-              <p role="status" className="text-[11px] text-ink-tertiary">
-                {autoNotice}
-              </p>
-            )}
-            {autoFps && (
-              <p className="break-all text-[10px] text-ink-tertiary" data-testid="fps-auto-sink">
-                Agent: {autoFps.sinkDir}
-              </p>
-            )}
-          </div>
-
           <p className="max-w-3xl text-[10px] leading-relaxed text-ink-tertiary">
             A medição lê os eventos de apresentação do Windows (ETW). Nada é injetado no jogo e
-            nenhuma DLL é carregada nele. A sessão de eventos é do sistema, por isso o Windows exige
-            permissão de administrador — nada é alterado no PC. Alvo: a janela em primeiro plano; o
-            próprio Hub, o Explorer e o DWM ficam de fora.
+            nenhuma DLL é carregada nele. O coletor roda dentro do agente elevado de sensores
+            (instalado uma vez, ativo no logon) — não há pedido de permissão a cada uso. Alvo: a
+            janela em primeiro plano; o próprio Hub, o Explorer e o DWM ficam de fora.
           </p>
         </Card>
       </motion.div>

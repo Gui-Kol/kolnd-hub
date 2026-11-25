@@ -3,9 +3,9 @@ import {
   copyRemoteText,
   fetchPublicIp,
   getRemoteStatus,
-  installTailscale,
+  installZeroTier,
   openKloudWebPanel,
-  openTailscale,
+  openZeroTier,
   requestRemoteMode
 } from '../remoteAccess'
 import { getRemoteMode } from '../store'
@@ -24,9 +24,9 @@ export function registerRemoteAccessIpc(_ctx: IpcContext): void {
 
   ipcMain.handle('remote:public-ip', () => fetchPublicIp())
 
-  ipcMain.handle('remote:install-tailscale', () => installTailscale())
+  ipcMain.handle('remote:install-zerotier', () => installZeroTier())
 
-  ipcMain.handle('remote:open-tailscale', () => openTailscale())
+  ipcMain.handle('remote:open-zerotier', () => openZeroTier())
 
   ipcMain.handle('remote:open-kloud-web', () => openKloudWebPanel())
 

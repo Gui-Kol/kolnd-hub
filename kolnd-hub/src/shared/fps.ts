@@ -5,6 +5,16 @@
 // padrão de `hwmon.ts`). Tipos puros, sem runtime de plataforma.
 
 /**
+ * Nome da tarefa agendada LEGADA que rodava o coletor de FPS sozinha. O FPS
+ * agora vive dentro do agente elevado de sensores; o instalador encerra e
+ * apaga esta tarefa se ela ainda existir nesta máquina.
+ */
+export const FPS_LEGACY_AGENT_TASK_NAME = 'KolndHubFpsAgent'
+
+/** Sessão ETW usada pelo coletor (mesma do helper/manual). */
+export const FPS_ETW_SESSION_NAME = 'KolndHubFps'
+
+/**
  * Ciclo de vida da medição. `starting` cobre a janela entre o clique em
  * "Ativar" e o helper elevado publicar a linha `ready`; `error` é terminal até
  * o usuário tentar de novo (o botão de iniciar volta a aparecer).
@@ -56,13 +66,12 @@ export interface FpsStopResult {
 }
 
 /**
- * Estado do FPS automático (tarefa agendada no logon).
- *
- * `off` = tarefa não instalada; `installing` = UAC/`schtasks` em andamento;
- * `running` = tarefa instalada e amostra fresca (< 3 s); `stale` = tarefa
- * instalada mas o agent parou (amostra velha/ausente); `error` = falha ao
- * instalar/remover ou consultar.
+ * Motivo do "—" na leitura elevada: a fonte não publica, a publicação está
+ * velha, ou o primeiro plano não é um app que apresenta quadros.
  */
+export type FpsAutoReason = 'source-stopped' | 'stale' | 'no-target' | 'no-presents'
+
+/** Estado do FPS automático (tarefa agendada no logon). */
 export type FpsAutoState = 'off' | 'installing' | 'running' | 'stale' | 'error'
 
 /** Amostra publicada pelo agent em `latest.json` (JSÓ o alvo em primeiro plano). */
@@ -78,11 +87,15 @@ export interface FpsAutoSample {
 /** Resposta de `fps:auto-status` (e base das ações de instalar/remover). */
 export interface FpsAutoStatus {
   state: FpsAutoState
-  /** `true` quando a tarefa `KolndHubFpsAgent` existe no Windows. */
+  /** `true` quando a tarefa LEGADA `KolndHubFpsAgent` ainda existe. */
   installed: boolean
   sample: FpsAutoSample | null
   /** Diretório do sink (`latest.json`) — visível para diagnóstico na UI. */
   sinkDir: string
+  /** `true` quando o sink está fresco, mesmo sem alvo em primeiro plano. */
+  fresh?: boolean
+  /** Motivo do "—" quando não há amostra ativa. */
+  reason?: FpsAutoReason
   error?: string
 }
 

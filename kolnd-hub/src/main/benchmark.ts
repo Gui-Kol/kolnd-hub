@@ -5,11 +5,14 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { Worker } from 'node:worker_threads'
 import { logger } from './logger'
-import { BENCHMARK_STRESS_SOURCE } from './benchmarkWorkerSource'
 import { BENCHMARK_RUNNER_SOURCE } from './benchmarkRunnerSource'
-import { runRunner, type RunnerLoadResult } from './benchmarkRunner'
+import {
+  startRunner,
+  startStressRunner,
+  type RunnerLoadResult,
+  type RunnerSession
+} from './benchmarkRunner'
 import {
   BENCHMARK_REFERENCES,
   computeRatio,
@@ -32,7 +35,7 @@ import {
 /**
  * Benchmark de CPU do Kolnd Hub.
  *
- * Regras que explicam o desenho atual (v2):
+ * Regras que explicam o desenho atual (v3):
  * - A computação roda em **processos filhos** (`process.execPath` +
  *   `ELECTRON_RUN_AS_NODE=1`), nunca em `worker_threads` do main: a partir da
  *   2ª execução na mesma sessão o V8 dos workers caía para interpretado
@@ -44,10 +47,15 @@ import {
  *   3 repetições e mediana. O mesmo trabalho em toda execução é o que torna o
  *   resultado comparável entre runs.
  * - Fases `single` (1 filho) e `multi` (N = núcleos lógicos, cap 32) com as
- *   5 cargas; total de 1 + N processos por run.
+ *   5 cargas; total de 1 + N processos por run. Os filhos aquecem, avisam
+ *   `ready` e só medem depois do `go` do main (barreira: começam e terminam
+ *   juntos, sem cauda ociosa no fim do multi).
  * - Nota normalizada por carga e média aritmética ponderada — a escala está
  *   documentada em `benchmarkScore.ts` e no rodapé da interface.
  * - Execução única por vez: benchmark e estresse são mutuamente exclusivos.
+ * - O estresse é carga contínua em N processos filhos (a mecânica do CPU-Z),
+ *   sem duty cycle; a prioridade BELOW_NORMAL dos filhos mantém a interface
+ *   utilizável. Ver `startStress`.
  * - Nenhum filho sobrevive ao run: fim, cancelamento, timeout e `will-quit`
  *   matam todos (órfão de benchmark é bug).
  */
@@ -156,7 +164,10 @@ interface LoadMeasurement {
 }
 
 interface StressSession {
-  workers: Worker[]
+  /** Processos filhos da carga contínua (um por núcleo lógico). */
+  children: Set<ChildProcess>
+  /** Número de filhos pedido — o que a interface mostra como "threads ativas". */
+  threads: number
   startedAt: number
   checksumOk: boolean
   sender: WebContents | null
@@ -224,9 +235,16 @@ async function ensureRunnerScript(): Promise<string> {
 }
 
 /**
- * Timeout de segurança por filho. Não é o tempo da medição (o trabalho é
- * fixo): cobre inicialização do processo + aquecimentos + repetições com folga
- * de ~2× o pior caso medido com todos os núcleos saturados.
+ * Timeout de segurança do spawn + aquecimento (antes do `go`). Generoso de
+ * propósito: quando a fase multi spawna 16 filhos com a CPU já saturada, criar
+ * cada processo pode levar segundos. Nada disso é medido.
+ */
+const RUNNER_READY_TIMEOUT_MS = 30_000
+
+/**
+ * Timeout de segurança da medição, contado **a partir do `go`**. Não é o tempo
+ * da medição (o trabalho é fixo): cobre inicialização do processo + as
+ * repetições com folga de ~2× o pior caso medido com todos os núcleos saturados.
  */
 function runnerTimeoutMs(loadCount: number): number {
   return 12_000 + Math.max(1, loadCount) * 9_000
@@ -261,6 +279,11 @@ interface MeasureOptions {
  * Mede as cargas pedidas com `workers` filhos em paralelo e devolve, por carga,
  * a mediana das repetições e o spread.
  *
+ * Barreira `ready`/`go`: todos os filhos aquecem as cargas, avisam `ready` e só
+ * começam a medir quando o main manda `go` — para todos no mesmo instante. Sem
+ * isso o multi tinha cauda: cada filho spawnado em sequência media em um
+ * intervalo deslocado e o fim da fase rodava com menos núcleos ocupados.
+ *
  * Fase single: a série é a do único filho (1 amostra por repetição).
  * Fase multi: a série é agregada por repetição (soma das ops dos filhos ÷ maior
  * tempo). O spread é medido na série que produz a nota — medir o spread interno
@@ -269,27 +292,36 @@ interface MeasureOptions {
 async function measureLoads(options: MeasureOptions): Promise<Map<string, LoadMeasurement>> {
   const { session, scriptPath, loadIds, workers, repeats } = options
 
-  const results = await Promise.all(
-    Array.from({ length: workers }, (_, index) =>
-      runRunner({
-        scriptPath,
-        config: { loads: [...loadIds], repeats },
-        timeoutMs: runnerTimeoutMs(loadIds.length),
-        onChild: (child) => {
-          session.children.add(child)
-          child.once('close', () => session.children.delete(child))
-        },
-        // Só o primeiro filho guia o progresso: 16 filhos reportando a mesma
-        // carga gerariam 16 eventos idênticos por passo.
-        onEvent:
-          index === 0
-            ? (event) => {
-                if (event.type === 'load') options.onLoadStart?.(event.id)
-              }
-            : undefined
-      })
-    )
+  const sessions: RunnerSession[] = Array.from({ length: workers }, (_, index) =>
+    startRunner({
+      scriptPath,
+      config: { mode: 'bench', loads: [...loadIds], repeats },
+      readyTimeoutMs: RUNNER_READY_TIMEOUT_MS,
+      timeoutMs: runnerTimeoutMs(loadIds.length),
+      onChild: (child) => {
+        session.children.add(child)
+        child.once('close', () => session.children.delete(child))
+      },
+      // Só o primeiro filho guia o progresso: 16 filhos reportando a mesma
+      // carga gerariam 16 eventos idênticos por passo.
+      onEvent:
+        index === 0
+          ? (event) => {
+              if (event.type === 'load') options.onLoadStart?.(event.id)
+            }
+          : undefined
+    })
   )
+
+  // Se um filho falhar antes do `go`, os outros também são encerrados no finally
+  // (sem filho órfão esperando uma barreira que nunca vai chegar).
+  const results = await (async (): Promise<RunnerLoadResult[][]> => {
+    await Promise.all(sessions.map((item) => item.ready))
+    for (const item of sessions) item.sendGo()
+    return Promise.all(sessions.map((item) => item.result))
+  })().finally(() => {
+    for (const item of sessions) item.kill()
+  })
 
   const measurements = new Map<string, LoadMeasurement>()
   for (const id of loadIds) {
@@ -538,7 +570,7 @@ function sendStressProgress(session: StressSession): void {
   if (!sender || sender.isDestroyed()) return
   const progress: StressProgress = {
     elapsedMs: Math.max(0, Date.now() - session.startedAt),
-    threads: session.workers.length,
+    threads: session.threads,
     checksumOk: session.checksumOk
   }
   try {
@@ -548,20 +580,62 @@ function sendStressProgress(session: StressSession): void {
   }
 }
 
-function terminateWorkers(workers: Iterable<Worker>): void {
-  for (const worker of workers) {
-    // `terminate()` é assíncrono e nunca lança para worker já encerrado.
-    void worker.terminate().catch(() => undefined)
+/** Mata os filhos do estresse e limpa o conjunto (nunca deixa órfão). */
+function killStressChildren(session: StressSession): void {
+  for (const child of session.children) {
+    // `kill()` no Windows encerra o processo na hora; o try/catch cobre o filho
+    // que já morreu entre a iteração e a chamada.
+    try {
+      child.kill()
+    } catch {
+      // já encerrado
+    }
   }
+  session.children.clear()
 }
 
-/** Inicia a carga contínua em todos os núcleos (sem pontuação). */
-export function startStress(sender: WebContents | null = null): StressStartResult {
+/** Opções injetáveis dos testes automatizados (o IPC nunca as repassa). */
+export interface StressStartOptions {
+  /** Número de processos filhos. Em produção é `os.cpus().length` (cap 32). */
+  threads?: number
+  /** Caminho do runner. Usado apenas pelos testes automatizados. */
+  runnerScriptPath?: string
+  /** Recebe cada filho logo após o spawn (testes de órfão/parada). */
+  onChild?: (child: ChildProcess) => void
+}
+
+/**
+ * Inicia a carga contínua em todos os núcleos lógicos (sem pontuação).
+ *
+ * A mecânica é a do CPU-Z: um processo filho por núcleo lógico, carga contínua
+ * sem pausa. Não usamos `worker_threads` no main (foi o desenho que travava o
+ * renderer no incidente de 17/11): cada filho roda o script gerado em
+ * `<userData>/benchmark` com prioridade BELOW_NORMAL — 100% de CPU na máquina
+ * ociosa e a interface (prioridade normal) sempre à frente na disputa.
+ */
+export async function startStress(
+  sender: WebContents | null = null,
+  options: StressStartOptions = {}
+): Promise<StressStartResult> {
   if (isBenchmarkBusy()) return { ok: false, error: BUSY_ERROR }
 
-  const threads = clampThreads(os.cpus().length)
+  const threads = clampThreads(options.threads ?? os.cpus().length)
+  let scriptPath: string
+  try {
+    scriptPath = options.runnerScriptPath ?? (await ensureRunnerScript())
+  } catch (err) {
+    logger.warn('benchmark', 'falha ao preparar o script do teste de estresse:', err)
+    return {
+      ok: false,
+      error: 'Não foi possível iniciar o teste de estresse. Tente novamente.'
+    }
+  }
+  // O `await` acima abre uma janela: outro run pode ter começado nesse meio-tempo.
+  if (isBenchmarkBusy()) return { ok: false, error: BUSY_ERROR }
+
   const session: StressSession = {
-    workers: [],
+    children: new Set(),
+    threads,
     startedAt: Date.now(),
     checksumOk: true,
     sender,
@@ -572,34 +646,39 @@ export function startStress(sender: WebContents | null = null): StressStartResul
 
   try {
     for (let index = 0; index < threads; index++) {
-      const worker = new Worker(BENCHMARK_STRESS_SOURCE, {
-        eval: true
+      const child = startStressRunner({
+        scriptPath,
+        config: { mode: 'stress' },
+        // Cada filho reporta o próprio checksum; o envio à interface é feito
+        // pelo timer agregado abaixo (uma mensagem por sessão, não por filho).
+        onEvent: (event) => {
+          if (stressSession !== session) return
+          if (event.type === 'stress' && !event.checksumOk) session.checksumOk = false
+          if (event.type === 'error') {
+            session.checksumOk = false
+            logger.warn('benchmark', 'processo do teste de estresse reportou falha na carga')
+          }
+        }
       })
-      // Cada worker reporta o próprio checksum; o envio à interface é feito
-      // pelo timer agregado abaixo (uma mensagem por sessão, não por worker).
-      worker.on('message', (message: unknown) => {
-        if (stressSession !== session) return
-        if (!message || typeof message !== 'object') return
-        const data = message as Record<string, unknown>
-        if (data.type !== 'stress') return
-        if (data.checksumOk === false) session.checksumOk = false
-      })
-      worker.on('error', () => {
+      session.children.add(child)
+      options.onChild?.(child)
+      child.once('error', () => {
         if (stressSession !== session) return
         session.checksumOk = false
-        logger.warn('benchmark', 'worker do teste de estresse falhou')
+        logger.warn('benchmark', 'processo do teste de estresse falhou')
       })
-      worker.on('exit', () => {
+      child.once('close', () => {
+        session.children.delete(child)
         if (stressSession !== session) return
+        // Morreu sozinho no meio do teste: a integridade não está mais garantida.
         session.checksumOk = false
-        logger.warn('benchmark', 'worker do teste de estresse encerrou inesperadamente')
+        logger.warn('benchmark', 'processo do teste de estresse encerrou inesperadamente')
       })
-      session.workers.push(worker)
     }
   } catch (err) {
     logger.warn('benchmark', 'falha ao iniciar o teste de estresse:', err)
     stressSession = null
-    terminateWorkers(session.workers)
+    killStressChildren(session)
     return {
       ok: false,
       error: 'Não foi possível iniciar o teste de estresse. Tente novamente.'
@@ -631,7 +710,7 @@ export function startStress(sender: WebContents | null = null): StressStartResul
     sendStressProgress(session)
   }, STRESS_PROGRESS_INTERVAL_MS)
 
-  logger.info('benchmark', `teste de estresse iniciado com ${threads} thread(s)`)
+  logger.info('benchmark', `teste de estresse iniciado com ${threads} processo(s) filho(s)`)
   sendStressProgress(session)
   return { ok: true, threads }
 }
@@ -644,16 +723,19 @@ export function acknowledgeStress(): void {
   if (stressSession) stressSession.lastAckAt = Date.now()
 }
 
-/** Para o estresse e encerra todos os workers (nunca deixa worker órfão). */
+/** Para o estresse e mata todos os filhos (nunca deixa processo órfão). */
 export function stopStress(): StressStopResult {
   const session = stressSession
   if (!session) return { ok: true, elapsedMs: 0, checksumOk: true }
 
   stressSession = null
   if (session.progressTimer) clearInterval(session.progressTimer)
-  terminateWorkers(session.workers)
+  killStressChildren(session)
   const elapsedMs = Math.max(0, Date.now() - session.startedAt)
-  logger.info('benchmark', `teste de estresse parado após ${Math.round(elapsedMs / 1000)} s`)
+  logger.info(
+    'benchmark',
+    `teste de estresse parado após ${Math.round(elapsedMs / 1000)} s — ${session.threads} processo(s) encerrado(s)`
+  )
   return { ok: true, elapsedMs, checksumOk: session.checksumOk }
 }
 

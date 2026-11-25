@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Activity, Cpu, Gamepad2, Wifi, Code, Clock, LayoutGrid, AppWindow } from 'lucide-react'
@@ -6,11 +6,11 @@ import type { LucideIcon } from 'lucide-react'
 import { AppCard } from './AppCard'
 import { AppDetailModal } from './AppDetailModal'
 import { RemoteHelpModal } from './RemoteHelpModal'
-import { OpenOfficeCard } from './office/OpenOfficeCard'
 import { Badge, EmptyState } from './ui'
-import { AppConfig, AppState } from '../types'
+import { AppConfig, AppState, Game } from '../types'
 import type { RemoteModeReason } from '../../../shared/remote'
 import { bestRemoteAddress, parseRemoteStatus } from '../lib/remoteAccess'
+import { formatLastPlayed, recentGames } from '../lib/gameStats'
 
 interface DashboardProps {
   apps: AppConfig[]
@@ -20,8 +20,6 @@ interface DashboardProps {
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
   /** Navega para Configurações (seção Acesso remoto) a partir da ajuda. */
   onOpenSettings: () => void
-  /** Navega para a página OpenOffice (card do grupo Inteligência Artificial). */
-  onOpenOffice: () => void
 }
 
 const KLOUD_APP_ID = 'kloud-games'
@@ -77,8 +75,7 @@ export function Dashboard({
   onLaunch,
   onStop,
   onToast,
-  onOpenSettings,
-  onOpenOffice
+  onOpenSettings
 }: DashboardProps): JSX.Element {
   const [selectedApp, setSelectedApp] = useState<AppConfig | null>(null)
   // Entradas decorativas (header, grupos em cascata, cards) viram fade curto com reduce.
@@ -88,12 +85,19 @@ export function Dashboard({
   const [remoteAddress, setRemoteAddress] = useState<string | null>(null)
   const [remoteBusy, setRemoteBusy] = useState(false)
   const [remoteHelp, setRemoteHelp] = useState<{ blockedReason?: RemoteModeReason } | null>(null)
+  // "Continuar jogando" (T5): o Dashboard busca os jogos sozinho (sem tocar no
+  // App.tsx). A faixa some por completo quando não há `lastPlayedAt`.
+  const [recent, setRecent] = useState<Game[]>([])
+  const [recentIcons, setRecentIcons] = useState<Record<string, string | null>>({})
+  const recentIconRequests = useRef<Set<string>>(new Set())
+  const [recentCovers, setRecentCovers] = useState<Record<string, string | null>>({})
+  const recentCoverRequests = useRef<Set<string>>(new Set())
 
   const kloudApp = apps.find((app) => app.id === KLOUD_APP_ID) ?? null
   const kloudRunning = appStates[KLOUD_APP_ID]?.status === 'running'
 
   // Estado inicial do modo remoto (persistido). Se estiver ligado, busca o
-  // endereço da tailnet para exibir no card — sem polling.
+  // endereço da rede ZeroTier para exibir no card — sem polling.
   useEffect(() => {
     let alive = true
     window.api
@@ -104,9 +108,13 @@ export function Dashboard({
         if (!enabled) return
         try {
           const parsed = parseRemoteStatus(await window.api.remoteStatus())
-          if (alive && parsed) setRemoteAddress(bestRemoteAddress(parsed.tailscale))
+          // Só exibe um endereço utilizável: se o ZeroTier caiu/saiu da rede
+          // depois de ligar o modo, o card mostra o aviso de desconectado.
+          if (alive && parsed) {
+            setRemoteAddress(parsed.zerotier.connected ? bestRemoteAddress(parsed.zerotier) : null)
+          }
         } catch {
-          // Mantém o modo; a UI avisa que o Tailscale está desconectado.
+          // Mantém o modo; a UI avisa que o ZeroTier está desconectado.
         }
       })
       .catch(() => {
@@ -117,6 +125,87 @@ export function Dashboard({
     }
   }, [])
 
+  // Jogos recentes + ícones da faixa (falha silenciosa: a faixa simplesmente
+  // não aparece se o IPC falhar).
+  useEffect(() => {
+    let alive = true
+    window.api
+      .getGames()
+      .then((list) => {
+        if (alive) setRecent(recentGames(list, 6))
+      })
+      .catch(() => {
+        if (alive) setRecent([])
+      })
+    return (): void => {
+      alive = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    for (const game of recent) {
+      if (game.id in recentIcons) continue
+      if (recentIconRequests.current.has(game.id)) continue
+      recentIconRequests.current.add(game.id)
+      window.api
+        .getGameIcon(game.id)
+        .then((dataUrl) => {
+          if (!cancelled) setRecentIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
+        })
+        .catch(() => {
+          if (!cancelled) setRecentIcons((prev) => ({ ...prev, [game.id]: null }))
+        })
+    }
+    return (): void => {
+      cancelled = true
+    }
+  }, [recent, recentIcons])
+
+  useEffect(() => {
+    let cancelled = false
+    for (const game of recent) {
+      if (game.id in recentCovers) continue
+      if (recentCoverRequests.current.has(game.id)) continue
+      recentCoverRequests.current.add(game.id)
+      window.api
+        .getGameCover(game.id)
+        .then((dataUrl) => {
+          if (!cancelled) setRecentCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
+        })
+        .catch(() => {
+          if (!cancelled) setRecentCovers((prev) => ({ ...prev, [game.id]: null }))
+        })
+    }
+    return (): void => {
+      cancelled = true
+    }
+  }, [recent, recentCovers])
+
+  const handleContinueGame = async (game: Game): Promise<void> => {
+    try {
+      const result = await window.api.launchGame(game.id)
+      if (!result.ok) {
+        onToast?.(
+          `Não foi possível iniciar ${game.name}: ${result.error ?? 'erro desconhecido'}`,
+          'error'
+        )
+        return
+      }
+      if (result.focused) {
+        onToast?.(`${game.name} já está aberto — trazendo a janela para frente.`, 'success')
+        return
+      }
+      if (result.alreadyRunning) {
+        onToast?.(`${game.name} já está em execução — aguarde a janela.`, 'info')
+        return
+      }
+      onToast?.(`Iniciando ${game.name}…`, 'success')
+    } catch (err) {
+      onToast?.(err instanceof Error ? err.message : 'Não foi possível iniciar o jogo.', 'error')
+    }
+  }
+
   const handleToggleRemote = async (): Promise<void> => {
     if (remoteMode === null || remoteBusy) return
     const next = !remoteMode
@@ -124,8 +213,8 @@ export function Dashboard({
     try {
       const result = await window.api.remoteSetMode(next)
       if (!result.success) {
-        // O main recusou (sem Tailscale/instalado): volta ao estado real e
-        // abre a ajuda já explicando o que falta.
+        // O main recusou (sem ZeroTier instalado/conectado): volta ao estado
+        // real e abre a ajuda já explicando o que falta.
         setRemoteMode(false)
         setRemoteAddress(null)
         setRemoteHelp({ blockedReason: result.reason })
@@ -138,7 +227,7 @@ export function Dashboard({
           ? result.address
             ? `Modo remoto ativado — use ${result.address} no Moonlight.`
             : 'Modo remoto ativado.'
-          : 'Modo remoto desativado (o Tailscale continua conectado).',
+          : 'Modo remoto desativado (o ZeroTier continua conectado).',
         'success'
       )
       if (result.enabled && !kloudRunning) {
@@ -171,8 +260,7 @@ export function Dashboard({
       ...categoryMeta[cat],
       apps: apps.filter((a) => a.category === cat)
     }))
-    // IA nunca some: o card do OpenOffice mora nesse grupo mesmo sem apps de IA.
-    .filter((g) => g.category === 'ai' || g.apps.length > 0)
+    .filter((g) => g.apps.length > 0)
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -245,6 +333,76 @@ export function Dashboard({
         </div>
       </motion.header>
 
+      {/* ── Continuar jogando (T5) ──────────────────────── */}
+      {recent.length > 0 && (
+        <motion.section
+          aria-label="Continuar jogando"
+          {...entranceProps(reduced, { y: 16 }, { delay: 0.08 })}
+          className="space-y-3"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-[var(--border-subtle)] bg-surface-2 text-accent">
+              <Clock size={15} aria-hidden="true" />
+            </div>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
+              Continuar jogando
+            </h3>
+            <span className="tnum rounded-pill border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] text-ink-tertiary">
+              {recent.length}
+            </span>
+            <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
+          </div>
+
+          <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2">
+            {recent.map((game) => {
+              const cover = recentCovers[game.id]
+              const icon = recentIcons[game.id]
+              const visual = cover ?? icon
+              const lastPlayed = formatLastPlayed(game.lastPlayedAt)
+              return (
+                <button
+                  key={game.id}
+                  type="button"
+                  onClick={() => void handleContinueGame(game)}
+                  title={`Continuar ${game.name}`}
+                  aria-label={`Continuar ${game.name}${lastPlayed ? ` — ${lastPlayed}` : ''}`}
+                  className="group flex w-[148px] shrink-0 flex-col gap-2 rounded-card border border-[var(--border-subtle)] bg-surface-1 p-2 text-left shadow-elevation-1 transition-all duration-2 ease-standard hover:border-[var(--accent-border)] hover:bg-surface-2 hover:shadow-elevation-2"
+                >
+                  <span
+                    className="flex aspect-[2/3] w-full items-center justify-center overflow-hidden rounded-control border border-[var(--border-subtle)]"
+                    style={{
+                      background:
+                        'linear-gradient(165deg, var(--accent-muted) 0%, transparent 75%), var(--surface-2)'
+                    }}
+                  >
+                    {visual ? (
+                      <img
+                        src={visual}
+                        alt={cover ? `Capa de ${game.name}` : `Ícone de ${game.name}`}
+                        className={`h-full w-full ${cover ? 'object-cover' : 'object-contain'}`}
+                        draggable={false}
+                      />
+                    ) : (
+                      <Gamepad2
+                        size={40}
+                        aria-hidden="true"
+                        className="text-ink-tertiary transition-colors duration-2 ease-standard group-hover:text-ink-secondary"
+                      />
+                    )}
+                  </span>
+                  <span className="line-clamp-2 text-sm font-semibold leading-snug tracking-tight text-ink-primary">
+                    {game.name}
+                  </span>
+                  {lastPlayed && (
+                    <span className="text-[11px] text-ink-tertiary">{lastPlayed}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </motion.section>
+      )}
+
       {/* ── Estado vazio (apps não configurados) ────────── */}
       {apps.length === 0 && (
         <EmptyState
@@ -283,9 +441,6 @@ export function Dashboard({
 
             {/* Cards em grade */}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {group.category === 'ai' && (
-                <OpenOfficeCard onOpen={onOpenOffice} delay={0.15 + gi * 0.05} />
-              )}
               {group.apps.map((app, i) => (
                 <AppCard
                   key={app.id}

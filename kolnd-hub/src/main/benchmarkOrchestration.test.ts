@@ -14,11 +14,23 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('./benchmarkRunner', () => ({
-  runRunner: vi.fn(async (options: { config: { loads: string[]; repeats: number } }) => {
+  // O orquestrador usa a barreira `ready`/`go`: o mock devolve o próximo
+  // resultado da fila como se o filho já tivesse aquecido e medido depois do go.
+  startRunner: vi.fn((options: { config: { loads: string[]; repeats: number } }) => {
     state.calls.push({ loads: [...options.config.loads], repeats: options.config.repeats })
     const next = state.queue.shift()
-    if (!next) throw new Error('fila de resultados do teste esgotada')
-    return next.map((load) => ({ ...load, guard: 'teste' }))
+    return {
+      child: { kill: vi.fn(), once: vi.fn() },
+      ready: Promise.resolve(),
+      result: next
+        ? Promise.resolve(next.map((load) => ({ ...load, guard: 'teste' })))
+        : Promise.reject(new Error('fila de resultados do teste esgotada')),
+      sendGo: vi.fn(),
+      kill: vi.fn()
+    }
+  }),
+  startStressRunner: vi.fn(() => {
+    throw new Error('o teste de orquestração não usa o estresse')
   })
 }))
 

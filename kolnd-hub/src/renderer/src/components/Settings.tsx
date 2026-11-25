@@ -28,8 +28,7 @@ import {
   Archive,
   Download,
   Upload,
-  Info,
-  Building2
+  Info
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
@@ -42,9 +41,6 @@ interface SettingsProps {
   onSave: (apps: AppConfig[]) => void
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
 }
-
-// Tipos inferidos do preload (fonte canônica: src/main/office/pluginInstaller.ts).
-type OfficePluginStatus = Awaited<ReturnType<typeof window.api.officePluginStatus>>
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
   // Entradas decorativas das seções (incl. cascata dos cards de apps) viram fade curto com reduce.
@@ -103,18 +99,6 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
   const commandCache = useRef<CommandValidationCache>({})
   // Sequência para descartar respostas fora de ordem do debounce.
   const validateSeq = useRef(0)
-
-  // ── OpenOffice: instalador do plugin do OpenCode (T12) ──────────────────
-  // `pluginConnected` é o tempo real (officeStatus); o status do instalador
-  // vem do main e é null enquanto carrega pela primeira vez.
-  const [officePlugin, setOfficePlugin] = useState<OfficePluginStatus | null>(null)
-  const [officePluginConnected, setOfficePluginConnected] = useState(false)
-  const [officePluginBusy, setOfficePluginBusy] = useState<'install' | 'remove' | null>(null)
-  const [officePluginConfirm, setOfficePluginConfirm] = useState<'install' | 'remove' | null>(null)
-  const [officePluginSnippet, setOfficePluginSnippet] = useState<string | null>(null)
-  const [officePluginError, setOfficePluginError] = useState<string | null>(null)
-  const [officePluginCopied, setOfficePluginCopied] = useState(false)
-  const officePluginCopyTimer = useRef<number | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -215,38 +199,9 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       if (autostartFeedbackTimer.current) window.clearTimeout(autostartFeedbackTimer.current)
       if (exportFeedbackTimer.current) window.clearTimeout(exportFeedbackTimer.current)
       if (importFeedbackTimer.current) window.clearTimeout(importFeedbackTimer.current)
-      if (officePluginCopyTimer.current) window.clearTimeout(officePluginCopyTimer.current)
     },
     []
   )
-
-  // OpenOffice: status do instalador + conexão do plugin. O config é barato de
-  // ler e o "conectado" muda em tempo real (o plugin re-tenta a cada 30 s), daí
-  // a reconsulta periódica enquanto a página de Configurações está aberta.
-  useEffect(() => {
-    let mounted = true
-    const load = async (): Promise<void> => {
-      try {
-        const [status, health] = await Promise.all([
-          window.api.officePluginStatus(),
-          window.api.officeStatus()
-        ])
-        if (!mounted) return
-        setOfficePlugin(status)
-        setOfficePluginConnected(health.pluginConnected)
-      } catch {
-        if (mounted) {
-          setOfficePluginError('Não foi possível ler o estado do plugin do OpenCode.')
-        }
-      }
-    }
-    void load()
-    const timer = window.setInterval(() => void load(), 8000)
-    return (): void => {
-      mounted = false
-      window.clearInterval(timer)
-    }
-  }, [])
 
   const handleTogglePref = async (): Promise<void> => {
     if (launchKloudOnStart === null) return
@@ -518,90 +473,6 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     setSaved(false)
   }
 
-  // ── OpenOffice: plugin do OpenCode ──────────────────────────────────────
-
-  const refreshOfficePlugin = async (): Promise<void> => {
-    try {
-      const status = await window.api.officePluginStatus()
-      setOfficePlugin(status)
-    } catch {
-      setOfficePluginError('Não foi possível ler o estado do plugin do OpenCode.')
-    }
-  }
-
-  const handleInstallOfficePlugin = async (): Promise<void> => {
-    if (officePluginBusy) return
-    setOfficePluginBusy('install')
-    setOfficePluginError(null)
-    setOfficePluginSnippet(null)
-    try {
-      const result = await window.api.officePluginInstall()
-      if (result.ok) {
-        setOfficePluginConfirm(null)
-        onToast?.(
-          'Plugin do OpenCode instalado. Recarregue os plugins das sessões já abertas.',
-          'success'
-        )
-        return
-      }
-      if (result.reason === 'comentarios') {
-        // O config com comentários fica intocado: o usuário cola o trecho.
-        setOfficePluginConfirm(null)
-        setOfficePluginSnippet(result.snippet ?? '')
-        setOfficePluginError(result.message ?? 'O arquivo de configuração tem comentários.')
-        return
-      }
-      setOfficePluginError(result.message ?? 'Não foi possível instalar o plugin.')
-      onToast?.(result.message ?? 'Não foi possível instalar o plugin do OpenCode.', 'error')
-    } catch {
-      setOfficePluginError('Não foi possível instalar o plugin do OpenCode. Tente de novo.')
-      onToast?.('Não foi possível instalar o plugin do OpenCode.', 'error')
-    } finally {
-      setOfficePluginBusy(null)
-      await refreshOfficePlugin()
-    }
-  }
-
-  const handleRemoveOfficePlugin = async (): Promise<void> => {
-    if (officePluginBusy) return
-    setOfficePluginBusy('remove')
-    setOfficePluginError(null)
-    setOfficePluginSnippet(null)
-    try {
-      const result = await window.api.officePluginRemove()
-      if (result.ok) {
-        setOfficePluginConfirm(null)
-        onToast?.(
-          result.removed
-            ? 'Plugin do OpenCode removido da configuração.'
-            : 'A configuração já não tinha a entrada do plugin.',
-          'success'
-        )
-      } else {
-        setOfficePluginError(result.message ?? 'Não foi possível remover o plugin.')
-        onToast?.(result.message ?? 'Não foi possível remover o plugin do OpenCode.', 'error')
-      }
-    } catch {
-      setOfficePluginError('Não foi possível remover o plugin do OpenCode. Tente de novo.')
-      onToast?.('Não foi possível remover o plugin do OpenCode.', 'error')
-    } finally {
-      setOfficePluginBusy(null)
-      await refreshOfficePlugin()
-    }
-  }
-
-  const handleCopyOfficeSnippet = async (): Promise<void> => {
-    if (!officePluginSnippet) return
-    try {
-      await navigator.clipboard.writeText(officePluginSnippet)
-      setOfficePluginCopied(true)
-      if (officePluginCopyTimer.current) window.clearTimeout(officePluginCopyTimer.current)
-      officePluginCopyTimer.current = window.setTimeout(() => setOfficePluginCopied(false), 2500)
-    } catch {
-      setOfficePluginError('Não foi possível copiar. Selecione o trecho e copie manualmente.')
-    }
-  }
-
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       {/* ── Header ───────────────────────────────────── */}
@@ -760,193 +631,8 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         </Card>
       </motion.div>
 
-      {/* ── Acesso remoto (Tailscale) ────────────────── */}
+      {/* ── Acesso remoto (ZeroTier) ─────────────────── */}
       <RemoteAccessSettings onToast={onToast} />
-
-      {/* ── OpenOffice: plugin do OpenCode (T12) ────── */}
-      <SectionTitle>OpenOffice</SectionTitle>
-
-      <motion.div {...entranceProps(reduced, { y: 20 })}>
-        <Card className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
-              <Building2 size={20} aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-ink-primary">Plugin do OpenCode</h3>
-              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-                O plugin envia ao Hub, em tempo real, o que cada sessão do OpenCode está fazendo
-                (ferramenta, status e pedidos de permissão). Ele conversa apenas com{' '}
-                <span className="font-mono">127.0.0.1</span> e não envia nada para fora da máquina.
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-                Depois de instalar ou atualizar, recarregue os plugins das sessões do OpenCode que
-                já estão abertas para a conexão aparecer.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Badge tone={officePluginConnected ? 'success' : 'neutral'}>
-              {officePluginConnected ? 'Plugin conectado' : 'Plugin sem conexão'}
-            </Badge>
-            {officePlugin && (
-              <Badge tone={officePlugin.installed ? 'accent' : 'neutral'}>
-                {officePlugin.installed ? 'Instalado' : 'Não instalado'}
-              </Badge>
-            )}
-            {officePlugin?.stale && <Badge tone="warning">Desatualizado</Badge>}
-            {officePlugin?.needsManual && <Badge tone="warning">Config com comentários</Badge>}
-          </div>
-
-          {officePlugin && (
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-tertiary">
-              Versão no Hub: <span className="font-mono">{officePlugin.versionBundled}</span>
-              {' · '}Versão instalada:{' '}
-              <span className="font-mono">
-                {officePlugin.versionInstalled ??
-                  (officePlugin.pluginDirExists ? 'desconhecida' : 'não instalada')}
-              </span>
-            </p>
-          )}
-
-          {officePlugin && (
-            <p className="mt-1 break-all text-[11px] leading-relaxed text-ink-tertiary">
-              Configuração:{' '}
-              <span className="font-mono">
-                {officePlugin.configPath}
-                {officePlugin.configKind === 'none' ? ' (será criada)' : ''}
-              </span>
-            </p>
-          )}
-
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            {officePlugin?.installed ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setOfficePluginConfirm('remove')
-                  setOfficePluginSnippet(null)
-                  setOfficePluginError(null)
-                }}
-                disabled={officePluginBusy !== null}
-              >
-                <Power size={14} aria-hidden="true" /> Remover plugin
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setOfficePluginConfirm('install')
-                  setOfficePluginSnippet(null)
-                  setOfficePluginError(null)
-                }}
-                disabled={officePluginBusy !== null || officePlugin === null}
-              >
-                <Download size={14} aria-hidden="true" /> Instalar plugin
-              </Button>
-            )}
-          </div>
-
-          {/* Confirmação explícita: instalar/remover mexe no config GLOBAL do
-              OpenCode. O backup é sempre automático. */}
-          {officePluginConfirm && (
-            <div className="mt-4 space-y-3 rounded-control border border-warn-border bg-warn-bg p-4">
-              <p className="text-xs leading-relaxed text-warn">
-                {officePluginConfirm === 'install' ? (
-                  <>
-                    O Hub vai gravar o plugin em{' '}
-                    <span className="font-mono">{officePlugin?.pluginDir ?? '…'}</span> e adicionar{' '}
-                    <strong className="text-ink-primary">uma linha</strong> em{' '}
-                    <span className="font-mono">{officePlugin?.configPath ?? '…'}</span>. Um backup
-                    automático do arquivo é feito antes. Continuar?
-                  </>
-                ) : (
-                  <>
-                    O Hub vai remover{' '}
-                    <strong className="text-ink-primary">somente a entrada do plugin</strong> em{' '}
-                    <span className="font-mono">{officePlugin?.configPath ?? '…'}</span>, com backup
-                    automático. As demais configurações ficam intactas. Continuar?
-                  </>
-                )}
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant={officePluginConfirm === 'remove' ? 'danger' : 'primary'}
-                  onClick={() =>
-                    void (officePluginConfirm === 'install'
-                      ? handleInstallOfficePlugin()
-                      : handleRemoveOfficePlugin())
-                  }
-                  disabled={officePluginBusy !== null}
-                  className="disabled:cursor-wait"
-                >
-                  {officePluginBusy ? (
-                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                  ) : officePluginConfirm === 'install' ? (
-                    <Download size={14} aria-hidden="true" />
-                  ) : (
-                    <Power size={14} aria-hidden="true" />
-                  )}
-                  {officePluginBusy === 'install'
-                    ? 'Instalando…'
-                    : officePluginBusy === 'remove'
-                      ? 'Removendo…'
-                      : officePluginConfirm === 'install'
-                        ? 'Instalar'
-                        : 'Remover'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setOfficePluginConfirm(null)}
-                  disabled={officePluginBusy !== null}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {officePluginError && (
-            <p
-              className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-danger"
-              role="status"
-            >
-              <AlertCircle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
-              <span>{officePluginError}</span>
-            </p>
-          )}
-
-          {/* Config com comentários: nada é escrito no arquivo; mostramos o
-              trecho exato para colar e o botão de copiar. */}
-          {officePluginSnippet && (
-            <div className="mt-4 space-y-3 rounded-control border border-[var(--border-strong)] bg-surface-2 p-4">
-              <p className="text-xs leading-relaxed text-ink-secondary">
-                O plugin já foi gravado na pasta acima. Agora cole o trecho abaixo no arquivo de
-                configuração do OpenCode — dentro de <span className="font-mono">plugins</span>, com
-                vírgula se não for o último item — e salve.
-              </p>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-control border border-[var(--border-subtle)] bg-surface-1 p-3 font-mono text-[11px] leading-relaxed text-ink-primary">
-                {officePluginSnippet}
-              </pre>
-              <Button variant="secondary" size="sm" onClick={() => void handleCopyOfficeSnippet()}>
-                {officePluginCopied ? (
-                  <Check size={12} aria-hidden="true" />
-                ) : (
-                  <ClipboardCopy size={12} aria-hidden="true" />
-                )}
-                {officePluginCopied ? 'Copiado' : 'Copiar'}
-              </Button>
-            </div>
-          )}
-
-          {officePlugin?.error && (
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-tertiary">
-              Detalhe: {officePlugin.error}
-            </p>
-          )}
-        </Card>
-      </motion.div>
 
       {/* ── Big Picture ─────────────────────────────── */}
       <BigPictureSettings />

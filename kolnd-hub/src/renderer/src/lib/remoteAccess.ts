@@ -6,7 +6,7 @@ import {
   type PortTargetResult,
   type RemoteNetworkKind,
   type RemoteStatus,
-  type TailscaleInfo
+  type ZeroTierInfo
 } from '../../../shared/remote'
 
 /**
@@ -39,7 +39,7 @@ function parseAddresses(raw: unknown): LocalAddresses {
   const obj = isRecord(raw) ? raw : {}
   return {
     lan: uniqueIPs(obj.lan).filter(isIPv4),
-    tailscale: uniqueIPs(obj.tailscale).filter(isIPv4),
+    zerotier: uniqueIPs(obj.zerotier).filter(isIPv4),
     ipv6: uniqueIPs(obj.ipv6)
   }
 }
@@ -58,7 +58,7 @@ function parsePortTargets(raw: unknown): PortTargetResult[] {
   for (const item of raw) {
     if (!isRecord(item)) continue
     const target =
-      item.target === 'tailscale' ? 'tailscale' : item.target === 'localhost' ? 'localhost' : null
+      item.target === 'zerotier' ? 'zerotier' : item.target === 'localhost' ? 'localhost' : null
     const host = stringOrNull(item.host)
     if (!target || !host) continue
     const probes = Array.isArray(item.probes)
@@ -69,25 +69,21 @@ function parsePortTargets(raw: unknown): PortTargetResult[] {
   return out
 }
 
-function parseTailscale(raw: unknown): TailscaleInfo | null {
+function parseZeroTier(raw: unknown): ZeroTierInfo | null {
   if (!isRecord(raw)) return null
   if (typeof raw.installed !== 'boolean' || typeof raw.connected !== 'boolean') return null
 
-  const info: TailscaleInfo = {
+  const info: ZeroTierInfo = {
     installed: raw.installed,
     connected: raw.connected,
-    backendState: stringOrNull(raw.backendState),
-    hostname: stringOrNull(raw.hostname),
-    dnsName: stringOrNull(raw.dnsName),
+    online: raw.online === true,
+    nodeId: stringOrNull(raw.nodeId),
+    version: stringOrNull(raw.version),
+    network: stringOrNull(raw.network),
+    networkId: stringOrNull(raw.networkId),
+    networkStatus: stringOrNull(raw.networkStatus),
     ipv4: ipv4OrNull(raw.ipv4),
     ipv6: stringOrNull(raw.ipv6),
-    tailnet: stringOrNull(raw.tailnet),
-    onlinePeers:
-      typeof raw.onlinePeers === 'number' &&
-      Number.isFinite(raw.onlinePeers) &&
-      raw.onlinePeers >= 0
-        ? Math.trunc(raw.onlinePeers)
-        : 0,
     exePath: stringOrNull(raw.exePath)
   }
   if (typeof raw.error === 'string' && raw.error.trim()) info.error = raw.error.trim()
@@ -100,8 +96,8 @@ const NETWORK_KINDS: RemoteNetworkKind[] = ['direct', 'nat', 'cgnat', 'unknown']
 export function parseRemoteStatus(raw: unknown): RemoteStatus | null {
   if (!isRecord(raw)) return null
 
-  const tailscale = parseTailscale(raw.tailscale)
-  if (!tailscale) return null
+  const zerotier = parseZeroTier(raw.zerotier)
+  if (!zerotier) return null
 
   if (!isRecord(raw.kloud)) return null
   const installed = raw.kloud.installed === true
@@ -113,7 +109,7 @@ export function parseRemoteStatus(raw: unknown): RemoteStatus | null {
     : 'unknown'
 
   return {
-    tailscale,
+    zerotier,
     addresses: parseAddresses(raw.addresses),
     kloud: { installed, running },
     ports: parsePortTargets(raw.ports),
@@ -125,20 +121,32 @@ export function parseRemoteStatus(raw: unknown): RemoteStatus | null {
   }
 }
 
-/** Selo do estado do Tailscale na UI. */
-export function tailscaleBadge(info: TailscaleInfo): { tone: RemoteTone; label: string } {
+/**
+ * Selo do estado do ZeroTier na UI. Diferencia serviço desligado, ausência de
+ * rede e rede recusada/aguardando — estados que exigem ações diferentes.
+ */
+export function zeroTierBadge(info: ZeroTierInfo): { tone: RemoteTone; label: string } {
   if (!info.installed) return { tone: 'neutral', label: 'Não instalado' }
   if (info.connected) return { tone: 'success', label: 'Conectado' }
-  switch (info.backendState) {
-    case 'NeedsLogin':
-      return { tone: 'warning', label: 'Falta entrar' }
-    case 'NeedsMachineAuth':
-      return { tone: 'warning', label: 'Aguardando aprovação' }
-    case 'Starting':
-      return { tone: 'warning', label: 'Iniciando' }
-    case 'Stopped':
-    case 'NoState':
-      return { tone: 'neutral', label: 'Desligado' }
+  if (!info.online) return { tone: 'neutral', label: 'Desligado' }
+
+  if (!info.networkId) return { tone: 'warning', label: 'Sem rede' }
+
+  switch (info.networkStatus) {
+    case 'OK':
+      return { tone: 'warning', label: 'Sem endereço' }
+    case 'REQUESTING_CONFIGURATION':
+      return { tone: 'warning', label: 'Conectando' }
+    case 'ACCESS_DENIED':
+      return { tone: 'warning', label: 'Acesso negado' }
+    case 'AUTHENTICATION_REQUIRED':
+      return { tone: 'warning', label: 'Falta autorizar' }
+    case 'NOT_FOUND':
+      return { tone: 'danger', label: 'Rede não encontrada' }
+    case 'PORT_ERROR':
+      return { tone: 'danger', label: 'Erro na interface' }
+    case 'CLIENT_TOO_OLD':
+      return { tone: 'danger', label: 'Cliente desatualizado' }
     default:
       return { tone: 'danger', label: 'Desconectado' }
   }
@@ -162,7 +170,7 @@ export interface PortSummary {
   open: number
   total: number
   localhostOpen: number
-  tailscaleOpen: number
+  zerotierOpen: number
 }
 
 /** Conta portas abertas por alvo; `total` é o esperado (portas × alvos). */
@@ -170,7 +178,7 @@ export function summarizePorts(targets: PortTargetResult[]): PortSummary {
   let open = 0
   let total = 0
   let localhostOpen = 0
-  let tailscaleOpen = 0
+  let zerotierOpen = 0
 
   for (const target of targets) {
     for (const probe of target.probes) {
@@ -178,17 +186,17 @@ export function summarizePorts(targets: PortTargetResult[]): PortSummary {
       if (probe.open) {
         open += 1
         if (target.target === 'localhost') localhostOpen += 1
-        else tailscaleOpen += 1
+        else zerotierOpen += 1
       }
     }
   }
 
-  return { open, total, localhostOpen, tailscaleOpen }
+  return { open, total, localhostOpen, zerotierOpen }
 }
 
-/** Endereço mais seguro para digitar no Moonlight (IP ganha do MagicDNS). */
-export function bestRemoteAddress(info: TailscaleInfo): string | null {
-  return info.ipv4 ?? info.dnsName
+/** Endereço mais seguro para digitar no Moonlight (IPv4 ganha do IPv6). */
+export function bestRemoteAddress(info: ZeroTierInfo): string | null {
+  return info.ipv4 ?? info.ipv6
 }
 
 /** Quais portas esperadas ficaram fechadas em localhost (para a lista da UI). */

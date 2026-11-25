@@ -1,8 +1,8 @@
-import { ipcMain } from 'electron'
 import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
+import type { GameSourceImportReport } from '../shared/gameImport'
 import { addGame, extractIconPng, gameIconsDir, getGames } from './games'
 import { findGameExecutable } from './games/exeFinder'
 import { logger } from './logger'
@@ -19,31 +19,24 @@ export { findGameExecutable } from './games/exeFinder'
  * embutido → persistir via `addGame` (id determinístico, dedupe por
  * `steamAppId`). Nenhum console externo é aberto (spawnSync com
  * `windowsHide` e `reg query` sem shell).
+ *
+ * O relatório segue o contrato compartilhado `GameSourceImportReport`
+ * (`src/shared/gameImport.ts`): a ausência da Steam é `detected: false` com
+ * mensagem amigável, não um erro global do orquestrador.
  */
 
-export interface SteamImportReport {
-  ok: boolean
-  /** Jogos efetivamente adicionados à biblioteca nesta importação. */
-  imported: number
-  /** Jogos já presentes (mesmo `steamAppId`) — reimportar não duplica. */
-  alreadyInLibrary: number
-  /** Entradas descartadas por serem ferramentas/redistribuíveis ou inválidas. */
-  ignoredTools: number
-  /** Jogos válidos sem executável localizado na pasta de instalação. */
-  noExe: number
-  /** Falhas por jogo (ex.: não foi possível salvar) — nunca abortam a fila. */
-  errors: string[]
-  /** Mensagem de erro global (Steam não detectada etc.). */
-  error?: string
-}
-
-const EMPTY_REPORT: SteamImportReport = {
-  ok: false,
-  imported: 0,
-  alreadyInLibrary: 0,
-  ignoredTools: 0,
-  noExe: 0,
-  errors: []
+/** Relatório-base da Steam: zera os contadores mantendo source/label fixos. */
+function emptySteamReport(): GameSourceImportReport {
+  return {
+    source: 'steam',
+    label: 'Steam',
+    detected: true,
+    imported: 0,
+    alreadyInLibrary: 0,
+    ignored: 0,
+    noExe: 0,
+    errors: []
+  }
 }
 
 const REG_QUERY_TIMEOUT_MS = 5000
@@ -227,16 +220,16 @@ function steamGameId(appId: number, exePath: string): string {
   return `steam-${appId}-${hash}`
 }
 
-/** Executa a importação completa. Nunca lança — falhas por jogo vão para `errors`. */
-export async function importSteamGames(): Promise<SteamImportReport> {
-  const report: SteamImportReport = { ...EMPTY_REPORT, ok: true, errors: [] }
+/** Executa a varredura completa da Steam. Nunca lança — falhas por jogo vão para `errors`. */
+export async function scanSteamGames(): Promise<GameSourceImportReport> {
+  const report = emptySteamReport()
 
   const steamRoot = findSteamRoot()
   if (!steamRoot) {
-    return {
-      ...EMPTY_REPORT,
-      error: 'Steam não detectada. Verifique se ela está instalada.'
-    }
+    // Fonte ausente não é erro: o orquestrador segue para Epic/Minecraft.
+    report.detected = false
+    report.message = 'Steam não detectada. Verifique se ela está instalada.'
+    return report
   }
 
   const libraries = findSteamLibraries(steamRoot)
@@ -257,7 +250,11 @@ export async function importSteamGames(): Promise<SteamImportReport> {
       if (!/^appmanifest_\d+\.acf$/i.test(entry)) continue
       try {
         const parsed = parseAppManifest(readFileSync(join(steamapps, entry), 'utf8'))
-        if (!parsed) continue
+        if (!parsed) {
+          // Manifesto presente mas inválido: entrada descartada de propósito.
+          report.ignored += 1
+          continue
+        }
         if (!manifests.has(parsed.appId)) manifests.set(parsed.appId, { manifest: parsed, library })
       } catch (err) {
         logger.warn('steam', `Falha ao ler ${entry}:`, err)
@@ -276,7 +273,7 @@ export async function importSteamGames(): Promise<SteamImportReport> {
     const { appId, name, installDir } = manifest
 
     if (isToolEntry(name, appId)) {
-      report.ignoredTools += 1
+      report.ignored += 1
       continue
     }
 
@@ -330,14 +327,9 @@ export async function importSteamGames(): Promise<SteamImportReport> {
 
   logger.info(
     'steam',
-    `Importação concluída: ${report.imported} importado(s), ` +
-      `${report.alreadyInLibrary} já na biblioteca, ${report.ignoredTools} ignorado(s), ` +
+    `Busca concluída: ${report.imported} importado(s), ` +
+      `${report.alreadyInLibrary} já na biblioteca, ${report.ignored} ignorado(s), ` +
       `${report.noExe} sem executável, ${report.errors.length} erro(s)`
   )
   return report
-}
-
-/** Registra o canal IPC da importação da Steam. */
-export function registerSteamIpc(): void {
-  ipcMain.handle('steam:import', (): Promise<SteamImportReport> => importSteamGames())
 }
