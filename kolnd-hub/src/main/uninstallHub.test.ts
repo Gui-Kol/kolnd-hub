@@ -139,8 +139,8 @@ describe('wipeKolndHubUserData — apagar %APPDATA%\\kolnd-hub com tmp dirs', ()
     writeFileSync(join(root, 'first-run-complete.flag'), 'ok', 'utf8')
     mkdirSync(join(root, 'logs'), { recursive: true })
     writeFileSync(join(root, 'logs', 'uninstall.log'), 'lixo', 'utf8')
-    mkdirSync(join(root, 'mark-lvi', 'memory'), { recursive: true })
-    writeFileSync(join(root, 'mark-lvi', 'memory', 'm.json'), '{}', 'utf8')
+    mkdirSync(join(root, 'dados-assistente', 'memory'), { recursive: true })
+    writeFileSync(join(root, 'dados-assistente', 'memory', 'm.json'), '{}', 'utf8')
     mkdirSync(join(root, 'game-icons'), { recursive: true })
     writeFileSync(join(root, 'game-icons', '1.png'), 'png', 'utf8')
 
@@ -148,8 +148,8 @@ describe('wipeKolndHubUserData — apagar %APPDATA%\\kolnd-hub com tmp dirs', ()
 
     expect(result.errors).toEqual([])
     expect(result.inventory).toEqual(
-      ['config.json', 'first-run-complete.flag', 'game-icons', 'logs', 'mark-lvi'].sort((a, b) =>
-        a.localeCompare(b, 'en', { sensitivity: 'base' })
+      ['config.json', 'first-run-complete.flag', 'game-icons', 'logs', 'dados-assistente'].sort(
+        (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })
       )
     )
     expect(result.deleted.sort()).toEqual(result.inventory.slice().sort())

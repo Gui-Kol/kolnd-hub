@@ -333,8 +333,7 @@ export function UninstallHubModal({
                 <strong className="text-ink-primary">O que o Hub apaga</strong> (só se você escolher
                 apagar): <span className="font-mono">config.json</span>,{' '}
                 <span className="font-mono">first-run-complete.flag</span>,{' '}
-                <span className="font-mono">logs\</span>,{' '}
-                <span className="font-mono">mark-lvi\</span> e{' '}
+                <span className="font-mono">logs\</span> e{' '}
                 <span className="font-mono">game-icons\</span> — em{' '}
                 <span className="font-mono">%APPDATA%\kolnd-hub</span>.
               </span>
@@ -342,9 +341,10 @@ export function UninstallHubModal({
           </ol>
 
           <p className="w-full text-left text-[11px] leading-relaxed text-ink-tertiary">
-            O Mark LVI (assistente) será removido junto com a pasta do Kolnd Hub. Seus dados atuais
-            ficam em <span className="font-mono">%APPDATA%\kolnd-hub\mark-lvi</span> e seguem a
-            regra acima.
+            O Mark LVII (assistente) será removido junto com a pasta do Kolnd Hub — inclusive a
+            chave de API e a memória, que ficam em{' '}
+            <span className="font-mono">resources\programs\MarkLVII</span> dentro da instalação.
+            Faça o backup abaixo se quiser guardá-las.
           </p>
 
           {gateBlocked && (
@@ -419,7 +419,7 @@ export function UninstallHubModal({
                     </Badge>
                   </span>
                   <span className="mt-1 block text-[11px] text-ink-secondary">
-                    %APPDATA%\kolnd-hub fica intacto (config, logs, Mark LVI, biblioteca e ícones).
+                    %APPDATA%\kolnd-hub fica intacto (config, logs, biblioteca e ícones).
                   </span>
                 </span>
               </label>
@@ -449,7 +449,6 @@ export function UninstallHubModal({
                 <ul className="list-inside list-disc space-y-1 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-[11px] text-danger">
                   <li>config.json e first-run-complete.flag (suas preferências)</li>
                   <li>logs\ (histórico de registros)</li>
-                  <li>mark-lvi\ (dados do assistente: chave de API e memória)</li>
                   <li>game-icons\ (cache de ícones da Biblioteca)</li>
                 </ul>
               )}

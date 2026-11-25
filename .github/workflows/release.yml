@@ -51,7 +51,7 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      # resources/programs/MarkLVI is ~600 MB and is not committed to git
+      # resources/programs/MarkLVII is ~600 MB and is not committed to git
       # (it is produced by scripts/build-mark-lvi.ps1). electron-builder's
       # extraResources fails if the source does not exist, so the release
       # build drops a placeholder to validate the packaging pipeline end to
@@ -60,8 +60,8 @@ jobs:
       - name: Create placeholder resources for packaging
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force resources/programs/MarkLVI | Out-Null
-          Set-Content -Path resources/programs/MarkLVI/README.txt `
+          New-Item -ItemType Directory -Force resources/programs/MarkLVII | Out-Null
+          Set-Content -Path resources/programs/MarkLVII/README.txt `
             -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
 
       # O updater compara a tag da Release com app.getVersion() (SemVer) e exige

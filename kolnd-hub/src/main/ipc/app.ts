@@ -3,7 +3,6 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { killProcessesForCommand } from '../processKiller'
 import { invalidateKloudGamesRunningCache, stopKloudGamesElevated } from '../kloudGames'
-import { getMarkLviDataDir } from '../programsDeployer'
 import { isAnyUninstallInProgress } from '../uninstaller'
 import { shutdownHub } from './lifecycle'
 import type { IpcContext } from './lifecycle'
@@ -33,13 +32,8 @@ export function registerAppIpc(ctx: IpcContext): void {
         return { success: false, error: 'Diretório de trabalho longo demais' }
       }
 
-      // Mark LVI: dados do usuário (chave de API, memória) ficam em
-      // %APPDATA%/kolnd-hub/mark-lvi, não ao lado do .exe empacotado.
-      const env = trimmedId === 'mark-lvi' ? { MARK_LVI_HOME: getMarkLviDataDir() } : undefined
-
       return processManager.launch(trimmedId, trimmedCommand, trimmedCwd, {
-        shell: useShell !== false,
-        env
+        shell: useShell !== false
       })
     }
   )

@@ -46,13 +46,13 @@ const mockStore = vi.hoisted(() => ({
       },
       {
         id: 'mark-lvi',
-        name: 'Mark LVI Secreto',
+        name: 'Mark LVII Secreto',
         description: '',
         icon: '🤖',
         color: '#fff',
         gradient: 'from-a to-b',
-        command: 'mark-lvi.exe --api-key chave-secreta-999',
-        cwd: 'C:\\apps\\mark-lvi',
+        command: 'mark-lvii.exe --api-key chave-secreta-999',
+        cwd: 'C:\\apps\\mark-lvii',
         category: 'ai' as const,
         tags: [],
         useShell: true
@@ -239,7 +239,7 @@ describe('buildDiagnosticReport', () => {
     const report = buildDiagnosticReport()
     expect(report).not.toContain('comando-secreto.exe')
     expect(report).not.toContain('diretorio-secreto')
-    expect(report).not.toContain('mark-lvi.exe')
+    expect(report).not.toContain('mark-lvii.exe')
     expect(report).not.toContain('segredo.example.com')
     expect(report).not.toContain('tag-secreta')
     expect(report).not.toContain('Jogo Super Secreto')

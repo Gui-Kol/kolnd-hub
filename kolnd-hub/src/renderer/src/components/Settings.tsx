@@ -1101,7 +1101,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
               Clique no campo de um caminho para abrir o explorador de arquivos e selecionar o
               executável ou a pasta correta — ou edite o texto manualmente. Caminhos relativos (como{' '}
               <code className="rounded-sm border border-[var(--border-subtle)] bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-primary">
-                ../Mark-LVI
+                ../Mark-LVII
               </code>
               ) são resolvidos a partir da instalação do Kolnd Hub. Use caminhos absolutos se os
               programas estiverem em locais diferentes.
