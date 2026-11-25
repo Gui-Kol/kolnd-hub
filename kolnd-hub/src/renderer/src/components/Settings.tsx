@@ -28,18 +28,36 @@ import {
   Archive,
   Download,
   Upload,
-  Info
+  Info,
+  History
 } from 'lucide-react'
 import { AppConfig } from '../types'
 import { BigPictureSettings } from './BigPictureSettings'
 import { RemoteAccessSettings } from './RemoteAccessSettings'
 import { UninstallDangerZone } from './UninstallDangerZone'
-import { Badge, Button, Card, IconButton, Input, SectionTitle, Switch } from './ui'
+import { UsageLogModal } from './UsageLogModal'
+import { formatPlaytime } from '../lib/gameStats'
+import {
+  USAGE_RETENTION_OPTIONS,
+  type UsageLogPrefs,
+  type UsageSummary
+} from '../../../shared/usage'
+import { Badge, Button, Card, IconButton, Input, SectionTitle, Select, Switch } from './ui'
 
 interface SettingsProps {
   apps: AppConfig[]
   onSave: (apps: AppConfig[]) => void
   onToast?: (msg: string, kind: 'success' | 'error' | 'info') => void
+}
+
+/** Primeiro dia do período (hoje incluso), em data local. */
+function usageSinceDayKey(days: number): string {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1), 12)
+  const year = start.getFullYear()
+  const month = String(start.getMonth() + 1).padStart(2, '0')
+  const day = String(start.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element {
@@ -90,6 +108,13 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     message: string
   } | null>(null)
   const importFeedbackTimer = useRef<number | null>(null)
+  // Registro de uso local (task logs-uso-detalhados): preferências no store +
+  // resumo do período para a seção de Configurações e o modal de detalhes.
+  const [usagePrefs, setUsagePrefs] = useState<UsageLogPrefs | null>(null)
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
+  const [usageFeedback, setUsageFeedback] = useState<'saved' | 'error' | null>(null)
+  const usageFeedbackTimer = useRef<number | null>(null)
+  const [usageModalOpen, setUsageModalOpen] = useState(false)
   // Issues inline do campo de comando, por id de app (debounce de ~300 ms no
   // efeito abaixo) + resultado do botão "Testar comando" (clique explícito).
   const [commandIssues, setCommandIssues] = useState<Record<string, CommandIssue[]>>({})
@@ -151,6 +176,40 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
     }
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+    window.api
+      .getUsagePrefs()
+      .then((value) => {
+        if (mounted) setUsagePrefs(value)
+      })
+      .catch(() => {
+        // Falha na leitura → assume o padrão do store (ligado, 30 dias).
+        if (mounted) setUsagePrefs({ enabled: true, retentionDays: 30 })
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  // Resumo do período configurado; atualiza ao fechar o modal (que pode ter
+  // apagado o histórico).
+  useEffect(() => {
+    if (!usagePrefs) return
+    let mounted = true
+    window.api
+      .getUsageSummary({ from: usageSinceDayKey(usagePrefs.retentionDays) })
+      .then((result) => {
+        if (mounted && result.ok) setUsageSummary(result.summary)
+      })
+      .catch(() => {
+        // Sem resumo: a seção mostra o estado vazio.
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [usagePrefs, usageModalOpen])
+
   // Validação sob demanda (debounce ~300 ms) do campo de comando. Valida só o
   // app cujo par (comando, modo shell) mudou desde a última validação; os
   // demais saem do cache e nenhuma IPC é disparada — editar um comando não
@@ -199,6 +258,7 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       if (autostartFeedbackTimer.current) window.clearTimeout(autostartFeedbackTimer.current)
       if (exportFeedbackTimer.current) window.clearTimeout(exportFeedbackTimer.current)
       if (importFeedbackTimer.current) window.clearTimeout(importFeedbackTimer.current)
+      if (usageFeedbackTimer.current) window.clearTimeout(usageFeedbackTimer.current)
     },
     []
   )
@@ -261,6 +321,36 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
       if (notifyFeedbackTimer.current) window.clearTimeout(notifyFeedbackTimer.current)
       notifyFeedbackTimer.current = window.setTimeout(() => setNotifyFeedback(null), 2500)
     }
+  }
+
+  /** Salva as preferências do registro de uso, revertendo a UI em caso de erro. */
+  const saveUsagePrefs = async (next: UsageLogPrefs): Promise<void> => {
+    const previous = usagePrefs
+    setUsagePrefs(next)
+    setUsageFeedback(null)
+    try {
+      const result = await window.api.setUsagePrefs(next)
+      if (!result.success) throw new Error(result.error ?? 'erro desconhecido')
+      setUsageFeedback('saved')
+    } catch (err) {
+      console.error('[settings] Falha ao salvar o registro de uso:', err)
+      // Reverte para o valor persistido (a próxima leitura também o corrigiria).
+      if (previous) setUsagePrefs(previous)
+      setUsageFeedback('error')
+    } finally {
+      if (usageFeedbackTimer.current) window.clearTimeout(usageFeedbackTimer.current)
+      usageFeedbackTimer.current = window.setTimeout(() => setUsageFeedback(null), 2500)
+    }
+  }
+
+  const handleToggleUsageLog = (): void => {
+    if (!usagePrefs) return
+    void saveUsagePrefs({ ...usagePrefs, enabled: !usagePrefs.enabled })
+  }
+
+  const handleUsageRetentionChange = (days: number): void => {
+    if (!usagePrefs || !USAGE_RETENTION_OPTIONS.includes(days as never)) return
+    void saveUsagePrefs({ ...usagePrefs, retentionDays: days })
   }
 
   // Exportar diagnóstico sanitizado para a área de transferência (task 06-6.3).
@@ -950,6 +1040,86 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
         </Card>
       </motion.div>
 
+      {/* ── Registro de uso (local) ─────────────── */}
+      <SectionTitle>Registro de uso</SectionTitle>
+
+      <motion.div {...entranceProps(reduced, { y: 20 })}>
+        <Card className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-muted text-accent">
+              <History size={20} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-ink-primary">Registro de uso</h3>
+              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
+                Guarda um histórico de sessões, páginas, programas e jogos abertos pelo Hub, com a
+                duração de cada sessão.{' '}
+                <strong className="text-ink-primary">
+                  Fica só neste PC. Nada é enviado para a internet.
+                </strong>{' '}
+                Nunca são gravados comandos, caminhos de executáveis, IPs ou tokens.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-4 flex-wrap">
+            <span className="text-xs leading-relaxed text-ink-secondary">
+              <span className="font-semibold text-ink-primary">Registrar uso do Hub</span>
+              <span className="block text-[11px] text-ink-tertiary">
+                Desligado, nenhum evento novo é gravado.
+              </span>
+            </span>
+            <Switch
+              aria-label="Registrar uso do Hub"
+              checked={usagePrefs?.enabled === true}
+              onCheckedChange={handleToggleUsageLog}
+              disabled={usagePrefs === null}
+              className="shrink-0"
+            />
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,220px)_auto] sm:items-end">
+            <label className="text-xs font-semibold text-ink-secondary">
+              Manter histórico por
+              <Select
+                className="mt-1.5"
+                value={usagePrefs?.retentionDays ?? 30}
+                onChange={(event) => handleUsageRetentionChange(Number(event.target.value))}
+                disabled={usagePrefs === null}
+                aria-label="Retenção do registro de uso"
+              >
+                {USAGE_RETENTION_OPTIONS.map((days) => (
+                  <option key={days} value={days}>
+                    {days} dias
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <Button
+              variant="secondary"
+              onClick={() => setUsageModalOpen(true)}
+              disabled={usagePrefs === null}
+              className="justify-self-start"
+            >
+              <History size={14} aria-hidden="true" />
+              Ver registro
+            </Button>
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-tertiary" role="status">
+            {usageSummary
+              ? `${usageSummary.totalSessions} sessão(ões) · ${formatPlaytime(usageSummary.totalSeconds)} de uso no período · ${usageSummary.topApps[0]?.name ?? 'nenhum programa aberto'}`
+              : 'Sem resumo disponível ainda.'}
+            {usageFeedback === 'saved' && (
+              <span className="ml-2 text-success">Preferência salva.</span>
+            )}
+            {usageFeedback === 'error' && (
+              <span className="ml-2 text-danger">Não foi possível salvar a preferência.</span>
+            )}
+          </p>
+        </Card>
+      </motion.div>
+
       {/* ── Backup e restauração (07-7.6) ────────────── */}
       <SectionTitle>Backup e restauração</SectionTitle>
 
@@ -1109,6 +1279,10 @@ export function Settings({ apps, onSave, onToast }: SettingsProps): JSX.Element 
           </div>
         </Card>
       </motion.div>
+
+      {usageModalOpen && (
+        <UsageLogModal onClose={() => setUsageModalOpen(false)} onToast={onToast} />
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@
 import './crashReporting'
 import { registerChildProcessCleanup } from './crashReporting'
 import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -14,15 +15,13 @@ import { registerStartupIpc } from './ipc/startup'
 import { registerLoginItemIpc } from './loginItem'
 import { registerFirstRunIpc as registerFirstRunStatusIpc } from './ipc/firstRun'
 import { registerFirstRunIpc as registerFirstRunInstallerIpc } from './firstRunInstaller'
-import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot } from './store'
+import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot, getUsageLogPrefs } from './store'
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
 import { registerBenchmarkIpc } from './benchmark'
 import { registerHwMonitorIpc } from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
-import { registerFpsIpc } from './fps'
-import { registerFpsAutoIpc } from './fps/agent'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
@@ -39,6 +38,13 @@ import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
+import { registerUsageIpc } from './ipc/usage'
+import {
+  appendUsageEvent,
+  buildUsageEvent,
+  setUsageEnabledProvider,
+  setUsageRetentionProvider
+} from './usageLog'
 import type { IpcContext } from './ipc/lifecycle'
 import { isQuitting, markQuitting } from './quitState'
 import { logger } from './logger'
@@ -56,6 +62,28 @@ if (testUserData) {
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+
+// Registro de uso local (task logs-uso-detalhados): uma sessão por execução do
+// Hub. O id é aleatório e nenhum dado sensível entra no arquivo.
+const usageSessionId = randomUUID()
+let usageSessionStartedAt: number | null = null
+let usageSessionEnded = false
+
+function startUsageSession(): void {
+  usageSessionStartedAt = Date.now()
+  appendUsageEvent(
+    buildUsageEvent('session-start', { sessionId: usageSessionId, version: app.getVersion() })
+  )
+}
+
+/** Fecha a sessão uma única vez (before-quit pode disparar mais de uma vez). */
+function endUsageSession(): void {
+  if (usageSessionEnded) return
+  usageSessionEnded = true
+  if (usageSessionStartedAt === null) return
+  const durationSeconds = Math.max(0, Math.round((Date.now() - usageSessionStartedAt) / 1000))
+  appendUsageEvent(buildUsageEvent('session-end', { sessionId: usageSessionId, durationSeconds }))
+}
 // Auto-restart (06-6.4) e log persistente (05-5.7): o ProcessManager NÃO importa
 // o store — a preferência por app é resolvida aqui, via `getAppPrefs(appId)`, e
 // injetada no launch. Default false nos dois (opt-in por app em
@@ -309,6 +337,12 @@ app.whenReady().then(() => {
   // Registra os canais IPC das preferências do Hub (ex.: iniciar o Kloud Games junto).
   registerPrefsIpc()
 
+  // Registro de uso local: a preferência (ligado/desligado + retenção) decide
+  // se os eventos são gravados. Precisa estar pronto antes do session-start.
+  setUsageEnabledProvider(() => getUsageLogPrefs().enabled)
+  setUsageRetentionProvider(() => getUsageLogPrefs().retentionDays)
+  startUsageSession()
+
   // Registra os canais IPC de exportação/importação da configuração (07-7.6).
   registerConfigTransferIpc(ctx)
 
@@ -332,12 +366,6 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC de escala/resolução de tela (aba Tela em Meu PC).
   registerDisplayIpc(ctx)
-
-  // Registra os canais IPC da medição de FPS/frametime por ETW (opt-in com UAC).
-  registerFpsIpc(ctx)
-
-  // FPS automático: tarefa no logon + leitura passiva de latest.json (sem UAC por uso).
-  registerFpsAutoIpc(ctx)
 
   // Registra os canais IPC da sobreposição (HUD): atalho global + janela
   // transparente always-on-top. Restaura a preferência persistida.
@@ -391,6 +419,9 @@ app.whenReady().then(() => {
   // Registra o canal IPC de exportação de diagnóstico (diagnostic:export).
   registerDiagnosticIpc(ctx)
 
+  // Registra os canais IPC do registro de uso local (ler/resumir/exportar/limpar).
+  registerUsageIpc(ctx)
+
   // Registra os canais IPC de desinstalação (Kloud Games via msiexec + status do Hub).
   registerUninstallIpc(() => mainWindow)
 
@@ -431,6 +462,12 @@ if (gotSingleInstanceLock) {
         flushPlaytimeTracking()
       } catch (err) {
         logger.warn('games', 'Falha ao salvar tempo de jogo na saída:', err)
+      }
+      // Sessão do registro de uso: duração total + fechamento (uma única vez).
+      try {
+        endUsageSession()
+      } catch (err) {
+        logger.warn('usageLog', 'Falha ao fechar a sessão de uso na saída:', err)
       }
     }
     // Aqui a opção mais simples e determinística é o kill SÍNCRONO: o quit do

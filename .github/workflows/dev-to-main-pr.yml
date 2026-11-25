@@ -1,0 +1,132 @@
+name: PR Dev -> main
+
+# Mantém um único PR de promoção de `Dev` para `main`:
+# - push em `Dev` sem PR aberto  -> cria o PR
+# - push em `Dev` com PR aberto  -> só atualiza a descrição; os commits novos entram
+#   sozinhos no PR, porque o head continua sendo a própria branch `Dev`.
+# O bloco gerado automaticamente fica entre os marcadores
+# `<!-- dev-to-main:auto:start -->` / `<!-- dev-to-main:auto:end -->`: o texto
+# escrito à mão fora deles é preservado (a cada push só o bloco é reescrito).
+on:
+  push:
+    branches: [Dev]
+  workflow_dispatch:
+
+# pull-requests: write é o mínimo para criar/editar o PR com o GITHUB_TOKEN.
+permissions:
+  contents: read
+  pull-requests: write
+
+# Um run por vez: pushes em sequência não disputam a edição do mesmo PR.
+concurrency:
+  group: pr-dev-to-main
+  cancel-in-progress: true
+
+jobs:
+  open-or-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (histórico completo, sem submódulos)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Criar ou atualizar PR de Dev para main
+        shell: bash
+        env:
+          # O GITHUB_TOKEN basta quando "Allow GitHub Actions to create and approve
+          # pull requests" está habilitado (Settings > Actions > General). Se estiver
+          # bloqueado, defina o secret PR_TOKEN (PAT com pull-requests: write).
+          # Obs.: PRs abertos pelo GITHUB_TOKEN não disparam workflows de
+          # `pull_request` (limitação do GitHub); com PR_TOKEN, disparam.
+          GH_TOKEN: ${{ secrets.PR_TOKEN || github.token }}
+          BASE_BRANCH: main
+          HEAD_BRANCH: Dev
+        run: |
+          set -euo pipefail
+
+          MARKER_START='<!-- dev-to-main:auto:start -->'
+          MARKER_END='<!-- dev-to-main:auto:end -->'
+
+          BODY_FILE="$RUNNER_TEMP/pr-body.md"
+          AUTO_FILE="$RUNNER_TEMP/pr-body-auto.md"
+          MANUAL_FILE="$RUNNER_TEMP/pr-body-manual.md"
+          OLD_BODY_FILE="$RUNNER_TEMP/pr-body-old.md"
+
+          git fetch --no-tags origin "$BASE_BRANCH" "$HEAD_BRANCH"
+          BASE_REF="origin/$BASE_BRANCH"
+          HEAD_REF="origin/$HEAD_BRANCH"
+
+          COMMIT_COUNT=$(git rev-list --count "$BASE_REF..$HEAD_REF")
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "\`$HEAD_BRANCH\` não tem commits à frente de \`$BASE_BRANCH\`; nada a promover." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          DIFF_STAT=$(git diff --shortstat "$BASE_REF...$HEAD_REF" | sed 's/^ *//')
+          COMMIT_FORMAT='- [`%h`](https://github.com/'"$GITHUB_REPOSITORY"'/commit/%H) %s (%an)'
+
+          # Limita a lista para não estourar o limite de tamanho da descrição
+          # do GitHub (65536 caracteres) em promoções muito grandes.
+          MAX_LISTED=50
+          if [ "$COMMIT_COUNT" -gt "$MAX_LISTED" ]; then
+            COMMITS=$(git log -n "$MAX_LISTED" --pretty=format:"$COMMIT_FORMAT" "$BASE_REF..$HEAD_REF")
+            COMMITS=$(printf '%s\n\n_Listando os %s commits mais recentes de %s._' \
+              "$COMMITS" "$MAX_LISTED" "$COMMIT_COUNT")
+          else
+            COMMITS=$(git log --reverse --pretty=format:"$COMMIT_FORMAT" "$BASE_REF..$HEAD_REF")
+          fi
+
+          # Bloco automático da descrição (reescrito a cada execução).
+          {
+            echo "$MARKER_START"
+            echo "## Promoção automática \`$HEAD_BRANCH\` → \`$BASE_BRANCH\`"
+            echo
+            echo "Bloco gerado a cada push em \`$HEAD_BRANCH\`. Pode editar o restante da"
+            echo "descrição livremente: só este trecho (entre os marcadores) é reescrito."
+            echo
+            echo "**$COMMIT_COUNT commit(s)** · ${DIFF_STAT:-sem alteração de conteúdo}"
+            echo
+            echo "### Commits"
+            echo
+            echo "$COMMITS"
+            echo
+            echo "$MARKER_END"
+          } > "$AUTO_FILE"
+
+          PR_NUMBER=$(gh pr list --state open --base "$BASE_BRANCH" --head "$HEAD_BRANCH" \
+            --json number --jq '.[0].number // empty')
+
+          if [ -n "$PR_NUMBER" ]; then
+            # PR já aberto: preserva o texto manual e troca apenas o bloco automático.
+            gh pr view "$PR_NUMBER" --json body --jq '.body // ""' > "$OLD_BODY_FILE"
+            awk -v start="$MARKER_START" -v end="$MARKER_END" '
+              $0 == start { skip = 1; next }
+              $0 == end   { skip = 0; next }
+              skip != 1   { print }
+            ' "$OLD_BODY_FILE" > "$MANUAL_FILE"
+
+            # $(cat arquivo) descarta as quebras de linha finais do texto preservado.
+            MANUAL_TEXT=$(cat "$MANUAL_FILE")
+            {
+              if [ -n "$MANUAL_TEXT" ]; then
+                printf '%s\n\n' "$MANUAL_TEXT"
+              fi
+              cat "$AUTO_FILE"
+            } > "$BODY_FILE"
+
+            gh pr edit "$PR_NUMBER" --body-file "$BODY_FILE"
+            echo "PR #$PR_NUMBER já estava aberto: descrição atualizada ($COMMIT_COUNT commit(s) listado(s))." >> "$GITHUB_STEP_SUMMARY"
+          else
+            cp "$AUTO_FILE" "$BODY_FILE"
+            if ! PR_URL=$(gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "$HEAD_BRANCH" \
+              --title "chore: promove $HEAD_BRANCH para $BASE_BRANCH" \
+              --body-file "$BODY_FILE" 2>&1); then
+              echo "$PR_URL"
+              echo "::error::Falha ao criar o PR. Verifique Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests' ou configure o secret PR_TOKEN (PAT com pull-requests: write)."
+              exit 1
+            fi
+            echo "PR criado: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi

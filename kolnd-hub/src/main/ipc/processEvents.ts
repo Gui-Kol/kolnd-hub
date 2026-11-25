@@ -8,6 +8,7 @@ import {
   resolveCrashNotificationLabel,
   shouldNotifyOnCrash
 } from '../notifyOnCrash'
+import { appendUsageEvent, buildUsageEvent } from '../usageLog'
 
 /**
  * Último status visto por app — evita toast duplicado quando a queda emite
@@ -31,6 +32,21 @@ export function registerProcessEvents(ctx: IpcContext): void {
 
     const lastStatus = lastStatusByApp.get(appId)
     lastStatusByApp.set(appId, status)
+
+    // Registro de uso: só a TRANSIÇÃO para em execução/parado gera evento
+    // (um `error` repetido da mesma queda não vira dois `app-stop`).
+    if (status === 'running' && lastStatus !== 'running') {
+      const name = resolveCrashNotificationLabel(getConfigSnapshot().apps, appId)
+      appendUsageEvent(buildUsageEvent('app-launch', { appId, name }))
+    } else if (
+      (status === 'stopped' || status === 'error') &&
+      lastStatus !== 'stopped' &&
+      lastStatus !== 'error'
+    ) {
+      const name = resolveCrashNotificationLabel(getConfigSnapshot().apps, appId)
+      appendUsageEvent(buildUsageEvent('app-stop', { appId, name }))
+    }
+
     if (lastStatus === 'error' && status === 'error') return // mesma queda reemitida — sem spam
     if (!shouldNotifyOnCrash(status, getNotifyOnCrash(), isAnyUninstallInProgress())) return
 

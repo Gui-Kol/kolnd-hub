@@ -48,8 +48,8 @@ describe('preload — contrato de window.api', () => {
       'onStatusChanged',
       'firstRunCheck',
       'hwmonSnapshot',
-      'fpsStart',
       'hudGet',
+      'remoteSetZeroTierOpen',
       'uninstallHub',
       'onUninstallComplete',
       'checkForUpdates'
@@ -76,6 +76,9 @@ describe('preload — contrato de window.api', () => {
 
     await api.createGameCollection('RPG')
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:collection-create', 'RPG')
+
+    await api.removeGames(['g1', 'g2'])
+    expect(mocks.invoke).toHaveBeenLastCalledWith('games:remove-many', ['g1', 'g2'])
 
     await api.pickGameCover()
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:pick-cover')
@@ -110,6 +113,9 @@ describe('preload — contrato de window.api', () => {
 
     await api.hudReportSize(300)
     expect(mocks.invoke).toHaveBeenLastCalledWith('hud:report-size', { height: 300 })
+
+    await api.remoteSetZeroTierOpen(false)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('remote:set-zerotier-open', false)
   })
 
   it('todos os métodos invoke encaminham um canal string sem lançar', async () => {
@@ -142,9 +148,6 @@ describe('preload — contrato de window.api', () => {
   })
 
   it('eventos específicos usam os canais documentados', () => {
-    api.onFpsUpdate(vi.fn() as never)
-    expect(mocks.on).toHaveBeenLastCalledWith('fps:update', expect.any(Function))
-
     api.onHudStatus(vi.fn() as never)
     expect(mocks.on).toHaveBeenLastCalledWith('hud:status', expect.any(Function))
 

@@ -7,13 +7,20 @@ import {
   ChevronDown,
   Search,
   FilePlus2,
-  Loader2,
-  RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  ListChecks,
+  Trash2
 } from 'lucide-react'
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
+import { pruneSelected, toggleSelectAllVisible, toggleSelected } from '../lib/librarySelection'
+import {
+  nextIconRetryIds,
+  pruneIconsForReload,
+  requestIconsForIds,
+  retryDelayForAttempt
+} from '../lib/libraryIcons'
 import {
   applyLibraryFilters,
   DEFAULT_LIBRARY_FILTERS,
@@ -35,6 +42,7 @@ import {
 import { BibliotecaGrid } from './biblioteca/BibliotecaGrid'
 import { BuscarJogosModal, BuscarJogosState } from './biblioteca/BuscarJogosModal'
 import { EditGameModal } from './biblioteca/EditGameModal'
+import { RemoveGamesModal } from './biblioteca/RemoveGamesModal'
 
 interface LocalToast {
   id: number
@@ -63,6 +71,20 @@ export function Biblioteca(): JSX.Element {
   // Ícones por id: dataURL cacheada no estado do componente; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
+  // Retentativa com backoff: tentativas por id e timers pendentes.
+  const iconRetryAttempts = useRef<Map<string, number>>(new Map())
+  const iconRetryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // `true` enquanto o componente está montado. Respostas de IPC antigas NÃO
+  // podem ser descartadas só porque o estado mudou (o cleanup de um efeito roda
+  // a cada re-render e era o que deixava 9 de 10 ícones de fora).
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return (): void => {
+      mountedRef.current = false
+    }
+  }, [])
   // Capas por id (T6): mesma cache em memória; `null` = sem capa (card usa ícone).
   const [covers, setCovers] = useState<Record<string, string | null>>({})
   const coverRequests = useRef<Set<string>>(new Set())
@@ -72,6 +94,11 @@ export function Biblioteca(): JSX.Element {
   const { runningIds, refresh: refreshRunning } = useGamesRunning(games)
   // T9 — jogo aberto no modal "Editar Game" (null = fechado).
   const [editing, setEditing] = useState<Game | null>(null)
+  // Remoção em lote: modo de seleção, ids marcados e confirmação destrutiva.
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [removeModalOpen, setRemoveModalOpen] = useState(false)
+  const [removing, setRemoving] = useState(false)
   // Filtros da Biblioteca (T3/T4) — só em memória, nunca persistidos.
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [collectionFilter, setCollectionFilter] = useState('')
@@ -80,8 +107,6 @@ export function Biblioteca(): JSX.Element {
   const [source, setSource] = useState<LibrarySourceFilter>(DEFAULT_LIBRARY_FILTERS.source)
   const [missingOnly, setMissingOnly] = useState(false)
   const [sort, setSort] = useState<LibrarySort>(DEFAULT_LIBRARY_FILTERS.sort)
-  // "Atualizar ícones": re-extrai de todos os executáveis de uma vez.
-  const [refreshingIcons, setRefreshingIcons] = useState(false)
 
   // 6 s de auto-dismiss — o primitivo Toast cuida do timer e do fechar manual.
   const showToast = useCallback((text: string): void => {
@@ -123,14 +148,30 @@ export function Biblioteca(): JSX.Element {
     }
   }, [loadCollections])
 
-  // Best-effort, uma vez por montagem: antes de listar, o main re-extrai só
-  // os ícones ilegíveis. A ref sobrevive ao duplo-mount do StrictMode (mas é
-  // recriada ao entrar de novo na aba), evitando duas varreduras seguidas.
+  // Cancela timer e zera tentativas de um id (ícone trocado/removido).
+  const clearIconRetry = useCallback((id: string): void => {
+    const timer = iconRetryTimers.current.get(id)
+    if (timer) clearTimeout(timer)
+    iconRetryTimers.current.delete(id)
+    iconRetryAttempts.current.delete(id)
+  }, [])
+
+  const clearAllIconRetries = useCallback((): void => {
+    for (const timer of iconRetryTimers.current.values()) clearTimeout(timer)
+    iconRetryTimers.current.clear()
+    iconRetryAttempts.current.clear()
+  }, [])
+
+  // A lista aparece primeiro; o reparo/aquisição roda em segundo plano. Quando
+  // termina, os `null` cacheados são descartados e re-pedidos (o main pode ter
+  // materializado/extraído/adquirido o ícone nesse meio-tempo).
   const iconReloadDone = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     const run = async (): Promise<void> => {
+      await loadGames()
+      if (cancelled) return
       if (!iconReloadDone.current) {
         iconReloadDone.current = true
         try {
@@ -138,15 +179,18 @@ export function Biblioteca(): JSX.Element {
         } catch {
           // Recarregar ícones é opcional — a lista deve abrir de qualquer jeito.
         }
+        if (cancelled) return
+        clearAllIconRetries()
+        iconRequests.current.clear()
+        // Re-pede null (sem ícone) e SVG gerado (upgrade para arte real).
+        setIcons((prev) => pruneIconsForReload(prev))
       }
-      if (cancelled) return
-      await loadGames()
     }
     void run()
     return (): void => {
       cancelled = true
     }
-  }, [loadGames])
+  }, [loadGames, clearAllIconRetries])
 
   // T9 — verifica quais executáveis da biblioteca existem no disco e marca
   // os ids ausentes para o selo ".exe não encontrado" nos cards.
@@ -173,15 +217,19 @@ export function Biblioteca(): JSX.Element {
 
   // Descarta a dataURL cacheada de um jogo (ícone trocado/removido) e força
   // o `useEffect` de ícones a buscar a versão nova.
-  const dropIconCache = useCallback((id: string): void => {
-    setIcons((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    iconRequests.current.delete(id)
-  }, [])
+  const dropIconCache = useCallback(
+    (id: string): void => {
+      setIcons((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      iconRequests.current.delete(id)
+      clearIconRetry(id)
+    },
+    [clearIconRetry]
+  )
 
   const dropCoverCache = useCallback((id: string): void => {
     setCovers((prev) => {
@@ -224,6 +272,87 @@ export function Biblioteca(): JSX.Element {
     [dropIconCache, dropCoverCache, loadGames]
   )
 
+  // ── Remoção em lote (modo de seleção) ─────────────────────────────
+  // Sai do modo e limpa a seleção (usado pelo botão "Sair da seleção").
+  const exitSelectionMode = useCallback((): void => {
+    setSelecting(false)
+    setSelectedIds(new Set())
+    setRemoveModalOpen(false)
+  }, [])
+
+  const handleToggleSelectionMode = useCallback((): void => {
+    if (selecting) exitSelectionMode()
+    else setSelecting(true)
+  }, [selecting, exitSelectionMode])
+
+  // Handler estável: o card é `memo` (identidade não pode mudar a cada render).
+  const handleToggleSelect = useCallback((game: Game): void => {
+    setSelectedIds((prev) => toggleSelected(prev, game.id))
+  }, [])
+
+  const handleClearSelection = useCallback((): void => {
+    setSelectedIds(new Set())
+  }, [])
+
+  // Confirmar o modal: um único IPC remove todos; na falha o modo e a seleção
+  // continuam intactos para o usuário tentar de novo.
+  const handleConfirmRemoveSelected = useCallback(async (): Promise<void> => {
+    if (removing || selectedIds.size === 0) return
+    const ids = [...selectedIds]
+    setRemoving(true)
+    try {
+      const result = await window.api.removeGames(ids)
+      if (!result.success) {
+        setRemoveModalOpen(false)
+        showToast(result.error ?? 'Não foi possível remover os jogos.')
+        return
+      }
+      const removedIds = result.removed ?? ids
+      for (const id of removedIds) {
+        dropIconCache(id)
+        dropCoverCache(id)
+      }
+      const removedGames = games.filter((game) => removedIds.includes(game.id))
+      setRemoveModalOpen(false)
+      setSelecting(false)
+      setSelectedIds(new Set())
+      void loadGames()
+      // Coleções podem ter ficado sem jogos; recarrega o seletor de filtros.
+      void loadCollections()
+      showToast(
+        removedIds.length === 1
+          ? `Jogo removido: ${removedGames[0]?.name ?? 'jogo'}`
+          : `${removedIds.length} jogos removidos da biblioteca`
+      )
+    } catch (err) {
+      setRemoveModalOpen(false)
+      showToast(err instanceof Error ? err.message : 'Não foi possível remover os jogos.')
+    } finally {
+      setRemoving(false)
+    }
+  }, [
+    removing,
+    selectedIds,
+    games,
+    dropIconCache,
+    dropCoverCache,
+    loadGames,
+    loadCollections,
+    showToast
+  ])
+
+  // A lista recarregou (ex.: jogo removido em outra tela): poda ids que não
+  // existem mais. `pruneSelected` devolve a mesma instância quando nada muda.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedIds((prev) =>
+      pruneSelected(
+        prev,
+        games.map((game) => game.id)
+      )
+    )
+  }, [games])
+
   // Estrela do card: patch `favorite` na whitelist do main. Handler estável —
   // o card é `memo`, então a identidade não pode mudar a cada render.
   const handleToggleFavorite = useCallback(
@@ -246,50 +375,88 @@ export function Biblioteca(): JSX.Element {
   )
 
   // Busca os ícones dos jogos que ainda não têm um cacheado. Cada id é
-  // solicitado no máximo uma vez por montagem (iconRequests).
+  // solicitado no máximo uma vez por montagem (iconRequests). A aplicação da
+  // resposta usa `mountedRef` — re-render nenhum descarta as respostas em voo.
   useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in icons) continue
-      if (iconRequests.current.has(game.id)) continue
-      iconRequests.current.add(game.id)
-      window.api
-        .getGameIcon(game.id)
-        .then((dataUrl) => {
-          if (cancelled) return
-          setIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (cancelled) return
-          setIcons((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
-  }, [games, icons])
+    const pendingIds = games
+      .filter((game) => !(game.id in icons) && !iconRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) iconRequests.current.add(id)
 
-  // Capas: mesma estratégia dos ícones, uma requisição por id por montagem.
-  useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in covers) continue
-      if (coverRequests.current.has(game.id)) continue
-      coverRequests.current.add(game.id)
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameIcon(id),
+      apply: (id, dataUrl) => {
+        if (dataUrl) clearIconRetry(id)
+        setIcons((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        // Falha/ausência: libera o id para uma nova tentativa (backoff).
+        if (!dataUrl) iconRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
+  }, [games, icons, clearIconRetry])
+
+  // Retentativa com backoff (1 s, 2 s, 4 s) para ids que voltaram `null`.
+  const scheduleIconRetry = useCallback((id: string): void => {
+    if (iconRetryTimers.current.has(id)) return
+    const attempt = (iconRetryAttempts.current.get(id) ?? 0) + 1
+    const delay = retryDelayForAttempt(attempt)
+    if (delay === null) return
+    iconRetryAttempts.current.set(id, attempt)
+    const timer = setTimeout(() => {
+      iconRetryTimers.current.delete(id)
       window.api
-        .getGameCover(game.id)
+        .getGameIcon(id)
         .then((dataUrl) => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
+          if (!mountedRef.current) return
+          if (dataUrl) iconRetryAttempts.current.delete(id)
+          setIcons((prev) => {
+            if (!dataUrl) return { ...prev, [id]: null }
+            return prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }
+          })
         })
         .catch(() => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: null }))
+          if (!mountedRef.current) return
+          setIcons((prev) => ({ ...prev, [id]: null }))
         })
-    }
-    return (): void => {
-      cancelled = true
-    }
+    }, delay)
+    iconRetryTimers.current.set(id, timer)
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const retryIds = nextIconRetryIds(
+      games,
+      icons,
+      iconRetryAttempts.current,
+      new Set(iconRetryTimers.current.keys())
+    )
+    for (const id of retryIds) scheduleIconRetry(id)
+  }, [loading, games, icons, scheduleIconRetry])
+
+  // Cancela todos os timers ao desmontar (sem setState depois).
+  useEffect(() => () => clearAllIconRetries(), [clearAllIconRetries])
+
+  // Capas: mesma estratégia dos ícones (mountedRef + liberação em falha).
+  useEffect(() => {
+    const pendingIds = games
+      .filter((game) => !(game.id in covers) && !coverRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) coverRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameCover(id),
+      apply: (id, dataUrl) => {
+        setCovers((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        if (!dataUrl) coverRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
   }, [games, covers])
 
   const handleLaunch = useCallback(
@@ -323,35 +490,6 @@ export function Biblioteca(): JSX.Element {
     },
     [showToast, refreshRunning]
   )
-
-  // "Atualizar ícones": o mesmo efeito de abrir cada jogo e clicar em
-  // "Restaurar ícone" — o main re-extrai TODOS os ícones dos executáveis
-  // (inclusive por cima de um ícone escolhido à mão) e persiste os caminhos.
-  // Depois limpamos o cache do renderer e a grade busca as imagens novas.
-  const handleRefreshIcons = useCallback(async (): Promise<void> => {
-    if (refreshingIcons) return
-    setRefreshingIcons(true)
-    try {
-      const result = await window.api.refreshGameIcons()
-      iconRequests.current.clear()
-      setIcons({})
-      if (result.checked === 0) {
-        showToast('Sua biblioteca está vazia — nada para atualizar.')
-      } else if (result.refreshed === 0) {
-        showToast('Não foi possível atualizar os ícones dos jogos.')
-      } else if (result.failed > 0) {
-        showToast(
-          `Ícones atualizados: ${result.refreshed} de ${result.checked}. ${result.failed} sem ícone utilizável.`
-        )
-      } else {
-        showToast(`Ícones atualizados: ${result.refreshed} de ${result.checked}.`)
-      }
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Não foi possível atualizar os ícones.')
-    } finally {
-      setRefreshingIcons(false)
-    }
-  }, [refreshingIcons, showToast])
 
   // "Jogo Personalizado" (T8): abre o seletor nativo filtrado para .exe,
   // o main deriva o nome/extrai o ícone/persiste via `games:add-custom`,
@@ -427,6 +565,7 @@ export function Biblioteca(): JSX.Element {
   const visibleGames = favoriteOnly
     ? filteredByLib.filter((game) => game.favorite === true)
     : filteredByLib
+  const selectedGames = games.filter((game) => selectedIds.has(game.id))
   const filtersActive = favoriteOnly || hasActiveLibraryFilters(filterState)
   const clearFilters = (): void => {
     setFavoriteOnly(false)
@@ -460,19 +599,16 @@ export function Biblioteca(): JSX.Element {
             </span>
           </Badge>
 
-          {/* "Atualizar ícones": re-extrai o ícone de todos os executáveis. */}
+          {/* ── Modo de seleção em lote ──────────────── */}
           <Button
             variant="secondary"
-            onClick={() => void handleRefreshIcons()}
-            disabled={loading || refreshingIcons || games.length === 0}
-            title="Re-extrai o ícone de todos os jogos a partir dos executáveis (substitui ícones personalizados)"
+            onClick={handleToggleSelectionMode}
+            aria-pressed={selecting}
+            data-testid="biblioteca-select-toggle"
+            disabled={loading || Boolean(loadError) || games.length === 0}
           >
-            {refreshingIcons ? (
-              <Loader2 size={16} aria-hidden="true" className="animate-spin" />
-            ) : (
-              <RefreshCw size={16} aria-hidden="true" />
-            )}
-            {refreshingIcons ? 'Atualizando…' : 'Atualizar ícones'}
+            <ListChecks size={16} aria-hidden="true" />
+            Selecionar
           </Button>
 
           {/* ── Botão "Adicionar Games" + menu ───────── */}
@@ -660,6 +796,63 @@ export function Biblioteca(): JSX.Element {
         </div>
       )}
 
+      {/* ── Barra de seleção em lote ────────────────── */}
+      {selecting && !loading && !loadError && games.length > 0 && (
+        <div
+          role="region"
+          aria-label="Seleção da biblioteca"
+          data-testid="biblioteca-selection-bar"
+          className="flex flex-col gap-3 rounded-card border border-accent-border bg-accent-muted p-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="text-sm font-semibold text-ink-primary">
+            {selectedIds.size} {selectedIds.size === 1 ? 'selecionado' : 'selecionados'}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="biblioteca-select-all"
+              onClick={() =>
+                setSelectedIds((prev) =>
+                  toggleSelectAllVisible(
+                    prev,
+                    visibleGames.map((game) => game.id)
+                  )
+                )
+              }
+              disabled={visibleGames.length === 0}
+            >
+              <ListChecks size={14} aria-hidden="true" />
+              {visibleGames.length !== games.length
+                ? `Selecionar todos (${visibleGames.length} visíveis)`
+                : 'Selecionar todos'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="biblioteca-clear-selection"
+              onClick={handleClearSelection}
+              disabled={selectedIds.size === 0}
+            >
+              Limpar seleção
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              data-testid="biblioteca-remove-selected"
+              onClick={() => setRemoveModalOpen(true)}
+              disabled={selectedIds.size === 0}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Remover selecionados
+            </Button>
+            <Button variant="ghost" size="sm" onClick={exitSelectionMode}>
+              Sair da seleção
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Estados ────────────────────────────────── */}
       {loading ? (
         <div aria-busy="true" className="flex flex-col gap-6">
@@ -729,6 +922,9 @@ export function Biblioteca(): JSX.Element {
           covers={covers}
           runningIds={runningIds}
           missingExes={missingExes}
+          selectable={selecting}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
           onLaunch={handleLaunch}
           onEdit={openEdit}
           onToggleFavorite={handleToggleFavorite}
@@ -755,6 +951,17 @@ export function Biblioteca(): JSX.Element {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Modal "Remover jogos" (remoção em lote) ──────── */}
+      {removeModalOpen && (
+        <RemoveGamesModal
+          games={selectedGames}
+          runningIds={runningIds}
+          removing={removing}
+          onCancel={() => setRemoveModalOpen(false)}
+          onConfirm={() => void handleConfirmRemoveSelected()}
+        />
+      )}
 
       {/* ── Toast local (primitivo Toast; coexiste com o toast global do App) ── */}
       {toast && (

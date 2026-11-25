@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseUpgradeTable, parseUpgradeJson, lastLines, WingetParseError } from './wingetUpdater'
+import {
+  parseUpgradeTable,
+  parseUpgradeJson,
+  lastLines,
+  isBlockedUpgrade,
+  WingetParseError
+} from './wingetUpdater'
 
 // Fixture no formato real do `winget upgrade` (winget v1.29.380, pt-BR):
 // as larguras das colunas se ajustam ao maior conteúdo, e o cabeçalho
@@ -95,6 +101,27 @@ describe('parseUpgradeTable', () => {
     const rawLog = (caught as WingetParseError).rawLog
     expect(rawLog).toContain('Multiple installed packages found')
     expect(rawLog.split('\n').length).toBeLessThanOrEqual(25)
+  })
+})
+
+describe('isBlockedUpgrade', () => {
+  it('oculta o Kloud Games mesmo quando ele usa o id do Sunshine oficial', () => {
+    // Caso real medido: o Kloud Games se registra como "KLOUD_GAMES" com o id do Sunshine.
+    expect(isBlockedUpgrade({ name: 'KLOUD_GAMES', id: 'LizardByte.Sunshine' })).toBe(true)
+    expect(isBlockedUpgrade({ name: 'Kloud Games', id: 'Kloud.Games' })).toBe(true)
+  })
+
+  it('oculta o Kolnd Hub pelo nome (com e sem versão) e por ids com as marcas', () => {
+    expect(isBlockedUpgrade({ name: 'Kolnd Hub', id: 'ARP\\Machine\\X64\\Kolnd Hub' })).toBe(true)
+    expect(isBlockedUpgrade({ name: 'Kolnd Hub 1.5.0', id: 'Kolnd.Hub' })).toBe(true)
+    expect(isBlockedUpgrade({ name: 'Algum App', id: 'Kolnd.Hub.Launcher' })).toBe(true)
+    expect(isBlockedUpgrade({ name: 'Algum App', id: 'Kloud.Games.Setup' })).toBe(true)
+  })
+
+  it('preserva apps legítimos — inclusive um Sunshine com nome normal', () => {
+    expect(isBlockedUpgrade({ name: 'Sunshine', id: 'LizardByte.Sunshine' })).toBe(false)
+    expect(isBlockedUpgrade({ name: 'Git', id: 'Git.Git' })).toBe(false)
+    expect(isBlockedUpgrade({ name: 'Docker Desktop', id: 'Docker.DockerDesktop' })).toBe(false)
   })
 })
 

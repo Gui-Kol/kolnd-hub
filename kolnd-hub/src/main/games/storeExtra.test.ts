@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
   resolveCover: vi.fn((path: unknown) => (typeof path === 'string' ? path : null)),
   deleteStaleCovers: vi.fn(),
   deleteCachedCover: vi.fn(),
+  putIcon: vi.fn(),
   existsSync: vi.fn(),
+  readFileSync: vi.fn(),
   rmSync: vi.fn(),
   statSync: vi.fn(),
   logWarn: vi.fn()
@@ -45,8 +47,13 @@ vi.mock('./covers', () => ({
   deleteStaleCovers: mocks.deleteStaleCovers,
   deleteCachedCover: mocks.deleteCachedCover
 }))
+vi.mock('./iconVault', () => ({
+  ICON_VAULT_MAX_BYTES: 4 * 1024 * 1024,
+  putIcon: mocks.putIcon
+}))
 vi.mock('fs', () => ({
   existsSync: mocks.existsSync,
+  readFileSync: mocks.readFileSync,
   rmSync: mocks.rmSync,
   statSync: mocks.statSync
 }))
@@ -61,6 +68,7 @@ import {
   createGameCollection,
   getGames,
   removeGame,
+  removeGames,
   updateGame
 } from './store'
 import type { Game } from './store'
@@ -90,7 +98,13 @@ beforeEach(() => {
   )
   mocks.extractIconPng.mockResolvedValue(true)
   mocks.existsSync.mockReturnValue(true)
-  mocks.statSync.mockReturnValue({ isFile: () => true })
+  mocks.readFileSync.mockReturnValue(Buffer.from('img'))
+  mocks.statSync.mockReturnValue({ isFile: () => true, size: 10 })
+  mocks.putIcon.mockReturnValue({
+    sha: 'a'.repeat(64),
+    ext: '.png',
+    path: `C:\\ud\\icon-vault\\${'a'.repeat(64)}.png`
+  })
 })
 
 describe('getGames', () => {
@@ -125,6 +139,44 @@ describe('addGame — validações extras', () => {
     expect(addGame(game())).toEqual({
       success: false,
       error: 'Não foi possível salvar o jogo.'
+    })
+  })
+
+  it('semeia o cofre ao entrar com iconPath válido e sem iconSha', () => {
+    const iconPath = 'C:\\ud\\game-icons\\game-1.png'
+    expect(addGame(game({ iconPath }))).toEqual({ success: true })
+
+    expect(mocks.putIcon).toHaveBeenCalledWith(Buffer.from('img'), '.png')
+    const saved = mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[]
+    expect(saved[0]).toMatchObject({
+      iconPath,
+      iconSha: 'a'.repeat(64),
+      iconExt: '.png',
+      iconOrigin: 'derived'
+    })
+  })
+
+  it('falha ao semear o cofre não impede o addGame', () => {
+    mocks.readFileSync.mockImplementationOnce(() => {
+      throw new Error('EACCES')
+    })
+    expect(addGame(game({ iconPath: 'C:\\ud\\game-icons\\game-1.png' }))).toEqual({
+      success: true
+    })
+    const saved = mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[]
+    expect(saved[0].iconSha).toBeUndefined()
+    expect(saved[0].iconExt).toBeUndefined()
+  })
+
+  it('não rebaixa um iconOrigin manual já informado', () => {
+    expect(
+      addGame(game({ iconPath: 'C:\\ud\\game-icons\\game-1.png', iconOrigin: 'manual' }))
+    ).toEqual({ success: true })
+    const saved = mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[]
+    expect(saved[0]).toMatchObject({
+      iconSha: 'a'.repeat(64),
+      iconExt: '.png',
+      iconOrigin: 'manual'
     })
   })
 })
@@ -201,6 +253,64 @@ describe('updateGame — ramos de erro e troca de ícone', () => {
     expect(saved[0].steamAppId).toBeUndefined()
   })
 
+  it('preserva a identidade do cofre ao alterar outros campos', () => {
+    const sha = 'a'.repeat(64)
+    mocks.getStoredGames.mockReturnValue([
+      game({
+        iconPath: 'C:\\ud\\game-icons\\game-1.png',
+        iconSha: sha,
+        iconExt: '.png',
+        iconOrigin: 'manual'
+      })
+    ])
+
+    expect(updateGame('game-1', { name: 'Novo nome' })).toEqual({ success: true })
+    const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+    expect(saved).toMatchObject({
+      name: 'Novo nome',
+      iconSha: sha,
+      iconExt: '.png',
+      iconOrigin: 'manual'
+    })
+  })
+
+  it('preserva as novas origens online/generated no update', () => {
+    for (const iconOrigin of ['online', 'generated'] as const) {
+      mocks.getStoredGames.mockReturnValue([
+        game({
+          iconPath: 'C:\\ud\\game-icons\\game-1.svg',
+          iconSha: 'c'.repeat(64),
+          iconExt: '.svg',
+          iconOrigin
+        })
+      ])
+      expect(updateGame('game-1', { name: 'Novo' })).toEqual({ success: true })
+      const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+      expect(saved).toMatchObject({
+        iconExt: '.svg',
+        iconOrigin
+      })
+    }
+  })
+
+  it('limpar o ícone apaga também iconSha/iconExt/iconOrigin', () => {
+    mocks.getStoredGames.mockReturnValue([
+      game({
+        iconPath: 'C:\\ud\\game-icons\\game-1.png',
+        iconSha: 'b'.repeat(64),
+        iconExt: '.png',
+        iconOrigin: 'derived'
+      })
+    ])
+
+    expect(updateGame('game-1', { iconPath: null })).toEqual({ success: true })
+    const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+    expect(saved.iconPath).toBeNull()
+    expect(saved.iconSha).toBeUndefined()
+    expect(saved.iconExt).toBeUndefined()
+    expect(saved.iconOrigin).toBeUndefined()
+  })
+
   it('dados inválidos após a alteração e falha do store', () => {
     mocks.getStoredGames.mockReturnValue([game()])
     mocks.normalizeGame.mockReturnValueOnce(null)
@@ -232,7 +342,10 @@ describe('updateGame — ramos de erro e troca de ícone', () => {
       success: true
     })
     expect(mocks.rmSync).toHaveBeenCalledWith(oldIcon, { force: true })
-    expect(mocks.deleteStaleIcons).toHaveBeenCalledWith('game-1', 'C:\\ud\\game-icons\\game-1.jpg')
+    expect(mocks.deleteStaleIcons).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'game-1' }),
+      'C:\\ud\\game-icons\\game-1.jpg'
+    )
 
     mocks.rmSync.mockImplementationOnce(() => {
       throw new Error('EBUSY')
@@ -281,6 +394,82 @@ describe('removeGame — falha do store', () => {
       error: 'Não foi possível remover o jogo.'
     })
     expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+  })
+})
+
+describe('removeGames — remoção em lote', () => {
+  it('remove 2 de 3 numa única escrita e apaga os caches depois de persistir', () => {
+    mocks.getStoredGames.mockReturnValue([
+      game({ id: 'g1', name: 'Um' }),
+      game({ id: 'g2', name: 'Dois' }),
+      game({ id: 'g3', name: 'Três' })
+    ])
+
+    expect(removeGames(['g1', 'g3'])).toEqual({ success: true, removed: ['g1', 'g3'] })
+    expect(mocks.setStoredGames).toHaveBeenCalledTimes(1)
+    expect((mocks.setStoredGames.mock.calls[0]?.[0] as Game[]).map((item) => item.id)).toEqual([
+      'g2'
+    ])
+    expect(mocks.deleteCachedIcon).toHaveBeenCalledTimes(2)
+    expect(mocks.deleteCachedCover).toHaveBeenCalledTimes(2)
+  })
+
+  it('deduplica ids (com trim) preservando a ordem da lista', () => {
+    mocks.getStoredGames.mockReturnValue([
+      game({ id: 'g1' }),
+      game({ id: 'g2' }),
+      game({ id: 'g3' })
+    ])
+
+    expect(removeGames([' g1 ', 'g1', 'g3', 'g3'])).toEqual({
+      success: true,
+      removed: ['g1', 'g3']
+    })
+    expect(mocks.setStoredGames).toHaveBeenCalledTimes(1)
+    expect((mocks.setStoredGames.mock.calls[0]?.[0] as Game[]).map((item) => item.id)).toEqual([
+      'g2'
+    ])
+  })
+
+  it('recusa lista inválida sem tocar no store nem nos caches', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' })])
+
+    expect(removeGames([])).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames('g1')).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames(['g1', 42])).toEqual({ success: false, error: 'Lista de jogos inválida.' })
+    expect(removeGames(['g1', '   '])).toEqual({
+      success: false,
+      error: 'Lista de jogos inválida.'
+    })
+    expect(removeGames(Array.from({ length: 501 }, (_, index) => `g${index}`))).toEqual({
+      success: false,
+      error: 'Lista de jogos inválida.'
+    })
+
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
+  })
+
+  it('recusa quando nenhum id existe na biblioteca', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' })])
+
+    expect(removeGames(['nao-existe', 'outro'])).toEqual({
+      success: false,
+      error: 'Nenhum desses jogos está na biblioteca.'
+    })
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
+  })
+
+  it('não apaga ícone/capa quando a persistência falha', () => {
+    mocks.getStoredGames.mockReturnValue([game({ id: 'g1' }), game({ id: 'g2' })])
+    mocks.setStoredGames.mockReturnValue({ success: false, error: 'sem disco' })
+
+    expect(removeGames(['g1'])).toEqual({ success: false, error: 'sem disco' })
+    expect(mocks.deleteCachedIcon).not.toHaveBeenCalled()
+    expect(mocks.deleteCachedCover).not.toHaveBeenCalled()
   })
 })
 

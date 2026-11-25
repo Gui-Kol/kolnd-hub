@@ -81,6 +81,9 @@ let getRemoteMode: typeof import('./store').getRemoteMode
 let setRemoteMode: typeof import('./store').setRemoteMode
 let getHwmonIntervalMs: typeof import('./store').getHwmonIntervalMs
 let setHwmonIntervalMs: typeof import('./store').setHwmonIntervalMs
+let getUsageLogPrefs: typeof import('./store').getUsageLogPrefs
+let setUsageLogPrefs: typeof import('./store').setUsageLogPrefs
+let normalizeUsageLogPrefs: typeof import('./store').normalizeUsageLogPrefs
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -127,6 +130,9 @@ beforeAll(async () => {
   setRemoteMode = storeMod.setRemoteMode
   getHwmonIntervalMs = storeMod.getHwmonIntervalMs
   setHwmonIntervalMs = storeMod.setHwmonIntervalMs
+  getUsageLogPrefs = storeMod.getUsageLogPrefs
+  setUsageLogPrefs = storeMod.setUsageLogPrefs
+  normalizeUsageLogPrefs = storeMod.normalizeUsageLogPrefs
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -722,6 +728,43 @@ describe('preferências (launchKloudOnStart / notifyOnCrash / gamepad / bigPictu
   })
 })
 
+describe('registro de uso (usageLog)', () => {
+  it('default ligado com 30 dias; normaliza enabled e retenção', () => {
+    expect(getUsageLogPrefs()).toEqual({ enabled: true, retentionDays: 30 })
+
+    holder().get.mockImplementation(() => ({ enabled: false, retentionDays: 7 }) as never)
+    expect(getUsageLogPrefs()).toEqual({ enabled: false, retentionDays: 7 })
+
+    expect(normalizeUsageLogPrefs({ enabled: 'sim', retentionDays: 12 })).toEqual({
+      enabled: true,
+      retentionDays: 30
+    })
+    expect(normalizeUsageLogPrefs({ enabled: false, retentionDays: 90 })).toEqual({
+      enabled: false,
+      retentionDays: 90
+    })
+  })
+
+  it('setUsageLogPrefs valida o formato e só aceita retenção 7/30/90', () => {
+    expect(setUsageLogPrefs(null)).toEqual({
+      success: false,
+      error: 'Preferências do registro de uso inválidas.'
+    })
+    expect(setUsageLogPrefs({ enabled: 'sim', retentionDays: 30 })).toEqual({
+      success: false,
+      error: 'Preferências do registro de uso inválidas: `enabled` deve ser booleano.'
+    })
+    expect(setUsageLogPrefs({ enabled: true, retentionDays: 15 })).toEqual({
+      success: false,
+      error: 'Retenção inválida: use 7, 30 ou 90 dias.'
+    })
+    expect(holder().set).not.toHaveBeenCalled()
+
+    expect(setUsageLogPrefs({ enabled: false, retentionDays: 7 })).toEqual({ success: true })
+    expect(holder().set).toHaveBeenCalledWith('usageLog', { enabled: false, retentionDays: 7 })
+  })
+})
+
 // ── config.json corrompido / fallbacks de erro ─────────────────
 
 describe('config.json corrompido (leitura lançando)', () => {
@@ -830,7 +873,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
       '1.7.0',
       '1.8.0',
       '1.9.0',
-      '1.10.0'
+      '1.10.0',
+      '1.11.0'
     ]) {
       migrationsOf()[version](s)
     }
@@ -877,6 +921,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
       lastPublicIp: null,
       lastPublicIpCheckedAt: null
     })
+    // 1.11.0 garantiu usageLog (registro ligado, retenção padrão)
+    expect(s.data.usageLog).toEqual({ enabled: true, retentionDays: 30 })
   })
 
   it('games antigos sem origin/addedAt são preservados e normalizados (nada perdido)', () => {
@@ -939,6 +985,16 @@ describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
     })
   })
 
+  it('1.11.0 normaliza usageLog preservando valores válidos e corrigindo inválidos', () => {
+    const valid = makeFakeStore({ usageLog: { enabled: false, retentionDays: 7 } })
+    runChain(valid)
+    expect(valid.data.usageLog).toEqual({ enabled: false, retentionDays: 7 })
+
+    const invalid = makeFakeStore({ usageLog: { enabled: 'sim', retentionDays: 400 } })
+    runChain(invalid)
+    expect(invalid.data.usageLog).toEqual({ enabled: true, retentionDays: 30 })
+  })
+
   it('migrações não lançam mesmo com chaves ilegíveis (arquivo inconsistente)', () => {
     const s: FakeStore = {
       data: {},
@@ -960,7 +1016,8 @@ describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
       '1.7.0',
       '1.8.0',
       '1.9.0',
-      '1.10.0'
+      '1.10.0',
+      '1.11.0'
     ]) {
       expect(() => migrationsOf()[version](s)).not.toThrow()
     }

@@ -12,6 +12,11 @@ export interface BibliotecaGridProps {
   covers: Record<string, string | null>
   runningIds: ReadonlySet<string>
   missingExes: ReadonlySet<string>
+  /** Modo de seleção em lote (repassado aos cards). */
+  selectable?: boolean
+  /** Ids marcados no modo de seleção. */
+  selectedIds?: ReadonlySet<string>
+  onToggleSelect?: (game: Game) => void
   onLaunch: (game: Game) => void
   onEdit: (game: Game) => void
   onToggleFavorite: (game: Game) => void
@@ -34,6 +39,9 @@ export const BibliotecaGrid = memo(function BibliotecaGrid({
   covers,
   runningIds,
   missingExes,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
   onLaunch,
   onEdit,
   onToggleFavorite,
@@ -121,6 +129,9 @@ export const BibliotecaGrid = memo(function BibliotecaGrid({
             cover={covers[game.id]}
             running={runningIds.has(game.id)}
             exeMissing={missingExes.has(game.id)}
+            selectable={selectable}
+            selected={selectedIds?.has(game.id) ?? false}
+            onToggleSelect={onToggleSelect}
             onLaunch={onLaunch}
             onEdit={onEdit}
             onToggleFavorite={onToggleFavorite}

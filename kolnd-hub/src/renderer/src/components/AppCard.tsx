@@ -1,7 +1,17 @@
 import { motion } from 'framer-motion'
-import { Play, Square, ExternalLink, Globe2, HelpCircle, Loader2 } from 'lucide-react'
+import {
+  Play,
+  Square,
+  ExternalLink,
+  Globe2,
+  HelpCircle,
+  Loader2,
+  ClipboardCopy
+} from 'lucide-react'
 import { AppConfig, AppState } from '../types'
 import { entranceProps, useReducedMotion } from '../lib/motion'
+import { zeroTierBadge } from '../lib/remoteAccess'
+import type { ZeroTierInfo } from '../../../shared/remote'
 import { Badge, Button, IconButton } from './ui'
 
 /** Controles de modo remoto injetados apenas no card do Kloud Games. */
@@ -11,9 +21,14 @@ export interface RemoteControls {
   loading: boolean
   /** true durante o toggle (desabilita os botões). */
   busy: boolean
+  /** true enquanto instala o ZeroTier automaticamente (D3). */
+  installing: boolean
   /** IP atribuído pela rede ZeroTier para o Moonlight; null quando não conectado. */
   address: string | null
+  /** Estado do serviço/GUI para o selo Aberto/Fechado. */
+  zerotier: ZeroTierInfo | null
   onToggle: () => void
+  onCopyAddress: () => void
   onHelp: () => void
 }
 
@@ -71,6 +86,7 @@ export function AppCard({
       ? 'bg-danger'
       : 'bg-ink-tertiary'
   const statusText = isRunning ? 'text-success' : isError ? 'text-danger' : 'text-ink-tertiary'
+  const powerBadge = remote?.zerotier ? zeroTierBadge(remote.zerotier) : null
 
   return (
     <motion.div
@@ -182,23 +198,29 @@ export function AppCard({
                   size="sm"
                   className="flex-1"
                   aria-pressed={remote.enabled}
-                  disabled={remote.busy || remote.loading}
+                  disabled={remote.busy || remote.loading || remote.installing}
                   title={
-                    remote.enabled
-                      ? 'Desativar o modo remoto do Hub (não desliga o ZeroTier)'
-                      : 'Ativar o modo remoto (requer ZeroTier conectado)'
+                    remote.installing
+                      ? 'Instalando o ZeroTier — aguarde…'
+                      : remote.enabled
+                        ? 'Desativar o modo remoto do Hub (não desliga o ZeroTier)'
+                        : 'Ativar o modo remoto (requer ZeroTier conectado)'
                   }
                   onClick={(e) => {
                     e.stopPropagation()
                     remote.onToggle()
                   }}
                 >
-                  {remote.busy ? (
+                  {remote.busy || remote.installing ? (
                     <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                   ) : (
                     <Globe2 size={12} aria-hidden="true" />
                   )}
-                  {remote.enabled ? 'Remoto ativo' : 'Modo remoto'}
+                  {remote.installing
+                    ? 'Instalando ZeroTier…'
+                    : remote.enabled
+                      ? 'Remoto ativo'
+                      : 'Modo remoto'}
                 </Button>
                 <IconButton
                   variant="ghost"
@@ -214,9 +236,34 @@ export function AppCard({
                 </IconButton>
               </div>
 
+              {remote.enabled && (powerBadge || remote.address) && (
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  {powerBadge ? <Badge tone={powerBadge.tone}>{powerBadge.label}</Badge> : <span />}
+                  {remote.address && (
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      title="Copiar IP do ZeroTier"
+                      aria-label="Copiar IP do ZeroTier"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        remote.onCopyAddress()
+                      }}
+                    >
+                      <ClipboardCopy size={14} aria-hidden="true" />
+                    </IconButton>
+                  )}
+                </div>
+              )}
               {remote.enabled && remote.address && (
-                <p className="mb-2 truncate text-[10px] text-ink-tertiary" title={remote.address}>
-                  Moonlight: <span className="font-mono text-accent">{remote.address}</span>
+                <p
+                  className="mb-2 flex items-center gap-1.5 truncate text-[10px] text-ink-tertiary"
+                  title={remote.address}
+                >
+                  Moonlight:
+                  <code className="truncate font-mono text-[11px] font-semibold text-accent">
+                    {remote.address}
+                  </code>
                 </p>
               )}
               {remote.enabled && !remote.address && !remote.loading && (

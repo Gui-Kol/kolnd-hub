@@ -410,6 +410,49 @@ function finalizeJson(output: string): WingetUpgrade[] {
 }
 
 /**
+ * Marcas próprias que nunca devem aparecer na lista de atualizações. O Kloud Games
+ * se disfarça com o id do Sunshine oficial (`LizardByte.Sunshine`), então o nome é a
+ * única pista; o Kolnd Hub aparece via ARP com o productName. Comparar sempre com o
+ * texto normalizado (minúsculo, sem acentos e só [a-z0-9]).
+ */
+const BLOCKED_BRANDS = ['kolndhub', 'kolnd', 'kloudgames', 'kloud']
+
+/** Normaliza texto para comparação de marca (ex.: "KLOUD_GAMES" → "kloudgames"). */
+function normalizeBrand(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos decompostos (ex.: "Klóud")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+/** true quando o nome ou o id do item carrega uma marca própria (Kloud Games / Kolnd Hub). */
+export function isBlockedUpgrade(item: Pick<WingetUpgrade, 'name' | 'id'>): boolean {
+  const name = normalizeBrand(item.name)
+  const id = normalizeBrand(item.id)
+  return BLOCKED_BRANDS.some((brand) => name.includes(brand) || id.includes(brand))
+}
+
+/** Remove os itens próprios da lista; loga o que foi ocultado para diagnóstico. */
+export function filterBlockedUpgrades(items: WingetUpgrade[]): WingetUpgrade[] {
+  const visible: WingetUpgrade[] = []
+  const hidden: WingetUpgrade[] = []
+  for (const item of items) {
+    if (isBlockedUpgrade(item)) hidden.push(item)
+    else visible.push(item)
+  }
+  if (hidden.length > 0) {
+    logger.info(
+      'winget',
+      `ocultando ${hidden.length} atualização(ões) do próprio Hub/Kloud: ${hidden
+        .map((item) => item.id)
+        .join(', ')}`
+    )
+  }
+  return visible
+}
+
+/**
  * Lista os apps com atualização disponível (`winget upgrade`).
  * Tenta `--output json` na primeira chamada (suporte detectado uma única vez
  * e cacheado em memória); sem suporte, cai para o parse posicional da tabela.
@@ -426,13 +469,13 @@ export async function listUpgradable(): Promise<WingetUpgrade[]> {
     if (probe.timedOut) throw wingetTimeoutError()
     if (looksLikeJson(probe.output)) {
       jsonSupportCache = true
-      return finalizeJson(probe.output)
+      return filterBlockedUpgrades(finalizeJson(probe.output))
     }
     jsonSupportCache = false // ex.: "Argument name was not recognized" → usa a tabela
   } else if (jsonSupportCache === true) {
     const run = await runWinget(jsonArgs)
     if (run.timedOut) throw wingetTimeoutError()
-    return finalizeJson(run.output)
+    return filterBlockedUpgrades(finalizeJson(run.output))
   }
 
   // 2) Parse posicional da tabela. Se as flags --accept-* gerarem o blob degenerado
@@ -441,7 +484,7 @@ export async function listUpgradable(): Promise<WingetUpgrade[]> {
   const run = await runWinget(listArgs())
   if (run.timedOut) throw wingetTimeoutError()
   try {
-    return parseUpgradeTable(run.output)
+    return filterBlockedUpgrades(parseUpgradeTable(run.output))
   } catch (err) {
     if (err instanceof WingetParseError && acceptFlagsWork !== false) {
       logger.info(
@@ -452,7 +495,7 @@ export async function listUpgradable(): Promise<WingetUpgrade[]> {
       if (fallback.timedOut) throw wingetTimeoutError()
       const items = parseUpgradeTable(fallback.output) // sem as flags → pode lançar WingetParseError
       acceptFlagsWork = false
-      return items
+      return filterBlockedUpgrades(items)
     }
     throw err
   }

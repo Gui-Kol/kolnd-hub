@@ -2,12 +2,11 @@
 //
 // FRONTEIRA: este arquivo não importa nada de `main/`, `preload/` ou
 // `renderer/` — é a fonte única compartilhada pelos três processos (mesmo
-// padrão de `hwmon.ts`/`fps.ts`). A validação do accelerator é pura de
+// padrão de `hwmon.ts`). A validação do accelerator é pura de
 // propósito: o main precisa rejeitar entradas inválidas ANTES de chamar
 // `globalShortcut.register`, e o renderer precisa montar o mesmo formato ao
 // gravar o atalho — as duas pontas usam estas funções.
 
-import type { FpsAutoReason, FpsAutoState, FpsUpdate } from './fps'
 import type { HwSnapshot } from './hwmon'
 
 /** Atalho padrão: combinação improvável de já estar em uso em outros apps. */
@@ -33,8 +32,9 @@ export const HUD_DEFAULT_WIDTH = 300
 export const HUD_MIN_HEIGHT = 120
 /**
  * Teto de sanidade da altura (não do layout): em 300 px/grande o conteúdo já
- * mede ~888 px e um nome de CPU/GPU que quebre mais uma linha passaria de 900.
- * O limite real é a área de trabalho — `fitHudHeight` aplica esse corte.
+ * ocupa a maior parte de uma tela 720p, e nomes longos de CPU/GPU que quebrem
+ * mais uma linha ainda precisam caber. O limite real é a área de trabalho —
+ * `fitHudHeight` aplica esse corte.
  */
 export const HUD_MAX_HEIGHT = 1200
 /** Altura inicial antes da primeira medição; o overlay ajusta em seguida. */
@@ -124,25 +124,10 @@ export interface HudStatus {
 }
 
 /**
- * Estado compacto da fonte de FPS elevada para o rodapé do HUD. `fps` pode ser
- * `null` (sem número) e o motivo continua explicável — nunca um traço mudo.
- */
-export interface HudFpsStatus {
-  state: FpsAutoState
-  reason?: FpsAutoReason
-  error?: string
-}
-
-/**
  * Payload do push `hud:update` (~1 Hz enquanto a sobreposição está visível).
- * `fps` só vem preenchido quando a medição ETW está ativa com um alvo em
- * primeiro plano — nunca inventamos 0 FPS.
  */
 export interface HudUpdate {
   snapshot: HwSnapshot
-  fps: FpsUpdate | null
-  /** Estado/motivo da fonte elevada mesmo quando `fps` é `null`. */
-  fpsStatus?: HudFpsStatus
   /** Tamanho atual do HUD — o overlay usa a escala e sabe a largura vigente. */
   size: HudSize
   /** ISO 8601 do instante em que o main montou esta atualização. */

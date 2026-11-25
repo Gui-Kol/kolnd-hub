@@ -147,11 +147,24 @@ mais handlers inline em `index.ts`:
 | `registerDisplayIpc`                     | `displaySettings.ts`                                                           | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
 | `registerGamesIpc`                       | `games.ts`                                                                     | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
 | `registerGameImportIpc`                  | `gameImport.ts` (+ `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`) | `games:import-all`                                                                                                                                                                                                                    |
-| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`public-ip`/`install-zerotier`/`open-zerotier`/`open-kloud-web`/`copy`                                                                                                                                                |
+| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`get-mode`/`set-mode`/`public-ip`/`install-zerotier`/`open-zerotier`/`set-zerotier-open`/`open-kloud-web`/`copy`                                                                                                                                                |
 | `registerUpdatesIpc`                     | `ipc/updates.ts`                                                               | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
 | `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`)        | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
 | inline em `index.ts`                     | —                                                                              | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
+### Acesso remoto (ZeroTier)
+
+`remoteAccess.ts` lê `zerotier-cli -j info|listnetworks`, `sc.exe query ZeroTierOneService` e
+`tasklist` da GUI **em paralelo** (timeout curto, sempre `execFile` assíncrono — nada de
+`execFileSync`). O selo do card combina serviço + janela: **Aberto**, **Aberto em segundo
+plano**, **Fechado**, **Não instalado**; o estado de rede existente (Conectado/Sem rede/Acesso
+negado…) continua separado. `remote:set-zerotier-open` recebe `unknown`, valida boolean e
+abre/fecha pelo `setZeroTierOpen`: abrir liga o serviço (se parado) e a GUI oficial; fechar
+encerra a GUI (best-effort, sem elevação) e para o serviço. A elevação vai por
+`Start-Process powershell -Verb RunAs -Wait -PassThru` com `-EncodedCommand`; UAC recusado vira
+`cancelled: true` e a ação sempre devolve `info` relida. A instalação continua sendo winget **no
+clique** (o card instala e re-tenta quando o main responde `zerotier-missing`); o tutorial
+PC/celular só mostra IPs e ID da rede vindos de `remote:status`.
 **Regra de ouro: o main nunca confia no que chega por IPC, e o renderer também não confia
 no main sem checagem.** Os handlers recebem os argumentos como `unknown` (ou validam de
 imediato) e aplicam, conforme o canal:
@@ -217,6 +230,29 @@ Regras para quem mexer no store:
    `localStorage` — o app nunca quebra por causa do store.
 5. Migração do legado `localStorage` → store acontece via IPC `config:migrate`
    (renderer envia o que tinha; main normaliza e grava; chaves antigas viram `.bak`).
+
+## 4.1 Registro de uso local
+
+O Hub grava eventos reais de uso em **JSONL local**, um arquivo por dia:
+`%APPDATA%\kolnd-hub\logs\usage-AAAA-MM-DD.jsonl` (data local). A lista de
+eventos é fechada: `session-start`/`session-end` (com a duração da sessão),
+`page-view`, `app-launch`/`app-stop`, `game-launch` e `action`
+(exportar/importar configuração).
+
+- **Privacidade:** só ids, nomes exibidos, página e duração. Nunca linha de
+  comando, caminho de executável, IP, URL, token ou título de janela. Nada sai
+  da máquina — o registro não entra no `diagnostic:export`.
+- **Preferências:** chave `usageLog` (`{ enabled, retentionDays }`, retenção
+  ∈ `{7, 30, 90}`, padrão 30) no electron-store, migração `1.11.0`. Desligado =
+  nenhum evento novo é gravado.
+- **Retenção:** a poda roda na troca de dia e apaga somente arquivos
+  `usage-YYYY-MM-DD.jsonl`; `kolnd-hub.log*` nunca é tocado. Acima de 2 MB no
+  arquivo do dia, o dia para de anexar (um aviso no log).
+- **Escrita best-effort** (`src/main/usageLog.ts`): falha de disco nunca lança
+  nem derruba o app.
+- **IPC** `usage:read|summary|export|clear|page-view` valida tudo; exportar
+  JSON/CSV usa o diálogo nativo e limpar apaga só os arquivos do registro.
+- **UI:** Configurações → Registro de uso (ver/filtrar/exportar/limpar).
 
 ## 5. First-run
 
@@ -359,12 +395,11 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
 - **Artefato elevado**: nunca em diretório gravável pelo usuário. O agente de sensores
   (`KolndHubSensorsAgent`) copia para `%ProgramData%\Kolnd Hub\sensors\agent` o helper do
-  PawnIO, o script persistente e o coletor de FPS `KolndFpsEtw.exe` (ACL: Usuários só `RX`,
-  sem herança) e confere o **SHA-256** de cada cópia antes de rodar; a elevação vai por
-  `-EncodedCommand` — nada de `.ps1` em `%APPDATA%` esperando o UAC. O coletor grava o sink
-  em `%ProgramData%\Kolnd Hub\fps` (Usuários: RX) e morre junto com o agente.
+  PawnIO e o script persistente (ACL: Usuários só `RX`, sem herança) e confere o **SHA-256**
+  de cada cópia antes de rodar; a elevação vai por `-EncodedCommand` — nada de `.ps1` em
+  `%APPDATA%` esperando o UAC.
 
-## 9. Sensores elevados e FPS
+## 9. Sensores elevados
 
 - **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
@@ -375,23 +410,11 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
   fora de 0,3–1,8 V vira `null` (nunca estimativa). O HUD publica em `hud-cpu-voltage` e o
   Monitor em `hw-cpu-voltage`.
-- **Coletor de FPS**: o mesmo agente inicia `KolndFpsEtw.exe --sink` apontando para
-  `%ProgramData%\Kolnd Hub\fps` como processo filho (cópia protegida + hash conferido). O
-  script passa `--stop` e no `finally` encerra o filho; o removedor grava o stop e ainda mata
-  por `CommandLine --sink` como rede de segurança. A preparação do coletor é **best-effort**:
-  se a compilação/cópia falhar, o agente instala os sensores sem FPS e a UI mostra um aviso
-  não fatal — o FPS nunca bloqueia a leitura de temperatura/potência. A tarefa legada
-  `KolndHubFpsAgent` é encerrada e apagada no install/remove.
-- **Leitura única no main**: `fps/agent.ts` lê `latest.json` a 1 Hz, valida timestamp (3 s),
-  pid/nome/fps e publica `fps:auto-update`. O motivo do "—" (`source-stopped`, `stale`,
-  `no-target`, `no-presents`) acompanha o status e o `hud:update.fpsStatus`, então o Monitor
-  e o rodapé do HUD explicam o traço. Os IPCs `fps:*` manuais continuam registrados por
-  compatibilidade, mas a aba não usa dois caminhos.
-- **Cobertura assumida**: os provedores habilitados são DXGI `Present_Start` (0x2a) e DxgKrnl
-  `PresentHistory_Start` (0xab), constantes do PresentMon. D3D11/12 é coberto; Vulkan/OpenGL
-  só aparece se o driver encaminhar a apresentação pelo DxgKrnl, e D3D9 puro não é coberto.
-  Valorant é D3D11, mas a cobertura ao vivo depende do jogo/anti-cheat e não foi medida
-  nesta máquina — nenhum provider ou event id foi inventado.
+- **FPS removido**: a medição de FPS/frametime por ETW saiu do app (HUD, card do Monitor,
+  IPCs, preload e módulo `src/main/fps/`). As sobras de máquinas antigas — tarefa
+  `KolndHubFpsAgent`, processo `KolndFpsEtw.exe` e `%ProgramData%\Kolnd Hub\fps` — são limpas
+  no re-estágio do agente de sensores (install e remove), e a presença delas marca o agente
+  como desatualizado na UI.
 
 ## 10. Mapa de arquivos
 
@@ -413,7 +436,6 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
 | Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
 | Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
-| FPS/frametime (ETW + leitura elevada)   | `kolnd-hub/src/main/fps/` (`helper.ts`, `agent.ts`, `paths.ts`, `target.ts`), `src/main/hud/index.ts`                                                        |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
 | Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |

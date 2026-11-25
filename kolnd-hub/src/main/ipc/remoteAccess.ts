@@ -6,7 +6,8 @@ import {
   installZeroTier,
   openKloudWebPanel,
   openZeroTier,
-  requestRemoteMode
+  requestRemoteMode,
+  setZeroTierOpen
 } from '../remoteAccess'
 import { getRemoteMode } from '../store'
 import type { IpcContext } from './lifecycle'
@@ -27,6 +28,10 @@ export function registerRemoteAccessIpc(_ctx: IpcContext): void {
   ipcMain.handle('remote:install-zerotier', () => installZeroTier())
 
   ipcMain.handle('remote:open-zerotier', () => openZeroTier())
+
+  // `unknown` de propósito: a validação (boolean) vive em `setZeroTierOpen`,
+  // que devolve erro estruturado para o renderer em vez de lançar.
+  ipcMain.handle('remote:set-zerotier-open', (_event, value: unknown) => setZeroTierOpen(value))
 
   ipcMain.handle('remote:open-kloud-web', () => openKloudWebPanel())
 

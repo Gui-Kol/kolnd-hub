@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fetchPublicIp: vi.fn(),
   installZeroTier: vi.fn(),
   openZeroTier: vi.fn(),
+  setZeroTierOpen: vi.fn(),
   openKloudWebPanel: vi.fn(),
   copyRemoteText: vi.fn()
 }))
@@ -25,6 +26,7 @@ vi.mock('../remoteAccess', () => ({
   fetchPublicIp: mocks.fetchPublicIp,
   installZeroTier: mocks.installZeroTier,
   openZeroTier: mocks.openZeroTier,
+  setZeroTierOpen: mocks.setZeroTierOpen,
   openKloudWebPanel: mocks.openKloudWebPanel,
   copyRemoteText: mocks.copyRemoteText
 }))
@@ -48,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('remoteAccess IPC', () => {
-  it('registra os oito canais', () => {
+  it('registra os nove canais', () => {
     expect([...mocks.handlers.keys()].sort()).toEqual([
       'remote:copy',
       'remote:get-mode',
@@ -57,6 +59,7 @@ describe('remoteAccess IPC', () => {
       'remote:open-zerotier',
       'remote:public-ip',
       'remote:set-mode',
+      'remote:set-zerotier-open',
       'remote:status'
     ])
   })
@@ -68,6 +71,7 @@ describe('remoteAccess IPC', () => {
     mocks.fetchPublicIp.mockResolvedValue({ ip: '1.2.3.4' })
     mocks.installZeroTier.mockResolvedValue({ success: true })
     mocks.openZeroTier.mockResolvedValue({ success: true })
+    mocks.setZeroTierOpen.mockResolvedValue({ success: true, open: true })
     mocks.openKloudWebPanel.mockResolvedValue({ success: true })
     mocks.copyRemoteText.mockReturnValue({ ok: true })
 
@@ -78,6 +82,11 @@ describe('remoteAccess IPC', () => {
     await expect(call('remote:public-ip')).resolves.toEqual({ ip: '1.2.3.4' })
     await expect(call('remote:install-zerotier')).resolves.toEqual({ success: true })
     await expect(call('remote:open-zerotier')).resolves.toEqual({ success: true })
+    await expect(call('remote:set-zerotier-open', true)).resolves.toEqual({
+      success: true,
+      open: true
+    })
+    expect(mocks.setZeroTierOpen).toHaveBeenCalledWith(true)
     await expect(call('remote:open-kloud-web')).resolves.toEqual({ success: true })
     expect(call('remote:copy', 'texto')).toEqual({ ok: true })
     expect(mocks.copyRemoteText).toHaveBeenCalledWith('texto')

@@ -9,22 +9,24 @@ import type {
   DisplayRevertedEvent,
   DisplaySetResult
 } from '../shared/display'
-import type {
-  FpsAutoActionResult,
-  FpsAutoStatus,
-  FpsStartResult,
-  FpsStatusInfo,
-  FpsStopResult,
-  FpsUpdate
-} from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
+  ClearUsageResult,
+  UsageExportResult,
+  UsageLogPrefs,
+  UsagePage,
+  UsageReadOptions,
+  UsageReadResult,
+  UsageSummaryResult
+} from '../shared/usage'
+import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
-  RemoteStatus
+  RemoteStatus,
+  ZeroTierPowerResult
 } from '../shared/remote'
 
 declare global {
@@ -57,6 +59,7 @@ declare global {
       remotePublicIp: () => Promise<PublicIpResult>
       remoteInstallZeroTier: () => Promise<RemoteActionResult>
       remoteOpenZeroTier: () => Promise<RemoteActionResult>
+      remoteSetZeroTierOpen: (value: boolean) => Promise<ZeroTierPowerResult>
       remoteOpenKloudWeb: () => Promise<RemoteActionResult>
       remoteCopy: (text: string) => Promise<{ success: boolean; error?: string }>
 
@@ -86,6 +89,9 @@ declare global {
       setLaunchKloudOnStart: (value: boolean) => Promise<{ success: boolean; error?: string }>
       getNotifyOnCrash: () => Promise<boolean>
       setNotifyOnCrash: (value: boolean) => Promise<{ success: boolean; error?: string }>
+      // Registro de uso local (preferências).
+      getUsagePrefs: () => Promise<UsageLogPrefs>
+      setUsagePrefs: (prefs: UsageLogPrefs) => Promise<{ success: boolean; error?: string }>
       // ── Autostart do Hub no Windows (07-7.3) ─────
       getHubAutostart: () => Promise<{ enabled: boolean; supported: boolean }>
       setHubAutostart: (value: boolean) => Promise<{ success: boolean; error?: string }>
@@ -255,19 +261,6 @@ declare global {
       revertDisplayChange: () => Promise<{ ok: boolean; error?: string }>
       onDisplayReverted: (callback: (event: DisplayRevertedEvent) => void) => () => void
 
-      // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
-      // Tipos canônicos em `src/shared/fps.ts`; `fpsStart` pede UAC.
-      fpsStatus: () => Promise<FpsStatusInfo>
-      fpsStart: () => Promise<FpsStartResult>
-      fpsStop: () => Promise<FpsStopResult>
-      onFpsUpdate: (callback: (update: FpsUpdate) => void) => () => void
-
-      // ── FPS automático (tarefa agendada no logon) ────
-      fpsAutoStatus: () => Promise<FpsAutoStatus>
-      fpsAutoInstall: () => Promise<FpsAutoActionResult>
-      fpsAutoRemove: () => Promise<FpsAutoActionResult>
-      onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void) => () => void
-
       // ── Sobreposição (HUD) ───────────────────────────
       // Tipos canônicos em `src/shared/hud.ts`.
       hudGet: () => Promise<HudStatus>
@@ -328,6 +321,9 @@ declare global {
         name: string
       ) => Promise<{ success: boolean; error?: string; collections?: string[] }>
       removeGame: (id: string) => Promise<{ success: boolean; error?: string }>
+      removeGames: (
+        ids: string[]
+      ) => Promise<{ success: boolean; error?: string; removed?: string[] }>
       // Edição de jogos (T9)
       pickGameIcon: () => Promise<{
         success: boolean
@@ -432,6 +428,13 @@ declare global {
 
       // ── Diagnóstico ─────────────────────────────────
       exportDiagnostic: () => Promise<{ success: boolean; error?: string }>
+
+      // ── Registro de uso local ───────────────────────
+      readUsage: (options?: UsageReadOptions) => Promise<UsageReadResult>
+      getUsageSummary: (options?: UsageReadOptions) => Promise<UsageSummaryResult>
+      exportUsage: (format: 'json' | 'csv') => Promise<UsageExportResult>
+      clearUsage: () => Promise<ClearUsageResult>
+      logPageView: (page: UsagePage) => Promise<{ success: boolean; error?: string }>
 
       // ── Backup e restauração (07-7.6) ──────────────
       exportConfig: () => Promise<{

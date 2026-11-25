@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getNotifyOnCrash: vi.fn(() => true),
   getConfigSnapshot: vi.fn(() => ({ apps: [{ id: 'app1', name: 'App Um' }] })),
   isAnyUninstallInProgress: vi.fn(() => false),
+  appendUsageEvent: vi.fn((_event: { type?: string }) => true),
   logWarn: vi.fn()
 }))
 
@@ -43,6 +44,14 @@ vi.mock('../uninstaller', () => ({
 }))
 vi.mock('../logger', () => ({
   logger: { info: vi.fn(), warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
+}))
+vi.mock('../usageLog', () => ({
+  appendUsageEvent: mocks.appendUsageEvent,
+  buildUsageEvent: (type: string, input: Record<string, unknown> = {}) => ({
+    ts: '2026-11-25T10:00:00.000Z',
+    type,
+    ...input
+  })
 }))
 
 import { registerProcessEvents } from './processEvents'
@@ -88,6 +97,48 @@ describe('registerProcessEvents — encaminhamento', () => {
       manager.emit('status-change', 'app1', 'running')
       manager.emit('output', 'app1', 'x')
     }).not.toThrow()
+  })
+})
+
+describe('registerProcessEvents — registro de uso', () => {
+  it('transição para running grava app-launch com o nome exibido', () => {
+    mocks.getConfigSnapshot.mockReturnValue({ apps: [{ id: 'usage-a1', name: 'App Um' }] })
+    const { manager } = setup()
+    manager.emit('status-change', 'usage-a1', 'running')
+
+    expect(mocks.appendUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'app-launch', appId: 'usage-a1', name: 'App Um' })
+    )
+  })
+
+  it('stopped/error gravam app-stop na transição, sem duplicar status repetido', () => {
+    const { manager } = setup()
+    manager.emit('status-change', 'usage-stop', 'stopped')
+    manager.emit('status-change', 'usage-stop', 'stopped')
+    expect(
+      mocks.appendUsageEvent.mock.calls.filter(
+        ([event]) => (event as { type?: string }).type === 'app-stop'
+      )
+    ).toHaveLength(1)
+
+    manager.emit('status-change', 'usage-err', 'error')
+    manager.emit('status-change', 'usage-err', 'error')
+    expect(
+      mocks.appendUsageEvent.mock.calls.filter(
+        ([event]) => (event as { type?: string }).type === 'app-stop'
+      )
+    ).toHaveLength(2)
+  })
+
+  it('running repetido não duplica app-launch', () => {
+    const { manager } = setup()
+    manager.emit('status-change', 'usage-run', 'running')
+    manager.emit('status-change', 'usage-run', 'running')
+    expect(
+      mocks.appendUsageEvent.mock.calls.filter(
+        ([event]) => (event as { type?: string }).type === 'app-launch'
+      )
+    ).toHaveLength(1)
   })
 })
 

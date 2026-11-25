@@ -9,6 +9,7 @@ import {
   Loader2,
   Monitor,
   Network,
+  PowerOff,
   RefreshCw,
   ShieldCheck,
   Wifi
@@ -89,9 +90,9 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
   const [status, setStatus] = useState<RemoteStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [action, setAction] = useState<null | 'public-ip' | 'install' | 'open' | 'panel' | 'copy'>(
-    null
-  )
+  const [action, setAction] = useState<
+    null | 'public-ip' | 'install' | 'open' | 'close' | 'panel' | 'copy'
+  >(null)
   const [confirmInstall, setConfirmInstall] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const mounted = useRef(true)
@@ -190,23 +191,26 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
     }
   }
 
-  const openZeroTier = async (): Promise<void> => {
+  const setPower = async (open: boolean): Promise<void> => {
     if (action) return
-    setAction('open')
+    setAction(open ? 'open' : 'close')
     try {
-      const result = await window.api.remoteOpenZeroTier()
-      if (!result.success) throw new Error(result.error ?? 'Não foi possível abrir o ZeroTier.')
-      if (result.opened === 'download') {
-        notify('Abrimos a página de download do ZeroTier no navegador.', 'info')
-      } else {
+      const result = await window.api.remoteSetZeroTierOpen(open)
+      if (result.info) {
+        setStatus((prev) => (prev ? { ...prev, zerotier: result.info! } : prev))
+      }
+      if (!result.success) throw new Error(result.error ?? 'Não foi possível alterar o ZeroTier.')
+      if (open) {
         notify(
           'ZeroTier aberto. Entre na sua rede e aguarde o status OK nos dois aparelhos.',
           'info'
         )
+      } else {
+        notify('ZeroTier fechado. O acesso remoto fica indisponível até abrir de novo.', 'info')
       }
       await refresh()
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Não foi possível abrir o ZeroTier.', 'error')
+      notify(err instanceof Error ? err.message : 'Não foi possível alterar o ZeroTier.', 'error')
     } finally {
       setAction(null)
     }
@@ -459,19 +463,39 @@ export function RemoteAccessSettings({ onToast }: RemoteAccessSettingsProps): JS
                     </Button>
                   )
                 ) : (
-                  <Button
-                    variant="primary"
-                    onClick={() => void openZeroTier()}
-                    disabled={action !== null}
-                    className="disabled:cursor-wait"
-                  >
-                    {action === 'open' ? (
-                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Monitor size={14} aria-hidden="true" />
-                    )}
-                    {zt.connected ? 'Abrir ZeroTier' : 'Abrir ZeroTier e entrar na rede'}
-                  </Button>
+                  <>
+                    <Button
+                      variant="primary"
+                      onClick={() => void setPower(true)}
+                      disabled={action !== null || (zt.service === 'running' && zt.uiOpen)}
+                      className="disabled:cursor-wait"
+                      title={
+                        zt.service === 'running' && zt.uiOpen
+                          ? 'O ZeroTier já está aberto.'
+                          : 'Liga o serviço do ZeroTier e abre a janela oficial.'
+                      }
+                    >
+                      {action === 'open' ? (
+                        <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Monitor size={14} aria-hidden="true" />
+                      )}
+                      Abrir ZeroTier
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => void setPower(false)}
+                      disabled={action !== null || zt.service !== 'running'}
+                      title="Fecha a janela e o serviço do ZeroTier. O acesso remoto cai até você abrir de novo."
+                    >
+                      {action === 'close' ? (
+                        <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <PowerOff size={14} aria-hidden="true" />
+                      )}
+                      Fechar ZeroTier
+                    </Button>
+                  </>
                 )}
 
                 <Button

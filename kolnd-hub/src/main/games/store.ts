@@ -1,4 +1,4 @@
-import { existsSync, rmSync, statSync } from 'fs'
+import { existsSync, readFileSync, rmSync, statSync } from 'fs'
 import { basename, extname, isAbsolute, join } from 'path'
 import {
   getStoredGames,
@@ -9,7 +9,8 @@ import {
   normalizeGameCollections,
   MAX_GAME_COLLECTIONS,
   MAX_GAME_COLLECTION_TAGS,
-  GameOrigin
+  GameOrigin,
+  StoredGame
 } from '../store'
 import {
   formatGameName,
@@ -27,6 +28,7 @@ import {
   deleteCachedIcon
 } from './icons'
 import { resolveCoverInsideGameCovers, deleteStaleCovers, deleteCachedCover } from './covers'
+import { ICON_VAULT_MAX_BYTES, putIcon } from './iconVault'
 import { logger } from '../logger'
 
 /**
@@ -40,6 +42,12 @@ export interface Game {
   name: string
   exePath: string
   iconPath: string | null
+  /** SHA-256 do ícone no cofre (`icon-vault/<sha><ext>`). */
+  iconSha?: string
+  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp` | `.svg`). */
+  iconExt?: string
+  /** Procedência do ícone: manual nunca é sobrescrito por refresh/reparo. */
+  iconOrigin?: 'manual' | 'derived' | 'legacy' | 'online' | 'generated'
   origin: GameOrigin
   steamAppId?: number
   addedAt: string
@@ -60,6 +68,11 @@ export interface CreateCollectionResult extends GameResult {
 export interface AddCustomGameResult extends GameResult {
   id?: string
   name?: string
+}
+
+/** Resultado de `games:remove-many` — lista os ids efetivamente removidos. */
+export interface RemoveGamesResult extends GameResult {
+  removed?: string[]
 }
 
 export function getGames(): Game[] {
@@ -134,12 +147,37 @@ export function addGame(input: unknown): GameResult {
     return { success: false, error: 'Este executável já está na sua biblioteca.' }
   }
 
+  seedVaultForNewGame(game)
   const saved = setStoredGames([...games, game])
   if (!saved.success) {
     return { success: false, error: saved.error ?? 'Não foi possível salvar o jogo.' }
   }
   logger.info('games', `Jogo adicionado: ${game.name} (${game.id})`)
   return { success: true }
+}
+
+/**
+ * Semeia o cofre ao entrar um jogo com ícone já gravado (scanners e
+ * "Jogo Personalizado"). Antes desta correção esses ícones ficavam só em
+ * `game-icons/` e se perdiam se a pasta fosse apagada. Best-effort: falha de
+ * leitura/escrita não impede o `addGame` (a cascata do reload tenta depois).
+ */
+function seedVaultForNewGame(game: StoredGame): void {
+  if (!game.iconPath || game.iconSha) return
+  try {
+    const stat = statSync(game.iconPath)
+    if (!stat.isFile() || stat.size <= 0 || stat.size > ICON_VAULT_MAX_BYTES) return
+    const buffer = readFileSync(game.iconPath)
+    if (buffer.length === 0 || buffer.length > ICON_VAULT_MAX_BYTES) return
+    const stored = putIcon(buffer, extname(game.iconPath).toLowerCase())
+    if (!stored) return
+    game.iconSha = stored.sha
+    game.iconExt = stored.ext
+    // Manual explícito nunca é rebaixado; scanners/custom entram como derived.
+    if (game.iconOrigin !== 'manual') game.iconOrigin = 'derived'
+  } catch {
+    // Best-effort: o jogo é salvo mesmo sem cofre.
+  }
 }
 
 /**
@@ -261,9 +299,13 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         merged.exePath = (value as string).trim()
         break
       case 'iconPath':
-        // null limpa o ícone (o card cai no fallback visual).
+        // null limpa o ícone (o card cai no fallback visual) e também a
+        // identidade no cofre — sem arquivo não há o que rematerializar.
         if (value === null) {
           merged.iconPath = null
+          delete merged.iconSha
+          delete merged.iconExt
+          delete merged.iconOrigin
           break
         }
         {
@@ -349,7 +391,7 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         logger.warn('games', `Não foi possível apagar o ícone antigo ${resolvedOld}:`, err)
       }
     }
-    deleteStaleIcons(updated.id, resolvedNew)
+    deleteStaleIcons(updated, resolvedNew)
   }
 
   // Capa trocada/limpa: depois de persistir com sucesso, apaga o arquivo antigo
@@ -392,4 +434,47 @@ export function removeGame(id: unknown): GameResult {
   deleteCachedCover(removed)
   logger.info('games', `Jogo removido: ${removed.name} (${removed.id})`)
   return { success: true }
+}
+
+/** Limite de ids por chamada de `games:remove-many` (defesa contra IPC abusivo). */
+const MAX_BULK_REMOVE = 500
+
+/**
+ * Remove VÁRIOS jogos numa única escrita do store (`games:remove-many`).
+ * Validação tudo-ou-nada: lista inválida (não-array, fora de 1..500 ou com
+ * qualquer id inválido) não toca no store. Ícone/capa só são apagados DEPOIS
+ * de persistir — falha de escrita não deixa órfãos nem remove nada de fato.
+ */
+export function removeGames(ids: unknown): RemoveGamesResult {
+  const invalidError = 'Lista de jogos inválida.'
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BULK_REMOVE) {
+    return { success: false, error: invalidError }
+  }
+
+  // `Set` deduplica preservando a ordem de entrada; o trim é feito aqui para
+  // casar com os ids persistidos (isValidId só valida, não normaliza).
+  const uniqueIds = new Set<string>()
+  for (const id of ids) {
+    if (!isValidId(id)) return { success: false, error: invalidError }
+    uniqueIds.add(id.trim())
+  }
+
+  const games = getStoredGames()
+  const removed = games.filter((game) => uniqueIds.has(game.id))
+  if (removed.length === 0) {
+    return { success: false, error: 'Nenhum desses jogos está na biblioteca.' }
+  }
+
+  const remaining = games.filter((game) => !uniqueIds.has(game.id))
+  const saved = setStoredGames(remaining)
+  if (!saved.success) {
+    return { success: false, error: saved.error ?? 'Não foi possível remover o jogo.' }
+  }
+
+  for (const game of removed) {
+    deleteCachedIcon(game)
+    deleteCachedCover(game)
+  }
+  logger.info('games', `Jogos removidos em lote: ${removed.length}`)
+  return { success: true, removed: removed.map((game) => game.id) }
 }

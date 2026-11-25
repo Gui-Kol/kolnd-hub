@@ -11,22 +11,24 @@ import type {
   DisplayRevertedEvent,
   DisplaySetResult
 } from '../shared/display'
-import type {
-  FpsAutoActionResult,
-  FpsAutoStatus,
-  FpsStartResult,
-  FpsStatusInfo,
-  FpsStopResult,
-  FpsUpdate
-} from '../shared/fps'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
+  ClearUsageResult,
+  UsageExportResult,
+  UsageLogPrefs,
+  UsagePage,
+  UsageReadOptions,
+  UsageReadResult,
+  UsageSummaryResult
+} from '../shared/usage'
+import type {
   PublicIpResult,
   RemoteActionResult,
   RemoteModeResult,
-  RemoteStatus
+  RemoteStatus,
+  ZeroTierPowerResult
 } from '../shared/remote'
 
 const api = {
@@ -68,6 +70,9 @@ const api = {
 
   remoteOpenZeroTier: (): Promise<RemoteActionResult> => ipcRenderer.invoke('remote:open-zerotier'),
 
+  remoteSetZeroTierOpen: (value: boolean): Promise<ZeroTierPowerResult> =>
+    ipcRenderer.invoke('remote:set-zerotier-open', value),
+
   remoteOpenKloudWeb: (): Promise<RemoteActionResult> =>
     ipcRenderer.invoke('remote:open-kloud-web'),
 
@@ -101,6 +106,12 @@ const api = {
 
   setNotifyOnCrash: (value: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('prefs:set-notify', value),
+
+  // Registro de uso local (preferências).
+  getUsagePrefs: (): Promise<UsageLogPrefs> => ipcRenderer.invoke('prefs:get-usage-log'),
+
+  setUsagePrefs: (prefs: UsageLogPrefs): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('prefs:set-usage-log', prefs),
 
   // ── Autostart do Hub no Windows (07-7.3) ─────────
   getHubAutostart: (): Promise<{ enabled: boolean; supported: boolean }> =>
@@ -378,35 +389,6 @@ const api = {
     return () => ipcRenderer.removeListener('display:change-reverted', handler)
   },
 
-  // ── Desempenho: FPS/frametime por ETW (Meu PC) ───
-  // Opt-in explícito: `fpsStart` pede permissão de administrador (UAC).
-  fpsStatus: (): Promise<FpsStatusInfo> => ipcRenderer.invoke('fps:status'),
-
-  fpsStart: (): Promise<FpsStartResult> => ipcRenderer.invoke('fps:start'),
-
-  fpsStop: (): Promise<FpsStopResult> => ipcRenderer.invoke('fps:stop'),
-
-  onFpsUpdate: (callback: (update: FpsUpdate) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, update: FpsUpdate): void => callback(update)
-    ipcRenderer.on('fps:update', handler)
-    return () => ipcRenderer.removeListener('fps:update', handler)
-  },
-
-  // ── FPS automático (tarefa no logon) ──────────────
-  // Instalar/remover pede UAC explícito; a leitura de `latest.json` é passiva.
-  fpsAutoStatus: (): Promise<FpsAutoStatus> => ipcRenderer.invoke('fps:auto-status'),
-
-  fpsAutoInstall: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-install'),
-
-  fpsAutoRemove: (): Promise<FpsAutoActionResult> => ipcRenderer.invoke('fps:auto-remove'),
-
-  onFpsAutoUpdate: (callback: (status: FpsAutoStatus) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: FpsAutoStatus): void =>
-      callback(status)
-    ipcRenderer.on('fps:auto-update', handler)
-    return () => ipcRenderer.removeListener('fps:auto-update', handler)
-  },
-
   // ── Sobreposição (HUD) ────────────────────────────
   // Tipos canônicos em `src/shared/hud.ts`.
   hudGet: (): Promise<HudStatus> => ipcRenderer.invoke('hud:get'),
@@ -493,6 +475,9 @@ const api = {
 
   removeGame: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('games:remove', id),
+
+  removeGames: (ids: string[]): Promise<{ success: boolean; error?: string; removed?: string[] }> =>
+    ipcRenderer.invoke('games:remove-many', ids),
 
   // Edição de jogos (T9)
   pickGameIcon: (): Promise<{
@@ -678,6 +663,21 @@ const api = {
   // ── Diagnóstico ─────────────────────────────────
   exportDiagnostic: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('diagnostic:export'),
+
+  // ── Registro de uso local ───────────────────────
+  readUsage: (options?: UsageReadOptions): Promise<UsageReadResult> =>
+    ipcRenderer.invoke('usage:read', options ?? {}),
+
+  getUsageSummary: (options?: UsageReadOptions): Promise<UsageSummaryResult> =>
+    ipcRenderer.invoke('usage:summary', options ?? {}),
+
+  exportUsage: (format: 'json' | 'csv'): Promise<UsageExportResult> =>
+    ipcRenderer.invoke('usage:export', { format }),
+
+  clearUsage: (): Promise<ClearUsageResult> => ipcRenderer.invoke('usage:clear'),
+
+  logPageView: (page: UsagePage): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('usage:page-view', page),
 
   // ── Backup e restauração (07-7.6) ──────────────
   exportConfig: (): Promise<{

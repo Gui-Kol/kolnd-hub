@@ -19,8 +19,6 @@ import {
 import type {
   DriverStatus,
   DriverStatusInfo,
-  FpsAutoReason,
-  FpsAutoStatus,
   HudScale,
   HudStatus,
   HwCpuTempSource,
@@ -129,20 +127,6 @@ const CPU_TEMP_SOURCE_LABEL: Record<HwCpuTempSource, string> = {
   measured: 'driver',
   acpi: 'ACPI (aprox.)',
   unavailable: 'sem leitura'
-}
-
-/**
- * Motivo do "—" do FPS elevado. A fonte é única (coletor dentro do agente de
- * sensores); o texto diferencia parada, amostra velha e ausência de alvo.
- */
-const FPS_AUTO_REASON_TEXT: Record<FpsAutoReason, string> = {
-  'source-stopped':
-    'A leitura elevada não está publicando FPS. Atualize a leitura elevada no card de sensores acima (1 confirmação do Windows).',
-  stale:
-    'A última amostra de FPS tem mais de 3 s. O agente pode ter sido encerrado ou o coletor travou; atualize a leitura elevada ou reinicie a sessão.',
-  'no-target':
-    'Nenhum app com apresentações em primeiro plano. O próprio Hub, o Explorer e o DWM são ignorados.',
-  'no-presents': 'O app em primeiro plano não apresentou quadros nesta janela.'
 }
 
 // Rótulo e tom de cada fonte de energia — estimativa nunca veste roupa de medição.
@@ -269,46 +253,6 @@ function isHudStatus(value: unknown): value is HudStatus {
   if (typeof value.registered !== 'boolean') return false
   if (value.error !== undefined && typeof value.error !== 'string') return false
   return true
-}
-
-/** O renderer valida o estado do FPS automático antes de exibir botões/valores. */
-function isFpsAutoStatus(value: unknown): value is FpsAutoStatus {
-  if (!isRecord(value)) return false
-  if (
-    value.state !== 'off' &&
-    value.state !== 'installing' &&
-    value.state !== 'running' &&
-    value.state !== 'stale' &&
-    value.state !== 'error'
-  ) {
-    return false
-  }
-  if (typeof value.installed !== 'boolean' || typeof value.sinkDir !== 'string') return false
-  if (value.error !== undefined && typeof value.error !== 'string') return false
-  if (value.fresh !== undefined && typeof value.fresh !== 'boolean') return false
-  if (
-    value.reason !== undefined &&
-    value.reason !== 'source-stopped' &&
-    value.reason !== 'stale' &&
-    value.reason !== 'no-target' &&
-    value.reason !== 'no-presents'
-  ) {
-    return false
-  }
-  if (value.sample === null) return true
-  if (!isRecord(value.sample)) return false
-  const sample = value.sample
-  return (
-    typeof sample.pid === 'number' &&
-    Number.isSafeInteger(sample.pid) &&
-    sample.pid > 0 &&
-    typeof sample.name === 'string' &&
-    typeof sample.fps === 'number' &&
-    Number.isFinite(sample.fps) &&
-    typeof sample.frametimeMs === 'number' &&
-    Number.isFinite(sample.frametimeMs) &&
-    typeof sample.timestamp === 'string'
-  )
 }
 
 function formatInt(value: number): string {
@@ -460,9 +404,6 @@ export function PcMonitor(): JSX.Element {
   // Intervalo de atualização do monitor (aba + HUD usam o MESMO timer no main).
   const [hwIntervalMs, setHwIntervalMs] = useState(HWMON_INTERVAL_DEFAULT_MS)
   const [hwIntervalBusy, setHwIntervalBusy] = useState(false)
-  // FPS da leitura elevada: status passivo; a ação que ativa/atualiza é a
-  // mesma dos sensores avançados.
-  const [autoFps, setAutoFps] = useState<FpsAutoStatus | null>(null)
 
   useEffect(() => {
     mountedRef.current = true
@@ -513,28 +454,6 @@ export function PcMonitor(): JSX.Element {
       unsubscribe()
       unsubscribeHudStatus()
       void window.api.hwmonStop().catch(() => undefined)
-    }
-  }, [])
-
-  useEffect(() => {
-    mountedRef.current = true
-
-    // Fonte única de FPS: a leitura elevada. O main publica a cada mudança de
-    // amostra (1 Hz), então a UI reflete o agente sem polling próprio.
-    const unsubscribeAuto = window.api.onFpsAutoUpdate((value) => {
-      if (mountedRef.current && isFpsAutoStatus(value)) setAutoFps(value)
-    })
-    void window.api
-      .fpsAutoStatus()
-      .then((status) => {
-        if (mountedRef.current && isFpsAutoStatus(status)) setAutoFps(status)
-      })
-      .catch(() => undefined)
-
-    // O FPS é produzido pelo agente elevado, não por esta aba: sair do Monitor
-    // não interrompe a medição.
-    return () => {
-      unsubscribeAuto()
     }
   }, [])
 
@@ -775,57 +694,6 @@ export function PcMonitor(): JSX.Element {
     totalW === null ? 'unavailable' : measuredTotalW !== null ? 'measured' : 'estimated'
   const barMaxW = Math.max(cpuPowerW ?? 0, gpuPowerW ?? 0, platformW ?? 0, 1)
 
-  // ── Desempenho (FPS da leitura elevada) ────────────
-  // Fonte única: o coletor dentro do agente de sensores. Nunca há dois caminhos
-  // concorrentes (manual x automático) disputando o mesmo card.
-  const fpsSample = autoFps?.state === 'running' ? autoFps.sample : null
-  const fpsActive = fpsSample !== null
-  const fpsValue = fpsSample?.fps ?? null
-  const fpsFrametime = fpsSample?.frametimeMs ?? null
-  const fpsProcessName = fpsSample?.name ?? null
-  const fpsBadgeLabel =
-    autoFps === null
-      ? 'carregando…'
-      : autoFps.state === 'installing'
-        ? 'ativando…'
-        : fpsActive
-          ? 'ao vivo'
-          : autoFps.state === 'error'
-            ? 'erro'
-            : autoFps.state === 'stale'
-              ? 'amostra velha'
-              : autoFps.reason === 'no-presents'
-                ? 'sem quadros'
-                : autoFps.state === 'running'
-                  ? 'sem alvo'
-                  : 'fonte parada'
-  // Verde só com número na tela; sem alvo continua "—" neutro.
-  const fpsBadgeTone: BadgeTone = fpsActive
-    ? 'success'
-    : autoFps?.state === 'installing'
-      ? 'accent'
-      : autoFps?.state === 'error'
-        ? 'danger'
-        : autoFps?.state === 'stale'
-          ? 'warning'
-          : 'neutral'
-  const fpsErrorText = autoFps?.error ?? null
-  const fpsReasonText = fpsActive
-    ? 'Medindo a janela em primeiro plano agora.'
-    : autoFps === null
-      ? 'Lendo o estado da leitura elevada…'
-      : autoFps.state === 'error'
-        ? 'A fonte de FPS reportou um erro; veja a mensagem abaixo.'
-        : autoFps.state === 'stale'
-          ? FPS_AUTO_REASON_TEXT.stale
-          : autoFps.reason
-            ? FPS_AUTO_REASON_TEXT[autoFps.reason]
-            : autoFps.state === 'installing'
-              ? 'Atualizando a leitura elevada…'
-              : FPS_AUTO_REASON_TEXT['source-stopped']
-  // O botão do card de FPS só atualiza um agente já ativo, mas antigo. Sem
-  // leitura ativa, a ação certa é a do card de sensores acima (instalar/ativar).
-  const canUpdateFps = driverReady && sensorsOutdated
   // Intervalo vigente no texto do cabeçalho (a fonte da verdade é o main).
   const intervalLabel = formatIntervalLabel(hwIntervalMs)
 
@@ -912,7 +780,7 @@ export function PcMonitor(): JSX.Element {
                   : driverState === 'present'
                     ? 'Instalado, mas a leitura não está ativa — clique para ativar.'
                     : sensorsOutdated
-                      ? 'Sensores ativos, mas a leitura elevada está incompleta (registradores ou coletor de FPS) — clique para atualizar.'
+                      ? 'Sensores ativos, mas a leitura elevada está incompleta (registradores ausentes ou restos do coletor antigo) — clique para atualizar.'
                       : 'Sensores avançados ativos — leitura elevada em segundo plano.'}
               </p>
               {driver?.error && !driverReady && (
@@ -1290,110 +1158,6 @@ export function PcMonitor(): JSX.Element {
         </motion.div>
       </div>
 
-      {/* ── Desempenho: FPS/frametime por ETW ────────────── */}
-      <motion.div {...entranceProps(reduced, { y: 10 })}>
-        <Card className="space-y-4 p-5 md:p-6" data-testid="fps-card">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle icon={Gauge} title="Desempenho" />
-            <Badge tone={fpsBadgeTone} data-testid="fps-badge">
-              {fpsBadgeLabel}
-            </Badge>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-6">
-            <p className="flex items-baseline gap-2">
-              <span
-                className="text-[40px] font-bold leading-none tracking-tight text-ink-primary"
-                data-testid="fps-value"
-              >
-                {fpsValue === null ? (
-                  <span className="text-ink-tertiary" title={fpsReasonText}>
-                    {DASH}
-                  </span>
-                ) : (
-                  formatInt(fpsValue)
-                )}
-              </span>
-              <span className="text-[11px] text-ink-tertiary">FPS</span>
-            </p>
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-                Frametime
-              </p>
-              <p className="font-mono text-[16px] text-ink-primary" data-testid="fps-frametime">
-                {fpsFrametime === null ? (
-                  <span className="text-ink-tertiary" title={fpsReasonText}>
-                    {DASH}
-                  </span>
-                ) : (
-                  <>
-                    {formatDecimal(fpsFrametime, 1)}
-                    <span className="ml-1 text-[10px] font-normal text-ink-tertiary">ms</span>
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="min-w-0 space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-tertiary">
-                Processo
-              </p>
-              <p
-                className="max-w-[240px] truncate font-mono text-[13px] text-ink-primary"
-                title={fpsProcessName ?? undefined}
-                data-testid="fps-process"
-              >
-                {fpsProcessName ?? <span className="text-ink-tertiary">{DASH}</span>}
-              </p>
-            </div>
-          </div>
-
-          <p className="text-[11px] leading-relaxed text-ink-secondary" data-testid="fps-reason">
-            {fpsReasonText}
-          </p>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-[10px] text-ink-tertiary">
-              Leitura elevada · sem injeção · ETW do Windows
-            </span>
-            {canUpdateFps && (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => void installSensors()}
-                disabled={installing}
-                data-testid="fps-elevated-update"
-              >
-                {installing ? (
-                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <ShieldCheck size={14} aria-hidden="true" />
-                )}
-                Atualizar leitura elevada (1 confirmação do Windows)
-              </Button>
-            )}
-          </div>
-
-          {fpsErrorText && (
-            <p role="alert" className="text-[11px] text-danger" data-testid="fps-error">
-              {fpsErrorText}
-            </p>
-          )}
-
-          {autoFps && (
-            <p className="break-all text-[10px] text-ink-tertiary" data-testid="fps-sink">
-              Fonte: {autoFps.sinkDir}
-            </p>
-          )}
-
-          <p className="max-w-3xl text-[10px] leading-relaxed text-ink-tertiary">
-            A medição lê os eventos de apresentação do Windows (ETW). Nada é injetado no jogo e
-            nenhuma DLL é carregada nele. O coletor roda dentro do agente elevado de sensores
-            (instalado uma vez, ativo no logon) — não há pedido de permissão a cada uso. Alvo: a
-            janela em primeiro plano; o próprio Hub, o Explorer e o DWM ficam de fora.
-          </p>
-        </Card>
-      </motion.div>
-
       {/* ── Sobreposição (HUD) ───────────────────────────── */}
       <motion.div {...entranceProps(reduced, { y: 10 })}>
         <Card className="space-y-4 p-5 md:p-6" data-testid="hud-settings">
@@ -1412,9 +1176,9 @@ export function PcMonitor(): JSX.Element {
           </div>
 
           <p className="max-w-3xl text-[12px] leading-relaxed text-ink-secondary">
-            Uma janela compacta sempre no topo com FPS/frametime, CPU, GPU, RAM e energia. Ela não
-            aparece na barra de tarefas, não rouba o foco e os cliques atravessam para o que estiver
-            atrás. O atalho funciona mesmo com o Hub em segundo plano.
+            Uma janela compacta sempre no topo com CPU, GPU, RAM e energia. Ela não aparece na barra
+            de tarefas, não rouba o foco e os cliques atravessam para o que estiver atrás. O atalho
+            funciona mesmo com o Hub em segundo plano.
           </p>
 
           <div className="flex flex-wrap items-center gap-3">

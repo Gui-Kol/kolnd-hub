@@ -196,6 +196,67 @@ describe('refreshAllGameIcons', () => {
     expect(result).toEqual({ checked: 1, refreshed: 0, failed: 1 })
   })
 
+  it('pula ícones manuais sem contá-los como falha', async () => {
+    const extract = vi.fn(async () => true)
+    const persist = vi.fn((_games: StoredGame[]) => true)
+    const result = await refreshAllGameIcons({
+      games: () => [{ ...game('a'), iconOrigin: 'manual' }, game('b')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract,
+      isManual: (g) => g.iconOrigin === 'manual',
+      persist,
+      cleanup: vi.fn()
+    })
+
+    expect(extract).toHaveBeenCalledTimes(1)
+    expect(extract).toHaveBeenCalledWith('C:\\Jogos\\b\\jogo.exe', 'icons/b.png')
+    expect(result).toEqual({ checked: 2, refreshed: 1, failed: 0 })
+    const saved = persist.mock.calls[0][0] as StoredGame[]
+    expect(saved[0].iconOrigin).toBe('manual')
+    expect(saved[0].iconPath).toBeNull()
+  })
+
+  it('meshcla metaOf no jogo persistido (identidade do cofre)', async () => {
+    const sha = 'a'.repeat(64)
+    const persist = vi.fn((_games: StoredGame[]) => true)
+    await refreshAllGameIcons({
+      games: () => [game('a')],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract: async () => true,
+      metaOf: () => ({ iconSha: sha, iconExt: '.png', iconOrigin: 'derived' }),
+      persist,
+      cleanup: vi.fn()
+    })
+
+    const saved = persist.mock.calls[0][0] as StoredGame[]
+    expect(saved[0]).toMatchObject({
+      iconPath: 'icons/a.png',
+      iconSha: sha,
+      iconExt: '.png',
+      iconOrigin: 'derived'
+    })
+  })
+
+  it('biblioteca só de manuais não extrai nem persiste', async () => {
+    const extract = vi.fn(async () => true)
+    const persist = vi.fn(() => true)
+    const result = await refreshAllGameIcons({
+      games: () => [{ ...game('a'), iconOrigin: 'manual' }],
+      targetOf: (g) => `icons/${g.id}.png`,
+      exeOf: (g) => g.exePath,
+      extract,
+      isManual: () => true,
+      persist,
+      cleanup: vi.fn()
+    })
+
+    expect(extract).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+    expect(result).toEqual({ checked: 1, refreshed: 0, failed: 0 })
+  })
+
   it('biblioteca vazia devolve zeros sem tocar no store', async () => {
     const persist = vi.fn(() => true)
     const cleanup = vi.fn()

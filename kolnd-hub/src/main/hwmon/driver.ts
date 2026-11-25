@@ -6,13 +6,12 @@ import * as os from 'os'
 import { join } from 'path'
 import { logger } from '../logger'
 import {
+  hasLeftoverFpsArtifacts,
   installSensorsAgent,
-  isFpsCollectorStaged,
   missingAgentRegisters,
   readSensorsLatestFile,
   sensorsAgentLatestPath
 } from './agent'
-import { resolveFpsStagingPaths } from '../fps/paths'
 import { runPowerShellCommand } from './powershell'
 import { currentPawnIoAssets, describePawnIoError, detectPawnIoInstallation } from './pawnio'
 import { isUacCancelled } from './uac'
@@ -106,22 +105,6 @@ export async function verifyPawnIoInstaller(
 }
 
 /**
- * SHA-256 do coletor compilado no staging do usuário. `null` quando ele ainda
- * não existe (nunca compilado): nesse caso a detecção de desatualizado cai só
- * na presença da cópia do agente, sem inventar hash.
- */
-async function stagedFpsCollectorSha(): Promise<string | null> {
-  try {
-    const path = resolveFpsStagingPaths(app.getPath('userData')).stagingExePath
-    const buffer = await fs.readFile(path)
-    if (buffer.length === 0) return null
-    return createHash('sha256').update(buffer).digest('hex')
-  } catch {
-    return null
-  }
-}
-
-/**
  * Status completo. `filePresent` = `PawnIOLib.dll` presente na instalação;
  * `serviceInstalled` = instalador registrado no Windows; `deviceAccessible` =
  * o **sink do agente elevado** está fresco (< 3 s) e o device abriu.
@@ -131,9 +114,10 @@ async function stagedFpsCollectorSha(): Promise<string | null> {
  * "pronto" é a leitura elevada publicando valores novos. Nunca lança.
  *
  * `outdated` cobre duas versões antigas: (a) o script estagiado não traz todos
- * os registradores que esta versão espera (ex.: SMN do SVI2) e (b) o coletor de
- * FPS não foi estagiado ou diverge do `.exe` compilado por esta versão. Sem
- * esses sinais, a UI consideraria a leitura "ativa" e não ofereceria atualizar.
+ * os registradores que esta versão espera (ex.: SMN do SVI2) e (b) sobrou
+ * artefato do coletor de FPS antigo no disco (diretório legado ou cópia
+ * estagiada). Sem esses sinais, a UI consideraria a leitura "ativa" e não
+ * ofereceria atualizar — o re-estágio é o que limpa as sobras.
  */
 export async function getDriverStatus(): Promise<DriverStatusInfo> {
   const assets = currentPawnIoAssets()
@@ -162,8 +146,7 @@ export async function getDriverStatus(): Promise<DriverStatusInfo> {
         // O vendor vem do PRÓPRIO sink (não do `os.cpus()`): o script assado é
         // que define o que ele lê, e o sink é a prova do que está ativo.
         const missing = missingAgentRegisters(sample.sample, sample.sample.vendor)
-        const fpsCollectorCurrent = await isFpsCollectorStaged(await stagedFpsCollectorSha())
-        outdated = missing.msr.length > 0 || missing.smn.length > 0 || !fpsCollectorCurrent
+        outdated = missing.msr.length > 0 || missing.smn.length > 0 || hasLeftoverFpsArtifacts()
       }
     }
   } catch (err) {
@@ -473,8 +456,8 @@ export async function installDriver(): Promise<InstallDriverResult> {
   }
 
   status = await getDriverStatus()
-  // Aviso não fatal do agente (ex.: coletor de FPS não preparado) não pode ser
-  // engolido quando os sensores ficam `ready`: a UI mostra `notice`, não erro.
+  // Aviso não fatal do agente (ex.: sink ainda não fresco) não pode ser engolido
+  // quando os sensores ficam `ready`: a UI mostra `notice`, não erro.
   const agentWarning = agent.error
   if (status.state === 'ready') {
     return { ok: true, state: status.state, error: agentWarning }

@@ -51,6 +51,8 @@ test('configurações: seção de acesso remoto renderiza com status do main', a
     // Ações principais presentes e com nome acessível.
     await expect(window.getByRole('button', { name: /Descobrir meu IP público/ })).toBeVisible()
     await expect(window.getByRole('button', { name: /Abrir painel do Kloud Games/ })).toBeVisible()
+    await expect(window.getByRole('button', { name: /Abrir ZeroTier/ })).toBeVisible()
+    await expect(window.getByRole('button', { name: /Fechar ZeroTier/ })).toBeVisible()
 
     // Prova de que o IPC respondeu: os passos só existem com `status` carregado.
     await expect(window.getByText(/Jogue de qualquer rede/)).toBeVisible({ timeout: 30_000 })
@@ -106,15 +108,32 @@ test('dashboard: modo remoto e ajuda de conexão do Moonlight', async () => {
     )
     await expect(kloudCard.getByText('10.147.20.5')).toHaveCount(0)
 
-    // Ajuda: instruções local + remoto, com o endereço real da rede ZeroTier.
+    // Ajuda: tutorial com abas PC/celular e bloco de endereços (sem clicar em
+    // instalar/abrir/fechar — isso abriria winget/UAC de verdade).
     await kloudCard
       .getByRole('button', { name: 'Como conectar no Moonlight (local e remoto)' })
       .click()
     const dialog = window.getByRole('dialog', { name: 'Como conectar no Moonlight' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Na mesma rede (local)', { exact: true })).toBeVisible()
-    await expect(dialog.getByText('De qualquer lugar (remoto)', { exact: true })).toBeVisible()
+
+    const pcTab = dialog.getByRole('tab', { name: 'No PC (este computador)' })
+    const mobileTab = dialog.getByRole('tab', { name: 'No celular' })
+    await expect(pcTab).toHaveAttribute('aria-selected', 'true')
+    await expect(dialog.getByRole('tabpanel')).toContainText('Join Network')
+
+    await mobileTab.click()
+    await expect(mobileTab).toHaveAttribute('aria-selected', 'true')
+    await expect(dialog.getByRole('tabpanel')).toContainText('ZeroTier One')
+    await expect(dialog.getByRole('tabpanel')).toContainText('Adicionar rede')
+
+    // Endereços reais da rede stub (IP 10.147.20.5 e o ID da rede).
+    await expect(dialog.getByText('Endereços', { exact: true })).toBeVisible()
     await expect(dialog.getByText('10.147.20.5').first()).toBeVisible()
+    await expect(dialog.getByText('8056c2e21c000001').first()).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Copiar tudo' })).toBeVisible()
+    await expect(
+      dialog.getByRole('button', { name: /Copiar IP do ZeroTier/i }).first()
+    ).toBeVisible()
 
     // O atalho leva para a seção completa em Configurações.
     await dialog.getByRole('button', { name: /Abrir Acesso remoto/ }).click()
