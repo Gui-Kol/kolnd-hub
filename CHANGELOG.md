@@ -8,6 +8,8 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+## [1.2.2] - 2026-11-25
+
 ### Adicionado
 
 - **Registro de uso detalhado, local e opcional**: o Hub passa a gravar eventos reais de uso (`session-start`/`session-end`, `page-view`, `app-launch`/`app-stop`, `game-launch` e exportar/importar configuração) em JSONL por dia em `%APPDATA%\kolnd-hub\logs\usage-AAAA-MM-DD.jsonl`, com retenção configurável (7/30/90 dias, padrão 30) e guarda de 2 MB por arquivo. A nova seção **Configurações → Registro de uso** mostra o resumo e a lista de eventos, permite filtrar por tipo/período, exportar JSON/CSV e limpar o histórico; a preferência `usageLog` vive no electron-store (migração 1.11.0). Nada sai da máquina: só ids, nomes exibidos, página e duração são gravados — nunca comandos, caminhos de executáveis, IPs ou tokens
