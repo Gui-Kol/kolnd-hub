@@ -273,6 +273,25 @@ describe('updateGame — ramos de erro e troca de ícone', () => {
     })
   })
 
+  it('preserva as novas origens online/generated no update', () => {
+    for (const iconOrigin of ['online', 'generated'] as const) {
+      mocks.getStoredGames.mockReturnValue([
+        game({
+          iconPath: 'C:\\ud\\game-icons\\game-1.svg',
+          iconSha: 'c'.repeat(64),
+          iconExt: '.svg',
+          iconOrigin
+        })
+      ])
+      expect(updateGame('game-1', { name: 'Novo' })).toEqual({ success: true })
+      const saved = (mocks.setStoredGames.mock.calls.at(-1)?.[0] as Game[])[0]
+      expect(saved).toMatchObject({
+        iconExt: '.svg',
+        iconOrigin
+      })
+    }
+  })
+
   it('limpar o ícone apaga também iconSha/iconExt/iconOrigin', () => {
     mocks.getStoredGames.mockReturnValue([
       game({

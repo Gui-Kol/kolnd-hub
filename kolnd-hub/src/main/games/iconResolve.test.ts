@@ -39,6 +39,7 @@ function deps(overrides: Partial<IconResolveDeps> = {}): IconResolveDeps {
     readShortcutIconPng: async () => null,
     gameRoot: null,
     scanGameAssets: () => [],
+    onlineArt: async () => null,
     getFileIconPng: async () => null,
     ...overrides
   }
@@ -152,6 +153,46 @@ describe('resolveGameIcon — ordem das fontes', () => {
     expect(result).toMatchObject({ source: 'game-assets', ext: '.png' })
   })
 
+  it('online entra depois dos assets e antes do shell', async () => {
+    const onlineArt = vi.fn(async () => ({ buffer: Buffer.from('online'), ext: '.png' }))
+    const getFileIconPng = vi.fn(async () => Buffer.from('shell'))
+    const result = await resolveGameIcon(
+      deps({
+        fileExists: (path) => path === EXE,
+        onlineArt,
+        getFileIconPng
+      })
+    )
+    expect(result).toMatchObject({ source: 'online', ext: '.png' })
+    expect(onlineArt).toHaveBeenCalledTimes(1)
+    expect(getFileIconPng).not.toHaveBeenCalled()
+  })
+
+  it('asset local vence a fonte online (online nem é chamada)', async () => {
+    const onlineArt = vi.fn(async () => ({ buffer: Buffer.from('online'), ext: '.png' }))
+    const result = await resolveGameIcon(
+      deps({
+        gameRoot: 'C:\\Jogos\\Jogo',
+        scanGameAssets: () => ['C:\\Jogos\\Jogo\\icon.png'],
+        readImageFile: async () => ({ buffer: Buffer.from('asset'), ext: '.png' }),
+        onlineArt
+      })
+    )
+    expect(result).toMatchObject({ source: 'game-assets' })
+    expect(onlineArt).not.toHaveBeenCalled()
+  })
+
+  it('online falhando cai para o shell', async () => {
+    const result = await resolveGameIcon(
+      deps({
+        fileExists: (path) => path === EXE,
+        onlineArt: async () => null,
+        getFileIconPng: async () => Buffer.from('shell')
+      })
+    )
+    expect(result).toMatchObject({ source: 'file-icon' })
+  })
+
   it('app.getFileIcon é o último recurso', async () => {
     const result = await resolveGameIcon(
       deps({
@@ -215,6 +256,13 @@ describe('iconOriginForResolvedSource', () => {
       expect(iconOriginForResolvedSource(undefined, source)).toBe('derived')
     }
     expect(iconOriginForResolvedSource(undefined, 'vault')).toBe('derived')
+  })
+
+  it('rotula online e generated', () => {
+    expect(iconOriginForResolvedSource(undefined, 'online')).toBe('online')
+    expect(iconOriginForResolvedSource('derived', 'online')).toBe('online')
+    expect(iconOriginForResolvedSource(undefined, 'generated')).toBe('generated')
+    expect(iconOriginForResolvedSource('manual', 'generated')).toBe('generated')
   })
 })
 

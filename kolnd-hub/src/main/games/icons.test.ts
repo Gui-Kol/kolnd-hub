@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   hasIcon: vi.fn(),
   materialize: vi.fn(),
   removeIfUnreferenced: vi.fn(),
+  buildGeneratedIcon: vi.fn(),
+  fetchOnlineArtForGame: vi.fn(),
   logWarn: vi.fn(),
   logInfo: vi.fn()
 }))
@@ -39,6 +41,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   app: {
     getPath: () => mocks.userData,
+    getVersion: () => '1.2.1',
     getFileIcon: mocks.getFileIcon
   },
   dialog: { showOpenDialog: mocks.showOpenDialog },
@@ -85,6 +88,12 @@ vi.mock('./iconVault', () => ({
   hasIcon: mocks.hasIcon,
   materialize: mocks.materialize,
   removeIfUnreferenced: mocks.removeIfUnreferenced
+}))
+vi.mock('./iconGenerated', () => ({
+  buildGeneratedIcon: mocks.buildGeneratedIcon
+}))
+vi.mock('./iconOnline', () => ({
+  fetchOnlineArtForGame: mocks.fetchOnlineArtForGame
 }))
 vi.mock('../logger', () => ({
   logger: { info: mocks.logInfo, warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
@@ -156,6 +165,12 @@ beforeEach(() => {
     sha: 'a'.repeat(64),
     ext,
     path: `C:\\ud\\icon-vault\\${'a'.repeat(64)}${ext}`
+  }))
+  mocks.fetchOnlineArtForGame.mockResolvedValue(null)
+  mocks.buildGeneratedIcon.mockImplementation((game: { id: string }) => ({
+    buffer: Buffer.from(`<svg>${game.id}</svg>`),
+    ext: '.svg',
+    mime: 'image/svg+xml'
   }))
 })
 
@@ -687,14 +702,124 @@ describe('repairGameIconsIfNeeded (semeadura sempre ativa)', () => {
     expect(mocks.setGameIconsVersion).toHaveBeenCalledWith(GAME_ICON_PIPELINE_VERSION)
   })
 
-  it('sem ícone legível não grava nada, mas ainda marca a versão', async () => {
+  it('sem nenhuma fonte grava o SVG gerado (garantia final)', async () => {
     mocks.getGameIconsVersion.mockReturnValue(0)
     mocks.getStoredGames.mockReturnValue([game()])
     mocks.existsSync.mockReturnValue(false)
 
-    await expect(repairGameIconsIfNeeded()).resolves.toBe(0)
-    expect(mocks.putIcon).not.toHaveBeenCalled()
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(mocks.buildGeneratedIcon).toHaveBeenCalledTimes(1)
+    expect(mocks.putIcon).toHaveBeenCalledWith(Buffer.from('<svg>game-1</svg>'), '.svg')
+    const saved = mocks.setStoredGames.mock.calls[0][0] as StoredGame[]
+    expect(saved[0]).toMatchObject({
+      iconExt: '.svg',
+      iconOrigin: 'generated'
+    })
     expect(mocks.setGameIconsVersion).toHaveBeenCalledWith(GAME_ICON_PIPELINE_VERSION)
+  })
+
+  it('usa a fonte online antes de gerar o fallback', async () => {
+    mocks.getGameIconsVersion.mockReturnValue(0)
+    mocks.getStoredGames.mockReturnValue([game({ name: 'Bodycam' })])
+    mocks.existsSync.mockReturnValue(false)
+    mocks.fetchOnlineArtForGame.mockResolvedValue({
+      buffer: Buffer.from('online-art'),
+      ext: '.jpg',
+      source: 'steam-search',
+      url: 'https://cdn.cloudflare.steamstatic.com/x.jpg'
+    })
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(mocks.fetchOnlineArtForGame).toHaveBeenCalledTimes(1)
+    expect(mocks.buildGeneratedIcon).not.toHaveBeenCalled()
+    const saved = mocks.setStoredGames.mock.calls[0][0] as StoredGame[]
+    expect(saved[0]).toMatchObject({ iconExt: '.jpg', iconOrigin: 'online' })
+  })
+
+  it('re-tenta um ícone generated na execução seguinte e promove para online', async () => {
+    mocks.getGameIconsVersion.mockReturnValue(GAME_ICON_PIPELINE_VERSION)
+    mocks.setStoredGames.mockImplementation((games: StoredGame[]) => {
+      mocks.getStoredGames.mockReturnValue(games)
+      return { success: true }
+    })
+    mocks.getStoredGames.mockReturnValue([game({ name: 'Bodycam' })])
+    mocks.existsSync.mockReturnValue(false)
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(mocks.getStoredGames().at(0)?.iconOrigin).toBe('generated')
+
+    mocks.fetchOnlineArtForGame.mockResolvedValue({
+      buffer: Buffer.from('art-real'),
+      ext: '.png',
+      source: 'steam-cdn',
+      url: 'https://cdn.cloudflare.steamstatic.com/x.png'
+    })
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(mocks.fetchOnlineArtForGame).toHaveBeenCalled()
+    expect(mocks.getStoredGames().at(0)).toMatchObject({
+      iconExt: '.png',
+      iconOrigin: 'online'
+    })
+  })
+
+  it('não adquire nem gera para ícone manual legível', async () => {
+    mocks.getGameIconsVersion.mockReturnValue(GAME_ICON_PIPELINE_VERSION)
+    mocks.getStoredGames.mockReturnValue([
+      game({
+        iconPath: join(ICONS, 'game-1.png'),
+        iconSha: 'b'.repeat(64),
+        iconExt: '.png',
+        iconOrigin: 'manual'
+      })
+    ])
+    mocks.existsSync.mockReturnValue(true)
+    mocks.statSync.mockReturnValue({ isFile: () => true, size: 10 })
+    mocks.readFileSync.mockReturnValue(Buffer.from('manual'))
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(0)
+    expect(mocks.fetchOnlineArtForGame).not.toHaveBeenCalled()
+    expect(mocks.buildGeneratedIcon).not.toHaveBeenCalled()
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
+  })
+
+  it('manual perdido (sem arquivo/blob) é regenerado', async () => {
+    mocks.getGameIconsVersion.mockReturnValue(GAME_ICON_PIPELINE_VERSION)
+    mocks.setStoredGames.mockImplementation((games: StoredGame[]) => {
+      mocks.getStoredGames.mockReturnValue(games)
+      return { success: true }
+    })
+    mocks.getStoredGames.mockReturnValue([
+      game({ iconOrigin: 'manual', iconSha: 'b'.repeat(64), iconExt: '.png' })
+    ])
+    mocks.existsSync.mockReturnValue(false)
+    mocks.readIcon.mockReturnValue(null)
+    // materialize não deve "criar" o blob quando o cofre está vazio — as duas
+    // leituras de getGameIcon (filtro + guarda do acquire) enxergam null.
+    mocks.materialize.mockReturnValueOnce(false).mockReturnValueOnce(false)
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(mocks.buildGeneratedIcon).toHaveBeenCalledTimes(1)
+    expect(mocks.getStoredGames().at(0)).toMatchObject({
+      iconExt: '.svg',
+      iconOrigin: 'generated'
+    })
+  })
+
+  it('não adquire um ícone válido já existente', async () => {
+    mocks.getGameIconsVersion.mockReturnValue(GAME_ICON_PIPELINE_VERSION)
+    mocks.getStoredGames.mockReturnValue([
+      game({ iconSha: 'b'.repeat(64), iconExt: '.png', iconOrigin: 'derived' })
+    ])
+    mocks.existsSync.mockReturnValue(false)
+    // Vault responde para o getGameIcon rematerializar.
+    mocks.readIcon.mockReturnValue(Buffer.from('ok'))
+    mocks.statSync.mockReturnValue({ isFile: () => true, size: 2 })
+    mocks.readFileSync.mockReturnValue(Buffer.from('ok'))
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(0)
+    expect(mocks.fetchOnlineArtForGame).not.toHaveBeenCalled()
+    expect(mocks.buildGeneratedIcon).not.toHaveBeenCalled()
+    expect(mocks.setStoredGames).not.toHaveBeenCalled()
   })
 
   it('falha ao salvar o store adia a versão', async () => {

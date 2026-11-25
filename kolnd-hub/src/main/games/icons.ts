@@ -37,6 +37,8 @@ import {
 } from './iconResolve'
 import { reloadMissingGameIcons, refreshAllGameIcons } from './iconReload'
 import type { ReloadIconsResult, RefreshIconsResult } from './iconReload'
+import { buildGeneratedIcon } from './iconGenerated'
+import { fetchOnlineArtForGame } from './iconOnline'
 
 /**
  * Ícones da biblioteca de jogos: extração de executáveis, cache em disco em
@@ -68,8 +70,14 @@ const ICON_MAX_BYTES = 4 * 1024 * 1024
  * passada única de `repairGameIconsIfNeeded` (cofre + origem).
  */
 export const GAME_ICON_PIPELINE_VERSION = 3
-/** Formatos de imagem aceitos para capa/ícone de jogo (`.ico` NÃO decodifica de forma confiável no nativeImage). */
+/** Formatos de imagem aceitos na escolha manual (`.ico`/`.svg` não entram). */
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+/** Extensões de arquivo de ícone gerenciadas pelo Hub (inclui o SVG gerado). */
+const ICON_FILE_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, '.svg'])
+/** Teto de aquisições por abertura (rede pode ser lenta); resto fica para a próxima. */
+const REPAIR_ACQUIRE_MAX_GAMES = 40
+/** Orçamento de tempo da aquisição no reparo (não bloqueia a janela). */
+const REPAIR_ACQUIRE_BUDGET_MS = 30_000
 
 /** Pasta canônica de ícones cacheados dos jogos. */
 export function gameIconsDir(): string {
@@ -92,7 +100,7 @@ export function resolveIconInsideGameIcons(iconPath: unknown): string | null {
 }
 
 /** Extensões canônicas, em ordem de preferência quando o `iconExt` não ajuda. */
-const CANONICAL_ICON_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const
+const CANONICAL_ICON_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.svg'] as const
 
 /**
  * Nome-base seguro para arquivos de ícone derivados do id do jogo
@@ -129,7 +137,7 @@ function canonicalIconPaths(game: StoredGame): string[] {
   const base = safeIconBase(game.id)
   const extensions: string[] = []
   const knownExt = typeof game.iconExt === 'string' ? game.iconExt.toLowerCase() : ''
-  if (IMAGE_EXTENSIONS.has(knownExt)) extensions.push(knownExt)
+  if (ICON_FILE_EXTENSIONS.has(knownExt)) extensions.push(knownExt)
   for (const ext of CANONICAL_ICON_EXTENSIONS) {
     if (!extensions.includes(ext)) extensions.push(ext)
   }
@@ -198,7 +206,7 @@ export function deleteStaleIcons(
   for (const entry of entries) {
     const lower = entry.toLowerCase()
     const ext = extname(lower)
-    if (!IMAGE_EXTENSIONS.has(ext)) continue
+    if (!ICON_FILE_EXTENSIONS.has(ext)) continue
     if (!prefixes.some((prefix) => lower.startsWith(prefix.toLowerCase()))) continue
     const candidate = join(dir, entry)
     if (keep && resolve(candidate) === keep) continue
@@ -218,6 +226,8 @@ function iconMimeType(filePath: string): string {
       return 'image/jpeg'
     case '.webp':
       return 'image/webp'
+    case '.svg':
+      return 'image/svg+xml'
     case '.png':
     default:
       return 'image/png'
@@ -579,21 +589,18 @@ function persistAcquiredIcon(
   id: string,
   iconPath: string,
   stored: { sha: string; ext: string },
-  source: IconSource
+  iconOrigin: NonNullable<StoredGame['iconOrigin']>
 ): boolean {
   try {
     const games = getStoredGames()
     const index = games.findIndex((game) => game.id === id)
     if (index === -1) return false
-    const current = games[index]
     games[index] = {
-      ...current,
+      ...games[index],
       iconPath,
       iconSha: stored.sha,
       iconExt: stored.ext,
-      // Fonte local (cofre/arquivo) não rebaixa um ícone manual; só uma
-      // re-derivação real (PE/atalho/assets/shell) marca `derived`.
-      iconOrigin: iconOriginForResolvedSource(current.iconOrigin, source)
+      iconOrigin
     }
     const saved = setStoredGames(games)
     if (!saved.success) logger.warn('games', `Não foi possível persistir o ícone de ${id}.`)
@@ -605,18 +612,35 @@ function persistAcquiredIcon(
 }
 
 /**
- * Aquisição em cascata (somente fontes locais): resolve, grava no cofre,
- * materializa no nome canônico e persiste caminho/origem. Usada pelo
- * `reloadGameIcons` para preencher ícones ausentes/ilegíveis.
+ * Aquisição em cascata (local → online → gerado): resolve, grava no cofre,
+ * materializa no nome canônico e persiste caminho/origem. Se todas as fontes
+ * falharem, grava o SVG gerado — o card nunca fica sem imagem.
+ * Ícone manual legível nunca é alvo (não é rebaixado); manual cujo arquivo e
+ * blob do cofre sumiram volta para a cascata. Usada pelo reparo e pelo reload.
  */
 async function acquireIconForGame(game: StoredGame): Promise<boolean> {
+  // Manual só é intocável enquanto houver algo legível (arquivo/blobs). Se o
+  // arquivo E o cofre sumiram, não há mais manual para preservar: adquire de
+  // novo e grava a origem conforme a fonte (derived/online/generated).
+  if (game.iconOrigin === 'manual' && getGameIcon(game.id) !== null) return false
   try {
     // Steam: o `exePath` salvo pode ser um launcher/ferramenta — prefere o
     // binário real da instalação (mesma escolha do refresh/reparo).
     const sourceExe = resolveIconSourceExe(game)
+    const retryingGenerated = game.iconOrigin === 'generated'
+    // Ao re-tentar um fallback, ignora o SVG gerado (cofre e arquivo) para as
+    // fontes reais (local/online) terem chance; sem isso ele se auto-referencia.
+    const resolveGame: StoredGame = { ...game, exePath: sourceExe }
+    if (retryingGenerated) {
+      resolveGame.iconSha = undefined
+      resolveGame.iconExt = undefined
+    }
+    const localCandidates = localIconCandidates(game).filter(
+      (candidate) => !(retryingGenerated && candidate.path.toLowerCase().endsWith('.svg'))
+    )
     const resolved = await resolveGameIcon({
-      game: { ...game, exePath: sourceExe },
-      localCandidates: localIconCandidates(game),
+      game: resolveGame,
+      localCandidates,
       vaultRead: (sha, ext) => readIcon(sha, ext),
       fileExists: (path) => existsSync(path),
       readFile: (path) => readIconBuffer(path),
@@ -626,15 +650,34 @@ async function acquireIconForGame(game: StoredGame): Promise<boolean> {
       readShortcutIconPng: (linkPath) => fileIconPng(linkPath),
       gameRoot: gameInstallRoot(game),
       scanGameAssets: (root) => scanGameAssets(root),
+      onlineArt: async () => {
+        const version = typeof app.getVersion === 'function' ? app.getVersion() : ''
+        const art = await fetchOnlineArtForGame(game, {
+          userAgent: version ? `KolndHub/${version}` : 'KolndHub'
+        })
+        return art ? { buffer: art.buffer, ext: art.ext } : null
+      },
       getFileIconPng: (exePath) => fileIconPng(exePath)
     })
-    if (!resolved) return false
-    const stored = putIcon(resolved.buffer, resolved.ext)
+
+    const chosen = resolved
+      ? { buffer: resolved.buffer, ext: resolved.ext, source: resolved.source }
+      : { ...buildGeneratedIcon(game), source: 'generated' as const }
+
+    const stored = putIcon(chosen.buffer, chosen.ext)
     if (!stored) return false
     const iconPath = canonicalIconPath(game, stored.ext)
     if (!materialize(stored.sha, stored.ext, iconPath)) return false
     invalidateIconCache(iconPath)
-    return persistAcquiredIcon(game.id, iconPath, stored, resolved.source)
+    // Manual só chega aqui quando não havia nada legível; a origem passa a
+    // refletir a fonte real da aquisição.
+    const baseOrigin = game.iconOrigin === 'manual' ? undefined : game.iconOrigin
+    return persistAcquiredIcon(
+      game.id,
+      iconPath,
+      stored,
+      iconOriginForResolvedSource(baseOrigin, chosen.source)
+    )
   } catch (err) {
     logger.warn('games', `Falha ao adquirir o ícone de ${game.id}:`, err)
     return false
@@ -850,7 +893,7 @@ export function getGameIcon(id: unknown): string | null {
   }
   // Rematerialização: o cofre tem os bytes mesmo se `game-icons/` foi apagada.
   const ext = typeof game.iconExt === 'string' ? game.iconExt.toLowerCase() : ''
-  if (game.iconSha && IMAGE_EXTENSIONS.has(ext)) {
+  if (game.iconSha && ICON_FILE_EXTENSIONS.has(ext)) {
     const target = canonicalIconPath(game, ext)
     if (materialize(game.iconSha, ext, target)) {
       const dataUrl = readIconAsDataUrl(target)
@@ -885,18 +928,20 @@ function inferIconOrigin(
   game: StoredGame,
   iconFile: string
 ): NonNullable<StoredGame['iconOrigin']> {
+  // SVG só é produzido pelo fallback gerado (o seletor manual não aceita SVG).
+  if (extname(iconFile).toLowerCase() === '.svg') return 'generated'
   const name = basename(iconFile).toLowerCase()
   const legacy = new Set(legacyIconFileNames(game).map((entry) => entry.toLowerCase()))
   return legacy.has(name) ? 'derived' : 'manual'
 }
 
 /**
- * Semeadura de durabilidade dos ícones. Roda em **toda** abertura, não só na
- * troca de versão: jogos importados depois da v3 também entram no cofre.
- * Para cada jogo sem `iconSha`, lê o ícone legível existente, grava no cofre e
- * infere a origem (`manual` na dúvida — nunca sobrescreve). Idempotente: jogos
- * que já têm identidade no cofre não são tocados. A versão do pipeline é só
- * bookkeeping. Roda antes de a janela abrir; nunca lança.
+ * Manutenção dos ícones na abertura. Primeiro semeia o cofre dos jogos com
+ * ícone legível e sem `iconSha` (inclui importados depois da v3); depois
+ * **adquire** para jogos sem ícone, ilegíveis ou com fallback `generated` —
+ * local → online → SVG gerado. Ícone `manual` nunca é tocado. Limite de 40
+ * jogos e orçamento de tempo por execução; best-effort e sem bloquear a janela.
+ * A versão do pipeline é só bookkeeping. Nunca lança.
  */
 export async function repairGameIconsIfNeeded(): Promise<number> {
   try {
@@ -905,7 +950,29 @@ export async function repairGameIconsIfNeeded(): Promise<number> {
     // Falha ao persistir: tenta de novo na próxima abertura (não grava versão).
     if (!persisted) return 0
     if (!versionCurrent) setGameIconsVersion(GAME_ICON_PIPELINE_VERSION)
-    return seeded
+
+    const targets = getStoredGames()
+      .filter((game) => {
+        const readable = getGameIcon(game.id) !== null
+        // Manual legível é intocável (nem leitura de rede); manual perdido
+        // entra na aquisição como qualquer jogo sem ícone.
+        if (game.iconOrigin === 'manual') return !readable
+        return !readable || game.iconOrigin === 'generated'
+      })
+      .slice(0, REPAIR_ACQUIRE_MAX_GAMES)
+
+    let acquired = 0
+    const startedAt = Date.now()
+    for (const game of targets) {
+      if (Date.now() - startedAt > REPAIR_ACQUIRE_BUDGET_MS) break
+      try {
+        if (await acquireIconForGame(game)) acquired += 1
+      } catch {
+        // Um jogo problemático não interrompe os demais.
+      }
+    }
+    if (acquired > 0) logger.info('games', `Ícones adquiridos na abertura: ${acquired}`)
+    return seeded + acquired
   } catch (err) {
     logger.warn('games', 'Falha ao reparar ícones cacheados:', err)
     return 0
@@ -975,11 +1042,10 @@ export async function refreshGameIcons(): Promise<RefreshIconsResult> {
 }
 
 /**
- * Re-extrai do executável os ícones que não estão legíveis — chamado ao abrir
- * a Biblioteca para garantir que os cards fiquem preenchidos. Só toca em
- * ícones ausentes/corrompidos: um ícone válido (inclusive o escolhido à mão
- * pelo usuário) nunca é sobrescrito. Best-effort: qualquer falha vira aviso
- * no log e contagem, nunca impede a lista de carregar.
+ * Preenche os ícones ao abrir a Biblioteca: re-adquire os ausentes/ilegíveis e
+ * os que estão no fallback `generated` (para tentar arte real de novo). Ícone
+ * válido — inclusive o escolhido à mão — nunca é sobrescrito. Best-effort:
+ * qualquer falha vira aviso no log e contagem, nunca impede a lista de carregar.
  */
 export async function reloadGameIcons(): Promise<ReloadIconsResult> {
   try {
@@ -989,7 +1055,8 @@ export async function reloadGameIcons(): Promise<ReloadIconsResult> {
     seedStoredIconVault()
     const result = await reloadMissingGameIcons({
       games: getStoredGames,
-      iconOf: (game) => getGameIcon(game.id),
+      // `generated` conta como "sem ícone" para tentar as fontes de novo.
+      iconOf: (game) => (game.iconOrigin === 'generated' ? null : getGameIcon(game.id)),
       // Destino canônico PNG (a extração sempre grava bytes PNG; nunca PNG
       // disfarçado de `.jpg` herdado do `iconPath` antigo).
       targetOf: (game) => canonicalIconPath(game, '.png'),

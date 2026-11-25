@@ -14,7 +14,7 @@ import {
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
-import { nextIconRetryIds } from '../lib/libraryIcons'
+import { nextIconRetryIds, pruneIconsForReload, retryDelayForAttempt } from '../lib/libraryIcons'
 import {
   applyLibraryFilters,
   DEFAULT_LIBRARY_FILTERS,
@@ -64,9 +64,9 @@ export function Biblioteca(): JSX.Element {
   // Ícones por id: dataURL cacheada no estado do componente; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
-  // Segunda tentativa única por id: o main pode terminar o reparo/re materialização
-  // depois do primeiro `getGameIcon`, e um `null` não pode congelar o card.
-  const retriedNullIcons = useRef<Set<string>>(new Set())
+  // Retentativa com backoff: tentativas por id e timers pendentes.
+  const iconRetryAttempts = useRef<Map<string, number>>(new Map())
+  const iconRetryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   // Capas por id (T6): mesma cache em memória; `null` = sem capa (card usa ícone).
   const [covers, setCovers] = useState<Record<string, string | null>>({})
   const coverRequests = useRef<Set<string>>(new Set())
@@ -127,14 +127,30 @@ export function Biblioteca(): JSX.Element {
     }
   }, [loadCollections])
 
-  // Best-effort, uma vez por montagem: antes de listar, o main re-extrai só
-  // os ícones ilegíveis. A ref sobrevive ao duplo-mount do StrictMode (mas é
-  // recriada ao entrar de novo na aba), evitando duas varreduras seguidas.
+  // Cancela timer e zera tentativas de um id (ícone trocado/removido).
+  const clearIconRetry = useCallback((id: string): void => {
+    const timer = iconRetryTimers.current.get(id)
+    if (timer) clearTimeout(timer)
+    iconRetryTimers.current.delete(id)
+    iconRetryAttempts.current.delete(id)
+  }, [])
+
+  const clearAllIconRetries = useCallback((): void => {
+    for (const timer of iconRetryTimers.current.values()) clearTimeout(timer)
+    iconRetryTimers.current.clear()
+    iconRetryAttempts.current.clear()
+  }, [])
+
+  // A lista aparece primeiro; o reparo/aquisição roda em segundo plano. Quando
+  // termina, os `null` cacheados são descartados e re-pedidos (o main pode ter
+  // materializado/extraído/adquirido o ícone nesse meio-tempo).
   const iconReloadDone = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     const run = async (): Promise<void> => {
+      await loadGames()
+      if (cancelled) return
       if (!iconReloadDone.current) {
         iconReloadDone.current = true
         try {
@@ -142,15 +158,18 @@ export function Biblioteca(): JSX.Element {
         } catch {
           // Recarregar ícones é opcional — a lista deve abrir de qualquer jeito.
         }
+        if (cancelled) return
+        clearAllIconRetries()
+        iconRequests.current.clear()
+        // Re-pede null (sem ícone) e SVG gerado (upgrade para arte real).
+        setIcons((prev) => pruneIconsForReload(prev))
       }
-      if (cancelled) return
-      await loadGames()
     }
     void run()
     return (): void => {
       cancelled = true
     }
-  }, [loadGames])
+  }, [loadGames, clearAllIconRetries])
 
   // T9 — verifica quais executáveis da biblioteca existem no disco e marca
   // os ids ausentes para o selo ".exe não encontrado" nos cards.
@@ -177,16 +196,19 @@ export function Biblioteca(): JSX.Element {
 
   // Descarta a dataURL cacheada de um jogo (ícone trocado/removido) e força
   // o `useEffect` de ícones a buscar a versão nova.
-  const dropIconCache = useCallback((id: string): void => {
-    setIcons((prev) => {
-      if (!(id in prev)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    iconRequests.current.delete(id)
-    retriedNullIcons.current.delete(id)
-  }, [])
+  const dropIconCache = useCallback(
+    (id: string): void => {
+      setIcons((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      iconRequests.current.delete(id)
+      clearIconRetry(id)
+    },
+    [clearIconRetry]
+  )
 
   const dropCoverCache = useCallback((id: string): void => {
     setCovers((prev) => {
@@ -262,6 +284,7 @@ export function Biblioteca(): JSX.Element {
         .getGameIcon(game.id)
         .then((dataUrl) => {
           if (cancelled) return
+          if (dataUrl) clearIconRetry(game.id)
           setIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
         })
         .catch(() => {
@@ -272,25 +295,46 @@ export function Biblioteca(): JSX.Element {
     return (): void => {
       cancelled = true
     }
-  }, [games, icons])
+  }, [games, icons, clearIconRetry])
 
-  // Depois do primeiro carregamento, refaz UMA vez os pedidos que voltaram
-  // `null` (o reparo do main pode ter terminado depois da primeira leitura).
-  useEffect(() => {
-    if (loading) return
-    const retryIds = nextIconRetryIds(games, icons, retriedNullIcons.current)
-    for (const id of retryIds) {
-      retriedNullIcons.current.add(id)
+  // Retentativa com backoff (1 s, 2 s, 4 s) para ids que voltaram `null`.
+  const scheduleIconRetry = useCallback((id: string): void => {
+    if (iconRetryTimers.current.has(id)) return
+    const attempt = (iconRetryAttempts.current.get(id) ?? 0) + 1
+    const delay = retryDelayForAttempt(attempt)
+    if (delay === null) return
+    iconRetryAttempts.current.set(id, attempt)
+    const timer = setTimeout(() => {
+      iconRetryTimers.current.delete(id)
       window.api
         .getGameIcon(id)
         .then((dataUrl) => {
-          setIcons((prev) => (prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }))
+          if (dataUrl) iconRetryAttempts.current.delete(id)
+          setIcons((prev) => {
+            if (!dataUrl) return { ...prev, [id]: null }
+            return prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }
+          })
         })
         .catch(() => {
-          // Duas tentativas sem ícone: o card fica no fallback visual.
+          setIcons((prev) => ({ ...prev, [id]: null }))
         })
-    }
-  }, [loading, games, icons])
+    }, delay)
+    iconRetryTimers.current.set(id, timer)
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const retryIds = nextIconRetryIds(
+      games,
+      icons,
+      iconRetryAttempts.current,
+      new Set(iconRetryTimers.current.keys())
+    )
+    for (const id of retryIds) scheduleIconRetry(id)
+  }, [loading, games, icons, scheduleIconRetry])
+
+  // Cancela todos os timers ao desmontar (sem setState depois).
+  useEffect(() => () => clearAllIconRetries(), [clearAllIconRetries])
 
   // Capas: mesma estratégia dos ícones, uma requisição por id por montagem.
   useEffect(() => {
@@ -356,7 +400,7 @@ export function Biblioteca(): JSX.Element {
     try {
       const result = await window.api.refreshGameIcons()
       iconRequests.current.clear()
-      retriedNullIcons.current.clear()
+      clearAllIconRetries()
       setIcons({})
       if (result.checked === 0) {
         showToast('Sua biblioteca está vazia — nada para atualizar.')
@@ -376,7 +420,7 @@ export function Biblioteca(): JSX.Element {
     } finally {
       setRefreshingIcons(false)
     }
-  }, [refreshingIcons, showToast])
+  }, [refreshingIcons, showToast, clearAllIconRetries])
 
   // "Jogo Personalizado" (T8): abre o seletor nativo filtrado para .exe,
   // o main deriva o nome/extrai o ícone/persiste via `games:add-custom`,

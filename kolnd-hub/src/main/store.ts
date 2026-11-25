@@ -60,10 +60,10 @@ export interface StoredGame {
   iconPath: string | null
   /** SHA-256 do ícone no cofre (`icon-vault/<sha><ext>`); ausente = ainda não migrado. */
   iconSha?: string
-  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp`). */
+  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp` | `.svg`). */
   iconExt?: string
   /** Procedência do ícone: manual nunca é sobrescrito por refresh/reparo. */
-  iconOrigin?: 'manual' | 'derived' | 'legacy'
+  iconOrigin?: 'manual' | 'derived' | 'legacy' | 'online' | 'generated'
   origin: GameOrigin
   /** Presente apenas em jogos importados da Steam. */
   steamAppId?: number
@@ -227,7 +227,7 @@ const IMPORTANCE_LEVELS: ImportanceLevelName[] = ['critico', 'recomendado', 'opc
 const GAME_ORIGINS: GameOrigin[] = ['steam', 'epic', 'minecraft', 'custom']
 
 /** Extensões de ícone aceitas no cofre. */
-const GAME_ICON_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const GAME_ICON_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg'])
 
 /** SHA-256 em hexadecimal minúsculo (formato do `iconSha`). */
 const GAME_ICON_SHA_PATTERN = /^[a-f0-9]{64}$/
@@ -235,7 +235,7 @@ const GAME_ICON_SHA_PATTERN = /^[a-f0-9]{64}$/
 /** Origem do ícone persistida no store. */
 type StoredIconOrigin = NonNullable<StoredGame['iconOrigin']>
 
-const GAME_ICON_ORIGINS: StoredIconOrigin[] = ['manual', 'derived', 'legacy']
+const GAME_ICON_ORIGINS: StoredIconOrigin[] = ['manual', 'derived', 'legacy', 'online', 'generated']
 
 /** Valida/normaliza uma entrada de app vinda do renderer ou do localStorage. */
 export function normalizeAppConfig(input: unknown): StoredAppConfig | null {
@@ -706,7 +706,10 @@ const schema: Store.Schema<HubStoreSchema> = {
         iconPath: { type: ['string', 'null'] },
         iconSha: { type: 'string' },
         iconExt: { type: 'string' },
-        iconOrigin: { type: 'string', enum: ['manual', 'derived', 'legacy'] },
+        iconOrigin: {
+          type: 'string',
+          enum: ['manual', 'derived', 'legacy', 'online', 'generated']
+        },
         origin: { enum: ['steam', 'epic', 'minecraft', 'custom'] },
         steamAppId: { type: 'number' },
         addedAt: { type: 'string' },

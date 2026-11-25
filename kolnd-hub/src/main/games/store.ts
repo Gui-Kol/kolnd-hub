@@ -44,10 +44,10 @@ export interface Game {
   iconPath: string | null
   /** SHA-256 do ícone no cofre (`icon-vault/<sha><ext>`). */
   iconSha?: string
-  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp`). */
+  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp` | `.svg`). */
   iconExt?: string
   /** Procedência do ícone: manual nunca é sobrescrito por refresh/reparo. */
-  iconOrigin?: 'manual' | 'derived' | 'legacy'
+  iconOrigin?: 'manual' | 'derived' | 'legacy' | 'online' | 'generated'
   origin: GameOrigin
   steamAppId?: number
   addedAt: string

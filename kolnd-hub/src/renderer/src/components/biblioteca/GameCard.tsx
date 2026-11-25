@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { AlertTriangle, Gamepad2, Pencil, Star } from 'lucide-react'
 import type { Game } from '../../types'
 import { formatLastPlayed, formatPlaytime, weekPlaytimeSeconds } from '../../lib/gameStats'
@@ -48,6 +48,12 @@ export const GameCard = memo(function GameCard({
   if (totalSeconds > 0) stats.push(`${formatPlaytime(totalSeconds)} no total`)
   if (weekSeconds > 0) stats.push(`${formatPlaytime(weekSeconds)} nesta semana`)
   if (lastPlayed) stats.push(lastPlayed)
+
+  // `onError` no <img> volta ao placeholder em vez de mostrar imagem quebrada.
+  // Guardamos a src que falhou: quando o ícone/capa muda, volta a tentar.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const coverVisible = Boolean(cover) && cover !== failedSrc
+  const iconVisible = Boolean(icon) && icon !== failedSrc
 
   return (
     <button
@@ -137,23 +143,25 @@ export const GameCard = memo(function GameCard({
         </span>
       )}
 
-      {cover ? (
+      {coverVisible ? (
         <div className="aspect-[2/3] w-full max-w-[124px] shrink-0 overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
           <img
-            src={cover}
+            src={cover ?? ''}
             alt={`Capa de ${game.name}`}
             className="h-full w-full object-cover"
             draggable={false}
+            onError={() => setFailedSrc(cover ?? null)}
           />
         </div>
       ) : (
         <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-control border border-[var(--border-subtle)] bg-surface-2">
-          {icon ? (
+          {iconVisible ? (
             <img
-              src={icon}
+              src={icon ?? ''}
               alt={`Ícone de ${game.name}`}
               className="h-full w-full object-contain"
               draggable={false}
+              onError={() => setFailedSrc(icon ?? null)}
             />
           ) : (
             <Gamepad2

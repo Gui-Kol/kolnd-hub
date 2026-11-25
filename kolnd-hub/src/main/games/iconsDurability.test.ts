@@ -18,9 +18,14 @@ const electronMocks = vi.hoisted(() => ({
   showOpenDialog: vi.fn()
 }))
 
+const onlineMock = vi.hoisted(() => ({
+  fetchOnlineArtForGame: vi.fn()
+}))
+
 vi.mock('electron', () => ({
   app: {
     getPath: () => state.userData,
+    getVersion: () => '1.2.1',
     getFileIcon: electronMocks.getFileIcon
   },
   dialog: { showOpenDialog: electronMocks.showOpenDialog },
@@ -69,6 +74,10 @@ vi.mock('../logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }))
 
+vi.mock('./iconOnline', () => ({
+  fetchOnlineArtForGame: onlineMock.fetchOnlineArtForGame
+}))
+
 import {
   getGameIcon,
   refreshGameIcons,
@@ -112,6 +121,7 @@ beforeEach(() => {
   })
   electronMocks.createFromBuffer.mockReturnValue({ isEmpty: () => false })
   electronMocks.createFromPath.mockReturnValue({ isEmpty: () => false })
+  onlineMock.fetchOnlineArtForGame.mockReset().mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -220,6 +230,123 @@ describe('GC do cofre na remoção de jogo', () => {
   })
 })
 
+describe('fallback gerado e fontes online', () => {
+  it('gera SVG determinístico e serve como data URL quando tudo falha', async () => {
+    state.version = 3
+    const semExe = join(userDataDir, 'nao-existe.exe')
+    state.games = [{ ...game('gerado'), exePath: semExe }]
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(state.games[0]).toMatchObject({ iconExt: '.svg', iconOrigin: 'generated' })
+    expect(existsSync(join(userDataDir, 'game-icons', 'gerado.svg'))).toBe(true)
+
+    const served = getGameIcon('gerado')
+    expect(served).toMatch(/^data:image\/svg\+xml;base64,/)
+    const bytes = Buffer.from(served!.split(',')[1], 'base64').toString()
+    expect(bytes).toContain('<svg ')
+    expect(bytes).toContain('>JG</text>')
+  })
+
+  it('na execução seguinte troca o generated por arte online', async () => {
+    state.version = 3
+    const semExe = join(userDataDir, 'nao-existe.exe')
+    state.games = [{ ...game('retry'), exePath: semExe }]
+    await repairGameIconsIfNeeded()
+    expect(state.games[0]).toMatchObject({ iconExt: '.svg', iconOrigin: 'generated' })
+
+    onlineMock.fetchOnlineArtForGame.mockResolvedValue({
+      buffer: Buffer.from('arte-real'),
+      ext: '.png',
+      source: 'steam-cdn',
+      url: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1/logo.png'
+    })
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(state.games[0]).toMatchObject({ iconExt: '.png', iconOrigin: 'online' })
+    expect(getGameIcon('retry')).toBe(dataUrl(Buffer.from('arte-real')))
+  })
+
+  it('manual legível nunca é adquirido (sem rede)', async () => {
+    state.version = 3
+    const iconsDir = join(userDataDir, 'game-icons')
+    mkdirSync(iconsDir, { recursive: true })
+    const iconPath = join(iconsDir, 'manual-vivo.png')
+    writeFileSync(iconPath, 'manual-vivo')
+    state.games = [
+      {
+        ...game('manual-vivo'),
+        exePath: join(userDataDir, 'nao-existe.exe'),
+        iconPath,
+        iconSha: 'd'.repeat(64),
+        iconExt: '.png',
+        iconOrigin: 'manual'
+      }
+    ]
+    onlineMock.fetchOnlineArtForGame.mockResolvedValue({
+      buffer: Buffer.from('arte-real'),
+      ext: '.png',
+      source: 'steam-cdn',
+      url: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1/logo.png'
+    })
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(0)
+    expect(state.games[0].iconOrigin).toBe('manual')
+    expect(state.games[0].iconSha).toBe('d'.repeat(64))
+    expect(readFileSync(iconPath).toString()).toBe('manual-vivo')
+    expect(onlineMock.fetchOnlineArtForGame).not.toHaveBeenCalled()
+  })
+
+  it('manual perdido (arquivo e blob) é regenerado e deixa de ser nulo', async () => {
+    state.version = 3
+    const semExe = join(userDataDir, 'nao-existe.exe')
+    state.games = [
+      {
+        ...game('manual-sumido'),
+        exePath: semExe,
+        iconOrigin: 'manual',
+        iconSha: 'c'.repeat(64),
+        iconExt: '.png'
+      }
+    ]
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(state.games[0]).toMatchObject({ iconExt: '.svg', iconOrigin: 'generated' })
+    expect(getGameIcon('manual-sumido')).toMatch(/^data:image\/svg\+xml;base64,/)
+  })
+
+  it('manual perdido adota a origem da fonte online', async () => {
+    state.version = 3
+    const semExe = join(userDataDir, 'nao-existe.exe')
+    state.games = [{ ...game('manual-online'), exePath: semExe, iconOrigin: 'manual' }]
+    onlineMock.fetchOnlineArtForGame.mockResolvedValue({
+      buffer: Buffer.from('arte-real'),
+      ext: '.png',
+      source: 'steam-cdn',
+      url: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1/logo.png'
+    })
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(state.games[0]).toMatchObject({ iconExt: '.png', iconOrigin: 'online' })
+    expect(getGameIcon('manual-online')).toBe(dataUrl(Buffer.from('arte-real')))
+  })
+
+  it('manual perdido com fonte local vira derived', async () => {
+    state.version = 3
+    const asset = join(userDataDir, 'icon-logo.png')
+    writeFileSync(asset, 'asset-local')
+    state.games = [
+      {
+        ...game('manual-local'),
+        exePath: join(userDataDir, 'nao-existe.exe'),
+        iconOrigin: 'manual'
+      }
+    ]
+
+    await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
+    expect(state.games[0]).toMatchObject({ iconExt: '.png', iconOrigin: 'derived' })
+    expect(readIcon(state.games[0].iconSha!, '.png')?.toString()).toBe('asset-local')
+  })
+})
+
 describe('semeadura independente da versão', () => {
   it('roda com versão já em 3, é idempotente e não toca em jogo com iconSha', async () => {
     state.version = 3
@@ -237,6 +364,9 @@ describe('semeadura independente da versão', () => {
     const iconPath = join(iconsDir, 'seed.png')
     writeFileSync(iconPath, 'manual-antigo')
     state.games[0].iconPath = iconPath
+    const comShaPath = join(iconsDir, 'com-sha.png')
+    writeFileSync(comShaPath, 'com-sha-vivo')
+    state.games[1].iconPath = comShaPath
 
     await expect(repairGameIconsIfNeeded()).resolves.toBe(1)
     const sha = shaOf(Buffer.from('manual-antigo'))

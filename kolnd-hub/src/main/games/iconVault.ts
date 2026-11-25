@@ -29,8 +29,8 @@ import { logger } from '../logger'
 /** Ícones são pequenos; acima disso o arquivo não é um ícone válido. */
 export const ICON_VAULT_MAX_BYTES = 4 * 1024 * 1024
 
-/** Extensões aceitas no cofre (as mesmas que o `nativeImage` decodifica). */
-const VAULT_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+/** Extensões aceitas no cofre (imagens decodificáveis + SVG gerado). */
+const VAULT_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg'])
 
 /** SHA-256 em hexadecimal minúsculo — o único formato que vira nome de arquivo. */
 const SHA_PATTERN = /^[a-f0-9]{64}$/

@@ -2,14 +2,15 @@ import { extname } from 'path'
 import type { StoredGame } from '../store'
 
 /**
- * Aquisição de ícones **somente com fontes locais**, em cascata determinística:
+ * Aquisição de ícones em cascata determinística:
  * cofre → arquivos canônicos/legados → recursos PE (maior imagem ≤ 256) →
  * atalhos `.lnk` cujo target casa com o executável → assets da pasta do jogo →
- * `app.getFileIcon`.
+ * fontes online → `app.getFileIcon`.
  *
  * Toda a I/O é injetada (`IconResolveDeps`) para o módulo ser testável como
- * unidade pura. Nada aqui acessa rede. `icons.ts` fornece as dependências reais
- * e grava o resultado no cofre + nome canônico.
+ * unidade pura. O passo online é uma dependência (o módulo em si não acessa
+ * rede). `icons.ts` fornece as dependências reais e grava o resultado no
+ * cofre + nome canônico; o fallback gerado fica no chamador (`acquireIconForGame`).
  */
 
 /** Origem do ícone resolvido (diagnóstico/testes). */
@@ -21,7 +22,9 @@ export type IconSource =
   | 'exe-pe'
   | 'shortcut'
   | 'game-assets'
+  | 'online'
   | 'file-icon'
+  | 'generated'
 
 /** Ícone pronto para ser gravado no cofre. */
 export interface ResolvedIcon {
@@ -64,6 +67,8 @@ export interface IconResolveDeps {
   gameRoot: string | null
   /** Varredura limitada de assets da pasta do jogo. */
   scanGameAssets: (root: string) => string[]
+  /** Fonte online (Steam CDN/loja/Wikipédia); null = nada encontrado. */
+  onlineArt: () => Promise<{ buffer: Buffer; ext: string } | null>
   /** Ícone genérico do shell para o executável. */
   getFileIconPng: (exePath: string) => Promise<Buffer | null>
 }
@@ -75,7 +80,7 @@ export const ICON_RESOLVE_MAX_BYTES = 4 * 1024 * 1024
 const ASSET_EXTENSIONS = new Set(['.png', '.ico', '.jpg', '.jpeg', '.webp'])
 
 /** Extensões aceitas nos arquivos já materializados de `game-icons/`. */
-const LOCAL_ICON_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.ico'])
+const LOCAL_ICON_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico'])
 
 /** Profundidade máxima da varredura de assets a partir da pasta do jogo. */
 export const GAME_ASSET_SCAN_MAX_DEPTH = 2
@@ -106,14 +111,17 @@ export function normalizeIconPath(filePath: string): string {
 const LOCAL_ICON_SOURCES = new Set<IconSource>(['vault', 'icon-path', 'canonical', 'legacy'])
 
 /**
- * Origem a persistir após uma aquisição. Um ícone `manual` só continua manual
- * quando a fonte também é local (cofre/arquivo); qualquer fonte re-derivada
- * (PE, atalho, assets, shell) é `derived`. Jogos sem origem viram `derived`.
+ * Origem a persistir após uma aquisição. `generated`/`online` têm rótulos
+ * próprios; um ícone `manual` só continua manual quando a fonte também é local
+ * (cofre/arquivo). Qualquer fonte re-derivada (PE, atalho, assets, shell) é
+ * `derived`. Jogos sem origem viram `derived`.
  */
 export function iconOriginForResolvedSource(
   currentOrigin: StoredGame['iconOrigin'],
   source: IconSource
 ): NonNullable<StoredGame['iconOrigin']> {
+  if (source === 'generated') return 'generated'
+  if (source === 'online') return 'online'
   if (currentOrigin === 'manual' && LOCAL_ICON_SOURCES.has(source)) return 'manual'
   return 'derived'
 }
@@ -282,11 +290,13 @@ export async function resolveGameIcon(deps: IconResolveDeps): Promise<ResolvedIc
 
   // 4) Atalhos .lnk cujo target é exatamente o executável do jogo.
   try {
-    const shortcuts = await deps.shortcuts()
-    for (const shortcut of shortcuts) {
-      if (!shortcutMatchesExe(shortcut.target, exePath)) continue
-      const buffer = await deps.readShortcutIconPng(shortcut.linkPath)
-      if (isValidIconBuffer(buffer)) return { buffer, ext: '.png', source: 'shortcut' }
+    if (exePath && deps.fileExists(exePath)) {
+      const shortcuts = await deps.shortcuts()
+      for (const shortcut of shortcuts) {
+        if (!shortcutMatchesExe(shortcut.target, exePath)) continue
+        const buffer = await deps.readShortcutIconPng(shortcut.linkPath)
+        if (isValidIconBuffer(buffer)) return { buffer, ext: '.png', source: 'shortcut' }
+      }
     }
   } catch {
     // Sem permissão de leitura do menu Iniciar: segue.
@@ -306,14 +316,24 @@ export async function resolveGameIcon(deps: IconResolveDeps): Promise<ResolvedIc
     }
   }
 
-  // 6) Ícone do shell (último recurso; pode ser o genérico do Windows).
+  // 6) Fontes online (Steam CDN/loja, Wikipédia) — depende de rede.
+  try {
+    const online = await deps.onlineArt()
+    if (online && isValidIconBuffer(online.buffer)) {
+      return { buffer: online.buffer, ext: online.ext, source: 'online' }
+    }
+  } catch {
+    // Offline/timeout: segue para o shell.
+  }
+
+  // 7) Ícone do shell (penúltimo recurso; pode ser o genérico do Windows).
   try {
     if (exePath && deps.fileExists(exePath)) {
       const buffer = await deps.getFileIconPng(exePath)
       if (isValidIconBuffer(buffer)) return { buffer, ext: '.png', source: 'file-icon' }
     }
   } catch {
-    // Sem ícone do shell: desiste.
+    // Sem ícone do shell: desiste (o chamador gera o fallback).
   }
 
   return null

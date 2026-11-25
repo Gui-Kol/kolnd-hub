@@ -71,6 +71,13 @@ describe('putIcon', () => {
     expect(readdirSync(vaultDir).sort()).toEqual([`${a!.sha}.png`, `${b!.sha}.png`].sort())
   })
 
+  it('aceita SVG gerado (content-addressed)', () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    const written = putIcon(svg, '.svg')
+    expect(written).toMatchObject({ ext: '.svg' })
+    expect(readIcon(written!.sha, '.svg')?.toString()).toBe(svg.toString())
+  })
+
   it('recusa entrada inválida sem criar pasta', () => {
     expect(putIcon(Buffer.alloc(0), '.png')).toBeNull()
     expect(putIcon(png('x'), '.gif')).toBeNull()
