@@ -1,4 +1,4 @@
-import { existsSync, rmSync, statSync } from 'fs'
+import { existsSync, readFileSync, rmSync, statSync } from 'fs'
 import { basename, extname, isAbsolute, join } from 'path'
 import {
   getStoredGames,
@@ -9,7 +9,8 @@ import {
   normalizeGameCollections,
   MAX_GAME_COLLECTIONS,
   MAX_GAME_COLLECTION_TAGS,
-  GameOrigin
+  GameOrigin,
+  StoredGame
 } from '../store'
 import {
   formatGameName,
@@ -27,6 +28,7 @@ import {
   deleteCachedIcon
 } from './icons'
 import { resolveCoverInsideGameCovers, deleteStaleCovers, deleteCachedCover } from './covers'
+import { ICON_VAULT_MAX_BYTES, putIcon } from './iconVault'
 import { logger } from '../logger'
 
 /**
@@ -40,6 +42,12 @@ export interface Game {
   name: string
   exePath: string
   iconPath: string | null
+  /** SHA-256 do ícone no cofre (`icon-vault/<sha><ext>`). */
+  iconSha?: string
+  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp`). */
+  iconExt?: string
+  /** Procedência do ícone: manual nunca é sobrescrito por refresh/reparo. */
+  iconOrigin?: 'manual' | 'derived' | 'legacy'
   origin: GameOrigin
   steamAppId?: number
   addedAt: string
@@ -134,12 +142,37 @@ export function addGame(input: unknown): GameResult {
     return { success: false, error: 'Este executável já está na sua biblioteca.' }
   }
 
+  seedVaultForNewGame(game)
   const saved = setStoredGames([...games, game])
   if (!saved.success) {
     return { success: false, error: saved.error ?? 'Não foi possível salvar o jogo.' }
   }
   logger.info('games', `Jogo adicionado: ${game.name} (${game.id})`)
   return { success: true }
+}
+
+/**
+ * Semeia o cofre ao entrar um jogo com ícone já gravado (scanners e
+ * "Jogo Personalizado"). Antes desta correção esses ícones ficavam só em
+ * `game-icons/` e se perdiam se a pasta fosse apagada. Best-effort: falha de
+ * leitura/escrita não impede o `addGame` (a cascata do reload tenta depois).
+ */
+function seedVaultForNewGame(game: StoredGame): void {
+  if (!game.iconPath || game.iconSha) return
+  try {
+    const stat = statSync(game.iconPath)
+    if (!stat.isFile() || stat.size <= 0 || stat.size > ICON_VAULT_MAX_BYTES) return
+    const buffer = readFileSync(game.iconPath)
+    if (buffer.length === 0 || buffer.length > ICON_VAULT_MAX_BYTES) return
+    const stored = putIcon(buffer, extname(game.iconPath).toLowerCase())
+    if (!stored) return
+    game.iconSha = stored.sha
+    game.iconExt = stored.ext
+    // Manual explícito nunca é rebaixado; scanners/custom entram como derived.
+    if (game.iconOrigin !== 'manual') game.iconOrigin = 'derived'
+  } catch {
+    // Best-effort: o jogo é salvo mesmo sem cofre.
+  }
 }
 
 /**
@@ -261,9 +294,13 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         merged.exePath = (value as string).trim()
         break
       case 'iconPath':
-        // null limpa o ícone (o card cai no fallback visual).
+        // null limpa o ícone (o card cai no fallback visual) e também a
+        // identidade no cofre — sem arquivo não há o que rematerializar.
         if (value === null) {
           merged.iconPath = null
+          delete merged.iconSha
+          delete merged.iconExt
+          delete merged.iconOrigin
           break
         }
         {
@@ -349,7 +386,7 @@ export function updateGame(id: unknown, patch: unknown): GameResult {
         logger.warn('games', `Não foi possível apagar o ícone antigo ${resolvedOld}:`, err)
       }
     }
-    deleteStaleIcons(updated.id, resolvedNew)
+    deleteStaleIcons(updated, resolvedNew)
   }
 
   // Capa trocada/limpa: depois de persistir com sucesso, apaga o arquivo antigo

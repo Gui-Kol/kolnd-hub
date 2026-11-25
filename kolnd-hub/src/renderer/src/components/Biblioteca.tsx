@@ -14,6 +14,7 @@ import {
 import { Game, AddCustomGameResult } from '../types'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { findMissingGameIds } from '../lib/games'
+import { nextIconRetryIds } from '../lib/libraryIcons'
 import {
   applyLibraryFilters,
   DEFAULT_LIBRARY_FILTERS,
@@ -63,6 +64,9 @@ export function Biblioteca(): JSX.Element {
   // Ícones por id: dataURL cacheada no estado do componente; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
+  // Segunda tentativa única por id: o main pode terminar o reparo/re materialização
+  // depois do primeiro `getGameIcon`, e um `null` não pode congelar o card.
+  const retriedNullIcons = useRef<Set<string>>(new Set())
   // Capas por id (T6): mesma cache em memória; `null` = sem capa (card usa ícone).
   const [covers, setCovers] = useState<Record<string, string | null>>({})
   const coverRequests = useRef<Set<string>>(new Set())
@@ -181,6 +185,7 @@ export function Biblioteca(): JSX.Element {
       return next
     })
     iconRequests.current.delete(id)
+    retriedNullIcons.current.delete(id)
   }, [])
 
   const dropCoverCache = useCallback((id: string): void => {
@@ -269,6 +274,24 @@ export function Biblioteca(): JSX.Element {
     }
   }, [games, icons])
 
+  // Depois do primeiro carregamento, refaz UMA vez os pedidos que voltaram
+  // `null` (o reparo do main pode ter terminado depois da primeira leitura).
+  useEffect(() => {
+    if (loading) return
+    const retryIds = nextIconRetryIds(games, icons, retriedNullIcons.current)
+    for (const id of retryIds) {
+      retriedNullIcons.current.add(id)
+      window.api
+        .getGameIcon(id)
+        .then((dataUrl) => {
+          setIcons((prev) => (prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }))
+        })
+        .catch(() => {
+          // Duas tentativas sem ícone: o card fica no fallback visual.
+        })
+    }
+  }, [loading, games, icons])
+
   // Capas: mesma estratégia dos ícones, uma requisição por id por montagem.
   useEffect(() => {
     let cancelled = false
@@ -324,9 +347,8 @@ export function Biblioteca(): JSX.Element {
     [showToast, refreshRunning]
   )
 
-  // "Atualizar ícones": o mesmo efeito de abrir cada jogo e clicar em
-  // "Restaurar ícone" — o main re-extrai TODOS os ícones dos executáveis
-  // (inclusive por cima de um ícone escolhido à mão) e persiste os caminhos.
+  // "Atualizar ícones automáticos": o main re-extrai do executável apenas os
+  // ícones que não foram escolhidos à mão (`iconOrigin:'manual'` é preservado).
   // Depois limpamos o cache do renderer e a grade busca as imagens novas.
   const handleRefreshIcons = useCallback(async (): Promise<void> => {
     if (refreshingIcons) return
@@ -334,9 +356,12 @@ export function Biblioteca(): JSX.Element {
     try {
       const result = await window.api.refreshGameIcons()
       iconRequests.current.clear()
+      retriedNullIcons.current.clear()
       setIcons({})
       if (result.checked === 0) {
         showToast('Sua biblioteca está vazia — nada para atualizar.')
+      } else if (result.refreshed === 0 && result.failed === 0) {
+        showToast('Nenhum ícone automático para atualizar — os ícones manuais são preservados.')
       } else if (result.refreshed === 0) {
         showToast('Não foi possível atualizar os ícones dos jogos.')
       } else if (result.failed > 0) {
@@ -460,19 +485,19 @@ export function Biblioteca(): JSX.Element {
             </span>
           </Badge>
 
-          {/* "Atualizar ícones": re-extrai o ícone de todos os executáveis. */}
+          {/* "Atualizar ícones automáticos": preserva os escolhidos à mão. */}
           <Button
             variant="secondary"
             onClick={() => void handleRefreshIcons()}
             disabled={loading || refreshingIcons || games.length === 0}
-            title="Re-extrai o ícone de todos os jogos a partir dos executáveis (substitui ícones personalizados)"
+            title="Re-extrai o ícone dos jogos automáticos a partir dos executáveis. Ícones escolhidos manualmente são preservados."
           >
             {refreshingIcons ? (
               <Loader2 size={16} aria-hidden="true" className="animate-spin" />
             ) : (
               <RefreshCw size={16} aria-hidden="true" />
             )}
-            {refreshingIcons ? 'Atualizando…' : 'Atualizar ícones'}
+            {refreshingIcons ? 'Atualizando…' : 'Atualizar ícones automáticos'}
           </Button>
 
           {/* ── Botão "Adicionar Games" + menu ───────── */}

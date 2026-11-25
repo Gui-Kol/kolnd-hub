@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parsePeHeaders, readExeIconIco } from './exeIcon'
+import {
+  parsePeHeaders,
+  readExeIconIco,
+  readExeIconIcoSized,
+  selectLargestIconImage
+} from './exeIcon'
 
 /**
  * Constrói um PE mínimo (PE32, uma seção `.rsrc`) com um grupo de ícones
@@ -119,6 +124,41 @@ describe('parsePeHeaders', () => {
     semMZ.writeUInt16LE(0, 0)
     expect(parsePeHeaders(semMZ.subarray(0, 0x2000))).toBeNull()
     expect(parsePeHeaders(buildPeWithIcon(Buffer.from('ICON')).subarray(0, 0x100))).toBeNull()
+  })
+})
+
+describe('selectLargestIconImage', () => {
+  it('escolhe a maior imagem ≤ 256 (0 = 256)', () => {
+    const images = [
+      { width: 16, height: 16 },
+      { width: 48, height: 48 },
+      { width: 256, height: 256 },
+      { width: 512, height: 512 }
+    ]
+    expect(selectLargestIconImage(images)).toMatchObject({ width: 256, height: 256 })
+    expect(selectLargestIconImage(images, 48)).toMatchObject({ width: 48, height: 48 })
+  })
+
+  it('sem nenhuma ≤ 256 usa a menor disponível; lista vazia → null', () => {
+    expect(
+      selectLargestIconImage([
+        { width: 512, height: 512 },
+        { width: 300, height: 300 }
+      ])
+    ).toMatchObject({ width: 300, height: 300 })
+    expect(selectLargestIconImage([])).toBeNull()
+  })
+})
+
+describe('readExeIconIcoSized', () => {
+  it('empacota a imagem escolhida (fixture com uma imagem 16×16)', () => {
+    const iconBytes = Buffer.from('ICONDATA')
+    writeFileSync(exePath, buildPeWithIcon(iconBytes))
+    const ico = readExeIconIcoSized(exePath, 256)
+    expect(ico).not.toBeNull()
+    expect(ico!.readUInt16LE(4)).toBe(1)
+    expect(ico!.readUInt8(6)).toBe(16)
+    expect(ico!.subarray(22).equals(iconBytes)).toBe(true)
   })
 })
 

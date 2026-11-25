@@ -25,6 +25,11 @@ export interface ReloadIconsDeps {
   exeOf: (game: StoredGame) => string
   /** Extrai e grava o ícone; `true` = gravado com sucesso. */
   extract: (exePath: string, target: string) => Promise<boolean>
+  /**
+   * Aquisição completa (cascata local + cofre + persistência) para um jogo.
+   * Quando presente, substitui `extract` — é o caminho usado por `icons.ts`.
+   */
+  acquire?: (game: StoredGame) => Promise<boolean>
 }
 
 /** Contagens da varredura: revisados, regravados e falhas. */
@@ -47,7 +52,9 @@ export async function reloadMissingGameIcons(deps: ReloadIconsDeps): Promise<Rel
     // Ícone legível: nada a fazer — sobrescrever apagaria a escolha do usuário.
     if (deps.iconOf(game) !== null) continue
     try {
-      const ok = await deps.extract(deps.exeOf(game), deps.targetOf(game))
+      const ok = deps.acquire
+        ? await deps.acquire(game)
+        : await deps.extract(deps.exeOf(game), deps.targetOf(game))
       if (ok) result.reloaded += 1
       else result.failed += 1
     } catch {
@@ -69,6 +76,10 @@ export interface RefreshIconsDeps {
   exeOf: (game: StoredGame) => string
   /** Extrai e grava o ícone; `true` = gravado com sucesso. */
   extract: (exePath: string, target: string) => Promise<boolean>
+  /** Jogos manuais são pulados (nunca sobrescritos pelo refresh em lote). */
+  isManual?: (game: StoredGame) => boolean
+  /** Metadados do ícone recém-gravado (cofre/origem) a mesclar no jogo. */
+  metaOf?: (game: StoredGame, target: string) => Partial<StoredGame> | null
   /** Persiste a lista atualizada de uma vez; `false` = nada foi gravado no store. */
   persist: (games: StoredGame[]) => boolean
   /** Apaga sobras do ícone anterior de um jogo já persistido. */
@@ -83,11 +94,11 @@ export interface RefreshIconsResult {
 }
 
 /**
- * Re-extrai o ícone de **todos** os jogos a partir do executável — o mesmo
+ * Re-extrai o ícone dos jogos automáticos a partir do executável — o mesmo
  * efeito de abrir cada jogo e clicar em "Restaurar ícone do executável".
- * Diferente de `reloadMissingGameIcons`, sobrescreve também ícones válidos
- * (inclusive os escolhidos à mão), então só deve ser chamado por ação explícita
- * do usuário.
+ * Ícones com `iconOrigin:'manual'` são pulados (`isManual`): o refresh em lote
+ * nunca sobrescreve uma escolha do usuário. Só deve ser chamado por ação
+ * explícita do usuário.
  *
  * Os arquivos são extraídos primeiro e o store é gravado **uma única vez** ao
  * final; se a persistência falhar, o resultado conta tudo como falha e nenhum
@@ -102,13 +113,16 @@ export async function refreshAllGameIcons(deps: RefreshIconsDeps): Promise<Refre
 
   for (let index = 0; index < games.length; index += 1) {
     const game = games[index]
+    // Manual nunca é alvo do "Atualizar ícones" (nem conta como falha).
+    if (deps.isManual?.(game)) continue
     const target = deps.targetOf(game)
     try {
       if (!(await deps.extract(deps.exeOf(game), target))) {
         failed += 1
         continue
       }
-      next[index] = { ...game, iconPath: target }
+      const meta = deps.metaOf?.(game, target) ?? {}
+      next[index] = { ...game, iconPath: target, ...meta }
       refreshed.set(game.id, target)
     } catch {
       // Exe sumiu, sem permissão de escrita, extração quebrada: segue adiante.

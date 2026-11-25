@@ -58,6 +58,12 @@ export interface StoredGame {
   exePath: string
   /** Caminho absoluto do ícone cacheado em `%APPDATA%/kolnd-hub/game-icons/`; null = sem ícone (fallback na UI). */
   iconPath: string | null
+  /** SHA-256 do ícone no cofre (`icon-vault/<sha><ext>`); ausente = ainda não migrado. */
+  iconSha?: string
+  /** Extensão do blob no cofre (`.png` | `.jpg` | `.jpeg` | `.webp`). */
+  iconExt?: string
+  /** Procedência do ícone: manual nunca é sobrescrito por refresh/reparo. */
+  iconOrigin?: 'manual' | 'derived' | 'legacy'
   origin: GameOrigin
   /** Presente apenas em jogos importados da Steam. */
   steamAppId?: number
@@ -219,6 +225,17 @@ export interface BenchmarkEntry {
 const APP_CATEGORIES = ['ai', 'gaming', 'streaming', 'dev'] as const
 const IMPORTANCE_LEVELS: ImportanceLevelName[] = ['critico', 'recomendado', 'opcional', 'inutil']
 const GAME_ORIGINS: GameOrigin[] = ['steam', 'epic', 'minecraft', 'custom']
+
+/** Extensões de ícone aceitas no cofre. */
+const GAME_ICON_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+
+/** SHA-256 em hexadecimal minúsculo (formato do `iconSha`). */
+const GAME_ICON_SHA_PATTERN = /^[a-f0-9]{64}$/
+
+/** Origem do ícone persistida no store. */
+type StoredIconOrigin = NonNullable<StoredGame['iconOrigin']>
+
+const GAME_ICON_ORIGINS: StoredIconOrigin[] = ['manual', 'derived', 'legacy']
 
 /** Valida/normaliza uma entrada de app vinda do renderer ou do localStorage. */
 export function normalizeAppConfig(input: unknown): StoredAppConfig | null {
@@ -412,6 +429,22 @@ export function normalizeGame(input: unknown): StoredGame | null {
   const coverPath =
     typeof raw.coverPath === 'string' && raw.coverPath.trim() ? raw.coverPath.trim() : null
   if (coverPath) game.coverPath = coverPath
+
+  // Identidade do ícone no cofre: sha e extensão só valem juntos (um sem o outro
+  // não permite rematerializar). A origem é preservada isoladamente.
+  const iconSha =
+    typeof raw.iconSha === 'string' && GAME_ICON_SHA_PATTERN.test(raw.iconSha.trim())
+      ? raw.iconSha.trim()
+      : null
+  const rawIconExt = typeof raw.iconExt === 'string' ? raw.iconExt.trim().toLowerCase() : ''
+  const iconExt = GAME_ICON_EXTENSIONS.has(rawIconExt) ? rawIconExt : null
+  if (iconSha && iconExt) {
+    game.iconSha = iconSha
+    game.iconExt = iconExt
+  }
+  if (GAME_ICON_ORIGINS.includes(raw.iconOrigin as StoredIconOrigin)) {
+    game.iconOrigin = raw.iconOrigin as StoredIconOrigin
+  }
   return game
 }
 
@@ -671,6 +704,9 @@ const schema: Store.Schema<HubStoreSchema> = {
         name: { type: 'string', minLength: 1 },
         exePath: { type: 'string', minLength: 1 },
         iconPath: { type: ['string', 'null'] },
+        iconSha: { type: 'string' },
+        iconExt: { type: 'string' },
+        iconOrigin: { type: 'string', enum: ['manual', 'derived', 'legacy'] },
         origin: { enum: ['steam', 'epic', 'minecraft', 'custom'] },
         steamAppId: { type: 'number' },
         addedAt: { type: 'string' },

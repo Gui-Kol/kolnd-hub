@@ -247,10 +247,33 @@ function buildIco(images: IcoImage[]): Buffer {
 }
 
 /**
- * Lê o ícone embutido do `.exe` e devolve um .ico pronto para o `nativeImage`.
- * Retorna null quando o arquivo não é um PE válido ou não tem grupo de ícones.
+ * Escolhe a maior imagem com largura/altura ≤ `maxSize` (0 já é 256 no ICO).
+ * Se nenhuma couber, usa a menor disponível para não ficar sem ícone.
+ * Função pura, exportada para testes.
  */
-export function readExeIconIco(exePath: string): Buffer | null {
+export function selectLargestIconImage<T extends { width: number; height: number }>(
+  images: T[],
+  maxSize = 256
+): T | null {
+  if (images.length === 0) return null
+  const eligible = images.filter(
+    (image) => image.width > 0 && image.width <= maxSize && image.height <= maxSize
+  )
+  if (eligible.length > 0) {
+    return eligible.reduce((best, image) =>
+      image.width * image.height > best.width * best.height ? image : best
+    )
+  }
+  const usable = images.filter((image) => image.width > 0)
+  if (usable.length === 0) return null
+  // Nenhuma cabe no teto: devolve a menor disponível (ainda melhor que nada).
+  return usable.reduce((best, image) =>
+    image.width * image.height < best.width * best.height ? image : best
+  )
+}
+
+/** Lê todos os RT_ICON do grupo de ícones do PE (null quando não há). */
+function readIcoImages(exePath: string): IcoImage[] | null {
   let fd: number
   try {
     fd = openSync(exePath, 'r')
@@ -308,8 +331,7 @@ export function readExeIconIco(exePath: string): Buffer | null {
         data
       })
     }
-    if (images.length === 0) return null
-    return buildIco(images)
+    return images.length > 0 ? images : null
   } catch {
     return null
   } finally {
@@ -319,4 +341,23 @@ export function readExeIconIco(exePath: string): Buffer | null {
       // fd já inválido — nada a fazer.
     }
   }
+}
+
+/**
+ * Lê o ícone embutido do `.exe` e devolve um .ico pronto para o `nativeImage`.
+ * Retorna null quando o arquivo não é um PE válido ou não tem grupo de ícones.
+ */
+export function readExeIconIco(exePath: string): Buffer | null {
+  const images = readIcoImages(exePath)
+  return images ? buildIco(images) : null
+}
+
+/**
+ * Como `readExeIconIco`, mas devolve só a maior imagem ≤ `maxSize` (padrão
+ * 256). Ícones com tamanho exato 0 no ICO representam 256×256.
+ */
+export function readExeIconIcoSized(exePath: string, maxSize = 256): Buffer | null {
+  const images = readIcoImages(exePath)
+  const chosen = images ? selectLargestIconImage(images, maxSize) : null
+  return chosen ? buildIco([chosen]) : null
 }
