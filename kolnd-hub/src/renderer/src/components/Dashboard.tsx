@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { Activity, Cpu, Gamepad2, Wifi, Code, Clock, LayoutGrid, AppWindow } from 'lucide-react'
@@ -11,6 +11,12 @@ import { AppConfig, AppState, Game } from '../types'
 import type { RemoteModeReason, ZeroTierInfo } from '../../../shared/remote'
 import { bestRemoteAddress, parseRemoteStatus } from '../lib/remoteAccess'
 import { formatLastPlayed, recentGames } from '../lib/gameStats'
+import {
+  nextIconRetryIds,
+  pruneIconsForReload,
+  requestIconsForIds,
+  retryDelayForAttempt
+} from '../lib/libraryIcons'
 
 interface DashboardProps {
   apps: AppConfig[]
@@ -92,6 +98,20 @@ export function Dashboard({
   const [recent, setRecent] = useState<Game[]>([])
   const [recentIcons, setRecentIcons] = useState<Record<string, string | null>>({})
   const recentIconRequests = useRef<Set<string>>(new Set())
+  // Retentativa com backoff: tentativas por id e timers pendentes.
+  const recentIconRetryAttempts = useRef<Map<string, number>>(new Map())
+  const recentIconRetryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // `true` enquanto o Dashboard está montado. Respostas de IPC antigas NÃO podem
+  // ser descartadas só porque o estado mudou: o cleanup de um efeito roda a cada
+  // re-render e era o que deixava os cards da faixa sem ícone.
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return (): void => {
+      mountedRef.current = false
+    }
+  }, [])
   const [recentCovers, setRecentCovers] = useState<Record<string, string | null>>({})
   const recentCoverRequests = useRef<Set<string>>(new Set())
 
@@ -128,61 +148,150 @@ export function Dashboard({
     }
   }, [])
 
-  // Jogos recentes + ícones da faixa (falha silenciosa: a faixa simplesmente
-  // não aparece se o IPC falhar).
+  // Cancela timer e zera tentativas de um id (ícone chegou).
+  const clearRecentIconRetry = useCallback((id: string): void => {
+    const timer = recentIconRetryTimers.current.get(id)
+    if (timer) clearTimeout(timer)
+    recentIconRetryTimers.current.delete(id)
+    recentIconRetryAttempts.current.delete(id)
+  }, [])
+
+  const clearAllRecentIconRetries = useCallback((): void => {
+    for (const timer of recentIconRetryTimers.current.values()) clearTimeout(timer)
+    recentIconRetryTimers.current.clear()
+    recentIconRetryAttempts.current.clear()
+  }, [])
+
+  // Jogos recentes + manutenção dos ícones em segundo plano, uma vez por
+  // montagem. Falha silenciosa: a faixa simplesmente não aparece se o IPC falhar.
+  // Ao fim do reload, `null`/SVG gerado são descartados para os cards da faixa
+  // se atualizarem sem sair da tela.
+  const recentReloadDone = useRef(false)
+
   useEffect(() => {
     let alive = true
-    window.api
-      .getGames()
-      .then((list) => {
-        if (alive) setRecent(recentGames(list, 6))
-      })
-      .catch(() => {
-        if (alive) setRecent([])
-      })
+    const run = async (): Promise<void> => {
+      try {
+        const list = await window.api.getGames()
+        if (!alive) return
+        setRecent(recentGames(list, 6))
+      } catch {
+        if (!alive) return
+        setRecent([])
+      }
+      if (!recentReloadDone.current) {
+        recentReloadDone.current = true
+        try {
+          await window.api.reloadGameIcons()
+        } catch {
+          // Recarregar ícones é opcional — a faixa deve aparecer de qualquer jeito.
+        }
+        if (!alive) return
+        clearAllRecentIconRetries()
+        recentIconRequests.current.clear()
+        recentCoverRequests.current.clear()
+        // Re-pede null (sem ícone) e SVG gerado (upgrade para arte real).
+        setRecentIcons((prev) => pruneIconsForReload(prev))
+        // Capas: só o `null` (sem capa) precisa ser re-pedido.
+        setRecentCovers((prev) => {
+          const next = { ...prev }
+          let changed = false
+          for (const [id, value] of Object.entries(prev)) {
+            if (value !== null) continue
+            delete next[id]
+            changed = true
+          }
+          return changed ? next : prev
+        })
+      }
+    }
+    void run()
     return (): void => {
       alive = false
     }
+  }, [clearAllRecentIconRetries])
+
+  // Busca os ícones dos jogos recentes que ainda não estão cacheados. A decisão
+  // de aplicar é o `mountedRef` — re-render nenhum descarta respostas em voo.
+  useEffect(() => {
+    const pendingIds = recent
+      .filter((game) => !(game.id in recentIcons) && !recentIconRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) recentIconRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameIcon(id),
+      apply: (id, dataUrl) => {
+        if (dataUrl) clearRecentIconRetry(id)
+        setRecentIcons((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        // Falha/ausência: libera o id para uma nova tentativa.
+        if (!dataUrl) recentIconRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
+  }, [recent, recentIcons, clearRecentIconRetry])
+
+  // Retentativa com backoff (1 s, 2 s, 4 s) para ids que voltaram `null`.
+  const scheduleRecentIconRetry = useCallback((id: string): void => {
+    if (recentIconRetryTimers.current.has(id)) return
+    const attempt = (recentIconRetryAttempts.current.get(id) ?? 0) + 1
+    const delay = retryDelayForAttempt(attempt)
+    if (delay === null) return
+    recentIconRetryAttempts.current.set(id, attempt)
+    const timer = setTimeout(() => {
+      recentIconRetryTimers.current.delete(id)
+      window.api
+        .getGameIcon(id)
+        .then((dataUrl) => {
+          if (!mountedRef.current) return
+          if (dataUrl) recentIconRetryAttempts.current.delete(id)
+          setRecentIcons((prev) => {
+            if (!dataUrl) return { ...prev, [id]: null }
+            return prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }
+          })
+        })
+        .catch(() => {
+          if (!mountedRef.current) return
+          setRecentIcons((prev) => ({ ...prev, [id]: null }))
+        })
+    }, delay)
+    recentIconRetryTimers.current.set(id, timer)
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-    for (const game of recent) {
-      if (game.id in recentIcons) continue
-      if (recentIconRequests.current.has(game.id)) continue
-      recentIconRequests.current.add(game.id)
-      window.api
-        .getGameIcon(game.id)
-        .then((dataUrl) => {
-          if (!cancelled) setRecentIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (!cancelled) setRecentIcons((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
-  }, [recent, recentIcons])
+    const retryIds = nextIconRetryIds(
+      recent,
+      recentIcons,
+      recentIconRetryAttempts.current,
+      new Set(recentIconRetryTimers.current.keys())
+    )
+    for (const id of retryIds) scheduleRecentIconRetry(id)
+  }, [recent, recentIcons, scheduleRecentIconRetry])
 
+  // Cancela todos os timers ao desmontar (sem setState depois).
+  useEffect(() => () => clearAllRecentIconRetries(), [clearAllRecentIconRetries])
+
+  // Capas: mesma estratégia dos ícones (`mountedRef` + liberação em falha).
   useEffect(() => {
-    let cancelled = false
-    for (const game of recent) {
-      if (game.id in recentCovers) continue
-      if (recentCoverRequests.current.has(game.id)) continue
-      recentCoverRequests.current.add(game.id)
-      window.api
-        .getGameCover(game.id)
-        .then((dataUrl) => {
-          if (!cancelled) setRecentCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (!cancelled) setRecentCovers((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
+    const pendingIds = recent
+      .filter((game) => !(game.id in recentCovers) && !recentCoverRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) recentCoverRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameCover(id),
+      apply: (id, dataUrl) => {
+        setRecentCovers((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        if (!dataUrl) recentCoverRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
   }, [recent, recentCovers])
 
   const handleContinueGame = async (game: Game): Promise<void> => {

@@ -12,6 +12,12 @@ import {
 import { useWindowedGrid } from '../hooks/useWindowedGrid'
 import { useGamesRunning } from '../hooks/useGamesRunning'
 import { playSfx } from '../lib/sfx'
+import {
+  nextIconRetryIds,
+  pruneIconsForReload,
+  requestIconsForIds,
+  retryDelayForAttempt
+} from '../lib/libraryIcons'
 import { announce, formatFocusItem } from '../lib/useAnnouncer'
 import { Badge, Spinner } from './ui'
 
@@ -332,6 +338,20 @@ export const BigPictureGames = memo(function BigPictureGames({
   // Ícones por id: dataURL cacheada no estado; `null` = sem ícone (fallback).
   const [icons, setIcons] = useState<Record<string, string | null>>({})
   const iconRequests = useRef<Set<string>>(new Set())
+  // Retentativa com backoff: tentativas por id e timers pendentes.
+  const iconRetryAttempts = useRef<Map<string, number>>(new Map())
+  const iconRetryTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // `true` enquanto a seção está montada. Respostas de IPC antigas NÃO podem ser
+  // descartadas só porque o estado mudou: o cleanup de um efeito roda a cada
+  // re-render e era o que deixava só 1 card com ícone no BP.
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return (): void => {
+      mountedRef.current = false
+    }
+  }, [])
   // Capas por id (T6): quando existe, o card mostra 2:3 com object-cover.
   const [covers, setCovers] = useState<Record<string, string | null>>({})
   const coverRequests = useRef<Set<string>>(new Set())
@@ -428,56 +448,145 @@ export const BigPictureGames = memo(function BigPictureGames({
     }
   }, [])
 
+  // Cancela timer e zera tentativas de um id (ícone chegou).
+  const clearIconRetry = useCallback((id: string): void => {
+    const timer = iconRetryTimers.current.get(id)
+    if (timer) clearTimeout(timer)
+    iconRetryTimers.current.delete(id)
+    iconRetryAttempts.current.delete(id)
+  }, [])
+
+  const clearAllIconRetries = useCallback((): void => {
+    for (const timer of iconRetryTimers.current.values()) clearTimeout(timer)
+    iconRetryTimers.current.clear()
+    iconRetryAttempts.current.clear()
+  }, [])
+
+  // A lista aparece primeiro; o reparo/aquisição de ícones roda em segundo plano,
+  // uma vez por montagem. Quando termina, os `null` (e SVGs gerados) são
+  // descartados para os cards se atualizarem sem sair da tela.
+  const iconReloadDone = useRef(false)
+
   useEffect(() => {
-    // Carregamento assíncrono: o estado só muda quando a lista chega.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadGames()
-  }, [loadGames])
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      await loadGames()
+      if (cancelled) return
+      if (!iconReloadDone.current) {
+        iconReloadDone.current = true
+        try {
+          await window.api.reloadGameIcons()
+        } catch {
+          // Recarregar ícones é opcional — a grade deve abrir de qualquer jeito.
+        }
+        if (cancelled) return
+        clearAllIconRetries()
+        iconRequests.current.clear()
+        coverRequests.current.clear()
+        // Re-pede null (sem ícone) e SVG gerado (upgrade para arte real).
+        setIcons((prev) => pruneIconsForReload(prev))
+        // Capas: só o `null` (sem capa) precisa ser re-pedido.
+        setCovers((prev) => {
+          const next = { ...prev }
+          let changed = false
+          for (const [id, value] of Object.entries(prev)) {
+            if (value !== null) continue
+            delete next[id]
+            changed = true
+          }
+          return changed ? next : prev
+        })
+      }
+    }
+    void run()
+    return (): void => {
+      cancelled = true
+    }
+  }, [loadGames, clearAllIconRetries])
 
   // Busca os ícones que ainda não estão cacheados (mesmo padrão da Biblioteca).
+  // Cada id é pedido no máximo uma vez por rodada; a decisão de aplicar é o
+  // `mountedRef`, não o cleanup do efeito — re-render nenhum descarta respostas.
   useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in icons) continue
-      if (iconRequests.current.has(game.id)) continue
-      iconRequests.current.add(game.id)
-      window.api
-        .getGameIcon(game.id)
-        .then((dataUrl) => {
-          if (cancelled) return
-          setIcons((prev) => ({ ...prev, [game.id]: dataUrl }))
-        })
-        .catch(() => {
-          if (cancelled) return
-          setIcons((prev) => ({ ...prev, [game.id]: null }))
-        })
-    }
-    return (): void => {
-      cancelled = true
-    }
-  }, [games, icons])
+    const pendingIds = games
+      .filter((game) => !(game.id in icons) && !iconRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) iconRequests.current.add(id)
 
-  // Capas: mesma estratégia (uma requisição por id por montagem).
-  useEffect(() => {
-    let cancelled = false
-    for (const game of games) {
-      if (game.id in covers) continue
-      if (coverRequests.current.has(game.id)) continue
-      coverRequests.current.add(game.id)
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameIcon(id),
+      apply: (id, dataUrl) => {
+        if (dataUrl) clearIconRetry(id)
+        setIcons((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        // Falha/ausência: libera o id para uma nova tentativa.
+        if (!dataUrl) iconRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
+  }, [games, icons, clearIconRetry])
+
+  // Retentativa com backoff (1 s, 2 s, 4 s) para ids que voltaram `null`.
+  const scheduleIconRetry = useCallback((id: string): void => {
+    if (iconRetryTimers.current.has(id)) return
+    const attempt = (iconRetryAttempts.current.get(id) ?? 0) + 1
+    const delay = retryDelayForAttempt(attempt)
+    if (delay === null) return
+    iconRetryAttempts.current.set(id, attempt)
+    const timer = setTimeout(() => {
+      iconRetryTimers.current.delete(id)
       window.api
-        .getGameCover(game.id)
+        .getGameIcon(id)
         .then((dataUrl) => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: dataUrl }))
+          if (!mountedRef.current) return
+          if (dataUrl) iconRetryAttempts.current.delete(id)
+          setIcons((prev) => {
+            if (!dataUrl) return { ...prev, [id]: null }
+            return prev[id] === dataUrl ? prev : { ...prev, [id]: dataUrl }
+          })
         })
         .catch(() => {
-          if (cancelled) return
-          setCovers((prev) => ({ ...prev, [game.id]: null }))
+          if (!mountedRef.current) return
+          setIcons((prev) => ({ ...prev, [id]: null }))
         })
-    }
-    return (): void => {
-      cancelled = true
-    }
+    }, delay)
+    iconRetryTimers.current.set(id, timer)
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const retryIds = nextIconRetryIds(
+      games,
+      icons,
+      iconRetryAttempts.current,
+      new Set(iconRetryTimers.current.keys())
+    )
+    for (const id of retryIds) scheduleIconRetry(id)
+  }, [loading, games, icons, scheduleIconRetry])
+
+  // Cancela todos os timers ao desmontar (sem setState depois).
+  useEffect(() => () => clearAllIconRetries(), [clearAllIconRetries])
+
+  // Capas: mesma estratégia dos ícones (`mountedRef` + liberação em falha).
+  useEffect(() => {
+    const pendingIds = games
+      .filter((game) => !(game.id in covers) && !coverRequests.current.has(game.id))
+      .map((game) => game.id)
+    if (pendingIds.length === 0) return
+    for (const id of pendingIds) coverRequests.current.add(id)
+
+    void requestIconsForIds(pendingIds, {
+      fetchIcon: (id) => window.api.getGameCover(id),
+      apply: (id, dataUrl) => {
+        setCovers((prev) => ({ ...prev, [id]: dataUrl }))
+      },
+      onSettled: (id, dataUrl) => {
+        if (!dataUrl) coverRequests.current.delete(id)
+      },
+      isMounted: () => mountedRef.current
+    })
   }, [games, covers])
 
   const handleLaunch = useCallback(
