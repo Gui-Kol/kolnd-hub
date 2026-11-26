@@ -155,6 +155,15 @@ mais handlers inline em `index.ts`:
 | `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`)        | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
 | inline em `index.ts`                     | —                                                                              | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
 
+### Atualizações do PC (winget)
+
+`winget:list-upgrades` passa por `listUpgradableCached(force)`: uma lista bem-sucedida fica
+em memória por **10 min** (`WINGET_LIST_CACHE_TTL_MS`) e é reutilizada ao reabrir a aba sem
+rodar o winget — nem o probe `winget --version`. O argumento opcional `{ force: true }`
+(botão "Verificar novamente") ignora o cache. Erros não são cacheados; chamadas
+concorrentes compartilham a mesma promessa em voo; e o sucesso de `winget:upgrade-one`
+chama `invalidateUpgradableCache()`, forçando a próxima lista a ser real.
+
 ### Acesso remoto (ZeroTier)
 
 `remoteAccess.ts` lê `zerotier-cli -j info|listnetworks`, `sc.exe query ZeroTierOneService` e

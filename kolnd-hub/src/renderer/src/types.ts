@@ -161,6 +161,10 @@ export interface WingetListResult {
   rawLog?: string
   /** true quando o winget não está disponível/instalado no sistema. */
   wingetMissing?: boolean
+  /** ISO da consulta real que produziu a lista (mesmo quando servida do cache). */
+  checkedAt?: string
+  /** true quando a lista veio do cache em memória (sem rodar o winget agora). */
+  fromCache?: boolean
 }
 
 export interface WingetUpgradeResult {

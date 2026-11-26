@@ -235,7 +235,10 @@ const api = {
     ipcRenderer.invoke('startup:addBatch', items),
 
   // ── Winget (Manutenção do PC) ───────────────────
-  listUpgradableUpdates: (): Promise<{
+  // Sem `force` = usa o cache de 10 min do main; `force: true` roda o winget de verdade.
+  listUpgradableUpdates: (
+    force?: boolean
+  ): Promise<{
     ok: boolean
     items?: Array<{
       name: string
@@ -246,7 +249,12 @@ const api = {
     error?: string
     rawLog?: string
     wingetMissing?: boolean
-  }> => ipcRenderer.invoke('winget:list-upgrades'),
+    checkedAt?: string
+    fromCache?: boolean
+  }> =>
+    force === undefined
+      ? ipcRenderer.invoke('winget:list-upgrades')
+      : ipcRenderer.invoke('winget:list-upgrades', { force }),
 
   upgradeOneUpdate: (id: string): Promise<{ ok: boolean; exitCode: number | null; log: string }> =>
     ipcRenderer.invoke('winget:upgrade-one', { id }),

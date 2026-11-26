@@ -20,6 +20,15 @@ import { Button, Card, EmptyState, ErrorState, LoadingState } from './ui'
 /** Link da página do App Installer na Microsoft Store (para quem não tem winget). */
 const APP_INSTALLER_STORE_URL = 'https://apps.microsoft.com/detail/9NBLGGH4NNS1'
 
+/** "Verificado às HH:MM" a partir do `checkedAt` (ISO) devolvido pelo main. */
+function verifiedLabel(checkedAt?: string): string | null {
+  if (!checkedAt) return null
+  const date = new Date(checkedAt)
+  if (Number.isNaN(date.getTime())) return null
+  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return `Verificado às ${time}`
+}
+
 type ItemStatus = 'aguardando' | 'atualizando' | 'concluido' | 'erro' | 'cancelado'
 
 interface ItemState {
@@ -123,9 +132,10 @@ export function PcUpdates(): JSX.Element {
   const cancelRef = useRef(false)
 
   // Executa a busca e devolve o resultado (nunca lança — erros viram WingetListResult).
-  const fetchOnce = useCallback(async (): Promise<WingetListResult> => {
+  // `force` falso usa o cache de 10 min do main; o botão manual passa `true`.
+  const fetchOnce = useCallback(async (force: boolean): Promise<WingetListResult> => {
     try {
-      return await window.api.listUpgradableUpdates()
+      return await window.api.listUpgradableUpdates(force)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: `Não foi possível verificar as atualizações: ${message}` }
@@ -141,7 +151,7 @@ export function PcUpdates(): JSX.Element {
     setItemStates({})
     setExpandedLogs(new Set())
     setProgress(null)
-    void fetchOnce().then((res) => {
+    void fetchOnce(true).then((res) => {
       setResult(res)
       setLoading(false)
       setSelected(
@@ -154,7 +164,8 @@ export function PcUpdates(): JSX.Element {
   // tudo acontece nos callbacks .then (ignora o resultado se desmontar antes).
   useEffect(() => {
     let cancelled = false
-    void fetchOnce().then((res) => {
+    // Montagem = consulta com cache: reabrir a aba em < 10 min não roda o winget.
+    void fetchOnce(false).then((res) => {
       if (cancelled) return
       setResult(res)
       setLoading(false)
@@ -165,6 +176,7 @@ export function PcUpdates(): JSX.Element {
   }, [fetchOnce])
 
   const items = result?.ok ? (result.items ?? []) : []
+  const verified = result?.ok ? verifiedLabel(result.checkedAt) : null
   const selectedCount = items.filter((i) => selected.has(i.id)).length
   const allSelected = items.length > 0 && items.every((i) => selected.has(i.id))
   const someSelected = !allSelected && items.some((i) => selected.has(i.id))
@@ -267,7 +279,8 @@ export function PcUpdates(): JSX.Element {
     // continuam desatualizados reaparecem. Badges de erro/cancelado são mantidos
     // para esses itens; os demais saem da lista ou voltam limpos.
     setLoading(true)
-    const res = await fetchOnce()
+    // Sucessos da fila invalidam o cache no main; falhas mantêm a lista atual.
+    const res = await fetchOnce(false)
     setResult(res)
     setLoading(false)
     setProgress(null)
@@ -339,7 +352,9 @@ export function PcUpdates(): JSX.Element {
         icon={CheckCircle2}
         tone="success"
         title="Nenhuma atualização disponível 🎉"
-        hint="Tudo certo por aqui — seus programas estão em dia."
+        hint={`Tudo certo por aqui — seus programas estão em dia.${
+          verified ? ` ${verified}.` : ''
+        }`}
         className="border-success-border p-12"
         action={
           <Button variant="secondary" size="md" onClick={check} disabled={loading}>
@@ -362,7 +377,7 @@ export function PcUpdates(): JSX.Element {
                   {items.length === 1 ? '' : 'is'}
                 </h3>
                 <p className="mt-0.5 text-[10px] text-ink-tertiary">
-                  Segundo o winget, direto do seu PC
+                  Segundo o winget, direto do seu PC{verified ? ` · ${verified}` : ''}
                 </p>
               </div>
             </div>

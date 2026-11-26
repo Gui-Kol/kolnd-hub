@@ -161,7 +161,7 @@ stubs (`winget.exe`/`msiexec.exe`), necessário no B5.
 | B2 | Fecha a janela pelo X (`BrowserWindow.close()`), o app oculta para a bandeja; HUD desligado. |
 | B3 | `window.api.hudSetVisible(true)` no renderer, espera a janela `#hud` visível, depois fecha a principal (bandeja). |
 | B4 | Meu PC → aba Monitor; `window.api.hwmonSetInterval(500)`; mede também a cadência real dos pushes (`onHwMonitorUpdate`). |
-| B5 | Meu PC → aba Atualizações, conta linhas `winget` no `stubs.log`; sai para Ferramentas, volta a Meu PC e ativa a aba de novo. |
+| B5 | Meu PC → aba Atualizações, conta linhas `winget` no `stubs.log`; o stub responde `--version` e JSON em `--output json` (1 item), então a 1ª ativação faz 2 invocações e a 2ª, em < 10 min, deve ser 0 (cache do main); sai para Ferramentas e volta a Meu PC para reativar. |
 | B6 | 40 jogos semeados no `config.json`, entra no Big Picture pela UI. |
 | B7 | `config.json` com `hud.visible = true`; mede abertura + spawns dos 10 s iniciais. |
 

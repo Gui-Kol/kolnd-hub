@@ -159,7 +159,8 @@ declare global {
       ) => Promise<{ success: boolean; errors: string[] }>
 
       // ── Winget (Manutenção do PC) ───────────────────
-      listUpgradableUpdates: () => Promise<{
+      // Sem `force` = cache de 10 min; `force: true` consulta o winget de verdade.
+      listUpgradableUpdates: (force?: boolean) => Promise<{
         ok: boolean
         items?: Array<{
           name: string
@@ -170,6 +171,8 @@ declare global {
         error?: string
         rawLog?: string
         wingetMissing?: boolean
+        checkedAt?: string
+        fromCache?: boolean
       }>
       upgradeOneUpdate: (
         id: string

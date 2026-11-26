@@ -106,6 +106,12 @@ describe('preload — contrato de window.api', () => {
     await api.getGameCover('g1')
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:get-cover', 'g1')
 
+    await api.listUpgradableUpdates()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('winget:list-upgrades')
+
+    await api.listUpgradableUpdates(true)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('winget:list-upgrades', { force: true })
+
     await api.upgradeOneUpdate('Git.Git')
     expect(mocks.invoke).toHaveBeenLastCalledWith('winget:upgrade-one', { id: 'Git.Git' })
 

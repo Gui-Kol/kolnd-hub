@@ -24,7 +24,7 @@ export interface StubInfo {
   stubsLog: string
 }
 
-// Fonte C# do stub. %NAME% é substituído pelo nome do programa (winget/msiexec).
+// Fonte C# do stub genérico. %NAME% é substituído pelo nome do programa (msiexec).
 // O caminho do log é embutido na compilação (sem depender de env propagation).
 const STUB_SOURCE = `
 using System;
@@ -43,11 +43,41 @@ public static class StubProgram
     }
 }`
 
-function compileStub(name: 'winget' | 'msiexec', stubsDir: string, logPath: string): boolean {
-  const source = STUB_SOURCE.replace('%LOG_PATH%', logPath.replace(/\\/g, '\\\\')).replace(
-    /%NAME%/g,
-    name
-  )
+// Stub do winget: registra TODA invocação, mas também responde o mínimo que o
+// app consome. Sem stdout, `listUpgradable()` falha no parse e o cache (que só
+// guarda sucesso) nunca é exercitado — o B5 mediria a mesma consulta na 2ª
+// ativação. `--version` prova disponibilidade; `--output json` devolve 1 item.
+const WINGET_STUB_SOURCE = `
+using System;
+public static class WingetStub
+{
+    public static int Main(string[] args)
+    {
+        string joined = string.Join(" ", args);
+        try
+        {
+            System.IO.File.AppendAllText(
+                @"%LOG_PATH%",
+                "winget " + joined + "\\n");
+        }
+        catch { /* nunca falhar: stub de diagnóstico, não de lógica */ }
+        if (joined.Contains("--version"))
+        {
+            Console.WriteLine("v1.9.0");
+            return 0;
+        }
+        if (joined.Contains("--output json"))
+        {
+            Console.WriteLine(@"[{""PackageIdentifier"":""Git.Git"",""PackageName"":""Git"",""Version"":""2.55.0"",""AvailableVersion"":""2.56.0""}]");
+            return 0;
+        }
+        /* Caminho de tabela não é usado quando o JSON funciona. */
+        return 0;
+    }
+}`
+
+/** Compila um fonte C# no executável `${name}.exe` do diretório de stubs. */
+function compileSource(name: 'winget' | 'msiexec', source: string, stubsDir: string): boolean {
   const exePath = join(stubsDir, `${name}.exe`)
   // Add-Type via stdin-less file: escreve o fonte temporário e compila.
   const sourcePath = join(stubsDir, `${name}.stub.cs`)
@@ -66,6 +96,19 @@ function compileStub(name: 'winget' | 'msiexec', stubsDir: string, logPath: stri
   } catch {
     return false
   }
+}
+
+function compileStub(name: 'msiexec', stubsDir: string, logPath: string): boolean {
+  const source = STUB_SOURCE.replace('%LOG_PATH%', logPath.replace(/\\/g, '\\\\')).replace(
+    /%NAME%/g,
+    name
+  )
+  return compileSource(name, source, stubsDir)
+}
+
+function compileWingetStub(stubsDir: string, logPath: string): boolean {
+  const source = WINGET_STUB_SOURCE.replace('%LOG_PATH%', logPath.replace(/\\/g, '\\\\'))
+  return compileSource('winget', source, stubsDir)
 }
 
 // Stub do CLI do ZeroTier: `-j info` e `-j listnetworks` devolvem um nó
@@ -120,8 +163,12 @@ export function createStubs(rootDir: string): StubInfo {
   mkdirSync(stubsDir, { recursive: true })
   const stubsLog = join(stubsDir, 'stubs.log')
 
-  for (const name of ['winget', 'msiexec'] as const) {
-    const ok = compileStub(name, stubsDir, stubsLog)
+  const compiled: Array<{ name: 'winget' | 'msiexec'; ok: boolean }> = [
+    { name: 'winget', ok: compileWingetStub(stubsDir, stubsLog) },
+    { name: 'msiexec', ok: compileStub('msiexec', stubsDir, stubsLog) }
+  ]
+
+  for (const { name, ok } of compiled) {
     if (!ok) {
       // Fallback: arquivo-placeholder (NÃO executável de verdade). O smoke não
       // invoca nenhum dos dois; se invocado, `spawn` falha e o fluxo que o
