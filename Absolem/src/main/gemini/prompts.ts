@@ -5,13 +5,16 @@
  * permita correlacionar comportamento com a versão exata do prompt.
  */
 
-export const PROMPT_VERSION = '1.0.0'
+export const PROMPT_VERSION = '1.1.0'
 
 export interface SystemPromptOptions {
   /** Idioma padrão quando o usuário não deixar claro. */
   defaultLanguage?: string
-  /** Ferramentas disponíveis nesta chamada (nome + descrição curta). */
-  tools?: Array<{ name: string; description: string }>
+  /**
+   * Ferramentas disponíveis nesta chamada. O prompt recebe só nome e
+   * categoria; o JSON Schema completo fica na declaração do transporte.
+   */
+  tools?: Array<{ name: string; description?: string; category?: string }>
 }
 
 /**
@@ -25,8 +28,10 @@ export function buildSystemPrompt(options: SystemPromptOptions = {}): string {
     tools.length === 0
       ? 'Nenhuma ferramenta está disponível nesta chamada.'
       : [
-          'Ferramentas disponíveis nesta chamada:',
-          ...tools.map((tool) => `- ${tool.name}: ${tool.description}`)
+          'Ferramentas disponíveis nesta chamada (nome e categoria):',
+          ...tools.map((tool) =>
+            tool.category ? `- ${tool.name} [${tool.category}]` : `- ${tool.name}`
+          )
         ].join('\n')
 
   return [

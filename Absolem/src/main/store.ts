@@ -8,6 +8,7 @@ import {
   type OverlayConfig,
   type PermissionsConfig,
   type PrivacyConfig,
+  type Routine,
   type StoreKey,
   type ThemeConfig,
   type UiConfig,
@@ -21,6 +22,8 @@ import {
 } from '../shared/overlay'
 import { defaultTheme, normalizeTheme } from '../shared/theme'
 import { normalizePrivacyScreenConfig } from '../shared/screen'
+import { defaultPermissionCategories, normalizePermissionsState } from '../shared/permissions'
+import { normalizeRoutines } from '../shared/routines'
 import { DEFAULT_MONTHLY_TOKEN_CAP, clampCap } from './gemini/usage'
 import { defaultChatState, normalizeChatState } from './gemini/history'
 import { defaultUsageState, normalizeUsageState } from './gemini/usage'
@@ -33,12 +36,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.6.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.7.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.6.0'
+export const STORE_SCHEMA_VERSION = '1.7.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -90,7 +93,19 @@ export function defaultPrivacyConfig(): PrivacyConfig {
 }
 
 export function defaultPermissionsConfig(): PermissionsConfig {
-  return { microphone: false, screenVision: false, computerControl: false, fileAccess: false }
+  return {
+    microphone: false,
+    paused: false,
+    categories: defaultPermissionCategories()
+  }
+}
+
+export function defaultRoutinesConfig(): Routine[] {
+  return []
+}
+
+export function normalizeRoutinesConfig(input: unknown): Routine[] {
+  return normalizeRoutines(input)
 }
 
 export function defaultUiConfig(): UiConfig {
@@ -107,7 +122,8 @@ export function defaultAbsolemConfig(): AbsolemConfig {
     permissions: defaultPermissionsConfig(),
     ui: defaultUiConfig(),
     usage: defaultUsageConfig(),
-    chat: defaultChatConfig()
+    chat: defaultChatConfig(),
+    routines: defaultRoutinesConfig()
   }
 }
 
@@ -178,13 +194,7 @@ export function normalizePrivacyConfig(input: unknown): PrivacyConfig {
 }
 
 export function normalizePermissionsConfig(input: unknown): PermissionsConfig {
-  const raw = asRecord(input)
-  return {
-    microphone: raw.microphone === true,
-    screenVision: raw.screenVision === true,
-    computerControl: raw.computerControl === true,
-    fileAccess: raw.fileAccess === true
-  }
+  return normalizePermissionsState(input)
 }
 
 export function normalizeUiConfig(input: unknown): UiConfig {
@@ -212,7 +222,8 @@ export function normalizeAbsolemConfig(input: unknown): AbsolemConfig {
     permissions: normalizePermissionsConfig(raw.permissions),
     ui: normalizeUiConfig(raw.ui),
     usage: normalizeUsageState(raw.usage),
-    chat: normalizeChatState(raw.chat)
+    chat: normalizeChatState(raw.chat),
+    routines: normalizeRoutinesConfig(raw.routines)
   }
 }
 
@@ -338,6 +349,23 @@ const schema: Store.Schema<AbsolemConfig> = {
     default: defaultPermissionsConfig(),
     properties: {
       microphone: { type: 'boolean' },
+      paused: { type: 'boolean' },
+      categories: {
+        type: 'object',
+        properties: {
+          'apps.launch': { type: 'string' },
+          'apps.close': { type: 'string' },
+          'files.read': { type: 'string' },
+          'files.write': { type: 'string' },
+          'system.power': { type: 'string' },
+          'uia.control': { type: 'string' },
+          'web.search': { type: 'string' }
+        },
+        additionalProperties: false
+      },
+      // Formato legado (até 1.6.0). Continua válido no ajv porque o
+      // electron-store valida o arquivo ANTES das migrações; a 1.7.0
+      // normaliza as categorias novas e descarta estes campos.
       screenVision: { type: 'boolean' },
       computerControl: { type: 'boolean' },
       fileAccess: { type: 'boolean' }
@@ -392,6 +420,36 @@ const schema: Store.Schema<AbsolemConfig> = {
       }
     },
     additionalProperties: false
+  },
+  routines: {
+    type: 'array',
+    default: defaultRoutinesConfig(),
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        enabled: { type: 'boolean' },
+        when: {
+          type: 'object',
+          properties: {
+            type: { type: 'string' },
+            time: { type: 'string' },
+            weekday: { type: 'number' }
+          },
+          additionalProperties: false
+        },
+        action: {
+          type: 'object',
+          properties: {
+            tool: { type: 'string' },
+            args: { type: 'object' }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false
+    }
   }
 }
 
@@ -499,6 +557,22 @@ export function migrate160(store: StoreLike): void {
   store.set('privacy', normalizePrivacyConfig(input))
 }
 
+/**
+ * 1.7.0: permissões por categoria (task 08).
+ *
+ * `microphone` e `paused` são preservados; as categorias novas recebem os
+ * defaults aprovados. Os booleanos legados `screenVision`, `computerControl` e
+ * `fileAccess` são descartados de propósito: eles davam consentimento amplo e
+ * não podem virar `allow` para energia/UIA. Idempotente.
+ */
+export function migrate170(store: StoreLike): void {
+  store.set(
+    'permissions',
+    normalizePermissionsConfig(store.get('permissions', defaultPermissionsConfig()))
+  )
+  store.set('routines', normalizeRoutinesConfig(store.get('routines', defaultRoutinesConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -506,7 +580,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.3.0': migrate130,
   '1.4.0': migrate140,
   '1.5.0': migrate150,
-  '1.6.0': migrate160
+  '1.6.0': migrate160,
+  '1.7.0': migrate170
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -589,7 +664,8 @@ export function getStoreSnapshot(): AbsolemConfig {
       permissions: store.get('permissions', defaultPermissionsConfig()),
       ui: store.get('ui', defaultUiConfig()),
       usage: store.get('usage', defaultUsageConfig()),
-      chat: store.get('chat', defaultChatConfig())
+      chat: store.get('chat', defaultChatConfig()),
+      routines: store.get('routines', defaultRoutinesConfig())
     })
   } catch (err) {
     logger.error('store', 'Falha ao ler config.json; usando defaults em memória:', err)

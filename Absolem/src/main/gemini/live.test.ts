@@ -106,6 +106,20 @@ describe('sessão Live no main', () => {
     expect(transport.connects).toHaveLength(0)
   })
 
+  it('devolve toolResponse ao Live', async () => {
+    const { transport, session } = setup()
+    await session.connect()
+
+    session.sendToolResponse([
+      { name: 'get_current_time', response: { ok: true, result: { iso: '12:00' } } }
+    ])
+
+    expect(transport.last?.toolResponses[0]).toEqual([
+      { name: 'get_current_time', response: { ok: true, result: { iso: '12:00' } } }
+    ])
+    session.close('teste')
+  })
+
   it('close é idempotente e contabiliza o áudio uma vez', async () => {
     const onClose = vi.fn()
     const { transport, session, records } = setup({ onClose })

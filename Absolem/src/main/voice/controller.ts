@@ -9,7 +9,8 @@ import type {
   VoiceTranscriptPush
 } from '../../shared/voice'
 import { VOICE_REASONS } from '../../shared/voice'
-import type { GeminiFunctionCall } from '../gemini/transport'
+import type { GeminiFunctionCall, GeminiFunctionResponse } from '../gemini/transport'
+import type { ToolCallResult } from '../gemini/tools/router'
 import { MICROPHONE_DENIED_MESSAGE } from './consent'
 import { VoiceStateMachine } from './machine'
 
@@ -40,6 +41,7 @@ export interface VoiceSessionLike {
   connect: () => Promise<void>
   sendAudio: (pcm: Uint8Array) => void
   sendText: (text: string) => void
+  sendToolResponse?: (responses: GeminiFunctionResponse[]) => void
   interrupt: () => void
   close: (reason: string) => void
   appendHistory: (role: 'user' | 'model', text: string) => void
@@ -69,6 +71,8 @@ export interface VoiceControllerDeps {
   pushState: (change: VoiceStateChange) => void
   pushAudio: (push: VoiceAudioPush) => void
   pushTranscript: (push: VoiceTranscriptPush) => void
+  /** Roteador composto da task 08 (permissão → confirmação → execução). */
+  routeToolCall?: (call: GeminiFunctionCall) => Promise<ToolCallResult>
   isOverlayVisible: () => boolean
   showOverlay: () => void
   notify: (message: string) => void
@@ -367,11 +371,7 @@ export class VoiceController {
       },
       onToolCall: (calls) => {
         if (epoch !== this.epoch) return
-        // A execução de tools da Live fica para a task 08; aqui só não se perde
-        // o evento (log sem conteúdo sensível).
-        this.deps.logger?.debug('voice', 'tool call recebida do Live', {
-          count: calls.length
-        })
+        void this.handleToolCalls(epoch, calls)
       },
       onError: (error) => {
         if (epoch !== this.epoch) return
@@ -398,6 +398,38 @@ export class VoiceController {
         }
       }
     }
+  }
+
+  /**
+   * Roteia cada `toolCall` do Live pelo mesmo roteador da conversa de texto.
+   * Falha/recusa vira resposta estruturada ao modelo; a sessão nunca fecha por
+   * causa de uma ferramenta.
+   */
+  private async handleToolCalls(epoch: number, calls: GeminiFunctionCall[]): Promise<void> {
+    const route = this.deps.routeToolCall
+    this.deps.logger?.debug('voice', 'tool call recebida do Live', { count: calls.length })
+    if (!route || calls.length === 0) return
+
+    const responses: GeminiFunctionResponse[] = []
+    for (const call of calls) {
+      if (epoch !== this.epoch) return
+      let result: ToolCallResult
+      try {
+        result = await route(call)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        result = { ok: false, error: { kind: 'failed', message: message.slice(0, 300) } }
+      }
+      if (epoch !== this.epoch) return
+      responses.push({
+        name: call.name,
+        response: result.ok
+          ? { ok: true, result: result.result ?? null }
+          : { ok: false, error: result.error }
+      })
+    }
+    if (epoch !== this.epoch || responses.length === 0) return
+    this.session?.sendToolResponse?.(responses)
   }
 
   private handleTranscript(event: VoiceSessionTranscript): void {

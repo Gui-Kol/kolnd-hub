@@ -17,6 +17,13 @@ import type {
 } from './gemini'
 import type { ThemeConfig } from './theme'
 import type {
+  PermissionCategory,
+  PermissionDecision,
+  PermissionCategories,
+  PermissionsState
+} from './permissions'
+import type { Routine } from './routines'
+import type {
   CaptureIndicatorPush,
   CaptureKind,
   CaptureRequestPush,
@@ -98,7 +105,11 @@ export const IPC = {
   captureStatus: 'capture:status',
   captureRequest: 'capture:request',
   captureResult: 'capture:result',
-  captureIndicator: 'capture:indicator'
+  captureIndicator: 'capture:indicator',
+  permissionsGet: 'permissions:get',
+  permissionsSet: 'permissions:set',
+  actionsPause: 'actions:pause',
+  actionsStatus: 'actions:status'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -114,7 +125,9 @@ export const IPC_PREFIXES = [
   'chat',
   'voice',
   'diagnostics',
-  'capture'
+  'capture',
+  'permissions',
+  'actions'
 ] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
@@ -238,6 +251,35 @@ export type VoiceStatusResult = { ok: true; status: VoiceStatus } | IpcError
 
 export type DiagnosticsGeminiResult = { ok: true; diagnostics: GeminiDiagnostics } | IpcError
 
+/** Estado de permissões por categoria (task 08). */
+export type PermissionsGetResult = { ok: true; permissions: PermissionsState } | IpcError
+
+export interface PermissionsSetRequest {
+  category: PermissionCategory
+  decision: PermissionDecision
+}
+
+export type ActionsPauseResult = { ok: true; paused: boolean } | IpcError
+
+/** Limites de taxa expostos à UI/diagnóstico (task 08, T10). */
+export interface ActionsLimits {
+  appLaunchesPerMinute: number
+  fileOpsPerRequest: number
+  uiaActionsPerTwoSeconds: number
+}
+
+/** `actions:status`: pausa, permissões, rotinas e limites vigentes. */
+export interface ActionsStatus {
+  paused: boolean
+  permissions: PermissionsState
+  routines: Routine[]
+  limits: ActionsLimits
+}
+
+export type ActionsStatusResult = { ok: true; status: ActionsStatus } | IpcError
+
+export type { PermissionCategory, PermissionDecision, PermissionCategories, PermissionsState }
+
 /** `capture:ask`: captura + envio multimodal, com streaming em `chat:*`. */
 export interface CaptureAskRequest {
   requestId: string
@@ -357,6 +399,10 @@ export interface IpcContract {
   [IPC.captureRequest]: { request: undefined; response: CaptureRequestPush }
   [IPC.captureResult]: { request: CaptureFrameResultRequest; response: SimpleResult }
   [IPC.captureIndicator]: { request: undefined; response: CaptureIndicatorPush }
+  [IPC.permissionsGet]: { request: undefined; response: PermissionsGetResult }
+  [IPC.permissionsSet]: { request: PermissionsSetRequest; response: SimpleResult }
+  [IPC.actionsPause]: { request: { paused: boolean }; response: ActionsPauseResult }
+  [IPC.actionsStatus]: { request: undefined; response: ActionsStatusResult }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -425,6 +471,14 @@ export interface AbsolemApi {
   }
   diagnostics: {
     gemini: () => Promise<DiagnosticsGeminiResult>
+  }
+  permissions: {
+    get: () => Promise<PermissionsGetResult>
+    set: (request: PermissionsSetRequest) => Promise<SimpleResult>
+  }
+  actions: {
+    pause: (paused: boolean) => Promise<ActionsPauseResult>
+    status: () => Promise<ActionsStatusResult>
   }
   capture: {
     /** Lista telas/janelas com thumbnails 320x180 para escolha. */

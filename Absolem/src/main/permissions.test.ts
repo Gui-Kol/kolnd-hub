@@ -98,9 +98,16 @@ describe('permissões de microfone', () => {
   it('consentimento é persistido preservando as demais permissões', () => {
     const data: PermissionsConfig = {
       microphone: false,
-      screenVision: true,
-      computerControl: false,
-      fileAccess: true
+      paused: false,
+      categories: {
+        'apps.launch': 'ask',
+        'apps.close': 'ask',
+        'files.read': 'ask',
+        'files.write': 'deny',
+        'system.power': 'deny',
+        'uia.control': 'deny',
+        'web.search': 'allow'
+      }
     }
     const store = {
       read: () => ({ ...data }),
@@ -113,8 +120,8 @@ describe('permissões de microfone', () => {
     expect(isMicrophoneGranted(store)).toBe(false)
     expect(setMicrophoneConsent(store, true)).toEqual({ ok: true })
     expect(data).toEqual(withMicrophoneConsent(data, true))
-    expect(data.screenVision).toBe(true)
-    expect(data.fileAccess).toBe(true)
+    expect(data.categories['files.write']).toBe('deny')
+    expect(data.categories['web.search']).toBe('allow')
     expect(isMicrophoneGranted(store)).toBe(true)
 
     expect(setMicrophoneConsent(store, false)).toEqual({ ok: true })

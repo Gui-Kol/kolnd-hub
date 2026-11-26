@@ -1,4 +1,5 @@
 import { getPersistentStore, getStoreSnapshot } from '../store'
+import { getActionsRuntime } from '../actions/instance'
 import { clearApiKey, getApiKey, hasApiKey, setApiKey } from '../secrets'
 import { logger } from '../logger'
 import { GeminiEngine, type GeminiEngineConfig } from './engine'
@@ -63,7 +64,19 @@ export function createGeminiEngine(): GeminiEngine {
     usage: getUsageMeter(),
     history: createChatHistory({ store: getPersistentStore() }),
     logger,
-    defaultLanguage: getStoreSnapshot().ui.language
+    defaultLanguage: getStoreSnapshot().ui.language,
+    // Lido a cada turno: o runtime de ações nasce no `whenReady` junto do IPC.
+    tools: () => getActionsRuntime()?.registry.listTools() ?? [],
+    route: async (call) => {
+      const runtime = getActionsRuntime()
+      if (!runtime) {
+        return {
+          ok: false,
+          error: { kind: 'not-found', message: 'Ferramentas de ação não inicializadas.' }
+        }
+      }
+      return runtime.route(call)
+    }
   })
 }
 

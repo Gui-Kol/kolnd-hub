@@ -1,4 +1,9 @@
-import type { GeminiFunctionCall, GeminiToolDeclaration, GeminiUsageMetadata } from './transport'
+import type {
+  GeminiFunctionCall,
+  GeminiFunctionResponse,
+  GeminiToolDeclaration,
+  GeminiUsageMetadata
+} from './transport'
 
 /**
  * Contrato neutro da sessão Live.
@@ -45,6 +50,8 @@ export interface LiveConnectOptions {
 export interface LiveConnection {
   sendAudio: (pcm: Uint8Array) => void
   sendText: (text: string) => void
+  /** Devolve o resultado das ferramentas executadas ao modelo (task 08). */
+  sendToolResponse: (responses: GeminiFunctionResponse[]) => void
   /** Pede ao servidor para cortar a geração atual (barge-in/“parar”). */
   interrupt: () => void
   close: () => void

@@ -3,7 +3,15 @@ import { GeminiError, classifyError } from './errors'
 import type { ChatHistory } from './history'
 import { buildContextWindow } from './history'
 import { buildSystemPrompt, PROMPT_VERSION } from './prompts'
-import type { GeminiFunctionCall, GeminiImage, GeminiTransport } from './transport'
+import type {
+  GeminiFunctionCall,
+  GeminiFunctionResponse,
+  GeminiImage,
+  GeminiToolDeclaration,
+  GeminiTransport
+} from './transport'
+import type { ToolCallResult } from './tools/router'
+import type { ToolDefinition } from '../../shared/tools'
 import { clampCap, quotaMessage, resolveUsage, type UsageMeter } from './usage'
 import type { ChatUsagePayload, GeminiErrorSummary, GeminiStatusInfo } from '../../shared/gemini'
 
@@ -54,6 +62,29 @@ export interface GeminiEngineOptions {
   defaultLanguage?: string
   promptVersion?: string
   maxTextChars?: number
+  /**
+   * Ferramentas disponíveis nesta sessão (task 08, T10b). Sem `tools` e
+   * `route`, o engine mantém o comportamento de texto puro.
+   */
+  tools?: () => readonly ToolDefinition[]
+  /** Roteador de ferramentas já composto (permissão → confirmação → execução). */
+  route?: (call: GeminiFunctionCall) => Promise<ToolCallResult>
+  /** Continuações após uma chamada de ferramenta (default 2). */
+  maxToolContinuations?: number
+}
+
+export const DEFAULT_MAX_TOOL_CONTINUATIONS = 2
+
+/** Resposta estruturada devolvida ao modelo; nunca lança por falha de tool. */
+function functionResponsePayload(result: ToolCallResult): Record<string, unknown> {
+  if (result.ok) {
+    return { ok: true, result: result.result ?? null }
+  }
+  return { ok: false, error: result.error }
+}
+
+function toolErrorMessage(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).slice(0, 300)
 }
 
 export interface ChatSinks {
@@ -99,6 +130,9 @@ export class GeminiEngine {
   private readonly defaultLanguage: string
   private readonly promptVersion: string
   private readonly maxTextChars: number
+  private readonly tools?: () => readonly ToolDefinition[]
+  private readonly route?: (call: GeminiFunctionCall) => Promise<ToolCallResult>
+  private readonly maxToolContinuations: number
 
   private lastError: GeminiErrorSummary | null = null
   private active: { requestId: string; controller: AbortController } | null = null
@@ -114,6 +148,12 @@ export class GeminiEngine {
     this.defaultLanguage = options.defaultLanguage ?? 'pt-BR'
     this.promptVersion = options.promptVersion ?? PROMPT_VERSION
     this.maxTextChars = options.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS
+    this.tools = options.tools
+    this.route = options.route
+    this.maxToolContinuations = Math.max(
+      0,
+      options.maxToolContinuations ?? DEFAULT_MAX_TOOL_CONTINUATIONS
+    )
   }
 
   getPromptVersion(): string {
@@ -265,10 +305,23 @@ export class GeminiEngine {
     this.active = entry
 
     const config = this.config()
+    const toolDefinitions = this.tools?.() ?? []
+    const toolDeclarations: GeminiToolDeclaration[] = toolDefinitions.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }))
+    const promptTools = toolDefinitions.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      category: tool.category
+    }))
     const append = options.systemInstructionAppend?.trim()
-    const systemInstruction = append
-      ? `${buildSystemPrompt({ defaultLanguage: this.defaultLanguage })}\n\n${append}`
-      : buildSystemPrompt({ defaultLanguage: this.defaultLanguage })
+    const basePrompt = buildSystemPrompt({
+      defaultLanguage: this.defaultLanguage,
+      ...(promptTools.length > 0 ? { tools: promptTools } : {})
+    })
+    const systemInstruction = append ? `${basePrompt}\n\n${append}` : basePrompt
     const baseContents = buildContextWindow(this.history.getTurns(), trimmed)
     const images = Array.isArray(options.images) ? options.images : []
     const contents =
@@ -285,37 +338,29 @@ export class GeminiEngine {
         : 0
     const promptChars = contents.reduce((total, part) => total + part.text.length, 0)
 
-    let partial = ''
+    let pendingText = ''
+    let modelText = ''
+    let totalInput = 0
+    let totalOutput = 0
+    let estimated = false
+    let callIndex = 0
+    let continuations = 0
+    let toolCallCount = 0
+    let callContents = contents
     const startedAt = Date.now()
     this.logger?.debug('gemini', 'chat:send', {
       chars: promptChars,
       turns: contents.length,
       model: config.model,
       images: images.length,
-      imageTokens
+      imageTokens,
+      tools: toolDeclarations.length
     })
 
     try {
-      const streamPromise = this.client.streamText(
-        {
-          apiKey: this.requireKey(),
-          model: config.model,
-          temperature: config.temperature,
-          systemInstruction,
-          contents
-        },
-        {
-          signal: controller.signal,
-          onDelta: (delta) => {
-            if (entry.controller.signal.aborted) return
-            partial += delta
-            sinks.delta(delta)
-          }
-        }
-      )
       // Custo de imagem entra no medidor imediatamente após o envio, antes da
       // resposta; o total do provedor (se vier) já inclui a imagem e por isso
-      // ela é descontada da entrada final para não contar duas vezes.
+      // ela é descontada da entrada do PRIMEIRO turno para não contar duas vezes.
       if (imageTokens > 0) {
         try {
           this.usage.record({ input: imageTokens, output: 0 })
@@ -323,40 +368,115 @@ export class GeminiEngine {
           this.logger?.warn('gemini', 'falha ao registrar tokens de imagem', err)
         }
       }
-      const result = await streamPromise
-      const amounts = resolveUsage(systemInstruction + partial, result.text, result.usage)
-      const inputTokens =
-        imageTokens > 0 && !amounts.estimated
-          ? Math.max(0, amounts.input - imageTokens)
-          : amounts.input
-      this.usage.record({ input: inputTokens, output: amounts.output })
-      this.history.append('user', trimmed)
-      this.history.append('model', result.text)
-      this.lastError = null
-      if (result.functionCalls && result.functionCalls.length > 0) {
-        sinks.functionCalls?.(result.functionCalls)
+
+      for (;;) {
+        if (controller.signal.aborted) {
+          throw new GeminiError('cancelled', 'Chamada cancelada.')
+        }
+        pendingText = ''
+        const streamResult = await this.client.streamText(
+          {
+            apiKey: this.requireKey(),
+            model: config.model,
+            temperature: config.temperature,
+            systemInstruction,
+            contents: callContents,
+            ...(toolDeclarations.length > 0 ? { tools: toolDeclarations } : {})
+          },
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              if (entry.controller.signal.aborted) return
+              pendingText += delta
+              sinks.delta(delta)
+            }
+          }
+        )
+        const amounts = resolveUsage(
+          systemInstruction + pendingText,
+          streamResult.text,
+          streamResult.usage
+        )
+        const adjustedInput =
+          callIndex === 0 && imageTokens > 0 && !amounts.estimated
+            ? Math.max(0, amounts.input - imageTokens)
+            : amounts.input
+        totalInput += adjustedInput
+        totalOutput += amounts.output
+        estimated = estimated || amounts.estimated
+        this.usage.record({ input: adjustedInput, output: amounts.output })
+        pendingText = ''
+        modelText += streamResult.text
+        callIndex += 1
+        const calls = streamResult.functionCalls ?? []
+        if (calls.length === 0) break
+
+        toolCallCount += calls.length
+        sinks.functionCalls?.(calls)
+
+        if (
+          !this.route ||
+          toolDeclarations.length === 0 ||
+          continuations >= this.maxToolContinuations
+        ) {
+          break
+        }
+
+        continuations += 1
+        const responses: GeminiFunctionResponse[] = []
+        for (const call of calls) {
+          if (controller.signal.aborted) break
+          let callResult: ToolCallResult
+          try {
+            callResult = await this.route(call)
+          } catch (err) {
+            callResult = {
+              ok: false,
+              error: { kind: 'failed', message: toolErrorMessage(err) }
+            }
+          }
+          if (controller.signal.aborted) break
+          responses.push({ name: call.name, response: functionResponsePayload(callResult) })
+        }
+        if (controller.signal.aborted) {
+          throw new GeminiError('cancelled', 'Chamada cancelada.')
+        }
+        callContents = [
+          ...callContents,
+          { role: 'model', text: streamResult.text, functionCalls: calls },
+          { role: 'user', text: '', functionResponses: responses }
+        ]
       }
+
+      if (controller.signal.aborted) {
+        throw new GeminiError('cancelled', 'Chamada cancelada.')
+      }
+      this.history.append('user', trimmed)
+      if (modelText.length > 0) this.history.append('model', modelText)
+      this.lastError = null
       const durationMs = Date.now() - startedAt
       this.logger?.info('gemini', 'chat:done', {
         model: config.model,
-        chars: result.text.length,
-        tokens: inputTokens + amounts.output,
-        estimated: amounts.estimated,
+        chars: modelText.length,
+        tokens: totalInput + totalOutput,
+        estimated,
         imageTokens,
+        tools: toolCallCount,
+        continuations,
         durationMs
       })
       sinks.done({
-        input: inputTokens,
-        output: amounts.output,
-        total: inputTokens + amounts.output,
-        estimated: amounts.estimated,
+        input: totalInput,
+        output: totalOutput,
+        total: totalInput + totalOutput,
+        estimated,
         ...(imageTokens > 0 ? { imageTokens, imageEstimated: true } : {})
       })
     } catch (err) {
       const error = classifyError(err)
-      if (partial.length > 0) {
-        const amounts = resolveUsage(systemInstruction + trimmed, partial)
-        this.usage.record(amounts)
+      if (pendingText.length > 0) {
+        const amounts = resolveUsage(systemInstruction + pendingText, pendingText)
+        this.usage.record({ input: amounts.input, output: amounts.output })
       }
       if (error.kind !== 'cancelled') {
         this.lastError = { kind: error.kind, message: error.message }

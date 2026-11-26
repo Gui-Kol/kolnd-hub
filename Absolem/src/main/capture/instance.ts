@@ -310,7 +310,8 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
       {
         registry,
         getHandler: (name) => handlers.get(name) ?? null,
-        getPermission: () => 'ask',
+        // Pausa global da task 08 bloqueia também a visão de tela (task 07).
+        getPermission: () => (getStoreSnapshot().permissions.paused ? 'deny' : 'ask'),
         confirm: createDialogConfirmation(
           {
             showMessageBox: (window, options) =>

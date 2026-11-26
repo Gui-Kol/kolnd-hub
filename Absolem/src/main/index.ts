@@ -13,6 +13,7 @@ import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
 import { logger } from './logger'
 import { getUsageMeter, getGeminiEngine } from './gemini/instance'
+import { getActionsRuntime } from './actions/instance'
 import { createTray } from './tray/tray'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { getMainWindow, showMainWindow } from './lifecycle'
@@ -268,17 +269,44 @@ function scheduleSmoke(): void {
       })
   }, 2950)
   setTimeout(() => {
+    // Ações: prova os defaults (system.power=deny), a pausa alternando e que
+    // nenhuma ferramenta de ação é chamada por este smoke.
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler permissions:get')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(async () => {
+          const before = await window.absolem.permissions.get()
+          const statusBefore = await window.absolem.actions.status()
+          const pauseOn = await window.absolem.actions.pause(true)
+          const during = await window.absolem.actions.status()
+          const pauseOff = await window.absolem.actions.pause(false)
+          const after = await window.absolem.actions.status()
+          return { before, statusBefore, pauseOn, during, pauseOff, after }
+        })()`
+      )
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: permissions:get + actions:pause/status', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao exercitar permissões/pausa', err)
+      })
+  }, 3200)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
     tray?.emit('click')
     logOverlaySmoke('após clique 2')
-  }, 3100)
+  }, 3450)
   setTimeout(() => {
     logOverlaySmoke('oculto')
-  }, 3400)
+  }, 3750)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: solicitando encerramento')
     requestQuit()
-  }, 3800)
+  }, 4100)
 }
 
 app.whenReady().then(() => {
@@ -300,6 +328,8 @@ app.whenReady().then(() => {
     quit: requestQuit
   })
   logger.info('lifecycle', 'bandeja criada')
+  // Energia sempre avisa por balão; a bandeja nasce depois do runtime de ações.
+  getActionsRuntime()?.setNotifier(showTrayBalloon)
 
   // screen/globalShortcut exigem app pronto: o controlador só nasce aqui.
   initializeOverlay(ctx)

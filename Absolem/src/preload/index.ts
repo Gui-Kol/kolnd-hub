@@ -4,7 +4,13 @@ import type { OverlaySetLayoutRequest } from '../shared/ipc'
 import type { AvatarApplyPush, AvatarState } from '../shared/avatar'
 import type { StoreKey } from '../shared/config'
 import type { ThemeConfig } from '../shared/theme'
-import type { SettingsSection, ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../shared/ipc'
+import type {
+  SettingsSection,
+  ChatDeltaPush,
+  ChatDonePush,
+  ChatErrorPush,
+  PermissionsSetRequest
+} from '../shared/ipc'
 import type {
   CaptureAskRequest,
   CaptureCancelRequest,
@@ -126,6 +132,16 @@ const absolem: AbsolemApi = {
 
   diagnostics: {
     gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini)
+  },
+
+  permissions: {
+    get: () => ipcRenderer.invoke(IPC.permissionsGet),
+    set: (request: PermissionsSetRequest) => ipcRenderer.invoke(IPC.permissionsSet, request)
+  },
+
+  actions: {
+    pause: (paused: boolean) => ipcRenderer.invoke(IPC.actionsPause, { paused }),
+    status: () => ipcRenderer.invoke(IPC.actionsStatus)
   },
 
   capture: {

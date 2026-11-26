@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import type { ToolDefinition } from '../../../shared/tools'
+import { sanitizeSafeArgs } from '../../audit/actions'
 import type { GeminiFunctionCall } from '../transport'
 import type { ToolRegistry } from './registry'
 import type { ToolHandler } from './internal'
@@ -29,6 +30,16 @@ export interface AuditEvent {
   durationMs: number
 }
 
+/**
+ * Contexto extra para a auditoria local de ações (task 08). O evento do
+ * roteador mantém as chaves originais; o segundo parâmetro só é lido por quem
+ * precisa de categoria/`safeArgs`.
+ */
+export interface AuditContext {
+  category: string
+  safeArgs: Record<string, unknown>
+}
+
 export interface ConfirmationRequest {
   tool: ToolDefinition
   args: Record<string, unknown>
@@ -48,7 +59,7 @@ export interface ToolRouterOptions {
   getPermission?: (category: string) => PermissionDecision
   confirm: ConfirmationHandler
   confirmTimeoutMs?: number
-  audit?: (event: AuditEvent) => void
+  audit?: (event: AuditEvent, context?: AuditContext) => void
   now?: () => number
   hash?: (text: string) => string
 }
@@ -127,14 +138,17 @@ export async function routeToolCall(
 
   const finish = (decision: AuditDecision, ok: boolean, result: ToolCallResult): ToolCallResult => {
     try {
-      options.audit?.({
-        at: new Date(now()).toISOString(),
-        tool: name,
-        argsHash,
-        decision,
-        ok,
-        durationMs: Math.max(0, now() - startedAt)
-      })
+      options.audit?.(
+        {
+          at: new Date(now()).toISOString(),
+          tool: name,
+          argsHash,
+          decision,
+          ok,
+          durationMs: Math.max(0, now() - startedAt)
+        },
+        { category: tool?.category ?? '', safeArgs: sanitizeSafeArgs(args) }
+      )
     } catch {
       // Auditoria é best-effort: falha de log não muda o resultado da ferramenta.
     }

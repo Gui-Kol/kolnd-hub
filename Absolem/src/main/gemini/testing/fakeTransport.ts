@@ -1,4 +1,5 @@
 import type {
+  GeminiFunctionCall,
   GeminiGenerateResult,
   GeminiRequest,
   GeminiStreamChunk,
@@ -22,6 +23,8 @@ export interface FakeStreamStep {
   usage?: GeminiUsageMetadata
   blocked?: boolean
   finishReason?: string
+  /** Chamadas de ferramenta pedidas por este chunk. */
+  functionCalls?: GeminiFunctionCall[]
 }
 
 export interface FakeGenerateStep {
@@ -33,8 +36,10 @@ export interface FakeGenerateStep {
 }
 
 export interface FakeTransportScenario {
-  /** Chunks entregues em sequência no `stream`. */
+  /** Chunks entregues em sequência no `stream` (repetidos em toda tentativa). */
   streamSteps?: FakeStreamStep[]
+  /** Chunks por tentativa de `stream` (índice = tentativa - 1). */
+  streamStepsByAttempt?: FakeStreamStep[][]
   /** Erro lançado na N-ésima tentativa de `stream` (índice = tentativa - 1). */
   streamErrors?: Array<unknown | undefined>
   /** Resultado de `generate` por tentativa. */
@@ -112,13 +117,15 @@ export class FakeTransport implements GeminiTransport {
     }
     const error = pick(this.scenario.streamErrors, attempt)
     if (error !== undefined) throw error
-    for (const step of this.scenario.streamSteps ?? []) {
+    const steps = this.scenario.streamStepsByAttempt?.[attempt] ?? this.scenario.streamSteps ?? []
+    for (const step of steps) {
       await waitFor(step.delayMs ?? 0, request.abortSignal)
       yield {
         text: step.text,
         usage: step.usage,
         blocked: step.blocked,
-        finishReason: step.finishReason
+        finishReason: step.finishReason,
+        functionCalls: step.functionCalls
       }
     }
   }

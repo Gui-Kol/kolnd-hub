@@ -14,6 +14,7 @@ import { getApiKey } from '../secrets'
 import { getPersistentStore, getStoreSnapshot, setStoreValue } from '../store'
 import { registerShutdownHook } from '../shutdown'
 import { showOverlay as showOverlayWindow } from '../overlay/controller'
+import { getActionsRuntime } from '../actions/instance'
 import { IPC } from '../../shared/ipc'
 import type { VoiceAudioPush, VoiceStateChange, VoiceTranscriptPush } from '../../shared/voice'
 import { VOICE_DEFAULT_SHORTCUT } from '../../shared/voice'
@@ -116,13 +117,29 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     checkBudget: () => getUsageMeter().checkBudget(),
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
+      const tools = getActionsRuntime()?.registry.listTools() ?? []
       const live = new LiveSession({
         transport: new SdkLiveTransport(),
         keys: { getApiKey },
         usage: getUsageMeter(),
         model: snapshot.gemini.model,
         temperature: snapshot.gemini.temperature,
-        systemInstruction: buildSystemPrompt({ defaultLanguage: snapshot.ui.language }),
+        systemInstruction: buildSystemPrompt({
+          defaultLanguage: snapshot.ui.language,
+          ...(tools.length > 0
+            ? {
+                tools: tools.map((tool) => ({
+                  name: tool.name,
+                  category: tool.category
+                }))
+              }
+            : {})
+        }),
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters
+        })),
         handlers,
         logger
       })
@@ -132,6 +149,16 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     pushState: (change: VoiceStateChange) => broadcast(ctx, IPC.voiceState, change),
     pushAudio: (push: VoiceAudioPush) => broadcast(ctx, IPC.voiceAudio, push),
     pushTranscript: (push: VoiceTranscriptPush) => broadcast(ctx, IPC.voiceTranscript, push),
+    routeToolCall: async (call) => {
+      const runtime = getActionsRuntime()
+      if (!runtime) {
+        return {
+          ok: false,
+          error: { kind: 'not-found', message: 'Ferramentas de ação não inicializadas.' }
+        }
+      }
+      return runtime.route(call)
+    },
     isOverlayVisible: () => {
       const overlay = ctx.getOverlayWindow()
       return Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible())

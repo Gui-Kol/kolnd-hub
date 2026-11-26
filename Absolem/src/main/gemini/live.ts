@@ -1,5 +1,10 @@
 import { GeminiError, classifyError } from './errors'
-import type { GeminiFunctionCall, GeminiToolDeclaration, GeminiUsageMetadata } from './transport'
+import type {
+  GeminiFunctionCall,
+  GeminiFunctionResponse,
+  GeminiToolDeclaration,
+  GeminiUsageMetadata
+} from './transport'
 import type { LiveConnection, LiveEvent, LiveHistoryTurn, LiveTransport } from './liveTransport'
 
 /**
@@ -190,6 +195,17 @@ export class LiveSession {
     if (!trimmed) return
     try {
       this.connection.sendText(trimmed)
+    } catch (err) {
+      this.handleRuntimeError(err)
+    }
+  }
+
+  /** Devolve ao modelo o resultado de ferramentas executadas (task 08, T10b). */
+  sendToolResponse(responses: GeminiFunctionResponse[]): void {
+    if (this.closed || !this.connection) return
+    if (!Array.isArray(responses) || responses.length === 0) return
+    try {
+      this.connection.sendToolResponse(responses)
     } catch (err) {
       this.handleRuntimeError(err)
     }

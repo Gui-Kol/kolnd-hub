@@ -8,9 +8,18 @@
 
 import type { ThemeConfig } from './theme'
 import type { PrivacyScreenConfig } from './screen'
+import type { PermissionsState } from './permissions'
+import type { Routine } from './routines'
 
 export type { ThemeConfig } from './theme'
+export type { Routine, RoutineAction, RoutineWeekday, RoutineWhen } from './routines'
 export type { PrivacyScreenConfig, ScreenMode } from './screen'
+export type {
+  PermissionCategories,
+  PermissionCategory,
+  PermissionDecision,
+  PermissionsState
+} from './permissions'
 
 export const STORE_KEYS = [
   'overlay',
@@ -72,12 +81,13 @@ export interface PrivacyConfig {
   screen: PrivacyScreenConfig
 }
 
-export interface PermissionsConfig {
-  microphone: boolean
-  screenVision: boolean
-  computerControl: boolean
-  fileAccess: boolean
-}
+/**
+ * Permissões do app: consentimento do microfone (task 06), pausa global e a
+ * decisão por categoria de ação (task 08). O formato legado com
+ * `screenVision`/`computerControl`/`fileAccess` é aceito pelo schema do store
+ * apenas para migrar e descartar.
+ */
+export type PermissionsConfig = PermissionsState
 
 export interface UiConfig {
   language: string
@@ -120,4 +130,6 @@ export interface AbsolemConfig {
   ui: UiConfig
   usage: UsageConfig
   chat: ChatConfig
+  /** Rotinas agendadas (task 08, T8). Não é chave do IPC genérico do store. */
+  routines: Routine[]
 }

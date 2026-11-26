@@ -134,13 +134,21 @@ function makeConfig(): AbsolemConfig {
     },
     permissions: {
       microphone: false,
-      screenVision: false,
-      computerControl: false,
-      fileAccess: false
+      paused: false,
+      categories: {
+        'apps.launch': 'ask',
+        'apps.close': 'ask',
+        'files.read': 'ask',
+        'files.write': 'ask',
+        'system.power': 'deny',
+        'uia.control': 'deny',
+        'web.search': 'allow'
+      }
     },
     ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
     usage: { days: {}, warnedMonths: [] },
-    chat: { turns: [] }
+    chat: { turns: [] },
+    routines: []
   }
 }
 

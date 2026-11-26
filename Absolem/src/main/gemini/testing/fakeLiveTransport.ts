@@ -1,3 +1,4 @@
+import type { GeminiFunctionResponse } from '../transport'
 import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } from '../liveTransport'
 
 /**
@@ -9,6 +10,7 @@ import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } fro
 export class FakeLiveConnection implements LiveConnection {
   readonly audio: Uint8Array[] = []
   readonly texts: string[] = []
+  readonly toolResponses: GeminiFunctionResponse[][] = []
   interrupts = 0
   closes = 0
 
@@ -20,6 +22,10 @@ export class FakeLiveConnection implements LiveConnection {
 
   sendText(text: string): void {
     this.texts.push(text)
+  }
+
+  sendToolResponse(responses: GeminiFunctionResponse[]): void {
+    this.toolResponses.push(responses.map((response) => ({ ...response })))
   }
 
   interrupt(): void {

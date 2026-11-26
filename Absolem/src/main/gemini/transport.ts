@@ -25,12 +25,22 @@ export interface GeminiImage {
   data: Uint8Array | ArrayBuffer | string
 }
 
+/** Resultado de uma ferramenta devolvido ao modelo (task 08, T10b). */
+export interface GeminiFunctionResponse {
+  name: string
+  response: Record<string, unknown>
+}
+
 /** Turno de conversa enviado ao modelo. */
 export interface GeminiContent {
   role: 'user' | 'model'
   text: string
   /** Imagens anexadas a este turno (visão de tela, task 07). */
   images?: GeminiImage[]
+  /** Chamadas pedidas pelo modelo neste turno (loop de ferramentas). */
+  functionCalls?: GeminiFunctionCall[]
+  /** Resultados das ferramentas devolvidos ao modelo. */
+  functionResponses?: GeminiFunctionResponse[]
 }
 
 export interface GeminiRequest {

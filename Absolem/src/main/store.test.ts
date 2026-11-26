@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.6.0')
+    expect(options.projectVersion).toBe('1.7.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -85,7 +85,8 @@ describe('store persistente', () => {
       '1.3.0',
       '1.4.0',
       '1.5.0',
-      '1.6.0'
+      '1.6.0',
+      '1.7.0'
     ])
   })
 
@@ -223,6 +224,51 @@ describe('store persistente', () => {
       telemetry: true,
       screen: { mode: 'ask', proactive: true }
     })
+  })
+
+  it('1.7.0 migra permissões por categoria preservando microphone e descartando legado', () => {
+    state.data.set('permissions', {
+      microphone: true,
+      paused: true,
+      screenVision: true,
+      computerControl: true,
+      fileAccess: true
+    })
+    const store = fakeStore()
+
+    storeMod.STORE_MIGRATIONS['1.7.0'](store)
+
+    const migrated = state.data.get('permissions') as Record<string, unknown>
+    expect(migrated).toEqual({
+      microphone: true,
+      paused: true,
+      categories: {
+        'apps.launch': 'ask',
+        'apps.close': 'ask',
+        'files.read': 'ask',
+        'files.write': 'ask',
+        'system.power': 'deny',
+        'uia.control': 'deny',
+        'web.search': 'allow'
+      }
+    })
+    expect(migrated).not.toHaveProperty('computerControl')
+
+    // Categorias válidas já existentes são preservadas; inválidas caem no default.
+    state.data.set('permissions', {
+      microphone: false,
+      paused: false,
+      categories: { 'system.power': 'ask', 'uia.control': 'talvez' }
+    })
+    storeMod.STORE_MIGRATIONS['1.7.0'](store)
+    expect(state.data.get('permissions')).toMatchObject({
+      categories: { 'system.power': 'ask', 'uia.control': 'deny' }
+    })
+
+    // Idempotente.
+    const first = state.data.get('permissions')
+    storeMod.STORE_MIGRATIONS['1.7.0'](store)
+    expect(state.data.get('permissions')).toEqual(first)
   })
 
   it('store corrompido não lança', async () => {

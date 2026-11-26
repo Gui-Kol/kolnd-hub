@@ -49,6 +49,12 @@ function toContents(contents: GeminiContent[]): Array<Record<string, unknown>> {
     for (const image of content.images ?? []) {
       parts.push({ inlineData: { mimeType: image.mime, data: imageToBase64(image) } })
     }
+    for (const call of content.functionCalls ?? []) {
+      parts.push({ functionCall: { name: call.name, args: call.args } })
+    }
+    for (const response of content.functionResponses ?? []) {
+      parts.push({ functionResponse: { name: response.name, response: response.response } })
+    }
     if (parts.length === 0) parts.push({ text: '' })
     return {
       role: content.role === 'model' ? 'model' : 'user',
@@ -289,6 +295,14 @@ export class SdkLiveTransport implements LiveTransport {
       },
       sendText: (text) => {
         session.sendRealtimeInput({ text })
+      },
+      sendToolResponse: (responses) => {
+        session.sendToolResponse({
+          functionResponses: responses.map((response) => ({
+            name: response.name,
+            response: response.response
+          }))
+        } as never)
       },
       interrupt: () => {
         // Atividade de usuário interrompe a resposta por padrão
