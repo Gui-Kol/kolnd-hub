@@ -2,7 +2,37 @@
 
 > **Data:** 16/11/2026 · **Máquina:** Windows (medição local) · **Node:** v26.13.0 · **npm:** 11.20.0
 > **Ferramentas:** electron-vite 2 (vite 5.4.21, rollup 4.68.2) + `rollup-plugin-visualizer` 7.1.3 (treemap, `gzipSize` + `brotliSize`)
-> **Status:** baseline medida — **nenhuma otimização implementada** nesta tarefa. Números servem de referência para decisões futuras (10.2, 10.3, 11.2).
+> **Status:** baseline histórica de 16/11/2026. A task `06` (26/11/2026) implementou
+> code splitting do `App` e fontes só `woff2` — números atuais na seção
+> [Atualização 26/11/2026](#atualização-26112026--task-06) e em
+> `gerente/tasks/otimizacao-recursos/bundle-antes.md` / `bundle-depois.md`.
+
+## Atualização 26/11/2026 — task 06
+
+Medição local (Node v26.13.1, npm 11.20.0, `npm run build`) na branch `Dev` sobre a
+base `bcf5496e`. Comparativo completo em
+`gerente/tasks/otimizacao-recursos/bundle-depois.md`.
+
+| Métrica | 16/11/2026 | 26/11/2026 (task 06) |
+| --- | ---: | ---: |
+| Entry JS (raw) | 929.557 B (907,8 KiB) | **236.178 B (230,6 KiB)** |
+| Chunk `App-*.js` | — (tudo no entry) | 447.362 B (436,9 KiB), lazy |
+| CSS global (raw) | 76.524 B (74,7 KiB) | 76.418 B (74,6 KiB) |
+| Fontes no build | 16 arq. / 558.184 B (545,1 KiB) | **8 arq. / 240.272 B (234,6 KiB), só `.woff2`** |
+| FCP (mediana) | 625,9 ms (T1 desta task) | 636,5 ms (+1,7%, dentro de 2%) |
+
+- O `App` virou `React.lazy` no `main.tsx`; a janela do HUD carrega **só o entry**
+  (236.178 B) + CSS + 6 faces de fonte — nenhuma requisição de `App-*.js`.
+- Os 8 imports de `@fontsource/inter` viraram `styles/fonts.css` com os 8 `.woff2`
+  (`latin` + `latin-ext` × 400/500/600/700). O `latin-ext` fica declarado **depois**
+  do `latin` de propósito: sem `unicode-range` no pacote, a última face vence e era
+  ela que renderizava o app — manter a ordem garante paridade visual exata (diff 0 no
+  conteúdo e no HUD). O `latin` continua como fallback de glifos. Licença em
+  `src/renderer/src/assets/fonts/OFL.txt`; dependência `@fontsource/inter` mantida.
+- `manualChunks` (react/framer-motion) foi medido e **revertido**: fazia o HUD baixar
+  +253 kB (framer-motion) e piorava o FCP em 2,4%.
+- As recomendações abaixo (Big Picture lazy, enxugar framer-motion, etc.) continuam
+  válidas, mas parte do item 1 já foi absorvida pelo code splitting existente.
 
 ## Como reproduzir
 

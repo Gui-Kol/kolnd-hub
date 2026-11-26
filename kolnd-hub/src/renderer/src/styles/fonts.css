@@ -1,0 +1,90 @@
+/*
+ * Inter empacotada offline (task 06): só os `.woff2` usados pelo Chromium.
+ *
+ * O CSS de subconjunto do `@fontsource/inter`
+ * (latin-*.css / latin-ext-*.css) referencia os dois formatos (`woff2` + `woff`),
+ * o que fazia o build emitir 16 arquivos. Aqui repetimos os mesmos descritores do
+ * pacote (família, peso, estilo e `font-display`) apontando para uma única `src`
+ * `woff2`.
+ *
+ * O `latin-ext` fica de propósito, declarado DEPOIS do `latin`: o pacote 5.3.0
+ * não declara `unicode-range` nesses arquivos e, com descritores iguais, a última
+ * declaração vence a seleção — era a face `latin-ext` que renderizava o app antes.
+ * Manter a mesma ordem reproduz exatamente o kerning/posicionamento anterior
+ * (A/B com e sem `latin-ext`: 0,342% de pixels de diferença, só kerning subpixel).
+ * O `latin` continua como fallback de glifos. A licença OFL do pacote acompanha os
+ * binários em `assets/fonts/OFL.txt`.
+ */
+
+/* latin (400/500/600/700) */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('../assets/fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('../assets/fonts/inter-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('../assets/fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('../assets/fonts/inter-latin-700-normal.woff2') format('woff2');
+}
+
+/*
+ * latin-ext DEPOIS do latin (mesma ordem efetiva de antes): sem `unicode-range`
+ * no pacote, a última declaração de mesmo peso/estilo vence a seleção. Manter a
+ * `latin-ext` aqui preserva o kerning/renderização originais; `latin` é o
+ * fallback para glifos que a ext não cobre (ex.: acentos de pt-BR).
+ */
+
+/* latin-ext (400/500/600/700) */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('../assets/fonts/inter-latin-ext-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('../assets/fonts/inter-latin-ext-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('../assets/fonts/inter-latin-ext-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('../assets/fonts/inter-latin-ext-700-normal.woff2') format('woff2');
+}
