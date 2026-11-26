@@ -1,5 +1,6 @@
 import type { IpcContext } from './lifecycle'
 import { registerAppIpc } from './app'
+import { registerAvatarIpc } from './avatar'
 import { registerOverlayIpc } from './overlay'
 
 export type { IpcContext } from './lifecycle'
@@ -14,4 +15,5 @@ export type { IpcContext } from './lifecycle'
 export function registerIpc(ctx: IpcContext): void {
   registerAppIpc(ctx)
   registerOverlayIpc()
+  registerAvatarIpc(ctx)
 }

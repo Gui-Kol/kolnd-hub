@@ -1,3 +1,9 @@
+import type {
+  AvatarApplyPush,
+  AvatarSetLevelRequest,
+  AvatarSetStateRequest,
+  AvatarState
+} from './avatar'
 import type { OverlayLayout, OverlayPosition, StoreKey, ThemeConfig } from './config'
 
 /**
@@ -21,6 +27,10 @@ export const IPC = {
   overlaySetLayout: 'overlay:set-layout',
   overlaySetInteractive: 'overlay:set-interactive',
   overlayStatusChanged: 'overlay:status-changed',
+  avatarSetState: 'avatar:set-state',
+  avatarSetLevel: 'avatar:set-level',
+  avatarGetStatus: 'avatar:get-status',
+  avatarApply: 'avatar:apply',
   storeGet: 'store:get',
   storeSet: 'store:set',
   settingsOpen: 'settings:open',
@@ -30,7 +40,7 @@ export const IPC = {
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
 
-export const IPC_PREFIXES = ['app', 'overlay', 'store', 'settings', 'theme'] as const
+export const IPC_PREFIXES = ['app', 'overlay', 'avatar', 'store', 'settings', 'theme'] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
 
@@ -66,6 +76,9 @@ export interface OverlayShortcutStatus {
   registered: boolean
   accelerator: string
 }
+
+/** Estado/nível atuais do avatar no main. */
+export type AvatarGetStatusResult = { ok: true; state: AvatarState; level: number } | IpcError
 
 /** Status devolvido por todos os canais do overlay. */
 export interface OverlayStatus {
@@ -137,6 +150,10 @@ export interface IpcContract {
     response: OverlayStatusResult
   }
   [IPC.overlayStatusChanged]: { request: undefined; response: OverlayStatus }
+  [IPC.avatarSetState]: { request: AvatarSetStateRequest; response: SimpleResult }
+  [IPC.avatarSetLevel]: { request: AvatarSetLevelRequest; response: SimpleResult }
+  [IPC.avatarGetStatus]: { request: undefined; response: AvatarGetStatusResult }
+  [IPC.avatarApply]: { request: undefined; response: AvatarApplyPush }
   [IPC.storeGet]: { request: StoreGetRequest; response: StoreGetResult }
   [IPC.storeSet]: { request: StoreSetRequest; response: SimpleResult }
   [IPC.settingsOpen]: { request: SettingsOpenRequest; response: SimpleResult }
@@ -164,6 +181,12 @@ export interface AbsolemApi {
   overlaySetLayout: (layout: OverlaySetLayoutRequest) => Promise<OverlayStatusResult>
   overlaySetInteractive: (interactive: boolean) => Promise<OverlayStatusResult>
   onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => () => void
+  avatar: {
+    setState: (state: AvatarState) => Promise<SimpleResult>
+    setLevel: (level: number) => Promise<SimpleResult>
+    getStatus: () => Promise<AvatarGetStatusResult>
+    onApply: (listener: (payload: AvatarApplyPush) => void) => () => void
+  }
   storeGet: (key: StoreKey) => Promise<StoreGetResult>
   storeSet: (key: StoreKey, value: unknown) => Promise<SimpleResult>
   openSettings: (section?: SettingsSection) => Promise<SimpleResult>

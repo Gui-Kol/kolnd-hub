@@ -50,9 +50,9 @@ html.overlay-route #root {
 }
 
 /*
- * Marcador provisório do avatar (task 03 substitui pelo holograma). Só esta
- * área recebe clique; o resto da janela deixa o mouse atravessar para a área
- * de trabalho de trás.
+ * Área do avatar. Só ela recebe clique; o resto da janela deixa o mouse
+ * atravessar para a área de trabalho de trás. O canvas do holograma ocupa
+ * 100% do círculo (64 px por padrão; o layout real do overlay manda depois).
  */
 .overlay-avatar {
   position: absolute;
@@ -62,9 +62,87 @@ html.overlay-route #root {
   height: 64px;
   border-radius: 9999px;
   pointer-events: auto;
-  background: radial-gradient(circle at 35% 30%, #93c5fd 0%, #3b82f6 45%, #1d4ed8 100%);
-  border: 1px solid rgba(219, 234, 254, 0.8);
+  background: transparent;
+  overflow: hidden;
+}
+
+.overlay-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+/*
+ * Fallback estático (T9): sem WebGL ou com contexto perdido, o canvas some e
+ * uma silhueta em CSS ocupa a mesma área, continuando a receber pointer-events.
+ */
+.overlay-avatar--fallback {
+  /* Silhueta de lagarta (segmentos + cabeça), estática e sem assets. */
+  background:
+    radial-gradient(circle at 70% 36%, #bae6fd 0 14%, transparent 15%),
+    radial-gradient(circle at 56% 44%, #7dd3fc 0 12%, transparent 13%),
+    radial-gradient(circle at 44% 51%, #60a5fa 0 12%, transparent 13%),
+    radial-gradient(circle at 32% 58%, #3b82f6 0 12%, transparent 13%),
+    radial-gradient(circle at 20% 64%, #2563eb 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.16) 0 60%, transparent 65%);
+  border: 1px solid rgba(219, 234, 254, 0.55);
   box-shadow:
     0 0 0 1px rgba(15, 23, 42, 0.35),
     0 0 18px rgba(59, 130, 246, 0.55);
+}
+
+.overlay-avatar--fallback::before {
+  /* Antena curva, só decorativa. */
+  content: '';
+  position: absolute;
+  left: 54%;
+  top: 3%;
+  width: 26%;
+  height: 26%;
+  border-top: 2px solid rgba(147, 197, 253, 0.9);
+  border-right: 2px solid rgba(147, 197, 253, 0.9);
+  border-radius: 0 100% 0 0;
+  transform: rotate(-18deg);
+}
+
+.overlay-avatar--fallback::after {
+  /* Olhos: dois pontos escuros na cabeça. */
+  content: '';
+  position: absolute;
+  left: 67%;
+  top: 33%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #0b1220;
+  box-shadow: 8px 1px 0 #0b1220;
+}
+
+.overlay-avatar--fallback .overlay-canvas {
+  display: none;
+}
+
+/* HUD de debug (`?debug=1`): fora do caminho do mouse e sem fundo opaco. */
+.overlay-debug {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  background: rgba(3, 7, 18, 0.7);
+  color: #93c5fd;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-avatar--fallback {
+    /* Sem pulso/scanline: o fallback já é estático; nada animado aqui. */
+    transition: none;
+  }
 }

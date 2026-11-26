@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type AbsolemApi, type OverlayStatus } from '../shared/ipc'
 import type { OverlaySetLayoutRequest } from '../shared/ipc'
+import type { AvatarApplyPush, AvatarState } from '../shared/avatar'
 import type { StoreKey, ThemeConfig } from '../shared/config'
 import type { SettingsSection } from '../shared/ipc'
 
@@ -28,6 +29,19 @@ const absolem: AbsolemApi = {
     ipcRenderer.on(IPC.overlayStatusChanged, handler)
     return () => {
       ipcRenderer.removeListener(IPC.overlayStatusChanged, handler)
+    }
+  },
+
+  avatar: {
+    setState: (state: AvatarState) => ipcRenderer.invoke(IPC.avatarSetState, { state }),
+    setLevel: (level: number) => ipcRenderer.invoke(IPC.avatarSetLevel, { level }),
+    getStatus: () => ipcRenderer.invoke(IPC.avatarGetStatus),
+    onApply: (listener: (payload: AvatarApplyPush) => void) => {
+      const handler = (_event: unknown, payload: AvatarApplyPush) => listener(payload)
+      ipcRenderer.on(IPC.avatarApply, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.avatarApply, handler)
+      }
     }
   },
 

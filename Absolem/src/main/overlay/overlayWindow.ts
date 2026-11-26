@@ -31,6 +31,22 @@ let overlayWindow: BrowserWindow | null = null
 let layout: OverlayLayout = normalizeOverlayLayout(undefined)
 let lastBounds: OverlayBounds | null = null
 
+type OverlayWindowListener = (window: BrowserWindow) => void
+
+/**
+ * Observadores de criação da janela (usado por `ipc/avatar.ts` para pendurar o
+ * reenvio de estado no `did-finish-load`). A janela nasce sob demanda, então um
+ * observador registrado antes do primeiro show ainda é chamado na criação.
+ */
+const createdListeners = new Set<OverlayWindowListener>()
+
+export function onOverlayWindowCreated(listener: OverlayWindowListener): () => void {
+  createdListeners.add(listener)
+  return () => {
+    createdListeners.delete(listener)
+  }
+}
+
 /** Layout vigente (usado pelo controlador e pelo IPC de status). */
 export function getOverlayLayout(): OverlayLayout {
   return { ...layout }
@@ -107,6 +123,8 @@ export function createOverlayWindow(): BrowserWindow {
   })
   overlayWindow = window
   lastBounds = bounds
+
+  for (const listener of createdListeners) listener(window)
 
   // `screen-saver` fica acima de jogos em janela/borderless; fullscreen
   // exclusivo pode cobrir, e é justamente o caso do auto-hide.
@@ -210,5 +228,6 @@ export function resetOverlayWindowForTests(): void {
   overlayWindow = null
   layout = normalizeOverlayLayout(undefined)
   lastBounds = null
+  createdListeners.clear()
   resetInteractiveForTests()
 }
