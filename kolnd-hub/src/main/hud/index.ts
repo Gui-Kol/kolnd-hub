@@ -1,7 +1,13 @@
 import { app, globalShortcut, ipcMain } from 'electron'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
-import { acquireHwPolling, collectHwSnapshot, onHwSnapshot, releaseHwPolling } from '../hwmon'
+import {
+  acquireHwPolling,
+  collectHwSnapshot,
+  onHwSnapshot,
+  releaseHwPolling,
+  setHwPollingHudVisible
+} from '../hwmon'
 import { getHudConfig, setHudShortcut, setHudSize, setHudVisible } from '../store'
 import {
   HUD_DEFAULT_SCALE,
@@ -14,7 +20,7 @@ import {
   type HudStatus,
   type HudUpdate
 } from '../../shared/hud'
-import type { HwSnapshot } from '../../shared/hwmon'
+import { HUD_PUSH_MIN_INTERVAL_MS, type HwSnapshot } from '../../shared/hwmon'
 import {
   destroyHudWindow,
   getHudWindow,
@@ -46,6 +52,15 @@ let registerError: string | undefined
 let visible = false
 let unsubscribeSnapshots: (() => void) | null = null
 let pollingAcquired = false
+/** Último push aceito (epoch ms); 0 = nenhum desde que o HUD abriu. */
+let lastPushAt = 0
+
+/**
+ * Folga do throttle de 1 Hz: o `setInterval` do polling pode entregar o tick
+ * alguns ms antes do segundo cheio; sem folga, com só o HUD ativo o push seria
+ * descartado em ticks alternados e o HUD atualizaria a cada 2 s.
+ */
+const HUD_PUSH_JITTER_TOLERANCE_MS = 100
 
 function assertNoArguments(args: unknown[]): void {
   if (args.length > 0) throw new Error('Requisição inválida.')
@@ -90,11 +105,24 @@ function broadcastStatus(): void {
   }
 }
 
-function sendHudUpdate(snapshot: HwSnapshot): void {
+/**
+ * Push `hud:update` para a sobreposição. O ritmo é limitado a 1 Hz: snapshots
+ * mais novos que `HUD_PUSH_MIN_INTERVAL_MS` são descartados (o próximo tick já
+ * traz leitura fresca). `force` vale para o push explícito ao mostrar o HUD, que
+ * não pode ser engolido por um envio recente.
+ */
+function sendHudUpdate(snapshot: HwSnapshot, force = false): void {
   const window = getHudWindow()
   if (!window || window.isDestroyed() || !window.isVisible()) return
+
+  const now = Date.now()
+  if (!force && now - lastPushAt < HUD_PUSH_MIN_INTERVAL_MS - HUD_PUSH_JITTER_TOLERANCE_MS) {
+    return
+  }
+
   try {
     window.webContents.send('hud:update', buildHudUpdate(snapshot))
+    lastPushAt = now
   } catch {
     // Janela fechando entre a checagem e o envio: o próximo tick não envia.
   }
@@ -103,7 +131,7 @@ function sendHudUpdate(snapshot: HwSnapshot): void {
 /** Uma leitura imediata ao mostrar — o primeiro push não espera 1 s. */
 async function pushHudUpdateNow(): Promise<void> {
   try {
-    sendHudUpdate(await collectHwSnapshot())
+    sendHudUpdate(await collectHwSnapshot(), true)
   } catch (err) {
     logger.warn('hud', `leitura inicial da sobreposição falhou: ${String(err)}`)
   }
@@ -111,25 +139,29 @@ async function pushHudUpdateNow(): Promise<void> {
 
 function startHudData(): void {
   if (unsubscribeSnapshots) return
-  unsubscribeSnapshots = onHwSnapshot(sendHudUpdate)
+  unsubscribeSnapshots = onHwSnapshot((snapshot) => sendHudUpdate(snapshot))
   if (!pollingAcquired) {
     pollingAcquired = true
-    acquireHwPolling()
+    acquireHwPolling('hud')
   }
 }
 
 function stopHudData(): void {
   unsubscribeSnapshots?.()
   unsubscribeSnapshots = null
+  lastPushAt = 0
   if (pollingAcquired) {
     pollingAcquired = false
-    releaseHwPolling()
+    releaseHwPolling('hud')
   }
 }
 
 /** Aplica visibilidade: janela + polling + (opcionalmente) persistência. */
 function applyVisible(next: boolean, persist: boolean): HudStatus {
   visible = next
+  // O polling do hwmon só roda com alguém olhando: o HUD visível conta tanto
+  // quanto a janela principal (a sobreposição funciona com o Hub na bandeja).
+  setHwPollingHudVisible(next)
 
   if (next) {
     startHudData()
@@ -342,6 +374,7 @@ function shutdownHud(): void {
 /** Apenas para testes: zera estado, assinatura e janela entre casos. */
 export function resetHudForTests(): void {
   stopHudData()
+  setHwPollingHudVisible(false)
   destroyHudWindow()
   context = null
   shortcut = HUD_DEFAULT_SHORTCUT

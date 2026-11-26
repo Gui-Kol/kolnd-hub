@@ -415,6 +415,15 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   `stopHwCollector()` no `will-quit` fecha o stdin, agenda o kill de segurança (1 s) e não deixa
   órfãos. `nvml.ts` mantém `readNvmlFanDirect` como fallback e `nativeSensors.ts` mantém o caminho
   `runFile` quando o coletor está desativado.
+- **Cadência por consumidor e pausa automática**: o polling é um só, com refcount separado por
+  tipo (`monitor` via `hwmon:start`/`hwmon:stop`, `hud` via visibilidade da sobreposição). Com a
+  aba Monitor montada vale o intervalo escolhido (100–2000 ms); com só o HUD ativo o timer usa
+  `max(intervalo, HUD_PUSH_MIN_INTERVAL_MS = 1000)` e o push `hud:update` é limitado a 1 Hz
+  (`src/shared/hwmon.ts`). `hwmon:update` só é enviado à janela principal quando há consumidor
+  `monitor`. O timer para — sem zerar o refcount — quando a janela está na bandeja sem HUD, a tela
+  bloqueia (`lock-screen`) ou o PC suspende (`suspend`), e volta em `show`/`unlock-screen`/`resume`
+  com uma coleta imediata antes do reagendamento. `hwmon:snapshot` (leitura avulsa) continua
+  funcionando independentemente da suspensão.
 - **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
   a 1 Hz. O main só lê o arquivo (sem privilégio); amostra com mais de 3 s é stale. O script

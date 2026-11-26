@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   setHudSize: vi.fn(),
   acquireHwPolling: vi.fn(),
   releaseHwPolling: vi.fn(),
+  setHwPollingHudVisible: vi.fn(),
   onHwSnapshot: vi.fn(),
   collectHwSnapshot: vi.fn(),
   showHudWindow: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('../logger', () => ({
 vi.mock('../hwmon', () => ({
   acquireHwPolling: mocks.acquireHwPolling,
   releaseHwPolling: mocks.releaseHwPolling,
+  setHwPollingHudVisible: mocks.setHwPollingHudVisible,
   onHwSnapshot: mocks.onHwSnapshot,
   collectHwSnapshot: mocks.collectHwSnapshot
 }))
@@ -196,7 +198,8 @@ describe('registerHudIpc', () => {
     expect(mocks.register).toHaveBeenCalledWith('Alt+Shift+F9', expect.any(Function))
     expect(mocks.showHudWindow).toHaveBeenCalledTimes(1)
     expect(mocks.setHudWidth).toHaveBeenCalledWith(420)
-    expect(mocks.acquireHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.acquireHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenCalledWith(true)
     expect(mocks.setHudVisible).not.toHaveBeenCalled()
   })
 })
@@ -218,7 +221,8 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     const shown = getHandler('hud:set-visible')({}, true) as HudStatus
     expect(shown.config.visible).toBe(true)
     expect(mocks.showHudWindow).toHaveBeenCalledTimes(1)
-    expect(mocks.acquireHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.acquireHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenLastCalledWith(true)
     expect(mocks.onHwSnapshot).toHaveBeenCalledTimes(1)
     expect(mocks.setHudVisible).toHaveBeenCalledWith(true)
 
@@ -236,7 +240,8 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     const hidden = getHandler('hud:set-visible')({}, false) as HudStatus
     expect(hidden.config.visible).toBe(false)
     expect(mocks.hideHudWindow).toHaveBeenCalledTimes(1)
-    expect(mocks.releaseHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.releaseHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.setHudVisible).toHaveBeenLastCalledWith(false)
   })
 
@@ -382,6 +387,36 @@ describe('push hud:update', () => {
         capturedAt: expect.any(String)
       })
     )
+  })
+
+  it('limita o push a 1 Hz: 2 snapshots em 500 ms → 1 envio; 1 s depois → envia', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      register()
+      getHandler('hud:set-visible')({}, true)
+      // Push imediato do show (forçado) termina antes de cronometrar o throttle.
+      await vi.advanceTimersByTimeAsync(0)
+      const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
+
+      // Passado 1 s do push do show, o snapshot do polling entra.
+      await vi.advanceTimersByTimeAsync(1000)
+      fakeWindow.webContents.send.mockClear()
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(1)
+
+      // 500 ms depois: descartado (o HUD não precisa de 2 Hz).
+      await vi.advanceTimersByTimeAsync(500)
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(1)
+
+      // Mais 500 ms: 1 s desde o último envio, entra de novo.
+      await vi.advanceTimersByTimeAsync(500)
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(2)
+    } finally {
+      resetHudForTests()
+      vi.useRealTimers()
+    }
   })
 
   it('não envia para janela oculta/destruída', () => {

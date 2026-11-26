@@ -719,7 +719,8 @@ export function PcMonitor(): JSX.Element {
                 data-testid="hw-interval-hint"
               >
                 Intervalos curtos usam mais CPU. A coleta completa leva ~0,6 s; abaixo disso o Hub
-                atualiza o mais rápido que consegue.
+                atualiza o mais rápido que consegue. Com só a sobreposição (HUD) ativa, ela atualiza
+                1×/s; com esta aba aberta vale o intervalo acima.
               </p>
             </div>
           </div>

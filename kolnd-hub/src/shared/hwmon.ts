@@ -18,6 +18,16 @@ export const HWMON_INTERVAL_STEP_MS = 100
 export const HWMON_INTERVAL_DEFAULT_MS = 500
 
 /**
+ * Intervalo mínimo entre pushes ao HUD (1 Hz) e piso do timer quando só ele
+ * consome o polling.
+ *
+ * A sobreposição é passiva: 2 Hz não entrega informação útil e dobra o custo da
+ * coleta. Um único botão para reverter (aqui) mantém a decisão documentada e
+ * fora da arquitetura — a aba Monitor aberta continua no intervalo escolhido.
+ */
+export const HUD_PUSH_MIN_INTERVAL_MS = 1000
+
+/**
  * Normaliza o intervalo do polling para um múltiplo do passo dentro da faixa.
  *
  * Qualquer coisa que não seja número finito (ausente, `null`, string, objeto,

@@ -3,7 +3,7 @@
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
 import { registerChildProcessCleanup } from './crashReporting'
-import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, Tray, Menu, nativeImage, powerMonitor } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
@@ -23,7 +23,11 @@ import { registerRamMonitorIpc } from './ramMonitor'
 import { registerRamOptimizerIpc } from './ramOptimizer'
 import { registerRamAutoIpc, startRamAutoOptimizer, stopRamAutoOptimizer } from './ramAutoOptimizer'
 import { registerBenchmarkIpc } from './benchmark'
-import { registerHwMonitorIpc } from './hwmon'
+import {
+  registerHwMonitorIpc,
+  setHwPollingSystemSuspended,
+  setHwPollingWindowVisible
+} from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
 import { registerHudIpc } from './hud'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
@@ -165,6 +169,13 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
     }
   })
 
+  // O polling do monitor só roda com alguém olhando: X para a bandeja oculta a
+  // janela e pausa o timer (o HUD, se visível, mantém). `--hidden` nasce oculta
+  // e o estado inicial precisa refletir isso — `show` só dispara ao aparecer.
+  setHwPollingWindowVisible(false)
+  mainWindow.on('show', () => setHwPollingWindowVisible(true))
+  mainWindow.on('hide', () => setHwPollingWindowVisible(false))
+
   mainWindow.on('ready-to-show', () => {
     // --hidden (autostart do Hub no Windows): a janela fica viva e oculta —
     // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
@@ -277,6 +288,19 @@ function showMainWindow(): void {
   mainWindow.focus()
 }
 
+/**
+ * Bloqueio de tela e suspensão do PC: ninguém está olhando os números. O polling
+ * do monitor para sem perder os consumidores e, ao voltar (`unlock-screen` /
+ * `resume`), faz uma coleta imediata antes de reagendar. Idempotente — o Windows
+ * pode emitir `unlock-screen` e `resume` juntos.
+ */
+function registerPowerMonitorWiring(): void {
+  powerMonitor.on('lock-screen', () => setHwPollingSystemSuspended(true))
+  powerMonitor.on('suspend', () => setHwPollingSystemSuspended(true))
+  powerMonitor.on('unlock-screen', () => setHwPollingSystemSuspended(false))
+  powerMonitor.on('resume', () => setHwPollingSystemSuspended(false))
+}
+
 function createTray(): void {
   // Ícone da bandeja como asset em disco (não mais blob base64 inline). Se o
   // arquivo não existir, usa imagem vazia + aviso no log — o app nunca cai
@@ -378,6 +402,9 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC do monitor de hardware (aba Monitor em Meu PC).
   registerHwMonitorIpc(ctx)
+
+  // Suspensão do polling do monitor quando a tela bloqueia ou o PC suspende.
+  registerPowerMonitorWiring()
 
   // Registra os canais IPC de escala/resolução de tela (aba Tela em Meu PC).
   registerDisplayIpc(ctx)
