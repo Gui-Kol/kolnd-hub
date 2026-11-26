@@ -332,7 +332,8 @@ export function OverlayApp() {
           visible,
           reducedMotion,
           debug: flags.debug,
-          slow: flags.slow
+          slow: flags.slow,
+          ...(flags.look ? { look: flags.look } : {})
         })
         // Métrica de fps exposta ao diagnóstico do main (task 11, T8).
         ;(window as unknown as { __absolemAvatarMetrics?: () => unknown }).__absolemAvatarMetrics =

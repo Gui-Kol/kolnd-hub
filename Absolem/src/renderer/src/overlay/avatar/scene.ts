@@ -1,5 +1,4 @@
 ﻿import { Color, Group, MeshBasicMaterial, PerspectiveCamera, Scene, WebGLRenderer } from 'three'
-import type { Material } from 'three'
 import type { AvatarState, AvatarTheme } from '../../../../shared/avatar'
 import {
   AVATAR_ERROR_ACCENT,
@@ -13,7 +12,11 @@ import { resolveCaterpillarOutfit, resolveCaterpillarStyle } from './caterpillar
 import { createExpressionEngine } from './expressions'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
 import { createHoloMaterial } from './holoMaterial'
+import type { AvatarLook } from './looks'
+import { resolveAvatarLook } from './looks'
 import { createLipSync } from './lipSync'
+import { ABSOLEM_1951_PALETTE } from './palettes'
+import { createRoleMaterialFactory } from './roleMaterials'
 import { createParticles, PARTICLE_MAX } from './particles'
 import { createPerfMonitor } from './perf'
 import type { DegradationStep } from './perf'
@@ -52,6 +55,8 @@ export interface AvatarSceneOptions {
   style?: CaterpillarStyle | string
   outfit?: CaterpillarOutfit | string
   seed?: number
+  /** Acabamento do personagem (`holo` ou `storybook`). */
+  look?: AvatarLook | string
   /** Visibilidade do overlay (push `overlay:status-changed`). */
   visible?: boolean
   reducedMotion?: boolean
@@ -170,8 +175,14 @@ export function createAvatarScene(
     transparent: true,
     opacity: 0.92
   })
-  const materialFor = (role: string): Material =>
-    role === 'pupil' || role === 'mouth' ? darkMaterial : holoMaterial
+  const look = resolveAvatarLook(options.look)
+  let roleMaterials = createRoleMaterialFactory({
+    look,
+    palette: ABSOLEM_1951_PALETTE,
+    holo: holoMaterial,
+    dark: darkMaterial
+  })
+  let materialFor = roleMaterials.materialFor
 
   let caterpillar: CaterpillarBuild = buildCaterpillar({
     style: currentStyle,
@@ -222,14 +233,28 @@ export function createAvatarScene(
    * Reconstrução parcial: só a malha da lagarta (estilo/roupa/acessórios). O
    * renderer, a câmera, os materiais, as partículas e o loop continuam os
    * mesmos, o que mantém a troca de tema abaixo de ~50 ms.
+   *
+   * A fábrica de materiais por papel é recriada a cada rebuild para liberar os
+   * materiais do acabamento sólido; `holoMaterial` e `darkMaterial` são da cena
+   * e nunca são descartados aqui.
    */
-  function rebuildCaterpillar(): void {
+  function rebuildCaterpillar(minimal = false): void {
+    roleMaterials.dispose()
+    roleMaterials = createRoleMaterialFactory({
+      look,
+      palette: ABSOLEM_1951_PALETTE,
+      holo: holoMaterial,
+      dark: darkMaterial
+    })
+    materialFor = roleMaterials.materialFor
+
     const next = buildCaterpillar({
       style: currentStyle,
       outfit: currentOutfit,
       accessories: params.accessories,
       seed: options.seed,
-      material: materialFor
+      material: materialFor,
+      ...(minimal ? { minimal: true } : {})
     })
     root.remove(caterpillar.root)
     caterpillar.dispose()
@@ -245,18 +270,7 @@ export function createAvatarScene(
       particles.setCount(Math.round(particles.count() / 2))
     } else if (level === 3) {
       holoMaterial.uniforms.uNoise.value = 0
-      const next = buildCaterpillar({
-        style: currentStyle,
-        outfit: currentOutfit,
-        accessories: params.accessories,
-        seed: options.seed,
-        material: materialFor,
-        minimal: true
-      })
-      root.remove(caterpillar.root)
-      caterpillar.dispose()
-      caterpillar = next
-      root.add(caterpillar.root)
+      rebuildCaterpillar(true)
     }
     // Uma linha por nível: o monitor garante que cada passo é aplicado/logado
     // uma única vez.
@@ -451,6 +465,7 @@ export function createAvatarScene(
       root.remove(particles.points)
       caterpillar.dispose()
       particles.dispose()
+      roleMaterials.dispose()
       holoMaterial.dispose()
       darkMaterial.dispose()
       renderer.dispose()
