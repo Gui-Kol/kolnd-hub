@@ -6,17 +6,21 @@ import {
   DEFAULT_AVATAR_ACCENT,
   clampAvatarLevel
 } from '../../../../shared/avatar'
+import { normalizeTheme, type ThemeConfig } from '../../../../shared/theme'
 import { buildCaterpillar } from './caterpillar'
 import type { CaterpillarBuild, CaterpillarOutfit, CaterpillarStyle } from './caterpillar'
+import { resolveCaterpillarOutfit, resolveCaterpillarStyle } from './caterpillar'
 import { createExpressionEngine } from './expressions'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
 import { createHoloMaterial } from './holoMaterial'
 import { createLipSync } from './lipSync'
-import { createParticles } from './particles'
+import { createParticles, PARTICLE_MAX } from './particles'
 import { createPerfMonitor } from './perf'
 import type { DegradationStep } from './perf'
 import type { ParticleSystem } from './particles'
 import { createRenderLoop } from './renderLoop'
+import { toAvatarParams } from './themeAdapter'
+import type { AvatarParams } from './themeAdapter'
 
 /**
  * Bootstrap da cena do avatar.
@@ -43,12 +47,18 @@ export interface AvatarSceneOptions {
   state?: AvatarState
   level?: number
   theme?: AvatarTheme
+  /** Tema completo (task 04); tem precedência sobre `theme.accent`. */
+  themeConfig?: ThemeConfig
   style?: CaterpillarStyle | string
   outfit?: CaterpillarOutfit | string
   seed?: number
   /** Visibilidade do overlay (push `overlay:status-changed`). */
   visible?: boolean
   reducedMotion?: boolean
+  /** Preview: metade das partículas (0.5) sem mudar o tema. */
+  particleScale?: number
+  /** Preview: `pixelRatio` fixo em 1. */
+  pixelRatioCap?: number
   /** Força a degradação automática (flag `?slow=1`). */
   slow?: boolean
   debug?: boolean
@@ -60,7 +70,10 @@ export interface AvatarHandle {
   readonly canvas: HTMLCanvasElement
   setState: (state: AvatarState) => void
   setLevel: (level: number) => void
+  /** Compatibilidade da task 03: troca só a cor principal. */
   setTheme: (theme: AvatarTheme) => void
+  /** Task 04: aplica o tema completo sem reiniciar renderer/câmera/loop. */
+  applyTheme: (theme: ThemeConfig) => void
   setVisible: (visible: boolean) => void
   setReducedMotion: (reduced: boolean) => void
   resize: () => void
@@ -91,6 +104,7 @@ function fallbackHandle(
     setState: () => {},
     setLevel: () => {},
     setTheme: () => {},
+    applyTheme: () => {},
     setVisible: () => {},
     setReducedMotion: () => {},
     resize: () => {},
@@ -132,15 +146,27 @@ export function createAvatarScene(
   root.scale.setScalar(0.92)
   scene.add(root)
 
-  const style = options.style ?? 'classic'
-  let reducedMotion = options.reducedMotion === true
+  const initialTheme =
+    options.themeConfig ??
+    normalizeTheme({
+      primaryColor: options.theme?.accent ?? DEFAULT_AVATAR_ACCENT,
+      effectColor: options.theme?.accent ?? DEFAULT_AVATAR_ACCENT
+    })
+  let params: AvatarParams = toAvatarParams(initialTheme)
+  let currentStyle = resolveCaterpillarStyle(options.style ?? params.style)
+  let currentOutfit = resolveCaterpillarOutfit(options.outfit ?? params.outfit)
+  const particleScale = Math.max(0, options.particleScale ?? 1)
+  let reducedMotion = options.reducedMotion === true || params.reducedMotion
+  root.scale.setScalar(0.92 * params.scale)
+
   const holoMaterial = createHoloMaterial({
-    color: options.theme?.accent ?? DEFAULT_AVATAR_ACCENT,
-    noise: 0.32
+    color: params.primary.hex,
+    intensity: params.materials.hologramIntensity,
+    noise: params.materials.noise
   })
   // Pupilas e boca são "buracos" escuros: blending normal lê melhor que aditivo.
   const darkMaterial = new MeshBasicMaterial({
-    color: 0x0b1220,
+    color: new Color(params.shadow.hex),
     transparent: true,
     opacity: 0.92
   })
@@ -148,25 +174,32 @@ export function createAvatarScene(
     role === 'pupil' || role === 'mouth' ? darkMaterial : holoMaterial
 
   let caterpillar: CaterpillarBuild = buildCaterpillar({
-    style,
-    outfit: options.outfit,
+    style: currentStyle,
+    outfit: currentOutfit,
+    accessories: params.accessories,
     seed: options.seed,
     material: materialFor
   })
   root.add(caterpillar.root)
 
   const particles: ParticleSystem = createParticles({
-    color: options.theme?.accent ?? DEFAULT_AVATAR_ACCENT,
+    // Capacidade máxima: a troca de densidade do tema só muda o draw range,
+    // sem realocar buffers nem recriar a cena.
+    count: PARTICLE_MAX,
+    color: params.effect.hex,
     seed: options.seed,
     reducedMotion
   })
+  particles.setCount(Math.round(params.particles.count * particleScale))
   root.add(particles.points)
 
   const expressions = createExpressionEngine()
   const lipSync = createLipSync()
-  const accentColor = new Color(options.theme?.accent ?? DEFAULT_AVATAR_ACCENT)
+  const primaryColor = new Color(params.primary.hex)
+  const effectColor = new Color(params.effect.hex)
   const errorColor = new Color(AVATAR_ERROR_ACCENT)
   const blendedColor = new Color()
+  const particleColor = new Color()
 
   let state: AvatarState = options.state ?? 'idle'
   if (state !== 'idle') {
@@ -182,8 +215,27 @@ export function createAvatarScene(
   let drawCalls = 0
   let triangles = 0
   let elapsedSeconds = 0
-  let pixelRatioCap = Math.min(window.devicePixelRatio ?? 1, 2)
+  let pixelRatioCap = Math.min(options.pixelRatioCap ?? window.devicePixelRatio ?? 1, 2)
   let slowTimer: ReturnType<typeof setInterval> | null = null
+
+  /**
+   * Reconstrução parcial: só a malha da lagarta (estilo/roupa/acessórios). O
+   * renderer, a câmera, os materiais, as partículas e o loop continuam os
+   * mesmos, o que mantém a troca de tema abaixo de ~50 ms.
+   */
+  function rebuildCaterpillar(): void {
+    const next = buildCaterpillar({
+      style: currentStyle,
+      outfit: currentOutfit,
+      accessories: params.accessories,
+      seed: options.seed,
+      material: materialFor
+    })
+    root.remove(caterpillar.root)
+    caterpillar.dispose()
+    caterpillar = next
+    root.add(caterpillar.root)
+  }
 
   function applyDegradation(level: number, step: DegradationStep): void {
     if (level === 1) {
@@ -194,8 +246,9 @@ export function createAvatarScene(
     } else if (level === 3) {
       holoMaterial.uniforms.uNoise.value = 0
       const next = buildCaterpillar({
-        style,
-        outfit: options.outfit,
+        style: currentStyle,
+        outfit: currentOutfit,
+        accessories: params.accessories,
         seed: options.seed,
         material: materialFor,
         minimal: true
@@ -240,10 +293,12 @@ export function createAvatarScene(
         caterpillar.antennae[index].rotation.z = side * (0.18 + expression.antennaLift * 0.32)
       }
 
-      blendedColor.copy(accentColor).lerp(errorColor, expression.alert)
+      blendedColor.copy(primaryColor).lerp(errorColor, expression.alert)
       ;(holoMaterial.uniforms.uColor.value as Color).copy(blendedColor)
-      holoMaterial.uniforms.uIntensity.value = 0.78 + expression.pulse * 0.42
-      particles.setColor(blendedColor)
+      holoMaterial.uniforms.uIntensity.value =
+        (0.4 + params.glowIntensity * 0.6) * (0.78 + expression.pulse * 0.42)
+      particleColor.copy(effectColor).lerp(errorColor, expression.alert)
+      particles.setColor(particleColor)
       particles.setSpeed(expression.particleSpeed)
       particles.setOpacity(0.32 + lip.aura * 0.58)
       caterpillar.mouth.scale.y = 0.3 + lip.mouthOpen * 1.35
@@ -345,7 +400,29 @@ export function createAvatarScene(
       lipSync.setLevel(clampAvatarLevel(next))
     },
     setTheme(theme: AvatarTheme): void {
-      accentColor.set(theme.accent)
+      primaryColor.set(theme.accent)
+    },
+    applyTheme(theme: ThemeConfig): void {
+      const next = toAvatarParams(theme)
+      const styleChanged = next.style !== currentStyle
+      const outfitChanged = next.outfit !== currentOutfit
+      const accessoriesChanged = next.accessories.join('|') !== params.accessories.join('|')
+
+      currentStyle = next.style
+      currentOutfit = next.outfit
+      params = next
+
+      primaryColor.set(next.primary.hex)
+      effectColor.set(next.effect.hex)
+      darkMaterial.color.set(next.shadow.hex)
+      holoMaterial.uniforms.uNoise.value = next.materials.noise
+      root.scale.setScalar(0.92 * next.scale)
+
+      reducedMotion = next.reducedMotion
+      particles.setReducedMotion(reducedMotion)
+      particles.setCount(Math.round(next.particles.count * particleScale))
+
+      if (styleChanged || outfitChanged || accessoriesChanged) rebuildCaterpillar()
     },
     setVisible(visible: boolean): void {
       overlayVisible = visible

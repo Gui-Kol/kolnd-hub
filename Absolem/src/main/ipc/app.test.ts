@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AbsolemConfig } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
+import { defaultTheme } from '../../shared/theme'
 import type { IpcContext } from './lifecycle'
 
 type Handler = (event: unknown, payload: unknown) => unknown
@@ -41,7 +42,7 @@ const defaultConfig: AbsolemConfig = {
     shortcut: 'Control+Alt+A',
     hideOnFullscreen: true
   },
-  theme: { mode: 'dark', accent: '#3b82f6' },
+  theme: defaultTheme(),
   voice: { enabled: false, inputDeviceId: null, outputVolume: 1 },
   gemini: { model: 'gemini-2.0-flash', temperature: 0.7 },
   privacy: { telemetry: false, screenCapture: false },

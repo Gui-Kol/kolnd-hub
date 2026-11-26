@@ -4,7 +4,8 @@ import type {
   AvatarSetStateRequest,
   AvatarState
 } from './avatar'
-import type { OverlayLayout, OverlayPosition, StoreKey, ThemeConfig } from './config'
+import type { OverlayLayout, OverlayPosition, StoreKey } from './config'
+import type { ThemeConfig } from './theme'
 
 /**
  * Contrato IPC do Absolem.
@@ -35,7 +36,10 @@ export const IPC = {
   storeSet: 'store:set',
   settingsOpen: 'settings:open',
   themeGet: 'theme:get',
-  themeSet: 'theme:set'
+  themeSet: 'theme:set',
+  themeExport: 'theme:export',
+  themeImport: 'theme:import',
+  themeChanged: 'theme:changed'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -127,9 +131,19 @@ export interface SettingsOpenRequest {
 
 export interface ThemeSetRequest {
   theme: Partial<ThemeConfig>
+  /**
+   * `false` atualiza o overlay sem gravar no disco (debounce da UI); omitido ou
+   * `true` persiste (throttle da UI e chamadas diretas).
+   */
+  persist?: boolean
 }
 
 export type ThemeGetResult = { ok: true; theme: ThemeConfig } | IpcError
+
+export type ThemeExportResult = { ok: true; canceled: boolean; filePath?: string } | IpcError
+
+export type ThemeImportResult =
+  { ok: true; canceled: boolean; theme?: ThemeConfig; warnings: string[] } | IpcError
 
 /**
  * Mapa canal → request/response. Mantém o preload e os handlers alinhados:
@@ -159,6 +173,9 @@ export interface IpcContract {
   [IPC.settingsOpen]: { request: SettingsOpenRequest; response: SimpleResult }
   [IPC.themeGet]: { request: undefined; response: ThemeGetResult }
   [IPC.themeSet]: { request: ThemeSetRequest; response: SimpleResult }
+  [IPC.themeExport]: { request: undefined; response: ThemeExportResult }
+  [IPC.themeImport]: { request: undefined; response: ThemeImportResult }
+  [IPC.themeChanged]: { request: undefined; response: ThemeConfig }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -191,5 +208,8 @@ export interface AbsolemApi {
   storeSet: (key: StoreKey, value: unknown) => Promise<SimpleResult>
   openSettings: (section?: SettingsSection) => Promise<SimpleResult>
   themeGet: () => Promise<ThemeGetResult>
-  themeSet: (theme: Partial<ThemeConfig>) => Promise<SimpleResult>
+  themeSet: (theme: Partial<ThemeConfig>, options?: { persist?: boolean }) => Promise<SimpleResult>
+  themeExport: () => Promise<ThemeExportResult>
+  themeImport: () => Promise<ThemeImportResult>
+  onThemeChanged: (listener: (theme: ThemeConfig) => void) => () => void
 }

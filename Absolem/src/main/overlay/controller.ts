@@ -4,6 +4,12 @@ import type { OverlayConfig, OverlayLayout } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
 import type { OverlayStatus, OverlayStatusResult } from '../../shared/ipc'
 import { isOverlayPosition, normalizeOverlayLayout } from '../../shared/overlay'
+import {
+  OVERLAY_HEIGHT_MAX,
+  OVERLAY_HEIGHT_MIN,
+  OVERLAY_WIDTH_MAX,
+  OVERLAY_WIDTH_MIN
+} from '../../shared/overlay'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
 import { registerShutdownHook } from '../shutdown'
@@ -191,6 +197,16 @@ export function setOverlayLayoutFromRequest(input: unknown): OverlayStatusResult
       }
     } else if (typeof value !== 'number' || !Number.isFinite(value)) {
       return { ok: false, error: `Valor inválido em overlay:set-layout: ${key}` }
+    } else if (key === 'width' && (value < OVERLAY_WIDTH_MIN || value > OVERLAY_WIDTH_MAX)) {
+      return {
+        ok: false,
+        error: `Largura fora da faixa ${OVERLAY_WIDTH_MIN}..${OVERLAY_WIDTH_MAX}.`
+      }
+    } else if (key === 'height' && (value < OVERLAY_HEIGHT_MIN || value > OVERLAY_HEIGHT_MAX)) {
+      return {
+        ok: false,
+        error: `Altura fora da faixa ${OVERLAY_HEIGHT_MIN}..${OVERLAY_HEIGHT_MAX}.`
+      }
     }
   }
 

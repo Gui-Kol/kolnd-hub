@@ -31,6 +31,12 @@ body {
     sans-serif;
 }
 
+/* Foco visível em qualquer rota (inclusive dentro do overlay). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /*
  * Rota `#overlay`: sem fundo, sem moldura e sem faixa preta. O `body` pinta
  * `--bg-base` por padrão (janela de fundação); no overlay isso apareceria como

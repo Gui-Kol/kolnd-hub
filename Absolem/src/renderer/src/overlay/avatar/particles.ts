@@ -30,6 +30,8 @@ export function resolveParticleCount(
   options: ParticleCountOptions = {}
 ): number {
   if (options.reducedMotion) return 0
+  // Densidade "off" do tema (task 04) desliga as partículas de verdade.
+  if (requested === 0) return 0
   const value =
     typeof requested === 'number' && Number.isFinite(requested) ? requested : PARTICLE_DEFAULT
   const base = Math.min(PARTICLE_MAX, Math.max(PARTICLE_MIN, Math.round(value)))
@@ -60,7 +62,8 @@ export interface ParticleSystem {
 }
 
 export function createParticles(options: ParticleSystemOptions = {}): ParticleSystem {
-  const allocated = Math.max(1, resolveParticleCount(options.count))
+  const requested = resolveParticleCount(options.count)
+  const allocated = Math.max(1, requested)
   const reducedMotion = options.reducedMotion === true
   const spread = options.spread ?? { x: 1.55, y: 0.85, z: 0.6 }
   const random = createSeededRandom(options.seed ?? 17)
@@ -101,7 +104,8 @@ export function createParticles(options: ParticleSystemOptions = {}): ParticleSy
   points.name = 'caterpillar-particles'
   points.frustumCulled = false
 
-  let currentCount = reducedMotion ? 0 : allocated
+  let currentCount = reducedMotion ? 0 : requested
+  let requestedCount = requested
   let speed = Math.max(0, options.speed ?? 1)
   let motionReduced = reducedMotion
   geometry.setDrawRange(0, currentCount)
@@ -123,6 +127,7 @@ export function createParticles(options: ParticleSystemOptions = {}): ParticleSy
     count: () => currentCount,
     setCount(count: number): void {
       const next = Math.min(allocated, Math.max(0, Math.round(count)))
+      requestedCount = next
       currentCount = motionReduced ? 0 : next
       geometry.setDrawRange(0, currentCount)
     },
@@ -137,7 +142,7 @@ export function createParticles(options: ParticleSystemOptions = {}): ParticleSy
     },
     setReducedMotion(reduced: boolean): void {
       motionReduced = reduced
-      currentCount = reduced ? 0 : allocated
+      currentCount = reduced ? 0 : requestedCount
       geometry.setDrawRange(0, currentCount)
     },
     update(timeSeconds: number): void {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORE_KEYS } from '../shared/config'
+import { THEME_SCALE_MAX, defaultTheme } from '../shared/theme'
 
 const state = vi.hoisted(() => ({
   fail: false,
@@ -76,12 +77,12 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.2.0')
-    expect(Object.keys(options.migrations ?? {})).toEqual(['1.0.0', '1.1.0', '1.2.0'])
+    expect(options.projectVersion).toBe('1.3.0')
+    expect(Object.keys(options.migrations ?? {})).toEqual(['1.0.0', '1.1.0', '1.2.0', '1.3.0'])
   })
 
   it('valor inválido é normalizado sem perder os válidos', () => {
-    state.data.set('theme', { mode: 'neon', accent: '#123456' })
+    state.data.set('theme', { primaryColor: '#123456', style: 'inexistente', scale: 9 })
     state.data.set('overlay', {
       visible: true,
       position: 'top-right',
@@ -95,7 +96,11 @@ describe('store persistente', () => {
 
     const snapshot = storeMod.getStoreSnapshot()
 
-    expect(snapshot.theme).toEqual({ mode: 'dark', accent: '#123456' })
+    expect(snapshot.theme).toEqual({
+      ...defaultTheme(),
+      primaryColor: '#123456',
+      scale: THEME_SCALE_MAX
+    })
     expect(snapshot.overlay).toEqual({
       visible: true,
       position: 'top-right',
@@ -109,7 +114,7 @@ describe('store persistente', () => {
     expect(snapshot.voice).toEqual({ enabled: true, inputDeviceId: null, outputVolume: 1 })
   })
 
-  it('migração 1.1.0 preserva dados da 1.0.0 e 1.2.0 converte', () => {
+  it('migração 1.1.0 preserva dados da 1.0.0, 1.2.0 converte e 1.3.0 migra o tema', () => {
     state.data.set('theme', { mode: 'light', accent: '#abcdef' })
     state.data.set('overlay', { enabled: true, position: 'top-left', scale: 1.5 })
     const store = fakeStore()
@@ -145,6 +150,14 @@ describe('store persistente', () => {
     // Idempotente: rodar de novo sobre o formato atual não muda nada.
     storeMod.STORE_MIGRATIONS['1.2.0'](store)
     expect(state.data.get('overlay')).toEqual(migrated)
+
+    // 1.3.0: `accent` vira `primaryColor`; `mode` é descartado; defaults entram.
+    storeMod.STORE_MIGRATIONS['1.3.0'](store)
+    const migratedTheme = { ...defaultTheme(), primaryColor: '#abcdef' }
+    expect(state.data.get('theme')).toEqual(migratedTheme)
+
+    storeMod.STORE_MIGRATIONS['1.3.0'](store)
+    expect(state.data.get('theme')).toEqual(migratedTheme)
   })
 
   it('store corrompido não lança', async () => {
@@ -161,9 +174,13 @@ describe('store persistente', () => {
     )
     expect(mod.getStoreSnapshot()).toEqual(mod.defaultAbsolemConfig())
 
-    expect(mod.setStoreValue('theme', { mode: 'light', accent: '#abcdef' })).toEqual({
+    expect(mod.setStoreValue('theme', { primaryColor: '#abcdef', presetId: 'neon' })).toEqual({
       success: true
     })
-    expect(mod.getStoreSnapshot().theme).toEqual({ mode: 'light', accent: '#abcdef' })
+    expect(mod.getStoreSnapshot().theme).toEqual({
+      ...defaultTheme(),
+      primaryColor: '#abcdef',
+      presetId: 'neon'
+    })
   })
 })

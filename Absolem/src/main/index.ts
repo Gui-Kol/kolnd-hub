@@ -8,6 +8,7 @@ import './crashReporting'
 import { app, screen, Tray } from 'electron'
 import { registerIpc } from './ipc'
 import type { IpcContext } from './ipc'
+import { setThemeFromRequest } from './ipc/theme'
 import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
 import { logger } from './logger'
@@ -50,11 +51,10 @@ function showTrayBalloon(content: string): void {
 }
 
 /**
- * "Configurações" mostra a janela de fundação existente. Paliativo documentado
- * até a task 11 criar a tela real de configurações.
+ * "Configurações" abre a janela principal na rota `#settings`. A janela é a
+ * mesma da fundação (task 00) e agora carrega a aba Aparência.
  */
 function openSettings(): void {
-  // TODO(task 11): abrir a janela de configurações real
   showMainWindow()
 }
 
@@ -98,9 +98,14 @@ function logOverlaySmoke(label: string): void {
  */
 function scheduleSmoke(): void {
   if (app.isPackaged || process.env.ABSOLEM_SMOKE !== '1') return
+  let themeSentAt = 0
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: estado no boot')
     logger.info('lifecycle', 'smoke: workArea primária', screen.getPrimaryDisplay().workArea)
+    logger.info('lifecycle', 'smoke: tema persistido no boot', {
+      presetId: ctx.getStoreSnapshot().theme.presetId,
+      primaryColor: ctx.getStoreSnapshot().theme.primaryColor
+    })
     logOverlaySmoke('boot')
   }, 400)
   setTimeout(() => {
@@ -112,17 +117,92 @@ function scheduleSmoke(): void {
     logOverlaySmoke('aberto')
   }, 1400)
   setTimeout(() => {
+    // Prova o push `theme:changed` sem gravar no config de teste.
+    themeSentAt = Date.now()
+    const result = setThemeFromRequest(ctx, {
+      theme: { presetId: 'custom', primaryColor: '#22d3ee' },
+      persist: false
+    })
+    logger.info('lifecycle', 'smoke: theme:set', result)
+  }, 1600)
+  setTimeout(() => {
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler o tema')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(() => ({
+          presetId: document.querySelector('[data-theme-preset]')?.getAttribute('data-theme-preset') ?? '',
+          receivedAt: Number(document.documentElement.dataset.themeReceivedAt ?? 0)
+        }))()`
+      )
+      .then((info: unknown) => {
+        const received = info as { presetId?: unknown; receivedAt?: unknown }
+        const presetId = typeof received.presetId === 'string' ? received.presetId : ''
+        const receivedAt = typeof received.receivedAt === 'number' ? received.receivedAt : 0
+        logger.info('lifecycle', 'smoke: theme:changed no overlay', {
+          presetId,
+          applied: presetId === 'custom',
+          latencyMs: receivedAt > 0 && themeSentAt > 0 ? receivedAt - themeSentAt : -1
+        })
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao ler o tema do overlay', err)
+      })
+  }, 2000)
+  setTimeout(() => {
+    // Persistência real no userData temporário: uma segunda execução do smoke
+    // com o mesmo ABSOLEM_TEST_USERDATA deve logar `jade` no boot.
+    const result = setThemeFromRequest(ctx, {
+      theme: { presetId: 'jade', primaryColor: '#10b981' }
+    })
+    logger.info('lifecycle', 'smoke: tema persistido', result)
+  }, 2100)
+  setTimeout(() => {
+    logger.info('lifecycle', 'smoke: abrindo Configurações (rota #settings)')
+    showMainWindow()
+  }, 2200)
+  setTimeout(() => {
+    const window = getMainWindow()
+    if (!window || window.isDestroyed()) {
+      logger.warn('lifecycle', 'smoke: janela de Configurações ausente')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(() => {
+          const controls = Array.from(document.querySelectorAll('input, select'))
+          const labelled = controls.filter((el) => el.id && document.querySelector('label[for="' + el.id + '"]'))
+          return {
+            hash: location.hash,
+            title: document.querySelector('h1')?.textContent ?? '',
+            primaryColor: document.querySelector('#appearance-primary-color') !== null,
+            controls: controls.length,
+            labelled: labelled.length
+          }
+        })()`
+      )
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: Configurações carregada', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao ler a janela de Configurações', err)
+      })
+  }, 2700)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
     tray?.emit('click')
     logOverlaySmoke('após clique 2')
-  }, 1600)
+  }, 3100)
   setTimeout(() => {
     logOverlaySmoke('oculto')
-  }, 2000)
+  }, 3400)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: solicitando encerramento')
     requestQuit()
-  }, 2400)
+  }, 3800)
 }
 
 app.whenReady().then(() => {

@@ -5,8 +5,7 @@ import { isAllowedNavigationUrl } from './navigation'
 import { logger } from './logger'
 
 /**
- * Ciclo de vida da janela principal (a tela de fundação, usada por
- * "Configurações" até a task 11).
+ * Ciclo de vida da janela principal (Configurações, rota `#settings`).
  *
  * A janela NÃO nasce no `whenReady`: o app começa só na bandeja e a janela é
  * criada sob demanda por `createMainWindow`/`showMainWindow`.
@@ -36,8 +35,14 @@ export function createMainWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
 
   const window = new BrowserWindow({
-    width: 900,
-    height: 600,
+    // Janela normal de Configurações: 720x560, redimensionável, nunca
+    // always-on-top (o overlay é que flutua). O X continua apenas ocultando.
+    width: 720,
+    height: 560,
+    minWidth: 640,
+    minHeight: 480,
+    resizable: true,
+    alwaysOnTop: false,
     show: false,
     backgroundColor: '#0b0f14',
     webPreferences: {
@@ -88,9 +93,9 @@ export function createMainWindow(): BrowserWindow {
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) {
-    void window.loadURL(devUrl)
+    void window.loadURL(`${devUrl}#settings`)
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'settings' })
   }
 
   return window

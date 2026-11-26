@@ -2,7 +2,6 @@ import Store from 'electron-store'
 import { logger } from './logger'
 import {
   STORE_KEYS,
-  THEME_MODES,
   type AbsolemConfig,
   type GeminiConfig,
   type OverlayConfig,
@@ -18,6 +17,7 @@ import {
   OVERLAY_DEFAULT_POSITION,
   OVERLAY_DEFAULT_SHORTCUT
 } from '../shared/overlay'
+import { defaultTheme, normalizeTheme } from '../shared/theme'
 
 export { normalizeOverlayConfig }
 
@@ -27,15 +27,13 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.2.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.3.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.2.0'
+export const STORE_SCHEMA_VERSION = '1.3.0'
 
-const DEFAULT_ACCENT = '#3b82f6'
-const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
@@ -51,7 +49,7 @@ export function defaultOverlayConfig(): OverlayConfig {
 }
 
 export function defaultThemeConfig(): ThemeConfig {
-  return { mode: 'dark', accent: DEFAULT_ACCENT }
+  return defaultTheme()
 }
 
 export function defaultVoiceConfig(): VoiceConfig {
@@ -105,15 +103,7 @@ function normalizeOptionalId(value: unknown): string | null {
 }
 
 export function normalizeThemeConfig(input: unknown): ThemeConfig {
-  const raw = asRecord(input)
-  const mode = THEME_MODES.includes(raw.mode as (typeof THEME_MODES)[number])
-    ? (raw.mode as ThemeConfig['mode'])
-    : 'dark'
-  const accent =
-    typeof raw.accent === 'string' && HEX_COLOR_RE.test(raw.accent.trim())
-      ? raw.accent.trim()
-      : DEFAULT_ACCENT
-  return { mode, accent }
+  return normalizeTheme(input)
 }
 
 export function normalizeVoiceConfig(input: unknown): VoiceConfig {
@@ -232,6 +222,20 @@ const schema: Store.Schema<AbsolemConfig> = {
     type: 'object',
     default: defaultThemeConfig(),
     properties: {
+      version: { type: 'number' },
+      presetId: { type: 'string' },
+      primaryColor: { type: 'string' },
+      effectColor: { type: 'string' },
+      glowIntensity: { type: 'number' },
+      style: { type: 'string' },
+      outfit: { type: 'string' },
+      accessories: { type: 'array', items: { type: 'string' } },
+      particleDensity: { type: 'string' },
+      scale: { type: 'number' },
+      reducedMotion: { type: 'boolean' },
+      // Formato legado da 1.2.0. Precisa continuar válido no schema porque o
+      // electron-store valida o arquivo ANTES de rodar as migrações; a 1.3.0
+      // converte `accent` em `primaryColor` e descarta `mode`.
       mode: { type: 'string' },
       accent: { type: 'string' }
     },
@@ -304,7 +308,9 @@ export function migrate100(_store: StoreLike): void {
 export function migrate110(store: StoreLike): void {
   // `overlay` NÃO é tocada aqui: a 1.2.0 converte o formato legado
   // (`enabled`/`scale`) que já está no disco e descarta os campos antigos.
-  store.set('theme', normalizeThemeConfig(store.get('theme', defaultThemeConfig())))
+  // `theme` também fica intacta: a 1.3.0 lê o `accent` legado antes de
+  // normalizar (normalizar aqui perderia a cor antes da migração certa).
+  store.set('theme', store.get('theme', defaultThemeConfig()))
   store.set('voice', normalizeVoiceConfig(store.get('voice', defaultVoiceConfig())))
   store.set('gemini', normalizeGeminiConfig(store.get('gemini', defaultGeminiConfig())))
   store.set('privacy', normalizePrivacyConfig(store.get('privacy', defaultPrivacyConfig())))
@@ -329,10 +335,28 @@ export function migrate120(store: StoreLike): void {
   store.set('overlay', normalizeOverlayConfig({ ...raw, visible }))
 }
 
+/**
+ * 1.3.0: `{ mode, accent }` -> `ThemeConfig` completo.
+ *
+ * `accent` vira `primaryColor`, `mode` é descartado (a v1 não tem tema claro) e
+ * os campos novos recebem os defaults. Idempotente: um tema já no formato atual
+ * passa pelo normalizador e volta igual.
+ */
+export function migrate130(store: StoreLike): void {
+  const raw = asRecord(store.get('theme', defaultThemeConfig()))
+  const accent = typeof raw.accent === 'string' ? raw.accent : undefined
+  const input: Record<string, unknown> = { ...raw }
+  if (input.primaryColor === undefined && accent !== undefined) {
+    input.primaryColor = accent
+  }
+  store.set('theme', normalizeTheme(input))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
-  '1.2.0': migrate120
+  '1.2.0': migrate120,
+  '1.3.0': migrate130
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

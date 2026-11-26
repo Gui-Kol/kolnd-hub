@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type AbsolemApi, type OverlayStatus } from '../shared/ipc'
 import type { OverlaySetLayoutRequest } from '../shared/ipc'
 import type { AvatarApplyPush, AvatarState } from '../shared/avatar'
-import type { StoreKey, ThemeConfig } from '../shared/config'
+import type { StoreKey } from '../shared/config'
+import type { ThemeConfig } from '../shared/theme'
 import type { SettingsSection } from '../shared/ipc'
 
 /**
@@ -52,7 +53,20 @@ const absolem: AbsolemApi = {
     ipcRenderer.invoke(IPC.settingsOpen, section === undefined ? {} : { section }),
 
   themeGet: () => ipcRenderer.invoke(IPC.themeGet),
-  themeSet: (theme: Partial<ThemeConfig>) => ipcRenderer.invoke(IPC.themeSet, { theme })
+  themeSet: (theme: Partial<ThemeConfig>, options?: { persist?: boolean }) =>
+    ipcRenderer.invoke(IPC.themeSet, {
+      theme,
+      ...(options?.persist === undefined ? {} : { persist: options.persist })
+    }),
+  themeExport: () => ipcRenderer.invoke(IPC.themeExport),
+  themeImport: () => ipcRenderer.invoke(IPC.themeImport),
+  onThemeChanged: (listener: (theme: ThemeConfig) => void) => {
+    const handler = (_event: unknown, theme: ThemeConfig) => listener(theme)
+    ipcRenderer.on(IPC.themeChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC.themeChanged, handler)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('absolem', absolem)

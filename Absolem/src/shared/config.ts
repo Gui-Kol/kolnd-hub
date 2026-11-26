@@ -6,6 +6,10 @@
  * conhecer as mesmas formas sem duplicar strings.
  */
 
+import type { ThemeConfig } from './theme'
+
+export type { ThemeConfig } from './theme'
+
 export const STORE_KEYS = [
   'overlay',
   'theme',
@@ -35,15 +39,6 @@ export interface OverlayConfig extends OverlayLayout {
   visible: boolean
   shortcut: string
   hideOnFullscreen: boolean
-}
-
-export const THEME_MODES = ['dark', 'light', 'system'] as const
-
-export type ThemeMode = (typeof THEME_MODES)[number]
-
-export interface ThemeConfig {
-  mode: ThemeMode
-  accent: string
 }
 
 export interface VoiceConfig {

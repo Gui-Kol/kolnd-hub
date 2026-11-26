@@ -37,9 +37,13 @@ export const CATERPILLAR_OUTFITS = ['none', 'scarf', 'collar', 'visor'] as const
 export type CaterpillarOutfit = (typeof CATERPILLAR_OUTFITS)[number]
 
 export type CaterpillarMaterialRole =
-  'body' | 'head' | 'eye' | 'pupil' | 'antenna' | 'mandible' | 'mouth' | 'outfit'
+  'body' | 'head' | 'eye' | 'pupil' | 'antenna' | 'mandible' | 'mouth' | 'outfit' | 'accessory'
 
 export type CaterpillarMaterialFactory = (role: CaterpillarMaterialRole) => Material
+
+export const CATERPILLAR_ACCESSORIES = ['antenna_glow', 'back_spikes', 'visor_hud'] as const
+
+export type CaterpillarAccessory = (typeof CATERPILLAR_ACCESSORIES)[number]
 
 export interface CaterpillarOptions {
   /** 7 a 9; valores fora da faixa são limitados. */
@@ -49,11 +53,14 @@ export interface CaterpillarOptions {
   curvature?: number
   style?: CaterpillarStyle | string
   outfit?: CaterpillarOutfit | string
+  accessories?: readonly string[]
   seed?: number
   /** Degradação (T7): força o corpo mínimo de 5 segmentos. */
   minimal?: boolean
   /** Fábrica externa (cena); sem ela, materiais básicos locais. */
   material?: CaterpillarMaterialFactory
+  /** Cores opcionais para a fábrica default; a cena passa a própria fábrica. */
+  palette?: Partial<Record<CaterpillarMaterialRole, number>>
 }
 
 export interface CaterpillarStats {
@@ -62,6 +69,7 @@ export interface CaterpillarStats {
   triangles: number
   style: CaterpillarStyle
   outfit: CaterpillarOutfit
+  accessories: CaterpillarAccessory[]
 }
 
 export interface CaterpillarBuild {
@@ -78,17 +86,6 @@ export interface CaterpillarBuild {
   stats: CaterpillarStats
   /** Libera geometrias (e materiais, se foram criados aqui). */
   dispose: () => void
-}
-
-const BODY_PALETTE: Record<CaterpillarMaterialRole, number> = {
-  body: 0x7dd3fc,
-  head: 0xbae6fd,
-  eye: 0xe0f2fe,
-  pupil: 0x0f172a,
-  antenna: 0x93c5fd,
-  mandible: 0x60a5fa,
-  mouth: 0x1e3a8a,
-  outfit: 0xf0abfc
 }
 
 /** PRNG determinístico (mulberry32): mesma seed, mesma lagarta. */
@@ -125,14 +122,36 @@ export function resolveCaterpillarOutfit(value: unknown): CaterpillarOutfit {
     : 'none'
 }
 
-/** Fábrica default: usada em testes e quando a cena não injeta materiais. */
+/** Acessórios: lista fechada, sem repetição, ordem preservada. */
+export function resolveCaterpillarAccessories(value: unknown): CaterpillarAccessory[] {
+  if (!Array.isArray(value)) return []
+  const out: CaterpillarAccessory[] = []
+  for (const item of value) {
+    if (
+      typeof item !== 'string' ||
+      !(CATERPILLAR_ACCESSORIES as readonly string[]).includes(item)
+    ) {
+      continue
+    }
+    const accessory = item as CaterpillarAccessory
+    if (!out.includes(accessory)) out.push(accessory)
+  }
+  return out
+}
+
+/**
+ * Fábrica default: usada em testes e quando a cena não injeta materiais.
+ * Nenhuma cor mora neste módulo: a paleta chega por parâmetro ou o material
+ * fica com a cor neutra do three.
+ */
 export function createDefaultCaterpillarMaterials(
-  style: CaterpillarStyle
+  style: CaterpillarStyle,
+  palette: Partial<Record<CaterpillarMaterialRole, number>> = {}
 ): CaterpillarMaterialFactory {
   const wireframe = style === 'wireframe'
   return (role) =>
     new MeshBasicMaterial({
-      color: BODY_PALETTE[role],
+      ...(palette[role] === undefined ? {} : { color: palette[role] }),
       wireframe,
       transparent: true,
       opacity: role === 'pupil' ? 0.95 : 0.62
@@ -156,7 +175,8 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     typeof options.curvature === 'number' ? Math.min(1, Math.max(0, options.curvature)) : 0.45
   const random = createSeededRandom(options.seed ?? 1)
   const ownsMaterials = options.material === undefined
-  const materialFor = options.material ?? createDefaultCaterpillarMaterials(style)
+  const materialFor = options.material ?? createDefaultCaterpillarMaterials(style, options.palette)
+  const accessories = resolveCaterpillarAccessories(options.accessories)
 
   const root = new Group()
   root.name = 'caterpillar'
@@ -308,6 +328,17 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     root.add(outfitGroup)
   }
 
+  if (accessories.length > 0) {
+    const accessoryGroups = buildAccessories(accessories, {
+      radius,
+      head,
+      materialFor,
+      curve,
+      antennae
+    })
+    for (const group of accessoryGroups) root.add(group)
+  }
+
   let vertices = 0
   let triangles = 0
   root.traverse((object) => {
@@ -327,7 +358,8 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     vertices,
     triangles,
     style,
-    outfit
+    outfit,
+    accessories
   }
 
   return {
@@ -357,6 +389,76 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
       root.clear()
     }
   }
+}
+
+interface AccessoryContext {
+  radius: number
+  head: Mesh
+  materialFor: CaterpillarMaterialFactory
+  curve: CatmullRomCurve3
+  antennae: Group[]
+}
+
+/**
+ * Acessórios procedurais. Cada um é um `Group` próprio para a cena remover e
+ * reconstruir sem tocar no resto da malha.
+ */
+function buildAccessories(accessories: CaterpillarAccessory[], ctx: AccessoryContext): Group[] {
+  const groups: Group[] = []
+  const { radius, head, materialFor, curve, antennae } = ctx
+
+  if (accessories.includes('antenna_glow')) {
+    const group = new Group()
+    group.name = 'caterpillar-accessory-antenna_glow'
+    const glowGeometry = new SphereGeometry(radius * 0.24, 8, 6)
+    for (const antenna of antennae) {
+      const side = antenna.name.includes('left') ? -1 : 1
+      const glow = new Mesh(glowGeometry, materialFor('accessory'))
+      glow.position.set(radius * 0.42, radius * 1.55, side * radius * 0.58)
+      glow.scale.set(1, 1, 1)
+      group.add(glow)
+    }
+    groups.push(group)
+  }
+
+  if (accessories.includes('back_spikes')) {
+    const group = new Group()
+    group.name = 'caterpillar-accessory-back_spikes'
+    const spikeGeometry = new ConeGeometry(radius * 0.16, radius * 0.62, 6)
+    for (const t of [0.26, 0.48, 0.7]) {
+      const point = curve.getPointAt(t)
+      const spike = new Mesh(spikeGeometry, materialFor('accessory'))
+      spike.position.set(point.x, point.y + radius * 0.92, point.z)
+      spike.rotation.z = -0.12
+      group.add(spike)
+    }
+    groups.push(group)
+  }
+
+  if (accessories.includes('visor_hud')) {
+    const group = new Group()
+    group.name = 'caterpillar-accessory-visor_hud'
+    const bandGeometry = new TorusGeometry(radius * 0.9, radius * 0.08, 6, 18, Math.PI)
+    const band = new Mesh(bandGeometry, materialFor('accessory'))
+    band.position.set(head.position.x + radius * 0.18, head.position.y + radius * 0.2, 0)
+    band.rotation.set(Math.PI / 2, 0, Math.PI / 2)
+    group.add(band)
+
+    const lensGeometry = new SphereGeometry(radius * 0.18, 8, 6)
+    for (const side of [-1, 1]) {
+      const lens = new Mesh(lensGeometry, materialFor('accessory'))
+      lens.position.set(
+        head.position.x + radius * 0.82,
+        head.position.y + radius * 0.18,
+        side * radius * 0.36
+      )
+      lens.scale.set(0.45, 1, 1)
+      group.add(lens)
+    }
+    groups.push(group)
+  }
+
+  return groups
 }
 
 interface OutfitContext {

@@ -19,6 +19,8 @@ function setInteractive(interactive: boolean): void {
 export function OverlayApp() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [debugLine, setDebugLine] = useState<string | null>(null)
+  // Observável de smoke: prova que o push `theme:changed` chegou e foi aplicado.
+  const [themePresetId, setThemePresetId] = useState('')
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -29,13 +31,15 @@ export function OverlayApp() {
     let handle: AvatarHandle | null = null
     let unsubscribeStatus: (() => void) | null = null
     let unsubscribeApply: (() => void) | null = null
+    let unsubscribeTheme: (() => void) | null = null
     let fakeVoiceTimer: ReturnType<typeof setInterval> | null = null
     let hudTimer: ReturnType<typeof setInterval> | null = null
     let motionMedia: MediaQueryList | null = null
     let visible = true
+    let themeReducedMotion = false
 
     const onMotionChange = (): void => {
-      handle?.setReducedMotion(motionMedia?.matches === true)
+      handle?.setReducedMotion(motionMedia?.matches === true || themeReducedMotion)
     }
 
     void (async () => {
@@ -44,17 +48,27 @@ export function OverlayApp() {
         // impede o avatar de montar (e vice-versa).
         const statusPromise = window.absolem.overlayStatus().catch(() => null)
         const avatarStatusPromise = window.absolem.avatar.getStatus().catch(() => null)
+        const themePromise = window.absolem.themeGet().catch(() => null)
         const module = await import('./avatar')
-        const [status, avatarStatus] = await Promise.all([statusPromise, avatarStatusPromise])
+        const [status, avatarStatus, themeResult] = await Promise.all([
+          statusPromise,
+          avatarStatusPromise,
+          themePromise
+        ])
         if (disposed) return
 
         if (status?.ok) visible = status.status.visible
-        const reducedMotion =
+        const systemReducedMotion =
           typeof window.matchMedia === 'function' &&
           window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        const theme = themeResult?.ok ? themeResult.theme : null
+        themeReducedMotion = theme?.reducedMotion === true
+        if (theme) setThemePresetId(theme.presetId)
+        const reducedMotion = systemReducedMotion || themeReducedMotion
 
         handle = module.mountAvatar(canvas, {
           theme: { accent: DEFAULT_AVATAR_ACCENT },
+          ...(theme ? { themeConfig: theme } : {}),
           visible,
           reducedMotion,
           debug: flags.debug,
@@ -65,6 +79,17 @@ export function OverlayApp() {
           motionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
           motionMedia.addEventListener('change', onMotionChange)
         }
+
+        // Push `theme:changed`: aplicar a quente, sem remontar a cena.
+        unsubscribeTheme = window.absolem.onThemeChanged((next) => {
+          themeReducedMotion = next.reducedMotion
+          document.documentElement.dataset.themeReceivedAt = String(Date.now())
+          setThemePresetId(next.presetId)
+          handle?.applyTheme(next)
+          if (motionMedia) {
+            handle?.setReducedMotion(motionMedia.matches || next.reducedMotion)
+          }
+        })
 
         unsubscribeStatus = window.absolem.onOverlayStatusChanged((next) => {
           visible = next.visible
@@ -118,13 +143,14 @@ export function OverlayApp() {
       motionMedia?.removeEventListener('change', onMotionChange)
       unsubscribeStatus?.()
       unsubscribeApply?.()
+      unsubscribeTheme?.()
       handle?.dispose()
       handle = null
     }
   }, [])
 
   return (
-    <div className="overlay-root">
+    <div className="overlay-root" data-theme-preset={themePresetId}>
       {/* A task 06 substitui o pointerdown por clique-para-falar. Por ora,
           reafirmar o estado interativo prova que o evento chegou ao overlay. */}
       <div
