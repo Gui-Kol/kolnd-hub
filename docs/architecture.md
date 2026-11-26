@@ -469,11 +469,23 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
   fora de 0,3–1,8 V vira `null` (nunca estimativa). O HUD publica em `hud-cpu-voltage` e o
   Monitor em `hw-cpu-voltage`.
-- **FPS removido**: a medição de FPS/frametime por ETW saiu do app (HUD, card do Monitor,
-  IPCs, preload e módulo `src/main/fps/`). As sobras de máquinas antigas — tarefa
-  `KolndHubFpsAgent`, processo `KolndFpsEtw.exe` e `%ProgramData%\Kolnd Hub\fps` — são limpas
-  no re-estágio do agente de sensores (install e remove), e a presença delas marca o agente
-  como desatualizado na UI.
+- **FPS do app em foco (PresentMon embarcado)**: a faixa de FPS do HUD usa o
+  PresentMon 2.6.0 x64 (MIT), embutido em `resources/fps` e estagiado em
+  `%ProgramData%\Kolnd Hub\capture` (ACL antes da cópia + SHA-256 do destino). A
+  tarefa `KolndHubFpsCapture` (logon, `HIGHEST`) roda um supervisor PowerShell +
+  tap C# **sem ETW próprio**: lê o stdout do PresentMon
+  (`--v1_metrics --output_stdout`, sessão `KolndHubFpsCapture`) e grava
+  `latest.json` atômico a 1 Hz. O main escreve `%APPDATA%\kolnd-hub\fps\heartbeat`
+  a cada 2 s; sem heartbeat a tarefa fica idle e, ao matar o PresentMon, o tap
+  para a sessão com `logman stop` — processo e sessão saem em ~5 s. O alvo é só o
+  app em primeiro plano (`self-focus` para o Hub, `foreground-ignored` para
+  Explorer/shell); sink com mais de 3 s vira `unavailable` e nunca repete o
+  último número. Antes de capturar, o script para a sessão legada
+  `KolndHubFps` — órfã, ela causou 381 mil eventos ETW perdidos na T0.
+- **Limpeza legada × captura nova**: a limpeza do agente de sensores continua
+  restrita a `%ProgramData%\Kolnd Hub\fps` (tarefa `KolndHubFpsAgent`,
+  `KolndFpsEtw.exe` e diretório antigo). `...\capture` é o diretório NOVO da
+  captura e não é tratado como sobra; um teste de regressão trava isso.
 
 ## 10. Mapa de arquivos
 
@@ -495,6 +507,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
 | Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
 | Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
+| FPS do app em foco (PresentMon)         | `kolnd-hub/src/main/fps/` (`engine.ts`, `agent.ts`, `paths.ts`, `reader.ts`, `target.ts`, `aggregate.ts`, `index.ts`), `src/shared/fps.ts`, `resources/fps/` |
 | Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                     |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |

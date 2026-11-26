@@ -74,6 +74,13 @@ vi.mock('./uninstallVerify', () => ({
   verifyKloudGamesRemoval: verifyKloudGamesRemovalMock
 }))
 
+// A captura de FPS é uma tarefa do Windows: nos testes ela nunca é consultada
+// de verdade (schtasks real + possível UAC), e o fluxo segue sem pendência.
+vi.mock('./fps/agent', () => ({
+  isFpsAgentInstalled: vi.fn(async () => false),
+  removeFpsAgent: vi.fn(async () => ({ ok: true }))
+}))
+
 const { execFileSync, spawn } = await import('child_process')
 
 const INSTALLED = {

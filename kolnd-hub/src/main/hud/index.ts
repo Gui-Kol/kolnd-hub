@@ -9,6 +9,8 @@ import {
   setHwPollingHudVisible
 } from '../hwmon'
 import { getHudConfig, setHudShortcut, setHudSize, setHudVisible } from '../store'
+import { ensureFpsActivation, getCachedFpsReading, refreshFpsReading } from '../fps'
+import type { HudFpsReading } from '../../shared/fps'
 import {
   HUD_DEFAULT_SCALE,
   HUD_DEFAULT_SHORTCUT,
@@ -80,14 +82,17 @@ function currentStatus(): HudStatus {
 
 /**
  * Monta o payload do push. A fonte única é a leitura do `hwmon`; o overlay só
- * recebe o snapshot, o tamanho vigente e o instante da captura.
+ * recebe o snapshot, o tamanho vigente, o instante da captura e a leitura de
+ * FPS (aditiva, pode ser omitida quando ainda não há medição).
  */
-function buildHudUpdate(snapshot: HwSnapshot): HudUpdate {
-  return {
+function buildHudUpdate(snapshot: HwSnapshot, fps: HudFpsReading | null): HudUpdate {
+  const update: HudUpdate = {
     snapshot,
     size: { width: size.width, scale: size.scale },
     capturedAt: new Date().toISOString()
   }
+  if (fps) update.fps = fps
+  return update
 }
 
 /**
@@ -121,7 +126,7 @@ function sendHudUpdate(snapshot: HwSnapshot, force = false): void {
   }
 
   try {
-    window.webContents.send('hud:update', buildHudUpdate(snapshot))
+    window.webContents.send('hud:update', buildHudUpdate(snapshot, getCachedFpsReading()))
     lastPushAt = now
   } catch {
     // Janela fechando entre a checagem e o envio: o próximo tick não envia.
@@ -130,6 +135,13 @@ function sendHudUpdate(snapshot: HwSnapshot, force = false): void {
 
 /** Uma leitura imediata ao mostrar — o primeiro push não espera 1 s. */
 async function pushHudUpdateNow(): Promise<void> {
+  // Atualiza a leitura de FPS antes do primeiro envio; a falha não impede o
+  // push dos sensores (o overlay cai em "—" com motivo).
+  try {
+    await refreshFpsReading()
+  } catch (err) {
+    logger.warn('hud', `leitura inicial de FPS falhou: ${String(err)}`)
+  }
   try {
     sendHudUpdate(await collectHwSnapshot(), true)
   } catch (err) {
@@ -195,6 +207,16 @@ function toggleHud(): HudStatus {
 }
 
 /**
+ * Caminho do ATALHO (D1): no máximo UMA ativação por sessão, em background.
+ * Só este caminho pede UAC; `hud:set-visible` e `hud:toggle` por IPC nunca
+ * pedem (é o que mantém o e2e sem elevação). Cancelar não bloqueia o toggle.
+ */
+function toggleHudFromShortcut(): void {
+  ensureFpsActivation()
+  toggleHud()
+}
+
+/**
  * Registra o atalho, desregistrando o anterior. Em falha (atalho em uso),
  * re-registra o anterior para o usuário não ficar sem nenhum atalho.
  */
@@ -214,7 +236,7 @@ function registerShortcut(next: string): boolean {
   let ok = false
   try {
     ok = globalShortcut.register(next, () => {
-      void toggleHud()
+      toggleHudFromShortcut()
     })
   } catch (err) {
     logger.warn('hud', `registro do atalho lançou: ${err instanceof Error ? err.message : err}`)
@@ -226,7 +248,7 @@ function registerShortcut(next: string): boolean {
     if (hadPrevious) {
       try {
         registered = globalShortcut.register(previous, () => {
-          void toggleHud()
+          toggleHudFromShortcut()
         })
       } catch {
         registered = false

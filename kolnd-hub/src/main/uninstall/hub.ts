@@ -14,6 +14,7 @@ import { existsSync, readdirSync, rmdirSync, rmSync } from 'fs'
 import { basename, join } from 'path'
 import { findHubUninstaller, detectKloudGames } from '../uninstallDetection'
 import { appendKloudGamesUninstallLog } from '../kloudGames'
+import { isFpsAgentInstalled, removeFpsAgent } from '../fps/agent'
 import { uninstaller, uninstallKloudGames } from './kloud'
 import {
   isHubUninstallInProgress,
@@ -300,6 +301,36 @@ export async function runHubUninstallSteps(
     }
 
     // ── Etapa spawn — inicia o desinstalador NSIS antes de qualquer wipe ──
+    // A captura de FPS é uma TAREFA do Windows que o NSIS não conhece: ela sai
+    // antes do spawn. Se o usuário recusar o UAC, o fluxo continua e a pendência
+    // fica registrada no log (o desinstalador do Windows não a remove sozinho).
+    progress('spawn', 'running', 79, 'Removendo a captura de FPS…')
+    try {
+      const fpsInstalled = await isFpsAgentInstalled()
+      if (fpsInstalled === true) {
+        const fpsRemoval = await removeFpsAgent()
+        if (fpsRemoval.ok) {
+          log('[fps] Tarefa KolndHubFpsCapture removida.\n')
+        } else if (fpsRemoval.cancelled) {
+          log(
+            '[fps] Permissão não concedida: a tarefa KolndHubFpsCapture pode continuar instalada. Remova depois com um UAC (ou reabra o Hub).\n'
+          )
+        } else {
+          log(
+            `[fps] Não foi possível remover a captura: ${fpsRemoval.error ?? 'erro desconhecido'}\n`
+          )
+        }
+      } else if (fpsInstalled === false) {
+        log('[fps] Tarefa de captura não instalada — nada para remover.\n')
+      } else {
+        log('[fps] Não foi possível consultar a tarefa de captura; verifique depois.\n')
+      }
+    } catch (err) {
+      log(
+        `[fps] Falha ao remover a captura de FPS: ${err instanceof Error ? err.message : String(err)}\n`
+      )
+    }
+
     // A ordem importa: se o spawn falhar, nada em %APPDATA%\kolnd-hub foi
     // apagado ainda — o wipe só roda depois do spawn confirmado.
     progress('spawn', 'running', 80, 'Iniciando o desinstalador do Kolnd Hub…')

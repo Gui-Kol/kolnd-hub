@@ -43,6 +43,14 @@ extraResources:
     to: pawnio
     filter:
       - '**/*'
+  # Motor de FPS (PresentMon 2.6.0, MIT). Baixado por
+  # scripts/fetch-presentmon.ps1 e validado por SHA-256 antes do empacotamento.
+  # Sem o binário o HUD mostra "—" com motivo; o app nunca baixa nada em
+  # runtime e nada é injetado no jogo.
+  - from: resources/fps
+    to: fps
+    filter:
+      - '**/*'
 win:
   icon: resources/icon.ico
   # Nome explicito e estavel do artefato (NSIS respeita ${version}; o default

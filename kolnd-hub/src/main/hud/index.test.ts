@@ -22,7 +22,10 @@ const mocks = vi.hoisted(() => ({
   getHudWindow: vi.fn(),
   destroyHudWindow: vi.fn(),
   setHudWidth: vi.fn(),
-  setHudHeight: vi.fn()
+  setHudHeight: vi.fn(),
+  getCachedFpsReading: vi.fn(),
+  refreshFpsReading: vi.fn(),
+  ensureFpsActivation: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -57,6 +60,11 @@ vi.mock('./overlayWindow', () => ({
   destroyHudWindow: mocks.destroyHudWindow,
   setHudWidth: mocks.setHudWidth,
   setHudHeight: mocks.setHudHeight
+}))
+vi.mock('../fps', () => ({
+  getCachedFpsReading: mocks.getCachedFpsReading,
+  refreshFpsReading: mocks.refreshFpsReading,
+  ensureFpsActivation: mocks.ensureFpsActivation
 }))
 
 import { registerHudIpc, resetHudForTests } from './index'
@@ -167,6 +175,18 @@ beforeEach(() => {
   mocks.getHudWindow.mockReturnValue(fakeWindow)
   mocks.setHudWidth.mockImplementation((width: number) => width)
   mocks.setHudHeight.mockImplementation((height: number) => height)
+  mocks.getCachedFpsReading.mockReturnValue({
+    state: 'live',
+    fps: 144,
+    frametimeMs: 6.94,
+    processName: 'game'
+  })
+  mocks.refreshFpsReading.mockResolvedValue({
+    state: 'live',
+    fps: 144,
+    frametimeMs: 6.94,
+    processName: 'game'
+  })
 })
 
 describe('registerHudIpc', () => {
@@ -243,6 +263,31 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     expect(mocks.releaseHwPolling).toHaveBeenCalledWith('hud')
     expect(mocks.setHwPollingHudVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.setHudVisible).toHaveBeenLastCalledWith(false)
+  })
+
+  it('push inclui a leitura de FPS (aditiva) e atualiza antes do primeiro envio', async () => {
+    register()
+    getHandler('hud:set-visible')({}, true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(mocks.refreshFpsReading).toHaveBeenCalledTimes(1)
+    expect(fakeWindow.webContents.send).toHaveBeenCalledWith(
+      'hud:update',
+      expect.objectContaining({
+        fps: { state: 'live', fps: 144, frametimeMs: 6.94, processName: 'game' }
+      })
+    )
+  })
+
+  it('só o atalho global tenta ativar a captura; IPC nunca pede UAC', () => {
+    register()
+    const shortcut = mocks.register.mock.calls[0][1] as () => void
+    shortcut()
+    expect(mocks.ensureFpsActivation).toHaveBeenCalledTimes(1)
+
+    mocks.ensureFpsActivation.mockClear()
+    getHandler('hud:set-visible')({}, true)
+    getHandler('hud:toggle')({})
+    expect(mocks.ensureFpsActivation).not.toHaveBeenCalled()
   })
 
   it('não abre um segundo timer: dois set-visible(true) usam o mesmo acquire', () => {

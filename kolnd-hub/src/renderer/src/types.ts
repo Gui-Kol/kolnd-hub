@@ -85,6 +85,17 @@ export type {
 // Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
 export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
 
+// Faixa de FPS do HUD — fonte única em `src/shared/fps.ts`.
+export type {
+  FpsActivationResult,
+  FpsPidSample,
+  FpsSink,
+  FpsStatusInfo,
+  HudFpsReading,
+  HudFpsReason,
+  HudFpsState
+} from '../../shared/fps'
+
 export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 
 // Contratos da busca de jogos (Steam + Epic Games + Minecraft Launcher).

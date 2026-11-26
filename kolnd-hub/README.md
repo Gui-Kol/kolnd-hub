@@ -36,6 +36,13 @@ npm run verify    # typecheck → lint → format:check → testes (gate único 
 npm run verify:build # verify + build (gate completo antes de empacotar)
 ```
 
+### Recursos embarcados
+
+- **PresentMon 2.6.0 x64 (MIT)** — motor da faixa de FPS do HUD. O binário não vai
+  para o git: `scripts/fetch-presentmon.ps1` baixa do release oficial, confere
+  tamanho/SHA-256/Authenticode e grava `resources/fps/pins.json`. O app **nunca**
+  baixa o motor em runtime e o instalador o embute via `extraResources`.
+
 ## Qualidade e CI
 
 - **Vitest** cobre a lógica pura (`lib/startup.ts`, `lib/appsConfig.ts`, `lib/spatialNav.ts`, `lib/gamepad/*` (perfis e detecção), `main/commandLine.ts`, `main/steamScanner.ts`, `main/wingetUpdater.ts`) — sem Electron, sem DOM.

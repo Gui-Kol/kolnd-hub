@@ -423,6 +423,27 @@ describe('limpeza das sobras do FPS antigo', () => {
     await fs.writeFile(join(staged, 'KolndFpsEtw.exe'), 'resto')
     expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(true)
   })
+
+  it('a limpeza legada NÃO confunde o diretório capture do FPS novo com lixo', async () => {
+    const dir = await tempDir()
+    const programData = join(dir, 'ProgramData')
+    const sinkDir = join(dir, 'sensors')
+    const capture = join(programData, 'Kolnd Hub', 'capture')
+    await fs.mkdir(capture, { recursive: true })
+    await fs.writeFile(join(capture, 'latest.json'), '{}')
+
+    // A captura nova não é sobra: o driver não deve oferecer re-estágio.
+    expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(false)
+
+    // E os scripts elevados do agente de sensores continuam mirando ...\fps.
+    for (const script of [
+      buildSensorsAgentInstallScript(OPTIONS),
+      buildSensorsAgentRemoveScript(OPTIONS.sinkDir)
+    ]) {
+      expect(script).not.toContain(capture)
+      expect(script).toContain(join('Kolnd Hub', 'fps'))
+    }
+  })
 })
 
 describe('parseSensorsLatest', () => {

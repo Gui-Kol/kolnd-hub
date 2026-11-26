@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { HUD_DEFAULT_WIDTH } from '../../../shared/hud'
+import { normalizeHudFpsReading, type HudFpsReason, type HudFpsReading } from '../../../shared/fps'
 import { hudColumnCount } from '../lib/hudLayout'
 import type { HudScale, HudUpdate } from '../types'
 
@@ -100,6 +101,28 @@ function Dash(): JSX.Element {
   return <span className="text-white/35">{DASH}</span>
 }
 
+/**
+ * Motivo curto do "—" (≤ 40 caracteres). A UI traduz a whitelist; o texto
+ * nunca carrega número e nunca reaproveita o último valor medido.
+ */
+const FPS_REASON_TEXT: Record<HudFpsReason, string> = {
+  'self-focus': 'Abra o jogo e volte a apertar o atalho',
+  'foreground-ignored': 'Sem jogo em primeiro plano',
+  'no-foreground': 'Sem app em primeiro plano',
+  'no-presents': 'Em primeiro plano não apresenta',
+  stale: 'Sem leitura recente',
+  'engine-missing': 'Captura indisponível',
+  outdated: 'Captura desatualizada',
+  'not-activated': 'Captura não ativada',
+  warming: 'Medindo…'
+}
+
+function fpsStateText(reading: HudFpsReading | null): string {
+  if (!reading) return 'Aguardando leitura'
+  if (reading.state === 'live') return 'ao vivo'
+  return reading.reason ? FPS_REASON_TEXT[reading.reason] : 'Sem medição'
+}
+
 interface MetricProps {
   label: string
   value: ReactNode
@@ -162,6 +185,64 @@ function Section({ title, testId, typography, subtitle, children }: SectionProps
   )
 }
 
+interface FpsStripProps {
+  reading: HudFpsReading | null
+  typography: Typography
+}
+
+/**
+ * Faixa de FPS no topo. Número grande + frametime + processo em `live`; em
+ * qualquer outro estado, "—" e o motivo curto. Nada de largura fixa: o nome
+ * quebra linha e a altura automática do overlay resolve (matriz 180–560).
+ */
+function FpsStrip({ reading, typography }: FpsStripProps): JSX.Element {
+  const live = reading?.state === 'live' ? reading : null
+  const fps = live?.fps ?? null
+  const frametime = live?.frametimeMs ?? null
+  const processName = live?.processName ?? null
+
+  return (
+    <section
+      data-testid="hud-fps"
+      className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-2 pb-1.5 pt-1"
+    >
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span
+          className={`${typography.label} font-semibold uppercase tracking-[0.18em] text-white/45`}
+        >
+          FPS
+        </span>
+        <span
+          className="whitespace-nowrap text-[20px] font-bold leading-none tabular-nums text-white/90"
+          data-testid="hud-fps-value"
+        >
+          {fps === null ? <Dash /> : formatInt(fps)}
+        </span>
+        <span
+          className={`${typography.unit} whitespace-nowrap text-white/45`}
+          data-testid="hud-fps-frametime"
+        >
+          {frametime === null ? <Dash /> : `${formatDecimal(frametime, 1)} ms`}
+        </span>
+      </div>
+      <div className="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span
+          className="min-w-0 break-words text-[10px] leading-snug text-white/60"
+          data-testid="hud-fps-process"
+        >
+          {processName ?? DASH}
+        </span>
+        <span
+          className="min-w-0 break-words text-[9px] leading-snug text-white/40"
+          data-testid="hud-fps-state"
+        >
+          {fpsStateText(reading)}
+        </span>
+      </div>
+    </section>
+  )
+}
+
 export function HudOverlay(): JSX.Element {
   const [update, setUpdate] = useState<HudUpdate | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -196,6 +277,8 @@ export function HudOverlay(): JSX.Element {
 
   const typography = TYPOGRAPHY[update?.size.scale ?? 'normal']
   const snapshot = update?.snapshot ?? null
+  // Valida de novo: um `fps` ausente/inválido vira null e a faixa mostra "—".
+  const fpsReading = normalizeHudFpsReading(update?.fps)
 
   const cpu = snapshot?.cpu ?? null
   const gpu = snapshot?.gpu ?? null
@@ -241,8 +324,10 @@ export function HudOverlay(): JSX.Element {
     <div
       ref={rootRef}
       data-testid="hud-overlay"
-      className="flex w-full flex-col gap-2 overflow-visible rounded-[14px] border border-white/[0.08] bg-[rgba(8,12,17,0.78)] p-2.5 text-white backdrop-blur-md"
+      className="flex w-full flex-col gap-2 overflow-visible rounded-[14px] border border-white/[0.08] bg-[rgba(8,12,17,0.86)] p-2.5 text-white"
     >
+      <FpsStrip reading={fpsReading} typography={typography} />
+
       <div className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <Section title="CPU" testId="hud-cpu" typography={typography} subtitle={cpu?.model ?? null}>
           <Metric

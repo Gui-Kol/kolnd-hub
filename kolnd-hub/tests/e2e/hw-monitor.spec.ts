@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import type { E2eContext } from './global-setup'
+import { removeFpsSink, startFpsSinkLoop } from './fps-fixture'
 
 /**
  * Monitor de hardware (aba Monitor em Meu PC) no Electron real.
@@ -51,6 +52,8 @@ async function openMonitorTab(window: Page): Promise<void> {
 
 test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam sem driver', async () => {
   test.setTimeout(180_000)
+  const ctx = loadContext()
+  const stopSink = startFpsSinkLoop(ctx.userDataDir)
   const app = await launchApp()
 
   try {
@@ -59,6 +62,11 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
       timeout: 45_000
     })
     await openMonitorTab(window)
+
+    // Selo da captura de FPS: com o sink semeado ele fica "FPS ao vivo" e NÃO
+    // oferece ação. O teste nunca clica em "Tentar de novo" (seria UAC).
+    await expect(window.getByTestId('fps-capture-status')).toHaveText('FPS ao vivo')
+    await expect(window.getByTestId('fps-capture-action')).toHaveCount(0)
 
     const monitor = window.getByTestId('hw-monitor')
     await expect(monitor).toBeVisible()
@@ -158,6 +166,8 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
       .poll(async () => lastUpdated.innerText(), { timeout: 30_000, intervals: [1000] })
       .not.toBe(firstReading)
   } finally {
+    stopSink()
+    removeFpsSink(ctx.userDataDir)
     await app.close().catch(() => {
       try {
         app.process().kill()

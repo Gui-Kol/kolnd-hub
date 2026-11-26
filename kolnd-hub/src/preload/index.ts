@@ -12,6 +12,7 @@ import type {
   DisplaySetResult
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { FpsActivationResult, FpsStatusInfo } from '../shared/fps'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
@@ -462,6 +463,11 @@ const api = {
     ipcRenderer.on('hud:update', handler)
     return () => ipcRenderer.removeListener('hud:update', handler)
   },
+
+  // ── Faixa de FPS do HUD (selo/retry no Monitor) ──
+  fpsStatus: (): Promise<FpsStatusInfo> => ipcRenderer.invoke('fps:status'),
+
+  fpsActivate: (): Promise<FpsActivationResult> => ipcRenderer.invoke('fps:activate'),
 
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<

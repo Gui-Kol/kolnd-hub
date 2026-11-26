@@ -63,6 +63,11 @@ arquivo de código alterado quando a tarefa é docs-only.
   na cópia; a elevação vai por `-EncodedCommand` — nunca um `.ps1` em `%APPDATA%` esperando o
   clique no UAC. O agente executa só a cópia protegida em `...\sensors\agent`; o script no
   perfil do usuário serve apenas de fonte para o instalador copiar.
+  O mesmo padrão vale para a captura de FPS (`KolndHubFpsCapture`): PresentMon e o
+  supervisor vivem em `%ProgramData%\Kolnd Hub\capture` com ACL **antes** da cópia e
+  SHA-256 do destino; o motor é embarcado em `resources/fps` e **nunca** é baixado em
+  runtime. A captura só roda com o Hub aberto (heartbeat de 2 s) e a tarefa não é
+  instalada no logon nem no first-run — só pelo primeiro atalho ou pelo Monitor.
 - **Nunca `console.*` no main** — use `logger` de `src/main/logger.ts`.
 
 ## Armadilhas conhecidas do Hub

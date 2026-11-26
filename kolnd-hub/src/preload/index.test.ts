@@ -53,6 +53,8 @@ describe('preload — contrato de window.api', () => {
       'firstRunCheck',
       'hwmonSnapshot',
       'hudGet',
+      'fpsStatus',
+      'fpsActivate',
       'remoteSetZeroTierOpen',
       'uninstallHub',
       'onUninstallComplete',
@@ -132,6 +134,12 @@ describe('preload — contrato de window.api', () => {
 
     await api.hudReportSize(300)
     expect(mocks.invoke).toHaveBeenLastCalledWith('hud:report-size', { height: 300 })
+
+    await api.fpsStatus()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('fps:status')
+
+    await api.fpsActivate()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('fps:activate')
 
     await api.remoteSetZeroTierOpen(false)
     expect(mocks.invoke).toHaveBeenLastCalledWith('remote:set-zerotier-open', false)

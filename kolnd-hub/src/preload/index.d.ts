@@ -10,6 +10,7 @@ import type {
   DisplaySetResult
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { FpsActivationResult, FpsStatusInfo } from '../shared/fps'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
 import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
@@ -292,6 +293,11 @@ declare global {
       onHudStatus: (callback: (status: HudStatus) => void) => () => void
       hudToggle: () => Promise<HudStatus>
       onHudUpdate: (callback: (update: HudUpdate) => void) => () => void
+
+      // ── Faixa de FPS do HUD ──────────────────────────
+      // Tipos canônicos em `src/shared/fps.ts`.
+      fpsStatus: () => Promise<FpsStatusInfo>
+      fpsActivate: () => Promise<FpsActivationResult>
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

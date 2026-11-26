@@ -30,6 +30,7 @@ import {
 } from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
 import { registerHudIpc } from './hud'
+import { registerFpsIpc, startFpsCapture } from './fps'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
@@ -421,6 +422,11 @@ app.whenReady().then(() => {
   // Registra os canais IPC da sobreposição (HUD): atalho global + janela
   // transparente always-on-top. Restaura a preferência persistida.
   registerHudIpc(ctx)
+
+  // Captura de FPS: heartbeat/leitura (Hub aberto) + canais `fps:*` do Monitor.
+  // A tarefa elevada só é instalada no primeiro atalho (T5), nunca aqui.
+  startFpsCapture()
+  registerFpsIpc()
 
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()
