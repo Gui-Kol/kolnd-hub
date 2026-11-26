@@ -1,0 +1,28 @@
+appId: com.kolnd.absolem
+productName: Absolem
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!tests/*'
+  - '!electron.vite.config.*'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts,eslint.config.mjs}'
+  - '!{tailwind.config.js,postcss.config.js}'
+  - '!{.prettierrc.json,.prettierignore,.gitignore,.gitattributes,.npmrc}'
+  - '!{LICENSE,README.md,electron-builder.yml}'
+  - '!**/*.tsbuildinfo'
+  - '!*.log'
+win:
+  # Nome estável do artefato: a versão vem de Absolem/package.json.
+  artifactName: Absolem Setup ${version}.exe
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  # Instalação por usuário, sem exigir Administrador.
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  # Desinstalar preserva %APPDATA%\absolem (config, logs e a chave cifrada).
+  deleteAppDataOnUninstall: false
