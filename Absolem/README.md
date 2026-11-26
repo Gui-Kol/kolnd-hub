@@ -77,7 +77,7 @@ Gemini e cobrado pela sua conta Google**; precos definidos pelo Google. O app **
 `%LOCALAPPDATA%\Programs\Absolem`.
 
 - `%APPDATA%\absolem\config.json` - configuracoes (electron-store).
-- `%APPDATA%\absolem\memory.db` - **memoria SQLite local** (+ FTS5). **O banco NAO e cifrado.**
+- `%APPDATA%\absolem\memory.sqlite` - **memoria SQLite local** (+ FTS5). **O banco NAO e cifrado.**
 - `%APPDATA%\absolem\secrets.bin` - **chave Gemini cifrada** (`safeStorage`/DPAPI). Nao em texto.
 - `%APPDATA%\absolem\logs\absolem.log` - log com **redacao de segredos**.
 - `%APPDATA%\absolem\Crashpad` - minidumps locais; `uploadToServer: false`.
@@ -99,7 +99,7 @@ nao e recomendado). NSIS `deleteAppDataOnUninstall: false`. **Sem opcao que apag
 
 - **Removido:** `%LOCALAPPDATA%\Programs\Absolem` inteiro (app, `app.asar`, recursos,
   `better_sqlite3.node`, icones da bandeja, atalhos). Entrada de **autostart** removida.
-- **Preservado:** `%APPDATA%\absolem` inteiro - **memoria** (`memory.db`), `config.json`,
+- **Preservado:** `%APPDATA%\absolem` inteiro - **memoria** (`memory.sqlite`), `config.json`,
   `secrets.bin`, logs, `Crashpad`. **Nada de dados do usuario e apagado sem acao explicita.**
 - **Limpeza manual (irreversivel):** feche, desinstale e **apague voce mesmo**
   `%APPDATA%\absolem`. **Faca backup antes.** Reinstalar reencontra os dados preservados.
@@ -112,7 +112,7 @@ nao e recomendado). NSIS `deleteAppDataOnUninstall: false`. **Sem opcao que apag
   Atualizar = instalar o novo `.exe` por cima (NSIS per-user); `%APPDATA%\absolem` preservado.
   Ver `docs/RELEASE.md`.
 - **Tela cheia exclusiva:** overlay pode ficar oculto; atalhos/indicadores podem nao aparecer.
-- **Banco local nao cifrado** (`memory.db`); so a chave Gemini e cifrada (`safeStorage`).
+- **Banco local nao cifrado** (`memory.sqlite`); so a chave Gemini e cifrada (`safeStorage`).
 - Sem wake word na v1; sem temas claros; sem marketplace; sem multiplas conversas; sem
   auto-update; sem telemetria. Nao promete cumprir o que tasks 00-11 nao entregam.
 - Custo de API e da sua conta Gemini; v1 mede tokens, nao moeda.

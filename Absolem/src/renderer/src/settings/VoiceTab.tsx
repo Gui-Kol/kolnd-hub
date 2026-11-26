@@ -227,6 +227,16 @@ export function VoiceTab({ api }: VoiceTabProps) {
     }
   }
 
+  async function grantConsent(): Promise<void> {
+    const result = await client.setConsent(true)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setStatus(result.status)
+    setNotice('Consentimento do microfone concedido. Clique no avatar para falar.')
+  }
+
   async function revokeConsent(): Promise<void> {
     const result = await client.setConsent(false)
     if (!result.ok) {
@@ -365,15 +375,28 @@ export function VoiceTab({ api }: VoiceTabProps) {
           {' · '}
           Estado: <span data-voice-status>{status ? status.state : 'desconhecido'}</span>
         </p>
-        <button
-          type="button"
-          onClick={() => {
-            void revokeConsent()
-          }}
-          className="self-start rounded border border-amber-400/50 px-3 py-1.5 text-xs text-amber-200 hover:border-amber-300"
-        >
-          Revogar consentimento de microfone
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {status?.consentGranted ? null : (
+            <button
+              type="button"
+              onClick={() => {
+                void grantConsent()
+              }}
+              className="self-start rounded bg-accent px-3 py-1.5 text-xs font-medium text-surface-base"
+            >
+              Permitir microfone
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              void revokeConsent()
+            }}
+            className="self-start rounded border border-amber-400/50 px-3 py-1.5 text-xs text-amber-200 hover:border-amber-300"
+          >
+            Revogar consentimento de microfone
+          </button>
+        </div>
       </section>
 
       <section aria-labelledby="voice-shortcuts-title" className="flex flex-col gap-3">

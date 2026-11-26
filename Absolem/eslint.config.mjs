@@ -62,6 +62,17 @@ export default [
       ]
     }
   },
+  {
+    // O main nunca fala com o console: o logger aplica redação por nível. A
+    // única exceção é o próprio logger, que degrada para console se o disco
+    // falhar e precisa do console como sink de desenvolvimento.
+    files: ['src/main/**/*.ts'],
+    rules: { 'no-console': 'error' }
+  },
+  {
+    files: ['src/main/logger.ts'],
+    rules: { 'no-console': 'off' }
+  },
   // Desliga regras estilísticas que divergem do Prettier.
   prettier
 ]

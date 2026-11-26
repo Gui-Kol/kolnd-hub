@@ -33,6 +33,13 @@ import {
 // instância só existir em variável local.
 let tray: Tray | null = null
 
+// Sandbox do Chromium para TODOS os renderers. Precisa ser chamado antes de
+// `app.whenReady`; as três janelas também declaram `sandbox:true` no
+// webPreferences, mas esta chamada fecha a porta para uma janela futura que
+// esqueça a flag. O preload usa só contextBridge/ipcRenderer, compatível com
+// sandbox.
+app.enableSandbox()
+
 /**
  * Contexto dos módulos IPC. A janela é lida por getter (criada sob demanda em
  * lifecycle.ts) e o overlay agora devolve a janela real (task 02).

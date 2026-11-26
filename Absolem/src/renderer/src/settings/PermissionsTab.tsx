@@ -220,6 +220,24 @@ export function PermissionsTab({ api }: PermissionsTabProps) {
     if (!result.ok) setError(result.error)
   }
 
+  async function savePrivacy(next: {
+    telemetry: boolean
+    screen: PrivacyScreenConfig
+  }): Promise<void> {
+    setPrivacy(next)
+    const result = await client.setPrivacy(next)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setError(null)
+    setNotice(
+      next.screen.mode === 'off'
+        ? 'Visão de tela desligada.'
+        : 'Política da visão de tela atualizada.'
+    )
+  }
+
   function addBlocklistEntry(): void {
     const entry = blocklistDraft.trim().toLowerCase()
     if (!entry) return
@@ -350,6 +368,32 @@ export function PermissionsTab({ api }: PermissionsTabProps) {
             </div>
           </div>
         ) : null}
+      </section>
+
+      <section aria-labelledby="permissions-screen-title" className="flex flex-col gap-2">
+        <h3 id="permissions-screen-title" className="text-sm font-semibold text-ink-primary">
+          Visão de tela
+        </h3>
+        <label htmlFor="permissions-screen-mode" className="text-xs text-ink-secondary">
+          Política de captura
+        </label>
+        <select
+          id="permissions-screen-mode"
+          value={privacy.screen.mode}
+          onChange={(event) => {
+            const mode = event.target.value as PrivacyScreenConfig['mode']
+            void savePrivacy({ ...privacy, screen: { ...privacy.screen, mode } })
+          }}
+          className="max-w-xs rounded border border-surface-2 bg-surface-1 px-2 py-1 text-xs text-ink-primary"
+        >
+          <option value="off">Desligada</option>
+          <option value="ask">Perguntar a cada captura</option>
+          <option value="on">Ligada para o modo sob demanda</option>
+        </select>
+        <p className="text-xs text-ink-tertiary">
+          Desligada, nenhuma captura acontece. Perguntar mostra uma confirmação por captura; ligada
+          permite a captura sob demanda sem diálogo, sempre com o indicador visível.
+        </p>
       </section>
 
       <section aria-labelledby="permissions-web-title" className="flex flex-col gap-2">

@@ -57,6 +57,17 @@ export interface TokenAmounts {
   output: number
 }
 
+export interface UsageRecordOptions {
+  /**
+   * Identificador idempotente do turno/chamada. O mesmo `requestId` nunca soma
+   * duas vezes na mesma execução (retry ou evento duplicado); o conjunto é
+   * limitado em memória e não vai para o disco.
+   */
+  requestId?: string
+}
+
+const MAX_TRACKED_REQUESTS = 200
+
 export const EMPTY_USAGE_STATE: UsageState = { days: {}, warnedMonths: [] }
 
 export function defaultUsageState(): UsageState {
@@ -191,6 +202,7 @@ export class UsageMeter {
   private readonly now: () => Date
   private readonly onWarning?: (warning: UsageWarning) => void
   private readonly retentionDays: number
+  private readonly seenRequests = new Set<string>()
 
   constructor(options: UsageMeterOptions) {
     this.store = options.store
@@ -241,7 +253,17 @@ export class UsageMeter {
   }
 
   /** Soma tokens do turno, persiste podado e emite o aviso de 80% uma vez por mês. */
-  record(amounts: TokenAmounts): UsageSnapshot {
+  record(amounts: TokenAmounts, options: UsageRecordOptions = {}): UsageSnapshot {
+    const requestId =
+      typeof options.requestId === 'string' ? options.requestId.trim().slice(0, 128) : ''
+    if (requestId) {
+      if (this.seenRequests.has(requestId)) return this.snapshot()
+      this.seenRequests.add(requestId)
+      if (this.seenRequests.size > MAX_TRACKED_REQUESTS) {
+        const oldest = this.seenRequests.values().next().value
+        if (typeof oldest === 'string') this.seenRequests.delete(oldest)
+      }
+    }
     const now = this.now()
     const date = dayKey(now)
     const month = monthKey(now)

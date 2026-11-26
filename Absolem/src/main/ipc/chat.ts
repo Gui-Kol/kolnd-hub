@@ -8,6 +8,7 @@ import { subscribeUsageWarning } from '../gemini/instance'
 import { getSearchRuntime } from '../search/instance'
 import { recordDiagnosticError } from './diagnostics'
 import type { IpcContext } from './lifecycle'
+import { checkPayloadLimits, isTrustedSender } from '../security/ipcGuard'
 
 /**
  * Streaming de texto por IPC.
@@ -54,7 +55,10 @@ export function registerChatIpc(ctx: IpcContext, engine: GeminiEngine): void {
     })
   })
 
-  ipcMain.handle(IPC.chatSend, (_event, payload: unknown): SimpleResult => {
+  ipcMain.handle(IPC.chatSend, (event, payload: unknown): SimpleResult => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
+    const limits = checkPayloadLimits(payload)
+    if (!limits.ok) return failure(limits.message)
     if (
       !isRecord(payload) ||
       typeof payload.requestId !== 'string' ||
@@ -91,7 +95,8 @@ export function registerChatIpc(ctx: IpcContext, engine: GeminiEngine): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.chatCancel, (_event, payload: unknown): SimpleResult => {
+  ipcMain.handle(IPC.chatCancel, (event, payload: unknown): SimpleResult => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
     if (
       !isRecord(payload) ||
       typeof payload.requestId !== 'string' ||

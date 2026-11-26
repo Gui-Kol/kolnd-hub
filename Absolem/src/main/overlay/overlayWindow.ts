@@ -4,6 +4,7 @@ import type { OverlayLayout } from '../../shared/config'
 import { normalizeOverlayLayout } from '../../shared/overlay'
 import { logger } from '../logger'
 import { isAllowedNavigationUrl } from '../navigation'
+import { SECURE_WEB_PREFERENCES, blockWebviewAttach } from '../security/webPreferences'
 import { emitOverlayHidden } from '../voice/overlayEvents'
 import { computeBoundsForLayout } from './displays'
 import type { OverlayBounds } from './geometry'
@@ -117,13 +118,13 @@ export function createOverlayWindow(): BrowserWindow {
     title: 'Absolem',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false
+      ...SECURE_WEB_PREFERENCES
     }
   })
   overlayWindow = window
   lastBounds = bounds
+
+  blockWebviewAttach(window.webContents)
 
   for (const listener of createdListeners) listener(window)
 

@@ -17,6 +17,7 @@ import { createLoggerAudit, routeToolCall } from '../gemini/tools/router'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
 import { isAllowedNavigationUrl } from '../navigation'
+import { SECURE_WEB_PREFERENCES, blockWebviewAttach } from '../security/webPreferences'
 import { getForegroundWindow } from '../overlay/foreground'
 import { hideOverlayWindow, isOverlayVisible, showOverlayWindow } from '../overlay/overlayWindow'
 import { registerShutdownHook } from '../shutdown'
@@ -203,13 +204,12 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
         title: 'Absolem - selecionar região',
         webPreferences: {
           preload: join(__dirname, '../preload/index.js'),
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false
+          ...SECURE_WEB_PREFERENCES
         }
       })
       const contentsId = window.webContents.id
       regionContents.add(contentsId)
+      blockWebviewAttach(window.webContents)
       window.setAlwaysOnTop(true, 'screen-saver')
       window.setSkipTaskbar(true)
       window.webContents.setWindowOpenHandler(({ url }) => {

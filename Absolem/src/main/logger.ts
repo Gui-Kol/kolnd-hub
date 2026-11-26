@@ -15,12 +15,17 @@ const REDACTED = '[redigido]'
 // `authorization` é tratado antes para engolir o esquema Bearer/Basic junto.
 const AUTH_RE = /(authorization\s*[=:]\s*)(?:(?:bearer|basic)\s+)?\S+/gi
 const SECRET_RE =
-  /(api[-_]?key|token|password|passwd|pwd|transcript|transcricao|senha|chave)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi
+  /(api[-_]?key|token|password|passwd|pwd|transcript|transcription|transcricao|prompt|resposta|response|senha|chave)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi
+// Caminho do perfil do Windows: mantém a unidade e `\Users\`, troca o nome.
+const USER_PATH_RE = /\b([A-Za-z]):\\Users\\[^\\\s"']+/gi
 
 /** Redação: em `debug` devolve o texto intacto; em `info`+ mascara segredos. */
 export function redactForLevel(level: LogLevel, text: string): string {
   if (level === 'debug') return text
-  return text.replace(AUTH_RE, `$1${REDACTED}`).replace(SECRET_RE, `$1$2${REDACTED}`)
+  return text
+    .replace(AUTH_RE, `$1${REDACTED}`)
+    .replace(SECRET_RE, `$1$2${REDACTED}`)
+    .replace(USER_PATH_RE, '$1:\\Users\\[usuario]')
 }
 
 /** Formata a linha `[ISO] [NÍVEL] [escopo] mensagem`. */

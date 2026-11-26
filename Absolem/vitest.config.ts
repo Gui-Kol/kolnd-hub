@@ -19,6 +19,10 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: './coverage',
+      // Só lógica de main/shared entra na meta. Renderer, preload, scripts e
+      // composições que só ligam Electron ficam fora: a UI visual tem e2e/axe,
+      // não meta de linha.
+      include: ['src/main/**/*.ts', 'src/shared/**/*.ts'],
       exclude: [
         '**/*.test.ts',
         '**/*.test.tsx',
@@ -28,9 +32,22 @@ export default defineConfig({
         'resources/**',
         'tests/**',
         '*.config.*',
+        // Composição/eletron: sem unidade possível em Node puro.
         'src/main/index.ts',
-        'src/renderer/**'
-      ]
+        'src/main/testUserData.ts',
+        'src/main/**/instance.ts',
+        'src/main/gemini/sdk.ts',
+        'src/main/gemini/transport.ts',
+        'src/main/ipc/index.ts',
+        'src/main/actions/shortcut.ts',
+        'src/main/voice/shortcut.ts'
+      ],
+      thresholds: {
+        lines: 70,
+        branches: 60,
+        functions: 60,
+        statements: 70
+      }
     }
   }
 })

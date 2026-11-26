@@ -4,6 +4,7 @@ import type { SettingsSection } from '../shared/ipc'
 import { isQuitting, markQuitting } from './quitState'
 import { isAllowedNavigationUrl } from './navigation'
 import { logger } from './logger'
+import { SECURE_WEB_PREFERENCES, blockWebviewAttach } from './security/webPreferences'
 
 /**
  * Ciclo de vida da janela principal (Configurações, rota `#settings`).
@@ -48,12 +49,12 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: '#0b0f14',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false
+      ...SECURE_WEB_PREFERENCES
     }
   })
   mainWindow = window
+
+  blockWebviewAttach(window.webContents)
 
   window.on('ready-to-show', () => {
     window.show()

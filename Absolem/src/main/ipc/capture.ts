@@ -13,6 +13,7 @@ import { isCaptureKind, normalizeRegionSelection, type CaptureSource } from '../
 import { logger } from '../logger'
 import type { CaptureRuntime } from '../capture/instance'
 import { listSources } from '../capture/sources'
+import { checkPayloadLimits, isTrustedSender, sanitizeIpcError } from '../security/ipcGuard'
 
 /**
  * Canais IPC da visão de tela (task 07).
@@ -113,13 +114,16 @@ export function registerCaptureIpc(runtime: CaptureRuntime): void {
         windows: sources.filter((source) => source.kind === 'window')
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message.slice(0, 300) : 'falha ao listar fontes'
+      const message = sanitizeIpcError(err, 'falha ao listar fontes')
       logger.warn('capture', 'falha ao listar fontes', { message })
       return failure(message)
     }
   })
 
-  ipcMain.handle(IPC.captureAsk, (_event, payload: unknown): SimpleResult => {
+  ipcMain.handle(IPC.captureAsk, (event, payload: unknown): SimpleResult => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
+    const limits = checkPayloadLimits(payload)
+    if (!limits.ok) return failure(limits.message)
     const parsed = parseAsk(payload)
     if (typeof parsed === 'string') return failure(parsed)
     if (runtime.status().mode === 'off') return failure(modeOffMessage())
@@ -127,13 +131,14 @@ export function registerCaptureIpc(runtime: CaptureRuntime): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.captureRegion, async (): Promise<CaptureRegionResult> => {
+  ipcMain.handle(IPC.captureRegion, async (event): Promise<CaptureRegionResult> => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
     if (runtime.status().mode === 'off') return failure(modeOffMessage())
     try {
       const selection = await runtime.selector.select()
       return { ok: true, canceled: selection === null, selection }
     } catch (err) {
-      const message = err instanceof Error ? err.message.slice(0, 300) : 'falha na seleção'
+      const message = sanitizeIpcError(err, 'falha na seleção')
       logger.warn('capture', 'falha na seleção de região', { message })
       return failure(message)
     }
@@ -141,12 +146,16 @@ export function registerCaptureIpc(runtime: CaptureRuntime): void {
 
   ipcMain.handle(IPC.captureStatus, (): CaptureStatusResult => runtime.statusResult())
 
-  ipcMain.handle(IPC.captureResult, (_event, payload: unknown): SimpleResult => {
+  ipcMain.handle(IPC.captureResult, (event, payload: unknown): SimpleResult => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
+    const limits = checkPayloadLimits(payload)
+    if (!limits.ok) return failure(limits.message)
     const result = runtime.handleFrameResult(payload)
     return result.ok ? { ok: true } : failure(result.error ?? 'captura falhou')
   })
 
-  ipcMain.handle(IPC.captureCancel, (_event, payload: unknown): SimpleResult => {
+  ipcMain.handle(IPC.captureCancel, (event, payload: unknown): SimpleResult => {
+    if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
     const parsed = parseCancel(payload)
     if (typeof parsed === 'string') return failure(parsed)
     runtime.cancel(parsed)
@@ -155,6 +164,10 @@ export function registerCaptureIpc(runtime: CaptureRuntime): void {
 
   // Canal interno da janela de região. Só aceita conteúdo criado por ela.
   ipcMain.on(IPC.captureRegionResult, (event, payload: unknown) => {
+    if (!isTrustedSender(event)) {
+      logger.warn('capture', 'resultado de região ignorado (remetente não autorizado)')
+      return
+    }
     const contentsId = event.sender.id
     if (!runtime.isRegionContents(contentsId)) {
       logger.warn('capture', 'resultado de região ignorado (remetente desconhecido)')

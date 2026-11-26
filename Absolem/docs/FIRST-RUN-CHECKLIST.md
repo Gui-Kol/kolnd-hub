@@ -95,7 +95,7 @@ false`). Log padrao redige segredos.
 
 - [ ] Numa instalacao nova (userData novo), **Configuracoes > Memoria** mostra **0 memorias**
       (fact/preference/profile/temporary zerados). Nada de memoria de terceiros.
-- [ ] O banco e **SQLite local** em `%APPDATA%\absolem` (ex.: `memory.db`). **O banco nao e
+- [ ] O banco e **SQLite local** em `%APPDATA%\absolem` (ex.: `memory.sqlite`). **O banco nao e
       cifrado** (a chave Gemini e que e cifrada com `safeStorage`). Voce pode **ver, editar e
       apagar** cada memoria; apagar tudo e permitido. A memoria persiste entre sessoes apos reabrir.
 - [ ] Confira que nenhuma chave Gemini aparece nas memorias/logs.
@@ -108,7 +108,7 @@ false`). Log padrao redige segredos.
 - [ ] **Removido:** `%LOCALAPPDATA%\Programs\Absolem` inteiro (app + recursos + `app.asar` +
       `better_sqlite3.node` + icones da bandeja). O item de autostart no Windows (se ligado) e
       removido.
-- [ ] **Preservado:** `%APPDATA%\absolem` **inteiro** - memoria (`memory.db`), `config.json`,
+- [ ] **Preservado:** `%APPDATA%\absolem` **inteiro** - memoria (`memory.sqlite`), `config.json`,
       logs, `Crashpad`, **chave cifrada** `secrets.bin`. `deleteAppDataOnUninstall: false`. **Nada
       de dados do usuario e apagado sem acao explicita.**
 - [ ] **Limpeza manual (opcional, irreversivel):** para apagar tambem seus dados, feche o app,

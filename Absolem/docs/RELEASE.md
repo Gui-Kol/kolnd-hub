@@ -95,7 +95,7 @@ do package.json`, `nao baixa nada`).
 ## Desinstalacao
 
 NSIS `deleteAppDataOnUninstall:false`. **Removido:** `%LOCALAPPDATA%\Programs\Absolem`.
-**Preservado:** `%APPDATA%\absolem` (memoria `memory.db` - **nao cifrado**, `config.json`,
+**Preservado:** `%APPDATA%\absolem` (memoria `memory.sqlite` - **nao cifrado**, `config.json`,
 `secrets.bin` - chave Gemini cifrada `safeStorage`, logs, `Crashpad`). **Sem opcao que apague
 dados.** Limpeza manual irreversivel documentada no `README.md`. Ver `docs/FIRST-RUN-CHECKLIST.md`.
 
