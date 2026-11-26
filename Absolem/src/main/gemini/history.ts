@@ -30,7 +30,7 @@ export interface ChatHistoryStoreLike {
 
 export interface ChatHistory {
   getTurns: () => ChatTurn[]
-  append: (role: ChatTurn['role'], text: string, at?: number) => ChatTurn[]
+  append: (role: ChatTurn['role'], text: string, at?: number, interrupted?: boolean) => ChatTurn[]
 }
 
 export function defaultChatState(): ChatHistoryState {
@@ -53,7 +53,8 @@ export function normalizeChatState(input: unknown): ChatHistoryState {
           {
             role: turn.role,
             text: turn.text,
-            at: typeof turn.at === 'number' && Number.isFinite(turn.at) ? turn.at : 0
+            at: typeof turn.at === 'number' && Number.isFinite(turn.at) ? turn.at : 0,
+            ...(turn.interrupted === true ? { interrupted: true } : {})
           }
         ]
       })
@@ -80,8 +81,12 @@ export function createChatHistory(options: {
   )
   return {
     getTurns: () => [...state.turns],
-    append: (role, text, at = Date.now()) => {
-      state = appendChatTurn(state, { role, text, at }, maxTurns)
+    append: (role, text, at = Date.now(), interrupted = false) => {
+      state = appendChatTurn(
+        state,
+        { role, text, at, ...(interrupted ? { interrupted: true } : {}) },
+        maxTurns
+      )
       options.store.set(CHAT_STORE_KEY, state)
       return [...state.turns]
     }

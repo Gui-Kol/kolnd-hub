@@ -1,6 +1,8 @@
 import Store from 'electron-store'
 import { logger } from './logger'
 import {
+  DEFAULT_SETTINGS_TAB,
+  isSettingsTab,
   STORE_KEYS,
   type AbsolemConfig,
   type ChatConfig,
@@ -17,6 +19,7 @@ import {
   type VoiceConfig,
   type WebConfig
 } from '../shared/config'
+import { VOICE_DEFAULT_SHORTCUT } from '../shared/voice'
 import {
   normalizeOverlayConfig,
   OVERLAY_DEFAULT_POSITION,
@@ -43,12 +46,13 @@ export { normalizeOverlayConfig }
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.9.0'
+export const STORE_SCHEMA_VERSION = '1.10.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
 const MAX_LANGUAGE_LENGTH = 20
+const MAX_ACCELERATOR_LENGTH = 100
 
 export function defaultOverlayConfig(): OverlayConfig {
   return normalizeOverlayConfig({
@@ -70,7 +74,9 @@ export function defaultVoiceConfig(): VoiceConfig {
     outputDeviceId: null,
     outputVolume: 1,
     maxSessionMinutes: 15,
-    silenceTimeoutSeconds: 20
+    silenceTimeoutSeconds: 20,
+    bargeIn: true,
+    shortcut: VOICE_DEFAULT_SHORTCUT
   }
 }
 
@@ -111,7 +117,12 @@ export function normalizeRoutinesConfig(input: unknown): Routine[] {
 }
 
 export function defaultUiConfig(): UiConfig {
-  return { language: 'pt-BR', reducedMotion: false, startMinimized: false }
+  return {
+    language: 'pt-BR',
+    reducedMotion: false,
+    startMinimized: false,
+    lastSettingsTab: DEFAULT_SETTINGS_TAB
+  }
 }
 
 export function defaultMemoryConfig(): MemoryConfig {
@@ -174,7 +185,12 @@ export function normalizeVoiceConfig(input: unknown): VoiceConfig {
     outputDeviceId: normalizeOptionalId(raw.outputDeviceId),
     outputVolume: clampNumber(raw.outputVolume, 0, 1, 1),
     maxSessionMinutes: clampNumber(raw.maxSessionMinutes, 1, 120, 15),
-    silenceTimeoutSeconds: clampNumber(raw.silenceTimeoutSeconds, 5, 600, 20)
+    silenceTimeoutSeconds: clampNumber(raw.silenceTimeoutSeconds, 5, 600, 20),
+    bargeIn: raw.bargeIn !== false,
+    shortcut:
+      typeof raw.shortcut === 'string' && raw.shortcut.trim()
+        ? raw.shortcut.trim().slice(0, MAX_ACCELERATOR_LENGTH)
+        : VOICE_DEFAULT_SHORTCUT
   }
 }
 
@@ -223,7 +239,8 @@ export function normalizeUiConfig(input: unknown): UiConfig {
   return {
     language,
     reducedMotion: raw.reducedMotion === true,
-    startMinimized: raw.startMinimized === true
+    startMinimized: raw.startMinimized === true,
+    lastSettingsTab: isSettingsTab(raw.lastSettingsTab) ? raw.lastSettingsTab : DEFAULT_SETTINGS_TAB
   }
 }
 
@@ -347,7 +364,9 @@ const schema: Store.Schema<AbsolemConfig> = {
       outputDeviceId: { type: ['string', 'null'] },
       outputVolume: { type: 'number' },
       maxSessionMinutes: { type: 'number' },
-      silenceTimeoutSeconds: { type: 'number' }
+      silenceTimeoutSeconds: { type: 'number' },
+      bargeIn: { type: 'boolean' },
+      shortcut: { type: 'string' }
     },
     additionalProperties: false
   },
@@ -416,7 +435,8 @@ const schema: Store.Schema<AbsolemConfig> = {
     properties: {
       language: { type: 'string' },
       reducedMotion: { type: 'boolean' },
-      startMinimized: { type: 'boolean' }
+      startMinimized: { type: 'boolean' },
+      lastSettingsTab: { type: 'string' }
     },
     additionalProperties: false
   },
@@ -451,7 +471,8 @@ const schema: Store.Schema<AbsolemConfig> = {
           properties: {
             role: { type: 'string' },
             text: { type: 'string' },
-            at: { type: 'number' }
+            at: { type: 'number' },
+            interrupted: { type: 'boolean' }
           },
           additionalProperties: false
         }
@@ -645,6 +666,17 @@ export function migrate190(store: StoreLike): void {
   store.set('web', normalizeWebConfig(store.get('web', defaultWebConfig())))
 }
 
+/**
+ * 1.10.0: aditiva. Acrescenta `ui.lastSettingsTab` (aba ativa do painel), os
+ * campos de voz `bargeIn`/`shortcut` e a marca `interrupted` nos turnos do
+ * histórico. Nada do formato anterior é descartado; idempotente.
+ */
+export function migrate1100(store: StoreLike): void {
+  store.set('ui', normalizeUiConfig(store.get('ui', defaultUiConfig())))
+  store.set('voice', normalizeVoiceConfig(store.get('voice', defaultVoiceConfig())))
+  store.set('chat', normalizeChatState(store.get('chat', defaultChatConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -655,7 +687,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.6.0': migrate160,
   '1.7.0': migrate170,
   '1.8.0': migrate180,
-  '1.9.0': migrate190
+  '1.9.0': migrate190,
+  '1.10.0': migrate1100
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

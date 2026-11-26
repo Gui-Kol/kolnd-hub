@@ -18,6 +18,8 @@ import { createDeviceWatcher, type DeviceWatcher, type MediaDevicesLike } from '
 import { createDomGrabFactories, grabFrame } from '../capture/grab'
 import type { CaptureIndicatorPush, CaptureRequestPush } from '../../../shared/screen'
 import type { SearchIndicatorPush } from '../../../shared/search'
+import { ConversationLayer } from './conversation/ConversationLayer'
+import { TextInput } from './conversation/TextInput'
 
 /**
  * Casca do overlay do avatar (task 02).
@@ -41,6 +43,11 @@ export function OverlayApp() {
   const [voiceReason, setVoiceReason] = useState<string | null>(null)
   const [captureIndicator, setCaptureIndicator] = useState<CaptureIndicatorPush | null>(null)
   const [searchIndicator, setSearchIndicator] = useState<SearchIndicatorPush | null>(null)
+  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [firstRunDismissed, setFirstRunDismissed] = useState(false)
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null)
+  const [conversationKey, setConversationKey] = useState(0)
+  const [transcript, setTranscript] = useState<string | null>(null)
   const voiceToggleRef = useRef<() => void>(() => undefined)
 
   useEffect(() => {
@@ -67,6 +74,7 @@ export function OverlayApp() {
     let vad: Vad = createVad()
     let unsubscribeVoiceState: (() => void) | null = null
     let unsubscribeVoiceAudio: (() => void) | null = null
+    let unsubscribeVoiceTranscript: (() => void) | null = null
     let unsubscribeCaptureRequest: (() => void) | null = null
     let unsubscribeCaptureIndicator: (() => void) | null = null
     let unsubscribeSearchIndicator: (() => void) | null = null
@@ -76,6 +84,7 @@ export function OverlayApp() {
     let inputDeviceId: string | null = null
     let outputDeviceId: string | null = null
     let outputVolume = 1
+    let bargeInEnabled = true
     let deviceWatcher: DeviceWatcher | null = null
 
     const ensurePlayback = async (): Promise<boolean> => {
@@ -113,9 +122,9 @@ export function OverlayApp() {
       const events = vad.process(pcm16BytesToFloat(chunk), performance.now())
       for (const event of events) {
         if (event.type === 'speech-start') {
-          // Barge-in só durante a fala do modelo; em `listening` o VAD só
-          // alimenta o indicador.
-          if (currentVoiceState === 'speaking') {
+          // Barge-in só durante a fala do modelo e se o usuário não desligou;
+          // em `listening` o VAD só alimenta o indicador.
+          if (currentVoiceState === 'speaking' && bargeInEnabled) {
             playback?.flush()
             window.absolem.voice.sendBargeIn()
           }
@@ -246,6 +255,7 @@ export function OverlayApp() {
         const themePromise = window.absolem.themeGet().catch(() => null)
         const voiceStatusPromise = window.absolem.voice.status().catch(() => null)
         const captureStatusPromise = window.absolem.capture.status().catch(() => null)
+        const geminiStatusPromise = window.absolem.gemini.status().catch(() => null)
 
         // Captura (task 07): o main pede um frame e o overlay responde. O
         // indicador de olho aparece enquanto a captura está em curso.
@@ -261,15 +271,18 @@ export function OverlayApp() {
         })
 
         const module = await import('./avatar')
-        const [status, avatarStatus, themeResult, voiceStatusResult, captureStatus] =
+        const [status, avatarStatus, themeResult, voiceStatusResult, captureStatus, geminiStatus] =
           await Promise.all([
             statusPromise,
             avatarStatusPromise,
             themePromise,
             voiceStatusPromise,
-            captureStatusPromise
+            captureStatusPromise,
+            geminiStatusPromise
           ])
         if (disposed) return
+
+        if (geminiStatus?.ok) setConfigured(geminiStatus.status.configured)
 
         if (captureStatus?.ok && captureStatus.status.active) {
           setCaptureIndicator({
@@ -282,6 +295,7 @@ export function OverlayApp() {
           inputDeviceId = voiceStatusResult.status.inputDeviceId
           outputDeviceId = voiceStatusResult.status.outputDeviceId
           outputVolume = Math.min(1, Math.max(0, voiceStatusResult.status.outputVolume))
+          bargeInEnabled = voiceStatusResult.status.bargeIn !== false
         }
 
         // Hot-swap: se o dispositivo escolhido sumir, o main encerra a sessão
@@ -320,6 +334,9 @@ export function OverlayApp() {
           debug: flags.debug,
           slow: flags.slow
         })
+        // Métrica de fps exposta ao diagnóstico do main (task 11, T8).
+        ;(window as unknown as { __absolemAvatarMetrics?: () => unknown }).__absolemAvatarMetrics =
+          () => (handle ? handle.getMetrics() : null)
 
         if (typeof window.matchMedia === 'function') {
           motionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -362,6 +379,11 @@ export function OverlayApp() {
             return
           }
           playback.enqueue(push.data, push.sampleRate)
+        })
+        // Transcrição curta perto do avatar (task 11); a UI não duplica estado.
+        unsubscribeVoiceTranscript = window.absolem.voice.onTranscript((push) => {
+          if (disposed) return
+          if (push.role === 'user' && push.text.trim()) setTranscript(push.text)
         })
 
         // Hidratação no mount: cobre o caso de o overlay abrir depois que a
@@ -419,11 +441,14 @@ export function OverlayApp() {
       unsubscribeTheme?.()
       unsubscribeVoiceState?.()
       unsubscribeVoiceAudio?.()
+      unsubscribeVoiceTranscript?.()
       unsubscribeCaptureRequest?.()
       unsubscribeCaptureIndicator?.()
       unsubscribeSearchIndicator?.()
       handle?.dispose()
       handle = null
+      delete (window as unknown as { __absolemAvatarMetrics?: () => unknown })
+        .__absolemAvatarMetrics
     }
   }, [])
 
@@ -489,6 +514,43 @@ export function OverlayApp() {
           <span className="search-indicator__label">
             {searchIndicator.kind === 'fetch' ? 'Abrindo página' : 'Pesquisando'}
           </span>
+        </div>
+      ) : null}
+      <ConversationLayer
+        key={`${activeRequestId ?? 'idle'}-${conversationKey}`}
+        voiceState={voiceState}
+        transcript={transcript}
+        requestId={activeRequestId}
+        input={
+          <TextInput
+            onSend={(requestId) => setActiveRequestId(requestId)}
+            onClose={() => {
+              setActiveRequestId(null)
+              setConversationKey((value) => value + 1)
+            }}
+          />
+        }
+      />
+      {configured === false && !firstRunDismissed ? (
+        <div className="first-run-card" role="status" aria-live="polite">
+          <p>Configure sua chave do Gemini para começar.</p>
+          <p className="text-xs">
+            Sem a chave, o avatar e a aparência continuam funcionando; a conversa por voz e texto
+            fica indisponível.
+          </p>
+          <div className="conversation-actions">
+            <button
+              type="button"
+              onClick={() => {
+                void window.absolem.openSettings('key')
+              }}
+            >
+              Configurar agora
+            </button>
+            <button type="button" onClick={() => setFirstRunDismissed(true)}>
+              Agora não
+            </button>
+          </div>
         </div>
       ) : null}
       {debugLine ? <pre className="overlay-debug">{debugLine}</pre> : null}

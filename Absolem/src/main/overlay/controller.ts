@@ -2,7 +2,7 @@ import { screen } from 'electron'
 import type { BrowserWindow } from 'electron'
 import type { OverlayConfig, OverlayLayout } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
-import type { OverlayStatus, OverlayStatusResult } from '../../shared/ipc'
+import type { OverlayStatus, OverlayStatusResult, SimpleResult } from '../../shared/ipc'
 import { isOverlayPosition, normalizeOverlayLayout } from '../../shared/overlay'
 import {
   OVERLAY_HEIGHT_MAX,
@@ -53,6 +53,10 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let pollBusy = false
 let stopDisplayWatch: (() => void) | null = null
 let initialized = false
+let inputModeTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Tempo sem digitação antes de o overlay voltar a não focável. */
+export const OVERLAY_INPUT_IDLE_MS = 30_000
 
 function currentConfig(): OverlayConfig {
   const snapshot = context?.getStoreSnapshot()
@@ -146,6 +150,8 @@ async function pollForeground(): Promise<void> {
 }
 
 function applyVisible(next: boolean, persist: boolean): OverlayStatus {
+  // Texto/foco nunca sobrevivem a esconder/mostrar o overlay.
+  deactivateOverlayInputMode()
   if (next) {
     autoHidden = false
     showOverlayWindow()
@@ -228,6 +234,62 @@ export function setOverlayInteractiveFromRequest(input: unknown): OverlayStatusR
 }
 
 /**
+ * `overlay:set-input-mode`: o overlay nasce `focusable:false` para nunca roubar
+ * foco. Só enquanto o campo de texto está em uso ele vira focável; Esc, fechar
+ * o balão, esconder o overlay ou 30 s sem digitação devolvem o estado original.
+ */
+export function setOverlayInputModeFromRequest(input: unknown): SimpleResult {
+  if (!isPlainRecord(input) || typeof input.active !== 'boolean') {
+    return { ok: false, error: 'Payload inválido para overlay:set-input-mode.' }
+  }
+  if (!input.active) {
+    deactivateOverlayInputMode()
+    return { ok: true }
+  }
+  const window = getOverlayWindow()
+  if (!window) return { ok: false, error: 'Overlay indisponível.' }
+  try {
+    setInteractive(true)
+    window.setFocusable(true)
+    viewWindowFocus(window)
+    if (inputModeTimer) clearTimeout(inputModeTimer)
+    inputModeTimer = setTimeout(() => {
+      inputModeTimer = null
+      deactivateOverlayInputMode()
+    }, OVERLAY_INPUT_IDLE_MS)
+  } catch (err) {
+    logger.warn('overlay', 'falha ao ativar o modo de entrada', err)
+    return { ok: false, error: 'Falha ao ativar o campo de texto.' }
+  }
+  return { ok: true }
+}
+
+/** Devolve o overlay ao estado não focável e não interativo. */
+export function deactivateOverlayInputMode(): void {
+  if (inputModeTimer) {
+    clearTimeout(inputModeTimer)
+    inputModeTimer = null
+  }
+  const window = getOverlayWindow()
+  if (!window) {
+    setInteractive(false)
+    return
+  }
+  try {
+    if (window.isFocused()) window.blur()
+    window.setFocusable(false)
+  } catch {
+    // Janela em processo de fechamento.
+  }
+  setInteractive(false)
+}
+
+function viewWindowFocus(window: BrowserWindow): void {
+  if (!window.isVisible()) window.showInactive()
+  window.focus()
+}
+
+/**
  * Inicializa no `whenReady` (screen/globalShortcut exigem app pronto):
  * aplica o layout persistido, registra o atalho, observa monitores, instala o
  * gancho de encerramento e reexibe se a preferência mandar.
@@ -260,6 +322,7 @@ export function initializeOverlay(ctx: IpcContext): void {
 /** Encerramento: para timers, solta os monitores e destrói a janela. */
 export function shutdownOverlay(): void {
   stopFullscreenWatch()
+  deactivateOverlayInputMode()
   stopDisplayWatch?.()
   stopDisplayWatch = null
   destroyOverlayWindow()
@@ -268,6 +331,8 @@ export function shutdownOverlay(): void {
 /** Hook exclusivo de teste: zera estado e timers. */
 export function resetOverlayControllerForTests(): void {
   stopFullscreenWatch()
+  if (inputModeTimer) clearTimeout(inputModeTimer)
+  inputModeTimer = null
   stopDisplayWatch?.()
   stopDisplayWatch = null
   context = null

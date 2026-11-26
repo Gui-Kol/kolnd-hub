@@ -6,6 +6,9 @@
  * importar nada de `src/main`.
  */
 
+/** Aviso de consumo exibido quando o mês chega a este percentual do teto. */
+export const USAGE_WARNING_PERCENT = 80
+
 export const GEMINI_ERROR_KINDS = [
   'auth',
   'quota',
@@ -93,4 +96,6 @@ export interface GeminiDiagnostics {
   configured: boolean
   lastError: GeminiErrorSummary | null
   usage: GeminiUsageSnapshot
+  /** Últimos erros classificados (máximo 5), sem prompt nem resposta. */
+  recentErrors?: Array<GeminiErrorSummary & { at?: number }>
 }

@@ -1,4 +1,5 @@
 import { app, globalShortcut } from 'electron'
+import { ACTIONS_PAUSE_SHORTCUT } from '../../shared/permissions'
 import { logger } from '../logger'
 
 /**
@@ -9,7 +10,7 @@ import { logger } from '../logger'
  * persistido no store pelo callback.
  */
 
-export const ACTIONS_PAUSE_SHORTCUT = 'Control+Alt+P'
+export { ACTIONS_PAUSE_SHORTCUT }
 
 export interface PauseShortcutApi {
   register: (accelerator: string, callback: () => void) => boolean

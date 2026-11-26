@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { getPersistentStore, getStoreSnapshot } from '../store'
 import { getActionsRuntime } from '../actions/instance'
 import { getSearchRuntime } from '../search/instance'
@@ -7,6 +8,8 @@ import { configureMemoryExtraction, getMemoryBlock } from '../memory/instance'
 import { GeminiEngine, type GeminiEngineConfig } from './engine'
 import { createChatHistory } from './history'
 import { SdkGeminiTransport } from './sdk'
+import { FakeTransport } from './testing/fakeTransport'
+import type { GeminiTransport } from './transport'
 import { createUsageMeter, type UsageMeter, type UsageWarning } from './usage'
 
 /**
@@ -58,9 +61,24 @@ export function getUsageMeter(): UsageMeter {
 
 let engine: GeminiEngine | null = null
 
+/**
+ * Transporte do motor. Em teste e2e (`ABSOLEM_TEST_TRANSPORT=fake`) o app
+ * buildado usa o transporte falso: nenhuma rede real, respostas determinísticas.
+ * A flag nunca vale no app empacotado.
+ */
+function createTransport(): GeminiTransport {
+  if (!app.isPackaged && process.env.ABSOLEM_TEST_TRANSPORT === 'fake') {
+    return new FakeTransport({
+      streamSteps: [{ text: 'Resposta de teste.' }],
+      generateSteps: [{ text: 'ok' }]
+    })
+  }
+  return new SdkGeminiTransport()
+}
+
 export function createGeminiEngine(): GeminiEngine {
   return new GeminiEngine({
-    transport: new SdkGeminiTransport(),
+    transport: createTransport(),
     keys: { getApiKey, hasApiKey, setApiKey, clearApiKey },
     config: currentConfig,
     usage: getUsageMeter(),

@@ -48,7 +48,7 @@ export interface VoiceSessionLike {
 }
 
 export interface VoiceHistoryLike {
-  append: (role: 'user' | 'model', text: string) => void
+  append: (role: 'user' | 'model', text: string, interrupted?: boolean) => void
   /** Memória de longo prazo (task 09): sessão/turnos no SQLite. */
   beginSession?: (sessionId: string, at: number) => void
   endSession?: (sessionId: string, at: number) => void
@@ -161,7 +161,8 @@ export class VoiceController {
       sessionActive: this.session !== null,
       inputDeviceId: config.inputDeviceId,
       outputDeviceId: config.outputDeviceId,
-      outputVolume: config.outputVolume
+      outputVolume: config.outputVolume,
+      bargeIn: config.bargeIn !== false
     }
   }
 
@@ -303,6 +304,7 @@ export class VoiceController {
   }
 
   handleBargeIn(): void {
+    if (this.deps.getConfig().bargeIn === false) return
     this.deps.logger?.debug('voice', 'barge-in recebido do renderer')
     // O pre-roll de 300 ms não precisa ser reenviado: os chunks anteriores já
     // foram transmitidos ao Live em tempo real; aqui só interrompemos a
@@ -503,7 +505,7 @@ export class VoiceController {
           interrupted
         })
       } else {
-        this.deps.history.append(role, text)
+        this.deps.history.append(role, text, interrupted)
       }
     } catch (err) {
       this.deps.logger?.warn('voice', 'falha ao gravar transcrição na memória', err)

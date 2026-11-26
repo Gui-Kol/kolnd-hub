@@ -45,6 +45,7 @@ const absolem: AbsolemApi = {
 
   getAutostart: () => ipcRenderer.invoke(IPC.appGetAutostart),
   setAutostart: (enabled: boolean) => ipcRenderer.invoke(IPC.appSetAutostart, { enabled }),
+  openFolder: (target) => ipcRenderer.invoke(IPC.appOpenFolder, { target }),
 
   overlayShow: () => ipcRenderer.invoke(IPC.overlayShow),
   overlayHide: () => ipcRenderer.invoke(IPC.overlayHide),
@@ -54,6 +55,7 @@ const absolem: AbsolemApi = {
     ipcRenderer.invoke(IPC.overlaySetLayout, layout),
   overlaySetInteractive: (interactive: boolean) =>
     ipcRenderer.invoke(IPC.overlaySetInteractive, { interactive }),
+  overlaySetInputMode: (active: boolean) => ipcRenderer.invoke(IPC.overlaySetInputMode, { active }),
   onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => {
     const handler = (_event: unknown, status: OverlayStatus) => listener(status)
     ipcRenderer.on(IPC.overlayStatusChanged, handler)
@@ -139,7 +141,13 @@ const absolem: AbsolemApi = {
   },
 
   diagnostics: {
-    gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini)
+    gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini),
+    overlay: () => ipcRenderer.invoke(IPC.diagnosticsOverlay),
+    export: () => ipcRenderer.invoke(IPC.diagnosticsExport)
+  },
+
+  history: {
+    list: (request) => ipcRenderer.invoke(IPC.historyList, request === undefined ? {} : request)
   },
 
   permissions: {

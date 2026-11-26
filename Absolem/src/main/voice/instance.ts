@@ -188,8 +188,8 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     notify: (message) => logger.info('voice', message),
     memoryEnabled: () => getStoreSnapshot().memory.enabled,
     history: {
-      append: (role, text) => {
-        chatHistory.append(role, text)
+      append: (role, text, interrupted = false) => {
+        chatHistory.append(role, text, undefined, interrupted)
       },
       beginSession: (sessionId, at) => getMemoryRuntime()?.beginSession(sessionId, at),
       endSession: (sessionId, at) => getMemoryRuntime()?.endSession(sessionId, at),
@@ -206,7 +206,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     hasConsent: () => isMicrophoneGranted(consentStore)
   })
 
-  registerVoiceShortcut(VOICE_DEFAULT_SHORTCUT, () => {
+  registerVoiceShortcut(getStoreSnapshot().voice.shortcut ?? VOICE_DEFAULT_SHORTCUT, () => {
     controller.toggle('shortcut')
   })
 

@@ -24,6 +24,7 @@
     "format:check": "prettier --check .",
     "verify": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "verify:build": "npm run verify && npm run build",
+    "test:e2e": "npm run build && playwright test --config=tests/e2e/playwright.config.ts",
     "postinstall": "node scripts/postinstall-sqlite.cjs"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "0.187.0",

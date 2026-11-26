@@ -37,6 +37,25 @@ export const STORE_KEYS = [
 
 export type StoreKey = (typeof STORE_KEYS)[number]
 
+/** Abas do painel de Configurações (task 11). */
+export const SETTINGS_TABS = [
+  'appearance',
+  'voice',
+  'permissions',
+  'memory',
+  'key',
+  'diagnostics',
+  'about'
+] as const
+
+export type SettingsTab = (typeof SETTINGS_TABS)[number]
+
+export const DEFAULT_SETTINGS_TAB: SettingsTab = 'appearance'
+
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return typeof value === 'string' && (SETTINGS_TABS as readonly string[]).includes(value)
+}
+
 export const OVERLAY_POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'top-right'] as const
 
 export type OverlayPosition = (typeof OVERLAY_POSITIONS)[number]
@@ -65,6 +84,10 @@ export interface VoiceConfig {
   maxSessionMinutes: number
   /** Fechamento automático por falta de fala (gate de custo). */
   silenceTimeoutSeconds: number
+  /** Falar durante a resposta interrompe o modelo (padrão ligado). */
+  bargeIn?: boolean
+  /** Atalho global de escuta (aplicado quando a sessão de voz inicia). */
+  shortcut?: string
 }
 
 export interface GeminiConfig {
@@ -95,6 +118,8 @@ export interface UiConfig {
   language: string
   reducedMotion: boolean
   startMinimized: boolean
+  /** Aba ativa do painel de Configurações (task 11). */
+  lastSettingsTab?: SettingsTab
 }
 
 /** Consumo diário de tokens do motor Gemini. */
@@ -115,6 +140,8 @@ export interface ChatTurn {
   role: 'user' | 'model'
   text: string
   at: number
+  /** `true` quando o turno foi interrompido (histórico da task 11). */
+  interrupted?: boolean
 }
 
 export interface ChatConfig {

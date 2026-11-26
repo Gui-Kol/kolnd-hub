@@ -7,6 +7,7 @@ import type {
   SimpleResult
 } from '../../shared/ipc'
 import type { GeminiEngine } from '../gemini/engine'
+import { recordDiagnosticError } from './diagnostics'
 
 /**
  * Canais de estado/chave do motor Gemini.
@@ -75,7 +76,9 @@ export function registerGeminiIpc(engine: GeminiEngine): void {
         return failure(`Payload inválido para ${IPC.geminiTestKey}.`)
       }
       try {
-        return { ok: true, result: await engine.testKey() }
+        const result = await engine.testKey()
+        if (!result.ok && result.error) recordDiagnosticError(result.error)
+        return { ok: true, result }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         return failure(`Falha ao testar a chave: ${message}`)

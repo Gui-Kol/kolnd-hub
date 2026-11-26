@@ -49,6 +49,8 @@ export interface MemoryRuntime {
   beginSession: (sessionId: string, at: number) => void
   recordTurn: (turn: TurnInput) => void
   endSession: (sessionId: string, at: number) => void
+  /** Últimos turnos de todas as sessões (histórico recente, task 11). */
+  recentTurns: (limit?: number) => MemoryTurn[]
   auditConfigChange: (before: MemoryConfig, after: MemoryConfig) => void
   stats: () => MemoryStats
   close: () => void
@@ -160,6 +162,7 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
       beginSession: () => undefined,
       recordTurn: () => undefined,
       endSession: () => undefined,
+      recentTurns: () => [],
       auditConfigChange: () => undefined,
       stats: () => ({
         ...emptyMemoryStats(),
@@ -263,6 +266,16 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
     void extractSession(sessionId)
   }
 
+  function recentTurns(limit = 20): MemoryTurn[] {
+    if (!memoryEnabled()) return []
+    try {
+      return repo.turns.recent(limit)
+    } catch (error) {
+      logger.warn('memory', 'falha ao ler o histórico recente', error)
+      return []
+    }
+  }
+
   function getBlock(query: string): string {
     if (!memoryEnabled()) return ''
     try {
@@ -307,6 +320,7 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
     beginSession,
     recordTurn,
     endSession,
+    recentTurns,
     auditConfigChange,
     stats: () =>
       getMemoryStats(repo.handle, {

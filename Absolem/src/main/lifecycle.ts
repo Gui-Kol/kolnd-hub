@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
+import type { SettingsSection } from '../shared/ipc'
 import { isQuitting, markQuitting } from './quitState'
 import { isAllowedNavigationUrl } from './navigation'
 import { logger } from './logger'
@@ -102,12 +103,31 @@ export function createMainWindow(): BrowserWindow {
 }
 
 /** Mostra/foca a janela, criando-a sob demanda (início é só bandeja). */
-export function showMainWindow(): BrowserWindow {
+export function showMainWindow(section?: SettingsSection): BrowserWindow {
   const window = createMainWindow()
   if (window.isMinimized()) window.restore()
   window.show()
   window.focus()
+  if (section) navigateToSection(window, section)
   return window
+}
+
+/**
+ * Leva a janela já carregada (ou em carregamento) para a aba pedida. O hash é
+ * a única fonte de rota do renderer; mudar o hash não recarrega a página.
+ */
+function navigateToSection(window: BrowserWindow, section: SettingsSection): void {
+  const hash = `#settings/${section}`
+  const apply = (): void => {
+    void window.webContents
+      .executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}`)
+      .catch(() => undefined)
+  }
+  if (window.webContents.isLoading()) {
+    window.webContents.once('did-finish-load', apply)
+  } else {
+    apply()
+  }
 }
 
 /** Destrói a janela no encerramento limpo (usado pelo shutdown). */

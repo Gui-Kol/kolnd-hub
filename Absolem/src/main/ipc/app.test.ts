@@ -110,7 +110,14 @@ describe('IPC base do app', () => {
     const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
     expect(result).toEqual({
       ok: true,
-      info: { name: 'Absolem', version: '0.1.0', platform: process.platform }
+      info: {
+        name: 'Absolem',
+        version: '0.1.0',
+        platform: process.platform,
+        electron: process.versions.electron ?? '',
+        chromium: process.versions.chrome ?? '',
+        node: process.versions.node ?? ''
+      }
     })
   })
 

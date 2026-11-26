@@ -1,14 +1,17 @@
 import { ipcMain } from 'electron'
 import { IPC } from '../../shared/ipc'
-import type { IpcError, OverlayStatusResult } from '../../shared/ipc'
+import type { IpcError, OverlayStatusResult, SimpleResult } from '../../shared/ipc'
 import {
+  deactivateOverlayInputMode,
   getOverlayStatus,
   hideOverlay,
+  setOverlayInputModeFromRequest,
   setOverlayInteractiveFromRequest,
   setOverlayLayoutFromRequest,
   showOverlay,
   toggleOverlay
 } from '../overlay/controller'
+import type { IpcContext } from './lifecycle'
 
 /** Payload de canal sem argumentos: só `undefined`/`null` são aceitos. */
 function isVoidPayload(value: unknown): boolean {
@@ -49,7 +52,7 @@ function voidChannel(
  * `{ ok, status }`; a mudança também é empurrada em `overlay:status-changed`
  * pelo controlador.
  */
-export function registerOverlayIpc(): void {
+export function registerOverlayIpc(ctx?: IpcContext): void {
   ipcMain.handle(
     IPC.overlayShow,
     voidChannel(IPC.overlayShow, () => ({ ok: true, status: showOverlay() }))
@@ -84,4 +87,23 @@ export function registerOverlayIpc(): void {
       return failure(`Falha em ${IPC.overlaySetInteractive}: ${message}`)
     }
   })
+
+  // Foco temporário do campo de texto: só a janela do overlay pode pedir.
+  ipcMain.handle(IPC.overlaySetInputMode, (event, payload: unknown): SimpleResult => {
+    if (ctx) {
+      const overlay = ctx.getOverlayWindow()
+      if (!overlay || overlay.isDestroyed() || overlay.webContents !== event.sender) {
+        return failure('Apenas o overlay pode ativar o campo de texto.')
+      }
+    }
+    try {
+      return setOverlayInputModeFromRequest(payload)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return failure(`Falha em ${IPC.overlaySetInputMode}: ${message}`)
+    }
+  })
 }
+
+/** Usado pelo encerramento (shutdown) e pelo painel de configurações. */
+export { deactivateOverlayInputMode }

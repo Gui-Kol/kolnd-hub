@@ -4,7 +4,13 @@ import type {
   AvatarSetStateRequest,
   AvatarState
 } from './avatar'
-import type { OverlayLayout, OverlayPosition, StoreKey } from './config'
+import {
+  SETTINGS_TABS,
+  type OverlayLayout,
+  type OverlayPosition,
+  type SettingsTab,
+  type StoreKey
+} from './config'
 import type {
   ChatDeltaPush,
   ChatDonePush,
@@ -63,12 +69,14 @@ export const IPC = {
   appQuit: 'app:quit',
   appGetAutostart: 'app:get-autostart',
   appSetAutostart: 'app:set-autostart',
+  appOpenFolder: 'app:open-folder',
   overlayShow: 'overlay:show',
   overlayHide: 'overlay:hide',
   overlayToggle: 'overlay:toggle',
   overlayStatus: 'overlay:status',
   overlaySetLayout: 'overlay:set-layout',
   overlaySetInteractive: 'overlay:set-interactive',
+  overlaySetInputMode: 'overlay:set-input-mode',
   overlayStatusChanged: 'overlay:status-changed',
   avatarSetState: 'avatar:set-state',
   avatarSetLevel: 'avatar:set-level',
@@ -106,6 +114,9 @@ export const IPC = {
   voiceAudio: 'voice:audio',
   voiceTranscript: 'voice:transcript',
   diagnosticsGemini: 'diagnostics:gemini',
+  diagnosticsOverlay: 'diagnostics:overlay',
+  diagnosticsExport: 'diagnostics:export',
+  historyList: 'history:list',
   captureSources: 'capture:sources',
   captureAsk: 'capture:ask',
   captureRegion: 'capture:region',
@@ -151,7 +162,8 @@ export const IPC_PREFIXES = [
   'permissions',
   'actions',
   'memory',
-  'search'
+  'search',
+  'history'
 ] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
@@ -160,6 +172,10 @@ export interface AppInfo {
   name: string
   version: string
   platform: string
+  /** Versões de runtime, exibidas no diagnóstico (task 11). */
+  electron?: string
+  chromium?: string
+  node?: string
 }
 
 export interface IpcError {
@@ -229,13 +245,44 @@ export interface StoreSetRequest {
 
 export type StoreGetResult = { ok: true; key: StoreKey; value: unknown } | IpcError
 
-export const SETTINGS_SECTIONS = ['theme', 'voice', 'permissions', 'memory'] as const
+export const SETTINGS_SECTIONS = SETTINGS_TABS
 
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+export type SettingsSection = SettingsTab
 
 export interface SettingsOpenRequest {
   section?: SettingsSection
 }
+
+/** `overlay:set-input-mode`: só a janela do overlay pode pedir foco. */
+export interface OverlaySetInputModeRequest {
+  active: boolean
+}
+
+export const APP_FOLDER_TARGETS = ['logs', 'audit', 'userData'] as const
+
+export type AppFolderTarget = (typeof APP_FOLDER_TARGETS)[number]
+
+export interface AppOpenFolderRequest {
+  target: AppFolderTarget
+}
+
+export type DiagnosticsExportResult = { ok: true; canceled: boolean; filePath?: string } | IpcError
+
+export type DiagnosticsOverlayResult = { ok: true; fps: number | null } | IpcError
+
+/** Turno exposto pelo histórico recente (task 11). */
+export interface HistoryTurn {
+  role: 'user' | 'model'
+  text: string
+  at: number
+  interrupted: boolean
+}
+
+export interface HistoryListRequest {
+  limit?: number
+}
+
+export type HistoryListResult = { ok: true; enabled: boolean; turns: HistoryTurn[] } | IpcError
 
 export interface ThemeSetRequest {
   theme: Partial<ThemeConfig>
@@ -475,6 +522,7 @@ export interface IpcContract {
   [IPC.appQuit]: { request: undefined; response: SimpleResult }
   [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
   [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
+  [IPC.appOpenFolder]: { request: AppOpenFolderRequest; response: SimpleResult }
   [IPC.overlayShow]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayHide]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayToggle]: { request: undefined; response: OverlayStatusResult }
@@ -483,6 +531,10 @@ export interface IpcContract {
   [IPC.overlaySetInteractive]: {
     request: OverlaySetInteractiveRequest
     response: OverlayStatusResult
+  }
+  [IPC.overlaySetInputMode]: {
+    request: OverlaySetInputModeRequest
+    response: SimpleResult
   }
   [IPC.overlayStatusChanged]: { request: undefined; response: OverlayStatus }
   [IPC.avatarSetState]: { request: AvatarSetStateRequest; response: SimpleResult }
@@ -521,6 +573,8 @@ export interface IpcContract {
   [IPC.voiceAudio]: { request: undefined; response: VoiceAudioPush }
   [IPC.voiceTranscript]: { request: undefined; response: VoiceTranscriptPush }
   [IPC.diagnosticsGemini]: { request: undefined; response: DiagnosticsGeminiResult }
+  [IPC.diagnosticsOverlay]: { request: undefined; response: DiagnosticsOverlayResult }
+  [IPC.diagnosticsExport]: { request: undefined; response: DiagnosticsExportResult }
   [IPC.captureSources]: { request: undefined; response: CaptureSourcesResult }
   [IPC.captureAsk]: { request: CaptureAskRequest; response: SimpleResult }
   [IPC.captureRegion]: { request: undefined; response: CaptureRegionResult }
@@ -547,6 +601,7 @@ export interface IpcContract {
   [IPC.searchOpenUrl]: { request: SearchOpenUrlRequest; response: SimpleResult }
   [IPC.searchClearCache]: { request: undefined; response: SimpleResult }
   [IPC.searchIndicator]: { request: undefined; response: SearchIndicatorPush }
+  [IPC.historyList]: { request: HistoryListRequest | undefined; response: HistoryListResult }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -562,12 +617,16 @@ export interface AbsolemApi {
   quit: () => Promise<SimpleResult>
   getAutostart: () => Promise<AutostartGetResult>
   setAutostart: (enabled: boolean) => Promise<SimpleResult>
+  /** Abre uma pasta do app (enum fechado; nunca caminho livre). */
+  openFolder: (target: AppFolderTarget) => Promise<SimpleResult>
   overlayShow: () => Promise<OverlayStatusResult>
   overlayHide: () => Promise<OverlayStatusResult>
   overlayToggle: () => Promise<OverlayStatusResult>
   overlayStatus: () => Promise<OverlayStatusResult>
   overlaySetLayout: (layout: OverlaySetLayoutRequest) => Promise<OverlayStatusResult>
   overlaySetInteractive: (interactive: boolean) => Promise<OverlayStatusResult>
+  /** Foco temporário no overlay para o campo de texto (30 s ou Esc). */
+  overlaySetInputMode: (active: boolean) => Promise<SimpleResult>
   onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => () => void
   avatar: {
     setState: (state: AvatarState) => Promise<SimpleResult>
@@ -615,6 +674,8 @@ export interface AbsolemApi {
   }
   diagnostics: {
     gemini: () => Promise<DiagnosticsGeminiResult>
+    overlay: () => Promise<DiagnosticsOverlayResult>
+    export: () => Promise<DiagnosticsExportResult>
   }
   permissions: {
     get: () => Promise<PermissionsGetResult>
@@ -650,6 +711,10 @@ export interface AbsolemApi {
     submitRegion: (selection: RegionSelection) => void
     onRequest: (listener: (push: CaptureRequestPush) => void) => () => void
     onIndicator: (listener: (push: CaptureIndicatorPush) => void) => () => void
+  }
+  history: {
+    /** Últimos turnos do histórico textual (vazio com a memória pausada). */
+    list: (request?: HistoryListRequest) => Promise<HistoryListResult>
   }
   search: {
     /** `web.enabled`, contadores do turno e tamanho do cache. */

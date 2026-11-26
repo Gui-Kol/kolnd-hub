@@ -419,6 +419,11 @@ app.whenReady().then(() => {
   if (isFirstRun()) {
     logger.info('lifecycle', 'firstRun: true')
     showTrayBalloon('Absolem está na bandeja. Botão direito > Abrir Overlay.')
+    // Primeira configuração sem chave: abre direto em "Chave e custo".
+    if (!hidden && !getGeminiEngine().isConfigured()) {
+      logger.info('lifecycle', 'firstRun: abrindo Configurações na aba Chave e custo')
+      showMainWindow('key')
+    }
     try {
       markFirstRunComplete()
     } catch (err) {

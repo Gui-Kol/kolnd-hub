@@ -1,7 +1,17 @@
-import { app, ipcMain } from 'electron'
-import { IPC } from '../../shared/ipc'
-import type { AppInfoResult, AutostartGetResult, IpcError, SimpleResult } from '../../shared/ipc'
+import { app, ipcMain, shell } from 'electron'
+import { join } from 'path'
+import { isSettingsTab } from '../../shared/config'
+import { IPC, APP_FOLDER_TARGETS } from '../../shared/ipc'
+import type {
+  AppFolderTarget,
+  AppInfoResult,
+  AutostartGetResult,
+  IpcError,
+  SettingsSection,
+  SimpleResult
+} from '../../shared/ipc'
 import { getAutostart, setAutostart } from '../autostart'
+import { showMainWindow } from '../lifecycle'
 import { shutdownApp } from './lifecycle'
 import type { IpcContext } from './lifecycle'
 
@@ -37,7 +47,10 @@ export function registerAppIpc(ctx: IpcContext): void {
         info: {
           name: app.getName(),
           version: app.getVersion(),
-          platform: process.platform
+          platform: process.platform,
+          electron: process.versions.electron ?? '',
+          chromium: process.versions.chrome ?? '',
+          node: process.versions.node ?? ''
         }
       }
     } catch (err) {
@@ -76,4 +89,48 @@ export function registerAppIpc(ctx: IpcContext): void {
       ? { ok: true }
       : failure(result.error ?? 'Falha ao atualizar a inicialização com o Windows.')
   })
+
+  ipcMain.handle(IPC.settingsOpen, (_event, payload: unknown): SimpleResult => {
+    const section =
+      payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)['section']
+        : undefined
+    if (section !== undefined && !isSettingsTab(section)) {
+      return failure('Aba de configuração desconhecida.')
+    }
+    try {
+      showMainWindow(section as SettingsSection | undefined)
+      return { ok: true }
+    } catch (err) {
+      return failure(
+        `Falha ao abrir as configurações: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  })
+
+  ipcMain.handle(IPC.appOpenFolder, async (_event, payload: unknown): Promise<SimpleResult> => {
+    const target =
+      payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)['target']
+        : undefined
+    if (typeof target !== 'string' || !(APP_FOLDER_TARGETS as readonly string[]).includes(target)) {
+      return failure('Pasta inválida para abrir.')
+    }
+    try {
+      const path = folderPath(target as AppFolderTarget)
+      const error = await shell.openPath(path)
+      return error ? failure(`Não foi possível abrir a pasta: ${error}`) : { ok: true }
+    } catch (err) {
+      return failure(
+        `Não foi possível abrir a pasta: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  })
+}
+
+/** Enum fechado: nunca aceita caminho livre vindo do renderer. */
+function folderPath(target: AppFolderTarget): string {
+  if (target === 'logs') return app.getPath('logs')
+  if (target === 'audit') return join(app.getPath('userData'), 'audit')
+  return app.getPath('userData')
 }

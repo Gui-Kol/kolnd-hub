@@ -6,6 +6,7 @@ import type { ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../../shared/ge
 import type { GeminiEngine } from '../gemini/engine'
 import { subscribeUsageWarning } from '../gemini/instance'
 import { getSearchRuntime } from '../search/instance'
+import { recordDiagnosticError } from './diagnostics'
 import type { IpcContext } from './lifecycle'
 
 /**
@@ -78,6 +79,7 @@ export function registerChatIpc(ctx: IpcContext, engine: GeminiEngine): void {
         broadcast(IPC.chatDone, push)
       },
       error: (error) => {
+        recordDiagnosticError(error)
         const push: ChatErrorPush = {
           requestId: request.requestId,
           kind: error.kind,

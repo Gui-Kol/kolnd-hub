@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.9.0')
+    expect(options.projectVersion).toBe('1.10.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -88,7 +88,8 @@ describe('store persistente', () => {
       '1.6.0',
       '1.7.0',
       '1.8.0',
-      '1.9.0'
+      '1.9.0',
+      '1.10.0'
     ])
   })
 
@@ -128,7 +129,9 @@ describe('store persistente', () => {
       outputDeviceId: null,
       outputVolume: 1,
       maxSessionMinutes: 15,
-      silenceTimeoutSeconds: 20
+      silenceTimeoutSeconds: 20,
+      bargeIn: true,
+      shortcut: 'Control+Alt+Space'
     })
   })
 

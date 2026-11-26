@@ -47,6 +47,9 @@ export const DEFAULT_PERMISSION_CATEGORIES: Readonly<PermissionCategories> = Obj
   'web.search': 'allow'
 })
 
+/** Atalho global de pausa das ações (task 08); exposto na aba Permissões. */
+export const ACTIONS_PAUSE_SHORTCUT = 'Control+Alt+P'
+
 /** Limites de taxa das ações (task 08, T10). */
 export const ACTION_LIMITS = {
   appLaunchesPerMinute: 5,

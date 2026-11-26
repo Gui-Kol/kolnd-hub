@@ -103,6 +103,7 @@ export interface MemoryRepository {
     insert: (turn: TurnInput) => number
     list: (sessionId: string, limit?: number) => MemoryTurn[]
     sessionTurns: (sessionId: string, limit?: number) => MemoryTurn[]
+    recent: (limit?: number) => MemoryTurn[]
     countSession: (sessionId: string) => number
     countAll: () => number
     listSessions: () => MemorySession[]
@@ -715,6 +716,14 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
     return row ? nonNegativeInt((row as CountRow).total) : 0
   }
 
+  /** Últimos turnos de todas as sessões, em ordem cronológica. */
+  function recentTurns(limit = 20): MemoryTurn[] {
+    const rows = db
+      .prepare('SELECT * FROM turns ORDER BY id DESC LIMIT ?')
+      .all(positiveInt(limit, 20, 200))
+    return rows.reverse().map((row) => mapTurn(row as TurnRow))
+  }
+
   function listSessions(): MemorySession[] {
     const rows = db.prepare('SELECT * FROM sessions ORDER BY started_at DESC').all()
     return rows.map((row) => {
@@ -757,6 +766,7 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
       insert: insertTurn,
       list: sessionTurns,
       sessionTurns,
+      recent: recentTurns,
       countSession,
       countAll,
       listSessions,

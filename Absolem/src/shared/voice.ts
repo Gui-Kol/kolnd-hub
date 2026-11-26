@@ -124,4 +124,6 @@ export interface VoiceStatus {
   inputDeviceId: string | null
   outputDeviceId: string | null
   outputVolume: number
+  /** Barge-in habilitado (padrão ligado). */
+  bargeIn?: boolean
 }

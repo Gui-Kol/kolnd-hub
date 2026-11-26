@@ -1,6 +1,9 @@
 import { GeminiError } from './errors'
 import type { GeminiUsageMetadata } from './transport'
 import type { UsageConfig, UsageDay } from '../../shared/config'
+import { USAGE_WARNING_PERCENT } from '../../shared/gemini'
+
+export { USAGE_WARNING_PERCENT }
 
 /**
  * Medidor de custo em tokens (não em dinheiro, que muda de preço).
@@ -17,7 +20,6 @@ import type { UsageConfig, UsageDay } from '../../shared/config'
 export const USAGE_STORE_KEY = 'usage'
 export const USAGE_RETENTION_DAYS = 62
 export const DEFAULT_MONTHLY_TOKEN_CAP = 2_000_000
-export const USAGE_WARNING_PERCENT = 80
 export const CHARS_PER_TOKEN = 4
 
 export type UsageState = UsageConfig

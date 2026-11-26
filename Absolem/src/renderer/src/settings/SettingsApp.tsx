@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { OverlayLayout } from '../../../shared/config'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { OverlayLayout, SettingsTab, UiConfig } from '../../../shared/config'
+import { isSettingsTab } from '../../../shared/config'
 import {
   DEFAULT_OVERLAY_LAYOUT,
   OVERLAY_HEIGHT_MAX,
@@ -14,15 +15,45 @@ import {
   type ThemeConfig,
   type ThemePresetId
 } from '../../../shared/theme'
+import { AboutTab } from './AboutTab'
 import { AppearanceTab } from './AppearanceTab'
 import { AvatarPreview } from './AvatarPreview'
+import { DiagnosticsTab } from './DiagnosticsTab'
+import { HistoryPanel } from './history/HistoryPanel'
+import { KeyTab } from './KeyTab'
 import { MemoryPanel } from './memory/MemoryPanel'
+import { PermissionsTab } from './PermissionsTab'
+import { VoiceTab } from './VoiceTab'
 import { createDebounced, createThrottled } from './timing'
 
-type SettingsRoute = 'appearance' | 'memory'
+const TABS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'appearance', label: 'Aparência' },
+  { id: 'voice', label: 'Voz' },
+  { id: 'permissions', label: 'Permissões' },
+  { id: 'memory', label: 'Memória' },
+  { id: 'key', label: 'Chave e custo' },
+  { id: 'diagnostics', label: 'Diagnóstico' },
+  { id: 'about', label: 'Sobre' }
+]
 
-function readRoute(hash: string): SettingsRoute {
-  return hash.includes('/memory') ? 'memory' : 'appearance'
+function readTabFromHash(hash: string): SettingsTab | null {
+  const body = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!body.startsWith('settings/')) return null
+  const tab = body.slice('settings/'.length).split('?')[0]
+  return isSettingsTab(tab) ? tab : null
+}
+
+function readUiConfig(value: unknown): UiConfig {
+  const raw =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  return {
+    language: typeof raw.language === 'string' ? raw.language : 'pt-BR',
+    reducedMotion: raw.reducedMotion === true,
+    startMinimized: raw.startMinimized === true,
+    lastSettingsTab: isSettingsTab(raw.lastSettingsTab) ? raw.lastSettingsTab : 'appearance'
+  }
 }
 
 /** Envio ao overlay e persistência têm cadências diferentes (task 04/T5). */
@@ -32,24 +63,26 @@ const PERSIST_INTERVAL_MS = 300
 /**
  * Janela de Configurações (rota `#settings`).
  *
- * Nesta task a navegação tem apenas "Aparência"; voz, permissões, memória,
- * chave e diagnóstico entram na task 11. Fechar a janela apenas a oculta (regra
- * da task 01), então o estado local continua o mesmo ao reabrir.
- *
- * Fluxo de uma edição: preview local imediato; `theme:set` para o overlay com
- * debounce de 100 ms; persistência com throttle de 300 ms. O preview só fica
- * montado enquanto a janela está visível e é descartado ao ocultar.
+ * Navegação lateral com sete abas (task 11). A aba ativa persiste em
+ * `ui.lastSettingsTab`; sem chave do Gemini, o primeiro uso abre em "Chave e
+ * custo". Fechar a janela apenas a oculta (regra da task 01), então o estado
+ * local continua o mesmo ao reabrir.
  */
 export function SettingsApp() {
-  const [section, setSection] = useState<SettingsRoute>(() => readRoute(window.location.hash))
+  const [section, setSection] = useState<SettingsTab>(
+    () => readTabFromHash(window.location.hash) ?? 'appearance'
+  )
   const [theme, setTheme] = useState<ThemeConfig>(defaultTheme)
   const [layout, setLayout] = useState<OverlayLayout>(() => ({ ...DEFAULT_OVERLAY_LAYOUT }))
+  const [uiConfig, setUiConfig] = useState<UiConfig>(() => readUiConfig(undefined))
+  const [configured, setConfigured] = useState<boolean | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [windowVisible, setWindowVisible] = useState(
     () => typeof document === 'undefined' || document.visibilityState !== 'hidden'
   )
+  const activeTabRef = useRef<HTMLButtonElement | null>(null)
 
   const pushToOverlay = useMemo(
     () =>
@@ -85,6 +118,29 @@ export function SettingsApp() {
     }
   }, [])
 
+  // Aba inicial: hash explícito vence; senão a última aba; sem chave e sem
+  // escolha explícita, o primeiro uso abre em "Chave e custo".
+  useEffect(() => {
+    let cancelled = false
+    const explicit = readTabFromHash(window.location.hash)
+    void Promise.all([
+      window.absolem.storeGet('ui').catch(() => null),
+      window.absolem.gemini.status().catch(() => null)
+    ]).then(([uiResult, statusResult]) => {
+      if (cancelled) return
+      const ui = uiResult?.ok ? readUiConfig(uiResult.value) : readUiConfig(undefined)
+      setUiConfig(ui)
+      const hasKey = statusResult?.ok ? statusResult.status.configured : true
+      setConfigured(hasKey)
+      let next = explicit ?? ui.lastSettingsTab ?? 'appearance'
+      if (!explicit && !hasKey && next === 'appearance') next = 'key'
+      setSection(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     const onVisibilityChange = (): void => {
       setWindowVisible(document.visibilityState !== 'hidden')
@@ -97,7 +153,8 @@ export function SettingsApp() {
 
   useEffect(() => {
     const onHashChange = (): void => {
-      setSection(readRoute(window.location.hash))
+      const tab = readTabFromHash(window.location.hash)
+      if (tab) setSection(tab)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => {
@@ -105,9 +162,22 @@ export function SettingsApp() {
     }
   }, [])
 
-  function navigate(next: SettingsRoute): void {
+  useEffect(() => {
+    // Foco inicial na aba ativa (teclado e leitor de tela).
+    activeTabRef.current?.focus()
+  }, [section])
+
+  function persistTab(next: SettingsTab): void {
+    const nextUi = { ...uiConfig, lastSettingsTab: next }
+    setUiConfig(nextUi)
+    void window.absolem.storeSet('ui', nextUi).catch(() => undefined)
+  }
+
+  function navigate(next: SettingsTab): void {
     setSection(next)
-    window.location.hash = next === 'memory' ? '#settings/memory' : '#settings'
+    persistTab(next)
+    const hash = `#settings/${next}`
+    if (window.location.hash !== hash) window.history.replaceState(null, '', hash)
   }
 
   useEffect(() => {
@@ -213,14 +283,103 @@ export function SettingsApp() {
     )
   }
 
+  function renderAppearance() {
+    return (
+      <>
+        <h2 className="mb-4 text-base font-semibold">Aparência</h2>
+        {loadError ? (
+          <p
+            role="alert"
+            className="mb-4 rounded border border-red-400/40 px-3 py-2 text-sm text-red-300"
+          >
+            Não foi possível carregar o tema: {loadError}
+          </p>
+        ) : null}
+
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="min-w-0 flex-1">
+            <AppearanceTab
+              theme={theme}
+              layout={layout}
+              onThemeChange={updateTheme}
+              onPreset={(presetId: ThemePresetId) => updateTheme(applyThemePreset(presetId))}
+              onResetTheme={() => updateTheme(defaultTheme())}
+              onLayoutChange={changeLayout}
+              onResetLayout={resetLayout}
+            />
+          </div>
+          <aside className="flex flex-col gap-2" aria-labelledby="appearance-preview-title">
+            <h3 id="appearance-preview-title" className="text-xs text-ink-secondary">
+              Prévia
+            </h3>
+            {windowVisible ? <AvatarPreview theme={theme} /> : null}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
+                onClick={() => {
+                  void exportTheme()
+                }}
+              >
+                Exportar tema…
+              </button>
+              <button
+                type="button"
+                className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
+                onClick={() => {
+                  void importTheme()
+                }}
+              >
+                Importar tema…
+              </button>
+            </div>
+            {notice ? (
+              <p role="status" className="max-w-[240px] text-xs text-ink-secondary">
+                {notice}
+              </p>
+            ) : null}
+            {actionError ? (
+              <p role="alert" className="max-w-[240px] text-xs text-red-300">
+                {actionError}
+              </p>
+            ) : null}
+          </aside>
+        </div>
+      </>
+    )
+  }
+
+  function renderPanel() {
+    if (section === 'voice') return <VoiceTab />
+    if (section === 'permissions') return <PermissionsTab />
+    if (section === 'key') return <KeyTab />
+    if (section === 'diagnostics') return <DiagnosticsTab />
+    if (section === 'about') return <AboutTab />
+    if (section === 'memory') {
+      return (
+        <div className="flex flex-col gap-8">
+          <MemoryPanel />
+          <HistoryPanel />
+        </div>
+      )
+    }
+    return renderAppearance()
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-surface-base text-ink-primary">
       <header className="border-b border-surface-2 px-6 py-4">
         <h1 className="text-lg font-semibold tracking-wide">Configurações do Absolem</h1>
         <p className="text-xs text-ink-tertiary">
-          Aparência, posição do overlay e memória de longo prazo. As alterações são locais a esta
-          máquina.
+          Aparência, voz, permissões, memória, chave, diagnóstico e informações do app. As
+          alterações são locais a esta máquina.
         </p>
+        {configured === false ? (
+          <p role="status" className="mt-2 text-xs text-amber-200">
+            Chave do Gemini não configurada: o app continua utilizável, mas a conversa fica
+            indisponível até salvar uma chave.
+          </p>
+        ) : null}
       </header>
 
       <div className="flex flex-1 flex-col sm:flex-row">
@@ -228,105 +387,31 @@ export function SettingsApp() {
           aria-label="Seções de configuração"
           className="border-b border-surface-2 px-4 py-3 sm:w-48 sm:border-b-0 sm:border-r"
         >
-          <ul className="flex gap-2 sm:flex-col">
-            <li>
-              <button
-                type="button"
-                aria-current={section === 'appearance' ? 'page' : undefined}
-                onClick={() => navigate('appearance')}
-                className={`w-full rounded px-3 py-2 text-left text-sm ${
-                  section === 'appearance'
-                    ? 'bg-surface-2 font-medium text-ink-primary'
-                    : 'text-ink-secondary hover:text-ink-primary'
-                }`}
-              >
-                Aparência
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                aria-current={section === 'memory' ? 'page' : undefined}
-                onClick={() => navigate('memory')}
-                className={`w-full rounded px-3 py-2 text-left text-sm ${
-                  section === 'memory'
-                    ? 'bg-surface-2 font-medium text-ink-primary'
-                    : 'text-ink-secondary hover:text-ink-primary'
-                }`}
-              >
-                Memória
-              </button>
-            </li>
+          <ul className="flex gap-2 overflow-x-auto sm:flex-col sm:overflow-visible">
+            {TABS.map((tab) => {
+              const active = section === tab.id
+              return (
+                <li key={tab.id}>
+                  <button
+                    ref={active ? activeTabRef : undefined}
+                    type="button"
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => navigate(tab.id)}
+                    className={`w-full rounded px-3 py-2 text-left text-sm ${
+                      active
+                        ? 'bg-surface-2 font-medium text-ink-primary'
+                        : 'text-ink-secondary hover:text-ink-primary'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </nav>
 
-        <main className="flex-1 overflow-y-auto px-6 py-5">
-          {section === 'memory' ? (
-            <MemoryPanel />
-          ) : (
-            <>
-              <h2 className="mb-4 text-base font-semibold">Aparência</h2>
-              {loadError ? (
-                <p
-                  role="alert"
-                  className="mb-4 rounded border border-red-400/40 px-3 py-2 text-sm text-red-300"
-                >
-                  Não foi possível carregar o tema: {loadError}
-                </p>
-              ) : null}
-
-              <div className="flex flex-col gap-6 lg:flex-row">
-                <div className="min-w-0 flex-1">
-                  <AppearanceTab
-                    theme={theme}
-                    layout={layout}
-                    onThemeChange={updateTheme}
-                    onPreset={(presetId: ThemePresetId) => updateTheme(applyThemePreset(presetId))}
-                    onResetTheme={() => updateTheme(defaultTheme())}
-                    onLayoutChange={changeLayout}
-                    onResetLayout={resetLayout}
-                  />
-                </div>
-                <aside className="flex flex-col gap-2" aria-labelledby="appearance-preview-title">
-                  <h3 id="appearance-preview-title" className="text-xs text-ink-secondary">
-                    Prévia
-                  </h3>
-                  {windowVisible ? <AvatarPreview theme={theme} /> : null}
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
-                      onClick={() => {
-                        void exportTheme()
-                      }}
-                    >
-                      Exportar tema…
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
-                      onClick={() => {
-                        void importTheme()
-                      }}
-                    >
-                      Importar tema…
-                    </button>
-                  </div>
-                  {notice ? (
-                    <p role="status" className="max-w-[240px] text-xs text-ink-secondary">
-                      {notice}
-                    </p>
-                  ) : null}
-                  {actionError ? (
-                    <p role="alert" className="max-w-[240px] text-xs text-red-300">
-                      {actionError}
-                    </p>
-                  ) : null}
-                </aside>
-              </div>
-            </>
-          )}
-        </main>
+        <main className="flex-1 overflow-y-auto px-6 py-5">{renderPanel()}</main>
       </div>
     </div>
   )
