@@ -12,6 +12,7 @@ import { setThemeFromRequest } from './ipc/theme'
 import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
 import { logger } from './logger'
+import { getUsageMeter } from './gemini/instance'
 import { createTray } from './tray/tray'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { getMainWindow, showMainWindow } from './lifecycle'
@@ -109,6 +110,13 @@ function scheduleSmoke(): void {
     logOverlaySmoke('boot')
   }, 400)
   setTimeout(() => {
+    // Prova a persistência de `usage`: no segundo smoke com o mesmo
+    // ABSOLEM_TEST_USERDATA, `before` já traz os tokens do primeiro.
+    const before = getUsageMeter().snapshot()
+    const after = getUsageMeter().record({ input: 3, output: 2 })
+    logger.info('lifecycle', 'smoke: usage (boot -> record)', { before, after })
+  }, 500)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando clique esquerdo na bandeja')
     tray?.emit('click')
     logOverlaySmoke('após clique 1')
@@ -160,6 +168,28 @@ function scheduleSmoke(): void {
     })
     logger.info('lifecycle', 'smoke: tema persistido', result)
   }, 2100)
+  setTimeout(() => {
+    // Prova os canais do motor sem chave e sem rede: `gemini:status` lê o
+    // estado local; `diagnostics:gemini` devolve metadados (nunca a chave).
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler gemini:status')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(async () => ({
+          status: await window.absolem.gemini.status(),
+          diagnostics: await window.absolem.diagnostics.gemini()
+        }))()`
+      )
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: gemini:status + diagnostics:gemini', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao ler gemini:status', err)
+      })
+  }, 2450)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: abrindo Configurações (rota #settings)')
     showMainWindow()

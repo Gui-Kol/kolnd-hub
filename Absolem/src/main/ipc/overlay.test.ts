@@ -120,7 +120,7 @@ function makeConfig(): AbsolemConfig {
     },
     theme: defaultTheme(),
     voice: { enabled: false, inputDeviceId: null, outputVolume: 1 },
-    gemini: { model: 'gemini-2.0-flash', temperature: 0.7 },
+    gemini: { model: 'gemini-2.0-flash', temperature: 0.7, monthlyTokenCap: 2_000_000 },
     privacy: { telemetry: false, screenCapture: false },
     permissions: {
       microphone: false,
@@ -128,7 +128,9 @@ function makeConfig(): AbsolemConfig {
       computerControl: false,
       fileAccess: false
     },
-    ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false }
+    ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
+    usage: { days: {}, warnedMonths: [] },
+    chat: { turns: [] }
   }
 }
 

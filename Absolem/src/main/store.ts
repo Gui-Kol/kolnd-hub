@@ -3,6 +3,7 @@ import { logger } from './logger'
 import {
   STORE_KEYS,
   type AbsolemConfig,
+  type ChatConfig,
   type GeminiConfig,
   type OverlayConfig,
   type PermissionsConfig,
@@ -10,6 +11,7 @@ import {
   type StoreKey,
   type ThemeConfig,
   type UiConfig,
+  type UsageConfig,
   type VoiceConfig
 } from '../shared/config'
 import {
@@ -18,6 +20,9 @@ import {
   OVERLAY_DEFAULT_SHORTCUT
 } from '../shared/overlay'
 import { defaultTheme, normalizeTheme } from '../shared/theme'
+import { DEFAULT_MONTHLY_TOKEN_CAP, clampCap } from './gemini/usage'
+import { defaultChatState, normalizeChatState } from './gemini/history'
+import { defaultUsageState, normalizeUsageState } from './gemini/usage'
 
 export { normalizeOverlayConfig }
 
@@ -32,7 +37,7 @@ export { normalizeOverlayConfig }
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.3.0'
+export const STORE_SCHEMA_VERSION = '1.4.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -57,7 +62,19 @@ export function defaultVoiceConfig(): VoiceConfig {
 }
 
 export function defaultGeminiConfig(): GeminiConfig {
-  return { model: DEFAULT_GEMINI_MODEL, temperature: 0.7 }
+  return {
+    model: DEFAULT_GEMINI_MODEL,
+    temperature: 0.7,
+    monthlyTokenCap: DEFAULT_MONTHLY_TOKEN_CAP
+  }
+}
+
+export function defaultUsageConfig(): UsageConfig {
+  return defaultUsageState()
+}
+
+export function defaultChatConfig(): ChatConfig {
+  return defaultChatState()
 }
 
 export function defaultPrivacyConfig(): PrivacyConfig {
@@ -80,7 +97,9 @@ export function defaultAbsolemConfig(): AbsolemConfig {
     gemini: defaultGeminiConfig(),
     privacy: defaultPrivacyConfig(),
     permissions: defaultPermissionsConfig(),
-    ui: defaultUiConfig()
+    ui: defaultUiConfig(),
+    usage: defaultUsageConfig(),
+    chat: defaultChatConfig()
   }
 }
 
@@ -123,7 +142,8 @@ export function normalizeGeminiConfig(input: unknown): GeminiConfig {
       : DEFAULT_GEMINI_MODEL
   return {
     model,
-    temperature: clampNumber(raw.temperature, 0, 2, 0.7)
+    temperature: clampNumber(raw.temperature, 0, 2, 0.7),
+    monthlyTokenCap: clampCap(raw.monthlyTokenCap)
   }
 }
 
@@ -168,7 +188,9 @@ export function normalizeAbsolemConfig(input: unknown): AbsolemConfig {
     gemini: normalizeGeminiConfig(raw.gemini),
     privacy: normalizePrivacyConfig(raw.privacy),
     permissions: normalizePermissionsConfig(raw.permissions),
-    ui: normalizeUiConfig(raw.ui)
+    ui: normalizeUiConfig(raw.ui),
+    usage: normalizeUsageState(raw.usage),
+    chat: normalizeChatState(raw.chat)
   }
 }
 
@@ -194,6 +216,10 @@ export function normalizeStoreValue(key: StoreKey, value: unknown): AbsolemConfi
       return normalizePermissionsConfig(value)
     case 'ui':
       return normalizeUiConfig(value)
+    case 'usage':
+      return normalizeUsageState(value)
+    case 'chat':
+      return normalizeChatState(value)
   }
 }
 
@@ -256,7 +282,8 @@ const schema: Store.Schema<AbsolemConfig> = {
     default: defaultGeminiConfig(),
     properties: {
       model: { type: 'string' },
-      temperature: { type: 'number' }
+      temperature: { type: 'number' },
+      monthlyTokenCap: { type: 'number' }
     },
     additionalProperties: false
   },
@@ -289,6 +316,45 @@ const schema: Store.Schema<AbsolemConfig> = {
       startMinimized: { type: 'boolean' }
     },
     additionalProperties: false
+  },
+  usage: {
+    type: 'object',
+    default: defaultUsageConfig(),
+    properties: {
+      days: {
+        type: 'object',
+        additionalProperties: {
+          type: 'object',
+          properties: {
+            input: { type: 'number' },
+            output: { type: 'number' },
+            calls: { type: 'number' }
+          },
+          additionalProperties: false
+        }
+      },
+      warnedMonths: { type: 'array', items: { type: 'string' } }
+    },
+    additionalProperties: false
+  },
+  chat: {
+    type: 'object',
+    default: defaultChatConfig(),
+    properties: {
+      turns: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            role: { type: 'string' },
+            text: { type: 'string' },
+            at: { type: 'number' }
+          },
+          additionalProperties: false
+        }
+      }
+    },
+    additionalProperties: false
   }
 }
 
@@ -319,6 +385,8 @@ export function migrate110(store: StoreLike): void {
     normalizePermissionsConfig(store.get('permissions', defaultPermissionsConfig()))
   )
   store.set('ui', normalizeUiConfig(store.get('ui', defaultUiConfig())))
+  store.set('usage', normalizeUsageState(store.get('usage', defaultUsageConfig())))
+  store.set('chat', normalizeChatState(store.get('chat', defaultChatConfig())))
 }
 
 /**
@@ -352,11 +420,23 @@ export function migrate130(store: StoreLike): void {
   store.set('theme', normalizeTheme(input))
 }
 
+/**
+ * 1.4.0: aditiva. Garante `gemini.monthlyTokenCap` (teto aprovado no gate de
+ * custo), `usage` (consumo diário + avisos de 80%) e `chat` (histórico da
+ * conversa). Nada do formato anterior é descartado; idempotente.
+ */
+export function migrate140(store: StoreLike): void {
+  store.set('gemini', normalizeGeminiConfig(store.get('gemini', defaultGeminiConfig())))
+  store.set('usage', normalizeUsageState(store.get('usage', defaultUsageConfig())))
+  store.set('chat', normalizeChatState(store.get('chat', defaultChatConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
   '1.2.0': migrate120,
-  '1.3.0': migrate130
+  '1.3.0': migrate130,
+  '1.4.0': migrate140
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -419,6 +499,14 @@ export function isStoreAvailable(): boolean {
   return created.persistent
 }
 
+/**
+ * Acesso `get`/`set` cru para módulos que persistem coleções próprias
+ * (`usage`/`chat`). O snapshot normalizado continua sendo o caminho do IPC.
+ */
+export function getPersistentStore(): StoreLike {
+  return store
+}
+
 /** Lê e normaliza todas as chaves. Nunca lança. */
 export function getStoreSnapshot(): AbsolemConfig {
   try {
@@ -429,7 +517,9 @@ export function getStoreSnapshot(): AbsolemConfig {
       gemini: store.get('gemini', defaultGeminiConfig()),
       privacy: store.get('privacy', defaultPrivacyConfig()),
       permissions: store.get('permissions', defaultPermissionsConfig()),
-      ui: store.get('ui', defaultUiConfig())
+      ui: store.get('ui', defaultUiConfig()),
+      usage: store.get('usage', defaultUsageConfig()),
+      chat: store.get('chat', defaultChatConfig())
     })
   } catch (err) {
     logger.error('store', 'Falha ao ler config.json; usando defaults em memória:', err)

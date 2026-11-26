@@ -4,7 +4,8 @@ import type { OverlaySetLayoutRequest } from '../shared/ipc'
 import type { AvatarApplyPush, AvatarState } from '../shared/avatar'
 import type { StoreKey } from '../shared/config'
 import type { ThemeConfig } from '../shared/theme'
-import type { SettingsSection } from '../shared/ipc'
+import type { SettingsSection, ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../shared/ipc'
+import type { GeminiUsageWarningPush } from '../shared/gemini'
 
 /**
  * Ponte fina: cada método só repassa o payload para `ipcRenderer.invoke`.
@@ -66,6 +67,51 @@ const absolem: AbsolemApi = {
     return () => {
       ipcRenderer.removeListener(IPC.themeChanged, handler)
     }
+  },
+
+  gemini: {
+    status: () => ipcRenderer.invoke(IPC.geminiStatus),
+    setKey: (key: string) => ipcRenderer.invoke(IPC.geminiSetKey, { key }),
+    clearKey: () => ipcRenderer.invoke(IPC.geminiClearKey),
+    testKey: () => ipcRenderer.invoke(IPC.geminiTestKey),
+    onUsageWarning: (listener: (warning: GeminiUsageWarningPush) => void) => {
+      const handler = (_event: unknown, warning: GeminiUsageWarningPush) => listener(warning)
+      ipcRenderer.on(IPC.geminiUsageWarning, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.geminiUsageWarning, handler)
+      }
+    }
+  },
+
+  chat: {
+    send: (requestId: string, text: string) =>
+      ipcRenderer.invoke(IPC.chatSend, { requestId, text }),
+    cancel: (requestId: string) => ipcRenderer.invoke(IPC.chatCancel, { requestId }),
+    onDelta: (listener: (push: ChatDeltaPush) => void) => {
+      const handler = (_event: unknown, push: ChatDeltaPush) => listener(push)
+      ipcRenderer.on(IPC.chatDelta, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.chatDelta, handler)
+      }
+    },
+    onDone: (listener: (push: ChatDonePush) => void) => {
+      const handler = (_event: unknown, push: ChatDonePush) => listener(push)
+      ipcRenderer.on(IPC.chatDone, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.chatDone, handler)
+      }
+    },
+    onError: (listener: (push: ChatErrorPush) => void) => {
+      const handler = (_event: unknown, push: ChatErrorPush) => listener(push)
+      ipcRenderer.on(IPC.chatError, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.chatError, handler)
+      }
+    }
+  },
+
+  diagnostics: {
+    gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini)
   }
 }
 

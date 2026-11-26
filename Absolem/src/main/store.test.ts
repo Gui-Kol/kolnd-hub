@@ -77,8 +77,14 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.3.0')
-    expect(Object.keys(options.migrations ?? {})).toEqual(['1.0.0', '1.1.0', '1.2.0', '1.3.0'])
+    expect(options.projectVersion).toBe('1.4.0')
+    expect(Object.keys(options.migrations ?? {})).toEqual([
+      '1.0.0',
+      '1.1.0',
+      '1.2.0',
+      '1.3.0',
+      '1.4.0'
+    ])
   })
 
   it('valor inválido é normalizado sem perder os válidos', () => {
@@ -158,6 +164,25 @@ describe('store persistente', () => {
 
     storeMod.STORE_MIGRATIONS['1.3.0'](store)
     expect(state.data.get('theme')).toEqual(migratedTheme)
+  })
+
+  it('1.4.0 adiciona teto de tokens, usage e chat preservando a configuração', () => {
+    state.data.set('gemini', { model: 'gemini-2.0-flash', temperature: 0.3 })
+    const store = fakeStore()
+
+    storeMod.STORE_MIGRATIONS['1.4.0'](store)
+
+    expect(state.data.get('gemini')).toEqual({
+      model: 'gemini-2.0-flash',
+      temperature: 0.3,
+      monthlyTokenCap: 2_000_000
+    })
+    expect(state.data.get('usage')).toEqual({ days: {}, warnedMonths: [] })
+    expect(state.data.get('chat')).toEqual({ turns: [] })
+
+    // Idempotente.
+    storeMod.STORE_MIGRATIONS['1.4.0'](store)
+    expect(state.data.get('gemini')).toMatchObject({ monthlyTokenCap: 2_000_000 })
   })
 
   it('store corrompido não lança', async () => {

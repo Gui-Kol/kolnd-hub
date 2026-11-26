@@ -17,7 +17,9 @@ export const STORE_KEYS = [
   'gemini',
   'privacy',
   'permissions',
-  'ui'
+  'ui',
+  'usage',
+  'chat'
 ] as const
 
 export type StoreKey = (typeof STORE_KEYS)[number]
@@ -50,6 +52,8 @@ export interface VoiceConfig {
 export interface GeminiConfig {
   model: string
   temperature: number
+  /** Teto mensal de tokens (aprovação do gate de custo). */
+  monthlyTokenCap: number
 }
 
 export interface PrivacyConfig {
@@ -70,6 +74,30 @@ export interface UiConfig {
   startMinimized: boolean
 }
 
+/** Consumo diário de tokens do motor Gemini. */
+export interface UsageDay {
+  input: number
+  output: number
+  calls: number
+}
+
+/** Chave `usage` do store: dias `YYYY-MM-DD` + meses já avisados. */
+export interface UsageConfig {
+  days: Record<string, UsageDay>
+  warnedMonths: string[]
+}
+
+/** Turno persistido da conversa (chave `chat`). */
+export interface ChatTurn {
+  role: 'user' | 'model'
+  text: string
+  at: number
+}
+
+export interface ChatConfig {
+  turns: ChatTurn[]
+}
+
 /** Snapshot completo do store, sempre normalizado pelo main. */
 export interface AbsolemConfig {
   overlay: OverlayConfig
@@ -79,4 +107,6 @@ export interface AbsolemConfig {
   privacy: PrivacyConfig
   permissions: PermissionsConfig
   ui: UiConfig
+  usage: UsageConfig
+  chat: ChatConfig
 }

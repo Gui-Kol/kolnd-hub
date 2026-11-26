@@ -5,6 +5,16 @@ import type {
   AvatarState
 } from './avatar'
 import type { OverlayLayout, OverlayPosition, StoreKey } from './config'
+import type {
+  ChatDeltaPush,
+  ChatDonePush,
+  ChatErrorPush,
+  ChatUsagePayload,
+  GeminiDiagnostics,
+  GeminiStatusInfo,
+  GeminiTestKeyOutcome,
+  GeminiUsageWarningPush
+} from './gemini'
 import type { ThemeConfig } from './theme'
 
 /**
@@ -39,12 +49,33 @@ export const IPC = {
   themeSet: 'theme:set',
   themeExport: 'theme:export',
   themeImport: 'theme:import',
-  themeChanged: 'theme:changed'
+  themeChanged: 'theme:changed',
+  geminiStatus: 'gemini:status',
+  geminiSetKey: 'gemini:set-key',
+  geminiClearKey: 'gemini:clear-key',
+  geminiTestKey: 'gemini:test-key',
+  geminiUsageWarning: 'gemini:usage-warning',
+  chatSend: 'chat:send',
+  chatCancel: 'chat:cancel',
+  chatDelta: 'chat:delta',
+  chatDone: 'chat:done',
+  chatError: 'chat:error',
+  diagnosticsGemini: 'diagnostics:gemini'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
 
-export const IPC_PREFIXES = ['app', 'overlay', 'avatar', 'store', 'settings', 'theme'] as const
+export const IPC_PREFIXES = [
+  'app',
+  'overlay',
+  'avatar',
+  'store',
+  'settings',
+  'theme',
+  'gemini',
+  'chat',
+  'diagnostics'
+] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
 
@@ -145,6 +176,28 @@ export type ThemeExportResult = { ok: true; canceled: boolean; filePath?: string
 export type ThemeImportResult =
   { ok: true; canceled: boolean; theme?: ThemeConfig; warnings: string[] } | IpcError
 
+/** `gemini:set-key` recebe a chave só nesta direção; nunca volta. */
+export interface GeminiSetKeyRequest {
+  key: string
+}
+
+export type GeminiStatusResult = { ok: true; status: GeminiStatusInfo } | IpcError
+
+export type GeminiTestKeyResult = { ok: true; result: GeminiTestKeyOutcome } | IpcError
+
+export interface ChatSendRequest {
+  requestId: string
+  text: string
+}
+
+export interface ChatCancelRequest {
+  requestId: string
+}
+
+export type DiagnosticsGeminiResult = { ok: true; diagnostics: GeminiDiagnostics } | IpcError
+
+export type { ChatDeltaPush, ChatDonePush, ChatErrorPush, ChatUsagePayload, GeminiUsageWarningPush }
+
 /**
  * Mapa canal → request/response. Mantém o preload e os handlers alinhados:
  * uma mudança de payload vira erro de compilação nos dois lados.
@@ -176,6 +229,17 @@ export interface IpcContract {
   [IPC.themeExport]: { request: undefined; response: ThemeExportResult }
   [IPC.themeImport]: { request: undefined; response: ThemeImportResult }
   [IPC.themeChanged]: { request: undefined; response: ThemeConfig }
+  [IPC.geminiStatus]: { request: undefined; response: GeminiStatusResult }
+  [IPC.geminiSetKey]: { request: GeminiSetKeyRequest; response: SimpleResult }
+  [IPC.geminiClearKey]: { request: undefined; response: SimpleResult }
+  [IPC.geminiTestKey]: { request: undefined; response: GeminiTestKeyResult }
+  [IPC.geminiUsageWarning]: { request: undefined; response: GeminiUsageWarningPush }
+  [IPC.chatSend]: { request: ChatSendRequest; response: SimpleResult }
+  [IPC.chatCancel]: { request: ChatCancelRequest; response: SimpleResult }
+  [IPC.chatDelta]: { request: undefined; response: ChatDeltaPush }
+  [IPC.chatDone]: { request: undefined; response: ChatDonePush }
+  [IPC.chatError]: { request: undefined; response: ChatErrorPush }
+  [IPC.diagnosticsGemini]: { request: undefined; response: DiagnosticsGeminiResult }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -212,4 +276,21 @@ export interface AbsolemApi {
   themeExport: () => Promise<ThemeExportResult>
   themeImport: () => Promise<ThemeImportResult>
   onThemeChanged: (listener: (theme: ThemeConfig) => void) => () => void
+  gemini: {
+    status: () => Promise<GeminiStatusResult>
+    setKey: (key: string) => Promise<SimpleResult>
+    clearKey: () => Promise<SimpleResult>
+    testKey: () => Promise<GeminiTestKeyResult>
+    onUsageWarning: (listener: (warning: GeminiUsageWarningPush) => void) => () => void
+  }
+  chat: {
+    send: (requestId: string, text: string) => Promise<SimpleResult>
+    cancel: (requestId: string) => Promise<SimpleResult>
+    onDelta: (listener: (push: ChatDeltaPush) => void) => () => void
+    onDone: (listener: (push: ChatDonePush) => void) => () => void
+    onError: (listener: (push: ChatErrorPush) => void) => () => void
+  }
+  diagnostics: {
+    gemini: () => Promise<DiagnosticsGeminiResult>
+  }
 }
