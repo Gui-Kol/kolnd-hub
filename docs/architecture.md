@@ -388,7 +388,9 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   `sandbox: true`, `webviewTag: false` e `nodeIntegrationInSubFrames: false` no guest;
   a partição é fixada em `persist:golive` e `allowpopups` é removido. Nesse guest
   (`did-attach-webview`), links externos abrem no navegador via `isAllowedExternalUrl` e
-  popups são negados; `will-navigate`/`will-redirect` só permitem `golive.nemtudo.me`.
+  popups são negados; `will-navigate`/`will-redirect` só permitem `golive.nemtudo.me` e os
+  hosts do login (`apigolive.nemtudo.me` e `discord.com`), para o OAuth do Discord concluir
+  dentro do próprio webview.
   Na sessão da partição, `media`/`display-capture`/`fullscreen`/
   `clipboard-sanitized-write` são concedidos **apenas** à origem do site (o resto é negado
   e logado), o compartilhamento de tela usa a tela primária + loopback quando possível e

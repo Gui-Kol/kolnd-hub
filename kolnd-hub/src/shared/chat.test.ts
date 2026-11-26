@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { CHAT_HOST, CHAT_URL, classifyChatNavigation, isChatUrl } from './chat'
+import {
+  CHAT_HOST,
+  CHAT_LOGIN_HOSTS,
+  CHAT_URL,
+  classifyChatNavigation,
+  isChatNavigationUrl,
+  isChatUrl
+} from './chat'
+
+// URL real do fluxo de login (observada no log do app em 26/11/2026).
+const OAUTH_START =
+  'https://apigolive.nemtudo.me/auth/oauth/discord/start?returnTo=https%3A%2F%2Fgolive.nemtudo.me%2F'
+const DISCORD_AUTHORIZE =
+  'https://discord.com/oauth2/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapigolive.nemtudo.me%2Fauth%2Foauth%2Fdiscord%2Fcallback&response_type=code&scope=identify'
 
 describe('isChatUrl', () => {
   it('aceita a URL base e a mesma URL com path/query', () => {
@@ -30,15 +43,39 @@ describe('isChatUrl', () => {
     expect(isChatUrl('não é uma url')).toBe(false)
   })
 
-  it('mantém o host canônico', () => {
+  it('não confunde a API/oauth nem o Discord com a origem do site', () => {
+    expect(isChatUrl(OAUTH_START)).toBe(false)
+    expect(isChatUrl(DISCORD_AUTHORIZE)).toBe(false)
     expect(CHAT_HOST).toBe('golive.nemtudo.me')
   })
 })
 
+describe('isChatNavigationUrl', () => {
+  it('aceita o site e os hosts do login (https)', () => {
+    expect(isChatNavigationUrl(CHAT_URL)).toBe(true)
+    expect(isChatNavigationUrl(OAUTH_START)).toBe(true)
+    expect(isChatNavigationUrl(DISCORD_AUTHORIZE)).toBe(true)
+    expect(isChatNavigationUrl('https://discord.com/login?redirect_to=%2Foauth2%2Fauthorize')).toBe(
+      true
+    )
+    expect(CHAT_LOGIN_HOSTS).toEqual(['apigolive.nemtudo.me', 'discord.com'])
+  })
+
+  it('rejeita http, subdomínio, host parecido e porta alternativa', () => {
+    expect(isChatNavigationUrl('http://apigolive.nemtudo.me/auth')).toBe(false)
+    expect(isChatNavigationUrl('https://evil.discord.com/oauth2/authorize')).toBe(false)
+    expect(isChatNavigationUrl('https://discord.com.evil.com/oauth2/authorize')).toBe(false)
+    expect(isChatNavigationUrl('https://apigolive.nemtudo.me:8443/auth')).toBe(false)
+    expect(isChatNavigationUrl('https://golive.nemtudo.me.evil.com/')).toBe(false)
+  })
+})
+
 describe('classifyChatNavigation', () => {
-  it('permite a origem do Go Live', () => {
+  it('permite o site e o fluxo de login do Discord dentro do guest', () => {
     expect(classifyChatNavigation(CHAT_URL)).toBe('allow')
     expect(classifyChatNavigation('https://golive.nemtudo.me/sala')).toBe('allow')
+    expect(classifyChatNavigation(OAUTH_START)).toBe('allow')
+    expect(classifyChatNavigation(DISCORD_AUTHORIZE)).toBe('allow')
   })
 
   it('manda http/https/mailto de outro host para o navegador', () => {
@@ -46,6 +83,7 @@ describe('classifyChatNavigation', () => {
     expect(classifyChatNavigation('http://example.com')).toBe('external')
     expect(classifyChatNavigation('mailto:contato@nemtudo.me')).toBe('external')
     expect(classifyChatNavigation('http://golive.nemtudo.me/groups')).toBe('external')
+    expect(classifyChatNavigation('https://evil.discord.com/oauth2/authorize')).toBe('external')
   })
 
   it('bloqueia esquemas perigosos e entradas inválidas', () => {
