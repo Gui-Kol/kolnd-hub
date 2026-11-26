@@ -13,6 +13,8 @@ import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
 import { logger } from './logger'
 import { getUsageMeter, getGeminiEngine } from './gemini/instance'
+import { getSearchRuntime } from './search/instance'
+import { extractReadable } from './search/extract'
 import { getActionsRuntime } from './actions/instance'
 import { createTray } from './tray/tray'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
@@ -110,6 +112,22 @@ function scheduleSmoke(): void {
     })
     logOverlaySmoke('boot')
   }, 400)
+  setTimeout(() => {
+    // Prova que o parser (linkedom bundlado) roda no Node 18 do Electron 28,
+    // inclusive o motor de seletores (css-select é declarado para Node 20+).
+    try {
+      const page = extractReadable(
+        '<html><head><title>Smoke</title></head><body><article><h1>Título</h1><p>Texto extraído.</p></article><script>ignorar()</script></body></html>'
+      )
+      logger.info('lifecycle', 'smoke: extractReadable', {
+        title: page.title,
+        chars: page.chars,
+        hasText: page.text.includes('Texto extraído.')
+      })
+    } catch (err) {
+      logger.error('lifecycle', 'smoke: extractReadable falhou', err)
+    }
+  }, 450)
   setTimeout(() => {
     // Prova a persistência de `usage`: no segundo smoke com o mesmo
     // ABSOLEM_TEST_USERDATA, `before` já traz os tokens do primeiro.
@@ -296,6 +314,34 @@ function scheduleSmoke(): void {
       })
   }, 3200)
   setTimeout(() => {
+    // Pesquisa na internet: default ligado, `search:status` responde e, com
+    // `web.enabled=false`, as duas ferramentas somem do registro. Restaura no
+    // fim para não deixar o userData de teste desligado.
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler search:status')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(async () => {
+          const before = await window.absolem.search.status()
+          const disabled = await window.absolem.storeSet('web', { enabled: false })
+          const off = await window.absolem.search.status()
+          const restored = await window.absolem.storeSet('web', { enabled: true })
+          const after = await window.absolem.search.status()
+          const cache = await window.absolem.search.clearCache()
+          return { before, disabled, off, restored, after, cache }
+        })()`
+      )
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: search:status ligado/desligado', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao exercitar search:status', err)
+      })
+  }, 3350)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
     tray?.emit('click')
     logOverlaySmoke('após clique 2')
@@ -390,6 +436,11 @@ if (gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     markQuitting()
+  })
+
+  // Cache de páginas é só memória; ao sair, nada permanece.
+  app.on('will-quit', () => {
+    getSearchRuntime()?.shutdown()
   })
 
   app.on('activate', () => {

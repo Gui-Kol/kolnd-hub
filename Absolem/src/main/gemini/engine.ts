@@ -1,8 +1,9 @@
-import { GeminiClient } from './client'
+import { GeminiClient, GROUNDED_SEARCH_SYSTEM } from './client'
 import { GeminiError, classifyError } from './errors'
 import type { ChatHistory } from './history'
 import { buildContextWindow } from './history'
 import { buildSystemPrompt, PROMPT_VERSION } from './prompts'
+import { WEB_SYSTEM_RULES } from '../search/injection'
 import type {
   GeminiFunctionCall,
   GeminiFunctionResponse,
@@ -14,6 +15,13 @@ import type { ToolCallResult } from './tools/router'
 import type { ToolDefinition } from '../../shared/tools'
 import { clampCap, quotaMessage, resolveUsage, type UsageMeter } from './usage'
 import type { ChatUsagePayload, GeminiErrorSummary, GeminiStatusInfo } from '../../shared/gemini'
+import type { WebSource } from '../../shared/search'
+import {
+  NO_SOURCES_WARNING,
+  buildSourcesBlock,
+  mergeSources,
+  sanitizeCitationIndices
+} from '../search/answer'
 
 export type { ChatUsagePayload } from '../../shared/gemini'
 
@@ -89,6 +97,40 @@ function toolErrorMessage(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300)
 }
 
+/** Campos de resposta web que o engine pós-processa (task 10, T5/T8). */
+export interface WebToolPayload {
+  sources: WebSource[]
+  noSources: boolean
+  warnings: string[]
+}
+
+/** Extrai fontes/avisos de um resultado de ferramenta sem confiar no formato. */
+export function extractWebToolPayload(result: ToolCallResult): WebToolPayload | null {
+  if (!result.ok) return null
+  const value = result.result
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const hasSources = Array.isArray(record.sources)
+  const hasNoSources = record.noSources === true
+  const warnings = Array.isArray(record.warnings)
+    ? record.warnings.filter((warning): warning is string => typeof warning === 'string')
+    : []
+  if (!hasSources && !hasNoSources && warnings.length === 0) return null
+  const sources: WebSource[] = []
+  if (hasSources) {
+    for (const source of record.sources as unknown[]) {
+      if (!source || typeof source !== 'object') continue
+      const raw = source as Record<string, unknown>
+      if (typeof raw.url !== 'string') continue
+      sources.push({
+        title: typeof raw.title === 'string' ? raw.title : '',
+        url: raw.url
+      })
+    }
+  }
+  return { sources, noSources: hasNoSources, warnings }
+}
+
 export interface ChatSinks {
   delta: (text: string) => void
   done: (usage: ChatUsagePayload) => void
@@ -110,6 +152,11 @@ export type GeminiStatus = GeminiStatusInfo
 
 export type StructuredGenerationResult =
   { ok: true; text: string; usage: ChatUsagePayload } | { ok: false; error: GeminiErrorSummary }
+
+/** Resultado de `groundedSearch` para a camada de ferramentas (task 10). */
+export type GroundedSearchOutcome =
+  | { ok: true; text: string; sources: WebSource[]; usage: ChatUsagePayload }
+  | { ok: false; error: GeminiErrorSummary }
 
 export interface TestKeyResult {
   ok: boolean
@@ -144,7 +191,15 @@ export class GeminiEngine {
   private active: { requestId: string; controller: AbortController } | null = null
 
   constructor(options: GeminiEngineOptions) {
-    this.client = new GeminiClient({ transport: options.transport })
+    this.client = new GeminiClient({
+      transport: options.transport,
+      groundedBase: () => ({
+        apiKey: this.requireKey(),
+        model: this.config().model,
+        temperature: 0.2,
+        systemInstruction: GROUNDED_SEARCH_SYSTEM
+      })
+    })
     this.keys = options.keys
     this.config = options.config
     this.usage = options.usage
@@ -336,6 +391,54 @@ export class GeminiEngine {
   }
 
   /**
+   * Busca com grounding (task 10). Sem chave ou com teto estourado, nenhuma
+   * rede acontece. Os tokens entram no medidor mensal como qualquer chamada.
+   */
+  async groundedSearch(
+    query: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<GroundedSearchOutcome> {
+    const startedAt = Date.now()
+    try {
+      this.assertEnabled()
+      const trimmed = typeof query === 'string' ? query.trim() : ''
+      const result = await this.client.groundedSearch({ query: trimmed }, options)
+      const amounts = resolveUsage(GROUNDED_SEARCH_SYSTEM + trimmed, result.text, result.usage)
+      this.usage.record(amounts)
+      this.lastError = null
+      this.logger?.info('gemini', 'groundedSearch ok', {
+        queryChars: trimmed.length,
+        outputChars: result.text.length,
+        sources: result.sources.length,
+        tokens: amounts.total,
+        estimated: amounts.estimated,
+        durationMs: Date.now() - startedAt
+      })
+      return {
+        ok: true,
+        text: result.text,
+        sources: result.sources,
+        usage: {
+          input: amounts.input,
+          output: amounts.output,
+          total: amounts.total,
+          estimated: amounts.estimated
+        }
+      }
+    } catch (err) {
+      const error = classifyError(err)
+      if (error.kind !== 'cancelled') {
+        this.lastError = { kind: error.kind, message: error.message }
+        this.logger?.warn('gemini', 'groundedSearch falhou', {
+          kind: error.kind,
+          status: error.status
+        })
+      }
+      return { ok: false, error: { kind: error.kind, message: error.message } }
+    }
+  }
+
+  /**
    * Envia um turno e entrega a resposta em deltas. Um requestId novo cancela o
    * anterior; nenhum delta sai depois do cancelamento.
    */
@@ -390,6 +493,7 @@ export class GeminiEngine {
       category: tool.category
     }))
     const append = options.systemInstructionAppend?.trim()
+    const hasWebTools = promptTools.some((tool) => tool.category === 'web.search')
     const basePrompt = buildSystemPrompt({
       defaultLanguage: this.defaultLanguage,
       ...(promptTools.length > 0 ? { tools: promptTools } : {})
@@ -400,7 +504,7 @@ export class GeminiEngine {
     } catch (err) {
       this.logger?.warn('gemini', 'falha ao montar o bloco de memória', err)
     }
-    const systemInstruction = [basePrompt, memoryText, append]
+    const systemInstruction = [basePrompt, hasWebTools ? WEB_SYSTEM_RULES : '', memoryText, append]
       .filter((part): part is string => Boolean(part))
       .join('\n\n')
     const baseContents = buildContextWindow(this.history.getTurns(), trimmed)
@@ -428,6 +532,11 @@ export class GeminiEngine {
     let continuations = 0
     let toolCallCount = 0
     let callContents = contents
+    let webSources: WebSource[] = []
+    let webNoSources = false
+    const webWarnings: string[] = []
+    let webBufferEnabled = false
+    let webBufferStart = 0
     const startedAt = Date.now()
     this.logger?.debug('gemini', 'chat:send', {
       chars: promptChars,
@@ -469,7 +578,9 @@ export class GeminiEngine {
             onDelta: (delta) => {
               if (entry.controller.signal.aborted) return
               pendingText += delta
-              sinks.delta(delta)
+              // Depois de uma ferramenta web, a resposta é segurada até o fim
+              // para corrigir citações e anexar o bloco de fontes.
+              if (!webBufferEnabled) sinks.delta(delta)
             }
           }
         )
@@ -517,6 +628,20 @@ export class GeminiEngine {
             }
           }
           if (controller.signal.aborted) break
+          const payload = extractWebToolPayload(callResult)
+          if (payload) {
+            webSources = mergeSources(webSources, payload.sources)
+            if (payload.noSources) webNoSources = true
+            for (const warning of payload.warnings) {
+              if (webWarnings.includes(warning)) continue
+              webWarnings.push(warning)
+              sinks.delta(`${warning}\n\n`)
+            }
+            if (!webBufferEnabled) {
+              webBufferEnabled = true
+              webBufferStart = modelText.length
+            }
+          }
           responses.push({ name: call.name, response: functionResponsePayload(callResult) })
         }
         if (controller.signal.aborted) {
@@ -532,13 +657,36 @@ export class GeminiEngine {
       if (controller.signal.aborted) {
         throw new GeminiError('cancelled', 'Chamada cancelada.')
       }
+
+      let finalModelText = modelText
+      if (webBufferEnabled) {
+        const before = modelText.slice(0, webBufferStart)
+        const buffered = sanitizeCitationIndices(
+          modelText.slice(webBufferStart),
+          webSources.length
+        ).trim()
+        if (buffered) sinks.delta(buffered)
+        const suffix =
+          webSources.length > 0
+            ? buildSourcesBlock(webSources)
+            : webNoSources
+              ? NO_SOURCES_WARNING
+              : ''
+        if (suffix) sinks.delta(`${before || buffered ? '\n\n' : ''}${suffix}`)
+        finalModelText = [before + buffered, suffix].filter((part) => part.length > 0).join('\n\n')
+      }
+      if (webWarnings.length > 0) {
+        finalModelText = [[...new Set(webWarnings)].join('\n'), finalModelText]
+          .filter((part) => part.length > 0)
+          .join('\n\n')
+      }
       this.history.append('user', trimmed)
-      if (modelText.length > 0) this.history.append('model', modelText)
+      if (finalModelText.length > 0) this.history.append('model', finalModelText)
       this.lastError = null
       const durationMs = Date.now() - startedAt
       this.logger?.info('gemini', 'chat:done', {
         model: config.model,
-        chars: modelText.length,
+        chars: finalModelText.length,
         tokens: totalInput + totalOutput,
         estimated,
         imageTokens,

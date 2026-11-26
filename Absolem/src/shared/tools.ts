@@ -32,6 +32,7 @@ export const SUPPORTED_SCHEMA_KEYWORDS = [
   'minimum',
   'maximum',
   'maxLength',
+  'minLength',
   'items',
   'minItems',
   'maxItems',
@@ -98,6 +99,9 @@ export function validateSchema(schema: unknown, depth = 0): string[] {
   }
   if (schema.maxLength !== undefined && typeof schema.maxLength !== 'number') {
     errors.push('maxLength precisa ser número')
+  }
+  if (schema.minLength !== undefined && typeof schema.minLength !== 'number') {
+    errors.push('minLength precisa ser número')
   }
   for (const bound of ['minItems', 'maxItems'] as const) {
     if (schema[bound] !== undefined && typeof schema[bound] !== 'number') {
@@ -241,6 +245,13 @@ function validateValue(schema: Record<string, unknown>, value: unknown, path: st
     value.length > schema.maxLength
   ) {
     errors.push(`${path}: texto longo demais`)
+  }
+  if (
+    typeof schema.minLength === 'number' &&
+    typeof value === 'string' &&
+    value.length < schema.minLength
+  ) {
+    errors.push(`${path}: texto curto demais`)
   }
 
   if (Array.isArray(value)) {

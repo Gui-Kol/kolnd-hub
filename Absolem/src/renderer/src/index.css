@@ -322,6 +322,60 @@ html.region-route #root {
   letter-spacing: 0.02em;
 }
 
+/* Indicador de pesquisa (task 10): discreto, ao lado do avatar. */
+.search-indicator {
+  position: absolute;
+  left: 88px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 6px;
+  border-radius: 9999px;
+  background: rgba(3, 7, 18, 0.82);
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.search-indicator__icon {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 9999px;
+  box-shadow: 0 0 6px rgba(147, 197, 253, 0.55);
+}
+
+.search-indicator__icon::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 5px;
+  height: 1px;
+  background: #93c5fd;
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+
+.search-indicator[data-search-kind='fetch'] .search-indicator__icon {
+  border-radius: 2px;
+}
+
+.search-indicator__label {
+  color: #dbeafe;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-indicator {
+    transition: none;
+  }
+}
+
 /* HUD de debug (`?debug=1`): fora do caminho do mouse e sem fundo opaco. */
 .overlay-debug {
   position: absolute;

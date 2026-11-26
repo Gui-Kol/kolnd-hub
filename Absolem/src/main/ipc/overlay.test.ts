@@ -149,6 +149,7 @@ function makeConfig(): AbsolemConfig {
     usage: { days: {}, warnedMonths: [] },
     chat: { turns: [] },
     memory: { enabled: true, autoExtract: true, lastConsolidationAt: null },
+    web: { enabled: true },
     routines: []
   }
 }

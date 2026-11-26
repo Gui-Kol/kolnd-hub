@@ -27,6 +27,7 @@ import type {
 } from '../shared/ipc'
 import type { RegionSelection } from '../shared/screen'
 import type { GeminiUsageWarningPush } from '../shared/gemini'
+import type { SearchIndicatorPush } from '../shared/search'
 import type {
   VoiceAudioPush,
   VoiceSetDeviceRequest,
@@ -189,6 +190,19 @@ const absolem: AbsolemApi = {
       ipcRenderer.on(IPC.captureIndicator, handler)
       return () => {
         ipcRenderer.removeListener(IPC.captureIndicator, handler)
+      }
+    }
+  },
+
+  search: {
+    status: () => ipcRenderer.invoke(IPC.searchStatus),
+    openUrl: (url: string) => ipcRenderer.invoke(IPC.searchOpenUrl, { url }),
+    clearCache: () => ipcRenderer.invoke(IPC.searchClearCache),
+    onIndicator: (listener: (push: SearchIndicatorPush) => void) => {
+      const handler = (_event: unknown, push: SearchIndicatorPush) => listener(push)
+      ipcRenderer.on(IPC.searchIndicator, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.searchIndicator, handler)
       }
     }
   },

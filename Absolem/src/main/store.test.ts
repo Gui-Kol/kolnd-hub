@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.8.0')
+    expect(options.projectVersion).toBe('1.9.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -87,7 +87,8 @@ describe('store persistente', () => {
       '1.5.0',
       '1.6.0',
       '1.7.0',
-      '1.8.0'
+      '1.8.0',
+      '1.9.0'
     ])
   })
 
@@ -148,8 +149,8 @@ describe('store persistente', () => {
       scale: 1.5
     })
     for (const key of STORE_KEYS) {
-      // `memory` só nasce na 1.8.0 (task 09).
-      if (key === 'memory') continue
+      // `memory` só nasce na 1.8.0 e `web` na 1.9.0 (tasks 09 e 10).
+      if (key === 'memory' || key === 'web') continue
       expect(state.data.has(key)).toBe(true)
     }
 
@@ -291,6 +292,22 @@ describe('store persistente', () => {
       autoExtract: false,
       lastConsolidationAt: 123
     })
+  })
+
+  it('1.9.0 adiciona pesquisa ligada por padrão e preserva a escolha existente', () => {
+    const store = fakeStore()
+
+    storeMod.STORE_MIGRATIONS['1.9.0'](store)
+    expect(state.data.get('web')).toEqual({ enabled: true })
+
+    state.data.set('web', { enabled: false })
+    storeMod.STORE_MIGRATIONS['1.9.0'](store)
+    expect(state.data.get('web')).toEqual({ enabled: false })
+
+    // Idempotente e valor inválido cai no default seguro (ligado).
+    state.data.set('web', { enabled: 'não' })
+    storeMod.STORE_MIGRATIONS['1.9.0'](store)
+    expect(state.data.get('web')).toEqual({ enabled: true })
   })
 
   it('store corrompido não lança', async () => {

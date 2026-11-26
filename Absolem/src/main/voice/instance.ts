@@ -16,6 +16,8 @@ import { getMemoryBlock, getMemoryRuntime } from '../memory/instance'
 import { registerShutdownHook } from '../shutdown'
 import { showOverlay as showOverlayWindow } from '../overlay/controller'
 import { getActionsRuntime } from '../actions/instance'
+import { getSearchRuntime } from '../search/instance'
+import { WEB_SYSTEM_RULES } from '../search/injection'
 import { IPC } from '../../shared/ipc'
 import type { VoiceAudioPush, VoiceStateChange, VoiceTranscriptPush } from '../../shared/voice'
 import { VOICE_DEFAULT_SHORTCUT } from '../../shared/voice'
@@ -119,7 +121,13 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     checkBudget: () => getUsageMeter().checkBudget(),
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
-      const tools = getActionsRuntime()?.registry.listTools() ?? []
+      const search = getSearchRuntime()
+      const tools = [
+        ...(getActionsRuntime()?.registry.listTools() ?? []),
+        ...(search?.listTools() ?? [])
+      ]
+      // Sessão de voz é o "turno" para os contadores de pesquisa.
+      search?.beginTurn(`voice:${Date.now()}`)
       const basePrompt = buildSystemPrompt({
         defaultLanguage: snapshot.ui.language,
         ...(tools.length > 0
@@ -133,13 +141,17 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
       })
       // Memória recuperada no início da sessão (pinned/perfil). Pausada = ''.
       const memoryBlock = getMemoryBlock('')
+      const hasWebTools = tools.some((tool) => tool.category === 'web.search')
+      const systemInstruction = [basePrompt, hasWebTools ? WEB_SYSTEM_RULES : '', memoryBlock]
+        .filter((part) => part.length > 0)
+        .join('\n\n')
       const live = new LiveSession({
         transport: new SdkLiveTransport(),
         keys: { getApiKey },
         usage: getUsageMeter(),
         model: snapshot.gemini.model,
         temperature: snapshot.gemini.temperature,
-        systemInstruction: memoryBlock ? `${basePrompt}\n\n${memoryBlock}` : basePrompt,
+        systemInstruction,
         tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description,
@@ -155,6 +167,8 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     pushAudio: (push: VoiceAudioPush) => broadcast(ctx, IPC.voiceAudio, push),
     pushTranscript: (push: VoiceTranscriptPush) => broadcast(ctx, IPC.voiceTranscript, push),
     routeToolCall: async (call) => {
+      const search = getSearchRuntime()
+      if (search?.hasTool(call.name)) return search.route(call)
       const runtime = getActionsRuntime()
       if (!runtime) {
         return {

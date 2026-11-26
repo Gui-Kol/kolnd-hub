@@ -39,6 +39,7 @@ import type {
   CaptureStatus,
   RegionSelection
 } from './screen'
+import type { SearchIndicatorPush, SearchStatus } from './search'
 import type {
   VoiceAudioPush,
   VoiceSetConsentRequest,
@@ -126,7 +127,11 @@ export const IPC = {
   memoryRemoveAll: 'memory:remove-all',
   memoryStats: 'memory:stats',
   memoryExport: 'memory:export',
-  memoryImport: 'memory:import'
+  memoryImport: 'memory:import',
+  searchStatus: 'search:status',
+  searchOpenUrl: 'search:open-url',
+  searchClearCache: 'search:clear-cache',
+  searchIndicator: 'search:indicator'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -145,7 +150,8 @@ export const IPC_PREFIXES = [
   'capture',
   'permissions',
   'actions',
-  'memory'
+  'memory',
+  'search'
 ] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
@@ -397,6 +403,13 @@ export type MemoryImportResult =
 export type { MemoryKind, MemoryRecord, MemoryStats }
 export type { PermissionCategory, PermissionDecision, PermissionCategories, PermissionsState }
 
+/** `search:open-url`: abre um link citado com `shell.openExternal`. */
+export interface SearchOpenUrlRequest {
+  url: string
+}
+
+export type SearchStatusResult = { ok: true; status: SearchStatus } | IpcError
+
 /** `capture:ask`: captura + envio multimodal, com streaming em `chat:*`. */
 export interface CaptureAskRequest {
   requestId: string
@@ -443,6 +456,7 @@ export type {
   CaptureSource,
   CaptureKind
 } from './screen'
+export type { SearchIndicatorPush, SearchKind, SearchStatus } from './search'
 export type {
   VoiceAudioPush,
   VoiceSetConsentRequest,
@@ -529,6 +543,10 @@ export interface IpcContract {
   [IPC.memoryStats]: { request: undefined; response: MemoryStatsResult }
   [IPC.memoryExport]: { request: MemoryExportRequest | undefined; response: MemoryExportResult }
   [IPC.memoryImport]: { request: undefined; response: MemoryImportResult }
+  [IPC.searchStatus]: { request: undefined; response: SearchStatusResult }
+  [IPC.searchOpenUrl]: { request: SearchOpenUrlRequest; response: SimpleResult }
+  [IPC.searchClearCache]: { request: undefined; response: SimpleResult }
+  [IPC.searchIndicator]: { request: undefined; response: SearchIndicatorPush }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -632,5 +650,14 @@ export interface AbsolemApi {
     submitRegion: (selection: RegionSelection) => void
     onRequest: (listener: (push: CaptureRequestPush) => void) => () => void
     onIndicator: (listener: (push: CaptureIndicatorPush) => void) => () => void
+  }
+  search: {
+    /** `web.enabled`, contadores do turno e tamanho do cache. */
+    status: () => Promise<SearchStatusResult>
+    /** Abre um link citado; só http/https passam pela allowlist. */
+    openUrl: (url: string) => Promise<SimpleResult>
+    /** Limpa o cache em memória (nunca há cache em disco). */
+    clearCache: () => Promise<SimpleResult>
+    onIndicator: (listener: (push: SearchIndicatorPush) => void) => () => void
   }
 }

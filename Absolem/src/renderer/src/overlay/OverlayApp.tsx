@@ -17,6 +17,7 @@ import { pcm16BytesToFloat, pcm16Rms } from '../audio/pcm'
 import { createDeviceWatcher, type DeviceWatcher, type MediaDevicesLike } from '../audio/devices'
 import { createDomGrabFactories, grabFrame } from '../capture/grab'
 import type { CaptureIndicatorPush, CaptureRequestPush } from '../../../shared/screen'
+import type { SearchIndicatorPush } from '../../../shared/search'
 
 /**
  * Casca do overlay do avatar (task 02).
@@ -39,6 +40,7 @@ export function OverlayApp() {
   const [voiceState, setVoiceState] = useState<VoiceState>('off')
   const [voiceReason, setVoiceReason] = useState<string | null>(null)
   const [captureIndicator, setCaptureIndicator] = useState<CaptureIndicatorPush | null>(null)
+  const [searchIndicator, setSearchIndicator] = useState<SearchIndicatorPush | null>(null)
   const voiceToggleRef = useRef<() => void>(() => undefined)
 
   useEffect(() => {
@@ -67,6 +69,7 @@ export function OverlayApp() {
     let unsubscribeVoiceAudio: (() => void) | null = null
     let unsubscribeCaptureRequest: (() => void) | null = null
     let unsubscribeCaptureIndicator: (() => void) | null = null
+    let unsubscribeSearchIndicator: (() => void) | null = null
     let voiceLevelTimer: ReturnType<typeof setInterval> | null = null
     let currentVoiceState: VoiceState = 'off'
     let lastMicLevel = 0
@@ -252,6 +255,10 @@ export function OverlayApp() {
         unsubscribeCaptureIndicator = window.absolem.capture.onIndicator((push) => {
           if (!disposed) setCaptureIndicator(push.active ? push : null)
         })
+        // Indicador discreto de pesquisa/abertura de página (task 10, T7).
+        unsubscribeSearchIndicator = window.absolem.search.onIndicator((push) => {
+          if (!disposed) setSearchIndicator(push.active ? push : null)
+        })
 
         const module = await import('./avatar')
         const [status, avatarStatus, themeResult, voiceStatusResult, captureStatus] =
@@ -414,6 +421,7 @@ export function OverlayApp() {
       unsubscribeVoiceAudio?.()
       unsubscribeCaptureRequest?.()
       unsubscribeCaptureIndicator?.()
+      unsubscribeSearchIndicator?.()
       handle?.dispose()
       handle = null
     }
@@ -467,6 +475,20 @@ export function OverlayApp() {
         >
           <span className="capture-indicator__eye" aria-hidden="true" />
           <span className="capture-indicator__label">Vendo a tela</span>
+        </div>
+      ) : null}
+      {searchIndicator?.active ? (
+        <div
+          className="search-indicator"
+          data-search-kind={searchIndicator.kind ?? 'search'}
+          role="status"
+          aria-live="polite"
+          title={searchIndicator.kind === 'fetch' ? 'Abrindo página' : 'Pesquisando na internet'}
+        >
+          <span className="search-indicator__icon" aria-hidden="true" />
+          <span className="search-indicator__label">
+            {searchIndicator.kind === 'fetch' ? 'Abrindo página' : 'Pesquisando'}
+          </span>
         </div>
       ) : null}
       {debugLine ? <pre className="overlay-debug">{debugLine}</pre> : null}

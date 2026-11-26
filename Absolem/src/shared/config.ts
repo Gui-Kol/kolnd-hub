@@ -31,7 +31,8 @@ export const STORE_KEYS = [
   'ui',
   'usage',
   'chat',
-  'memory'
+  'memory',
+  'web'
 ] as const
 
 export type StoreKey = (typeof STORE_KEYS)[number]
@@ -132,6 +133,14 @@ export interface MemoryConfig {
   lastConsolidationAt: number | null
 }
 
+/**
+ * Chave `web` (task 10). `enabled:false` remove `web_search`/`fetch_url` do
+ * registro (o modelo nem sabe que existem) e bloqueia os canais de pesquisa.
+ */
+export interface WebConfig {
+  enabled: boolean
+}
+
 /** Snapshot completo do store, sempre normalizado pelo main. */
 export interface AbsolemConfig {
   overlay: OverlayConfig
@@ -144,6 +153,7 @@ export interface AbsolemConfig {
   usage: UsageConfig
   chat: ChatConfig
   memory: MemoryConfig
+  web: WebConfig
   /** Rotinas agendadas (task 08, T8). Não é chave do IPC genérico do store. */
   routines: Routine[]
 }

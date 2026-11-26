@@ -47,7 +47,7 @@ export interface ConfirmationRequest {
 
 export type ConfirmationHandler = (request: ConfirmationRequest) => Promise<boolean>
 
-export type ToolCallErrorKind = 'invalid' | 'denied' | 'not-found' | 'timeout' | 'failed'
+export type ToolCallErrorKind = 'invalid' | 'denied' | 'not-found' | 'timeout' | 'quota' | 'failed'
 
 export type ToolCallResult =
   { ok: true; result: unknown } | { ok: false; error: { kind: ToolCallErrorKind; message: string } }
@@ -121,6 +121,14 @@ function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<TimeoutRace<T>
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message.slice(0, 300)
   return String(err).slice(0, 300)
+}
+
+/** Erros tipados da pesquisa preservam `quota`; o resto é falha comum. */
+function toolErrorKind(err: unknown): ToolCallErrorKind {
+  if (err && typeof err === 'object' && (err as { kind?: unknown }).kind === 'quota') {
+    return 'quota'
+  }
+  return 'failed'
 }
 
 export async function routeToolCall(
@@ -226,7 +234,7 @@ export async function routeToolCall(
   } catch (err) {
     return finish(decision, false, {
       ok: false,
-      error: { kind: 'failed', message: `Falha na ferramenta: ${errorMessage(err)}` }
+      error: { kind: toolErrorKind(err), message: `Falha na ferramenta: ${errorMessage(err)}` }
     })
   }
 }

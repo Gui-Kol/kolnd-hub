@@ -5,6 +5,7 @@ import type { ChatCancelRequest, ChatSendRequest, IpcError, SimpleResult } from 
 import type { ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../../shared/gemini'
 import type { GeminiEngine } from '../gemini/engine'
 import { subscribeUsageWarning } from '../gemini/instance'
+import { getSearchRuntime } from '../search/instance'
 import type { IpcContext } from './lifecycle'
 
 /**
@@ -65,6 +66,8 @@ export function registerChatIpc(ctx: IpcContext, engine: GeminiEngine): void {
       return failure(`Payload inválido para ${IPC.chatSend}.`)
     }
     const request: ChatSendRequest = { requestId: payload.requestId, text: payload.text }
+    // Cada turno tem contadores próprios de busca/abertura (task 10, T7).
+    getSearchRuntime()?.beginTurn(request.requestId)
     void engine.send(request.requestId, request.text, {
       delta: (text) => {
         const push: ChatDeltaPush = { requestId: request.requestId, text }

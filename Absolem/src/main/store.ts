@@ -14,7 +14,8 @@ import {
   type ThemeConfig,
   type UiConfig,
   type UsageConfig,
-  type VoiceConfig
+  type VoiceConfig,
+  type WebConfig
 } from '../shared/config'
 import {
   normalizeOverlayConfig,
@@ -37,12 +38,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.8.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.9.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.8.0'
+export const STORE_SCHEMA_VERSION = '1.9.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -117,6 +118,15 @@ export function defaultMemoryConfig(): MemoryConfig {
   return { enabled: true, autoExtract: true, lastConsolidationAt: null }
 }
 
+export function defaultWebConfig(): WebConfig {
+  return { enabled: true }
+}
+
+export function normalizeWebConfig(input: unknown): WebConfig {
+  const raw = asRecord(input)
+  return { enabled: raw.enabled !== false }
+}
+
 export function defaultAbsolemConfig(): AbsolemConfig {
   return {
     overlay: defaultOverlayConfig(),
@@ -129,6 +139,7 @@ export function defaultAbsolemConfig(): AbsolemConfig {
     usage: defaultUsageConfig(),
     chat: defaultChatConfig(),
     memory: defaultMemoryConfig(),
+    web: defaultWebConfig(),
     routines: defaultRoutinesConfig()
   }
 }
@@ -245,6 +256,7 @@ export function normalizeAbsolemConfig(input: unknown): AbsolemConfig {
     usage: normalizeUsageState(raw.usage),
     chat: normalizeChatState(raw.chat),
     memory: normalizeMemoryConfig(raw.memory),
+    web: normalizeWebConfig(raw.web),
     routines: normalizeRoutinesConfig(raw.routines)
   }
 }
@@ -277,6 +289,8 @@ export function normalizeStoreValue(key: StoreKey, value: unknown): AbsolemConfi
       return normalizeChatState(value)
     case 'memory':
       return normalizeMemoryConfig(value)
+    case 'web':
+      return normalizeWebConfig(value)
   }
 }
 
@@ -455,6 +469,14 @@ const schema: Store.Schema<AbsolemConfig> = {
     },
     additionalProperties: false
   },
+  web: {
+    type: 'object',
+    default: defaultWebConfig(),
+    properties: {
+      enabled: { type: 'boolean' }
+    },
+    additionalProperties: false
+  },
   routines: {
     type: 'array',
     default: defaultRoutinesConfig(),
@@ -615,6 +637,14 @@ export function migrate180(store: StoreLike): void {
   store.set('memory', normalizeMemoryConfig(store.get('memory', defaultMemoryConfig())))
 }
 
+/**
+ * 1.9.0: aditiva. Acrescenta `web` (task 10) com pesquisa ligada por padrão.
+ * Nada do formato anterior é descartado; idempotente.
+ */
+export function migrate190(store: StoreLike): void {
+  store.set('web', normalizeWebConfig(store.get('web', defaultWebConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -624,7 +654,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.5.0': migrate150,
   '1.6.0': migrate160,
   '1.7.0': migrate170,
-  '1.8.0': migrate180
+  '1.8.0': migrate180,
+  '1.9.0': migrate190
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -709,6 +740,7 @@ export function getStoreSnapshot(): AbsolemConfig {
       usage: store.get('usage', defaultUsageConfig()),
       chat: store.get('chat', defaultChatConfig()),
       memory: store.get('memory', defaultMemoryConfig()),
+      web: store.get('web', defaultWebConfig()),
       routines: store.get('routines', defaultRoutinesConfig())
     })
   } catch (err) {

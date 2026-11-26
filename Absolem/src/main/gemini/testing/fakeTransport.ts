@@ -1,6 +1,7 @@
 import type {
   GeminiFunctionCall,
   GeminiGenerateResult,
+  GeminiGroundingChunk,
   GeminiRequest,
   GeminiStreamChunk,
   GeminiTransport,
@@ -33,6 +34,8 @@ export interface FakeGenerateStep {
   usage?: GeminiUsageMetadata
   blocked?: boolean
   finishReason?: string
+  /** Fontes de grounding devolvidas pelo provedor falso. */
+  groundingChunks?: GeminiGroundingChunk[]
 }
 
 export interface FakeTransportScenario {
@@ -153,7 +156,8 @@ export class FakeTransport implements GeminiTransport {
       text: step.text ?? '',
       usage: step.usage,
       blocked: step.blocked,
-      finishReason: step.finishReason
+      finishReason: step.finishReason,
+      groundingChunks: step.groundingChunks
     }
   }
 }

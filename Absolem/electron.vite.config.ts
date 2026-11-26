@@ -25,7 +25,10 @@ function devCspPlugin(): Plugin {
 export default defineConfig({
   main: {
     // electron-store v8 é CJS: precisa ficar externo ao bundle do main.
-    plugins: [externalizeDepsPlugin()]
+    // `linkedom` NÃO fica externo: o entry CJS dele exige `css-select` (ESM),
+    // que o Node 18 do Electron 28 não consegue carregar com require. O Vite
+    // resolve o entry ESM e empacota o parser no main.
+    plugins: [externalizeDepsPlugin({ exclude: ['linkedom'] })]
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

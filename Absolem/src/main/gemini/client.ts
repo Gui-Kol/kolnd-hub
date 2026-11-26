@@ -2,11 +2,18 @@ import { GeminiError, classifyError } from './errors'
 import type {
   GeminiContent,
   GeminiFunctionCall,
+  GeminiGroundingChunk,
   GeminiImage,
   GeminiRequest,
   GeminiTransport,
   GeminiUsageMetadata
 } from './transport'
+import {
+  MAX_GROUNDED_SOURCES,
+  MAX_SEARCH_QUERY_CHARS,
+  normalizeSourceUrl,
+  type WebSource
+} from '../../shared/search'
 
 /**
  * Cliente Gemini: deadlines, retry limitado e taxonomia de erro.
@@ -57,7 +64,35 @@ export interface GeminiClientOptions {
   retry?: Partial<GeminiRetryPolicy>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Base da busca com grounding (task 10): a chave e o modelo vivem no engine,
+   * não no cliente. Chamado a cada busca para refletir troca de chave/modelo.
+   */
+  groundedBase?: () => GroundedSearchBase | null
 }
+
+export interface GroundedSearchBase {
+  apiKey: string
+  model: string
+  temperature: number
+  systemInstruction?: string
+}
+
+export interface GroundedSearchRequest {
+  query: string
+  signal?: AbortSignal
+}
+
+export interface GroundedSearchResult {
+  text: string
+  sources: WebSource[]
+  usage?: GeminiUsageMetadata
+  finishReason?: string
+}
+
+export const GROUNDED_SEARCH_SYSTEM =
+  'Você é uma camada de pesquisa. Responda em português de forma curta e factual, ' +
+  'com base apenas nos resultados de busca. Não invente fatos nem URLs.'
 
 export interface StreamHandlers {
   signal?: AbortSignal
@@ -127,6 +162,34 @@ function mergeUsage(
 
 type AbortCause = 'user' | 'connect' | 'first-token' | 'total'
 
+/**
+ * Normaliza `groundingMetadata.groundingChunks[].web.{uri,title}` para
+ * `[{ title, url }]`: só http/https, dedupe por URL sem fragmento, máximo 8.
+ * Fonte sem título recebe o host como título; nunca inventa URL.
+ */
+export function normalizeGroundedSources(
+  chunks: GeminiGroundingChunk[] | undefined,
+  max: number = MAX_GROUNDED_SOURCES
+): WebSource[] {
+  if (!Array.isArray(chunks) || max <= 0) return []
+  const seen = new Set<string>()
+  const sources: WebSource[] = []
+  for (const chunk of chunks) {
+    const normalized = normalizeSourceUrl(chunk?.uri)
+    if (!normalized) continue
+    const url = new URL(normalized)
+    url.hash = ''
+    const key = url.toString()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const rawTitle = typeof chunk?.title === 'string' ? chunk.title.trim() : ''
+    const title = (rawTitle || url.hostname).slice(0, 200)
+    sources.push({ title, url: key })
+    if (sources.length >= max) break
+  }
+  return sources
+}
+
 interface AttemptControl {
   signal: AbortSignal
   cause: () => AbortCause | null
@@ -141,6 +204,7 @@ export class GeminiClient {
   private readonly retry: GeminiRetryPolicy
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly groundedBase?: () => GroundedSearchBase | null
 
   constructor(options: GeminiClientOptions) {
     this.transport = options.transport
@@ -148,6 +212,61 @@ export class GeminiClient {
     this.retry = { ...DEFAULT_RETRY, ...options.retry }
     this.now = options.now ?? (() => Date.now())
     this.sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+    this.groundedBase = options.groundedBase
+  }
+
+  /**
+   * Busca com grounding do Google (task 10, T3). Usa `generate` (a metadata
+   * de grounding vem na resposta inteira, não no streaming) com o mesmo
+   * deadline/retry/taxonomia de `generateText`.
+   */
+  async groundedSearch(
+    request: GroundedSearchRequest,
+    options?: { signal?: AbortSignal }
+  ): Promise<GroundedSearchResult> {
+    const query = typeof request.query === 'string' ? request.query.trim() : ''
+    if (!query) throw new GeminiError('invalid', 'Consulta de busca vazia.')
+    if (query.length > MAX_SEARCH_QUERY_CHARS) {
+      throw new GeminiError(
+        'invalid',
+        `Consulta de busca longa demais (máximo ${MAX_SEARCH_QUERY_CHARS} caracteres).`
+      )
+    }
+    const base = this.groundedBase?.() ?? null
+    if (!base || !base.apiKey) {
+      throw new GeminiError('auth', 'Chave do Gemini não configurada.')
+    }
+    const signal = options?.signal ?? request.signal
+    const callStart = this.now()
+    return this.withRetry(signal, async () => {
+      const control = this.beginAttempt(callStart, signal)
+      try {
+        const response = await raceWithAbort(
+          this.transport.generate({
+            apiKey: base.apiKey,
+            model: base.model,
+            temperature: base.temperature,
+            systemInstruction: base.systemInstruction ?? GROUNDED_SEARCH_SYSTEM,
+            contents: [{ role: 'user', text: query }],
+            googleSearch: true,
+            abortSignal: control.signal
+          }),
+          control.signal
+        )
+        control.connected()
+        if (response.blocked) throw this.blockedError()
+        return {
+          text: response.text ?? '',
+          sources: normalizeGroundedSources(response.groundingChunks),
+          usage: response.usage,
+          finishReason: response.finishReason
+        }
+      } catch (err) {
+        throw this.normalizeError(err, control)
+      } finally {
+        control.cleanup()
+      }
+    })
   }
 
   /**

@@ -1,5 +1,6 @@
 import { getPersistentStore, getStoreSnapshot } from '../store'
 import { getActionsRuntime } from '../actions/instance'
+import { getSearchRuntime } from '../search/instance'
 import { clearApiKey, getApiKey, hasApiKey, setApiKey } from '../secrets'
 import { logger } from '../logger'
 import { configureMemoryExtraction, getMemoryBlock } from '../memory/instance'
@@ -67,8 +68,15 @@ export function createGeminiEngine(): GeminiEngine {
     logger,
     defaultLanguage: getStoreSnapshot().ui.language,
     // Lido a cada turno: o runtime de ações nasce no `whenReady` junto do IPC.
-    tools: () => getActionsRuntime()?.registry.listTools() ?? [],
+    // As ferramentas web entram/saem do registro conforme `web.enabled`; com
+    // desligado o modelo nem recebe a declaração.
+    tools: () => [
+      ...(getActionsRuntime()?.registry.listTools() ?? []),
+      ...(getSearchRuntime()?.listTools() ?? [])
+    ],
     route: async (call) => {
+      const search = getSearchRuntime()
+      if (search?.hasTool(call.name)) return search.route(call)
       const runtime = getActionsRuntime()
       if (!runtime) {
         return {

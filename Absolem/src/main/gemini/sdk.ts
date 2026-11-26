@@ -2,6 +2,7 @@ import type {
   GeminiContent,
   GeminiFunctionCall,
   GeminiGenerateResult,
+  GeminiGroundingChunk,
   GeminiImage,
   GeminiRequest,
   GeminiStreamChunk,
@@ -90,6 +91,24 @@ function toFunctionCalls(
     .map((call) => ({ name: call.name, args: call.args ?? {} }))
 }
 
+/** `groundingMetadata.groundingChunks[].web.{uri,title}` (SDK 3.6.1). */
+function toGroundingChunks(
+  metadata: { groundingChunks?: Array<{ web?: { uri?: string; title?: string } }> } | undefined
+): GeminiGroundingChunk[] | undefined {
+  const chunks = metadata?.groundingChunks
+  if (!chunks || chunks.length === 0) return undefined
+  const out: GeminiGroundingChunk[] = []
+  for (const chunk of chunks) {
+    const web = chunk?.web
+    if (!web || typeof web.uri !== 'string' || web.uri.length === 0) continue
+    out.push({
+      uri: web.uri,
+      ...(typeof web.title === 'string' ? { title: web.title } : {})
+    })
+  }
+  return out.length > 0 ? out : undefined
+}
+
 function buildConfig(request: GeminiRequest): Record<string, unknown> {
   const config: Record<string, unknown> = {
     temperature: request.temperature,
@@ -105,17 +124,20 @@ function buildConfig(request: GeminiRequest): Record<string, unknown> {
   if (request.responseSchema) {
     config.responseSchema = request.responseSchema
   }
+  const tools: Array<Record<string, unknown>> = []
   if (request.tools && request.tools.length > 0) {
-    config.tools = [
-      {
-        functionDeclarations: request.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters
-        }))
-      }
-    ]
+    tools.push({
+      functionDeclarations: request.tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
+      }))
+    })
   }
+  if (request.googleSearch === true) {
+    tools.push({ googleSearch: {} })
+  }
+  if (tools.length > 0) config.tools = tools
   return config
 }
 
@@ -159,7 +181,8 @@ export class SdkGeminiTransport implements GeminiTransport {
       finishReason:
         typeof response.candidates?.[0]?.finishReason === 'string'
           ? String(response.candidates[0].finishReason)
-          : undefined
+          : undefined,
+      groundingChunks: toGroundingChunks(response.candidates?.[0]?.groundingMetadata)
     }
   }
 }

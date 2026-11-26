@@ -8,10 +8,12 @@ import { registerDiagnosticsIpc } from './diagnostics'
 import { registerGeminiIpc } from './gemini'
 import { registerMemoryIpc } from './memory'
 import { registerOverlayIpc } from './overlay'
+import { registerSearchIpc } from './search'
 import { registerStoreIpc } from './store'
 import { registerThemeIpc } from './theme'
-import { getGeminiEngine } from '../gemini/instance'
+import { getGeminiEngine, getUsageMeter } from '../gemini/instance'
 import { ensureMemoryRuntime } from '../memory/instance'
+import { ensureSearchRuntime } from '../search/instance'
 import { ensureVoiceRuntime } from '../voice/instance'
 import { ensureCaptureRuntime } from '../capture/instance'
 import { ensureActionsRuntime } from '../actions/instance'
@@ -35,6 +37,12 @@ export function registerIpc(ctx: IpcContext): void {
   registerChatIpc(ctx, engine)
   registerDiagnosticsIpc(engine)
   registerMemoryIpc(ensureMemoryRuntime(ctx).service)
+  registerSearchIpc(
+    ensureSearchRuntime(ctx, {
+      checkBudget: () => getUsageMeter().checkBudget(),
+      search: (query) => engine.groundedSearch(query)
+    })
+  )
   ensureVoiceRuntime(ctx)
   registerCaptureIpc(ensureCaptureRuntime(ctx))
   registerActionsIpc(ctx)

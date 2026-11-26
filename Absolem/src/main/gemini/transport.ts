@@ -43,6 +43,15 @@ export interface GeminiContent {
   functionResponses?: GeminiFunctionResponse[]
 }
 
+/**
+ * Referência crua de uma fonte de grounding (web). O `client.ts` normaliza
+ * para `WebSource`; o transporte só entrega `uri`/`title` como vieram.
+ */
+export interface GeminiGroundingChunk {
+  uri?: string
+  title?: string
+}
+
 export interface GeminiRequest {
   apiKey: string
   model: string
@@ -50,6 +59,8 @@ export interface GeminiRequest {
   systemInstruction: string
   contents: GeminiContent[]
   tools?: GeminiToolDeclaration[]
+  /** Ativa a ferramenta de busca do Google (grounding, task 10). */
+  googleSearch?: boolean
   maxOutputTokens?: number
   /** JSON estruturado (extração de memória, task 09). */
   responseMimeType?: string
@@ -86,6 +97,8 @@ export interface GeminiGenerateResult {
   usage?: GeminiUsageMetadata
   finishReason?: string
   blocked?: boolean
+  /** Fontes de grounding devolvidas pelo provedor (somente web). */
+  groundingChunks?: GeminiGroundingChunk[]
 }
 
 /**
