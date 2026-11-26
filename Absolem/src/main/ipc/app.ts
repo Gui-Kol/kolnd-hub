@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { IPC } from '../../shared/ipc'
-import type { AppInfoResult, IpcError, SimpleResult } from '../../shared/ipc'
+import type { AppInfoResult, AutostartGetResult, IpcError, SimpleResult } from '../../shared/ipc'
+import { getAutostart, setAutostart } from '../autostart'
 import { shutdownApp } from './lifecycle'
 import type { IpcContext } from './lifecycle'
 
@@ -56,5 +57,23 @@ export function registerAppIpc(ctx: IpcContext): void {
       const message = err instanceof Error ? err.message : String(err)
       return failure(`Falha ao encerrar o app: ${message}`)
     }
+  })
+
+  ipcMain.handle(IPC.appGetAutostart, (_event, payload: unknown): AutostartGetResult => {
+    if (!isVoidPayload(payload)) {
+      return failure(`Payload inválido para ${IPC.appGetAutostart}: ${describe(payload)}`)
+    }
+    return { ok: true, state: getAutostart() }
+  })
+
+  ipcMain.handle(IPC.appSetAutostart, (_event, payload: unknown): SimpleResult => {
+    const enabled =
+      payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)['enabled']
+        : undefined
+    const result = setAutostart(enabled)
+    return result.success
+      ? { ok: true }
+      : failure(result.error ?? 'Falha ao atualizar a inicialização com o Windows.')
   })
 }

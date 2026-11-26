@@ -1,27 +1,80 @@
-// PRIMEIRO import: efeito colateral intencional - inicia o crashReporter local
+// PRIMEIRO import: isola userData em smoke/teste antes de qualquer efeito
+// colateral (crashReporter, logger, electron-store).
+import './testUserData'
+// Efeito colateral intencional: inicia o crashReporter local
 // (uploadToServer: false) e registra os handlers de crash antes da avaliação de
 // qualquer outro módulo do main.
 import './crashReporting'
-import { app, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { app, Tray } from 'electron'
 import { registerIpc } from './ipc'
 import type { IpcContext } from './ipc'
 import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
-import { isAllowedNavigationUrl } from './navigation'
 import { logger } from './logger'
+import { createTray } from './tray/tray'
+import { isFirstRun, markFirstRunComplete } from './firstRun'
+import { getMainWindow, showMainWindow } from './lifecycle'
+import { shutdownApp } from './shutdown'
+import { handleSecondInstance } from './singleInstance'
 
-let mainWindow: BrowserWindow | null = null
+// Referência viva obrigatória: o GC do Node destrói o ícone da bandeja se a
+// instância só existir em variável local.
+let tray: Tray | null = null
+// Estado pedido pelo usuário neste task (sem overlay real ainda): só serve
+// para o log de ciclo de vida distinguir abrir de fechar no toggle.
+let overlayRequestedVisible = false
 
 /**
- * Contexto dos módulos IPC. A janela é lida por getter (reassinalada em
- * createWindow); o overlay entra na task 02 e por isso ainda devolve null.
+ * Contexto dos módulos IPC. A janela é lida por getter (criada sob demanda em
+ * lifecycle.ts); o overlay entra na task 02 e por isso ainda devolve null.
  */
 const ctx: IpcContext = {
-  getMainWindow: () => mainWindow,
+  getMainWindow,
   getOverlayWindow: () => null,
   getStoreSnapshot,
   isQuitting
+}
+
+/** Balão da bandeja; falha de plataforma nunca derruba o app. */
+function showTrayBalloon(content: string): void {
+  if (!tray) return
+  try {
+    tray.displayBalloon({ title: 'Absolem', content })
+  } catch (err) {
+    logger.warn('tray', 'falha ao exibir balão da bandeja', err)
+  }
+}
+
+/**
+ * "Abrir Overlay" ainda não tem overlay (task 02): registra a solicitação e
+ * avisa pelo balão. Substituído pelo controlador real na próxima task.
+ */
+function showOverlay(): void {
+  overlayRequestedVisible = true
+  logger.info('tray', 'abrir overlay solicitado')
+  logger.info('lifecycle', 'overlay abrir solicitado')
+  showTrayBalloon('O overlay chega na próxima etapa.')
+}
+
+/** Clique esquerdo no ícone: alterna o overlay (task 02). */
+function toggleOverlay(): void {
+  overlayRequestedVisible = !overlayRequestedVisible
+  logger.info('tray', 'toggle solicitado')
+  logger.info('lifecycle', `overlay ${overlayRequestedVisible ? 'abrir' : 'fechar'} solicitado`)
+  showTrayBalloon('O overlay chega na próxima etapa.')
+}
+
+/**
+ * "Configurações" mostra a janela de fundação existente. Paliativo documentado
+ * até a task 11 criar a tela real de configurações.
+ */
+function openSettings(): void {
+  // TODO(task 11): abrir a janela de configurações real
+  showMainWindow()
+}
+
+function requestQuit(): void {
+  shutdownApp(ctx, 'tray')
 }
 
 // Instância única: o lock é pedido antes de qualquer bootstrap. Sem o lock a
@@ -30,76 +83,71 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
 if (gotSingleInstanceLock) {
   app.on('second-instance', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      createWindow()
-      return
-    }
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    handleSecondInstance({
+      showOverlay,
+      notify: () => showTrayBalloon('Absolem já está em execução.')
+    })
   })
 } else {
   app.quit()
 }
 
-/** Cria a janela principal mínima da fundação (900x600, oculta até pintar). */
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
-    show: false,
-    backgroundColor: '#0b0f14',
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
-  })
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-
-  // Bloqueia navegação in-window: seguir para outra origem levaria o preload
-  // do Absolem para um contexto remoto. Em dev só a origem do HMR passa.
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isAllowedNavigationUrl(url, process.env['ELECTRON_RENDERER_URL'])) return
-    event.preventDefault()
-    logger.warn('window', `will-navigate bloqueado: ${url}`)
-  })
-
-  // Nenhuma janela nova. Links externos ficam para uma task de UI decidir.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    logger.warn('window', `window.open bloqueado: ${url}`)
-    return { action: 'deny' }
-  })
-
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (devUrl) {
-    void mainWindow.loadURL(devUrl)
-  } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+/**
+ * Smoke de runtime (dev/teste): simula o clique esquerdo na bandeja e encerra.
+ * Só roda com ABSOLEM_SMOKE=1 e fora do app empacotado; em produção a env var
+ * não existe e o build instalado nunca entra neste caminho.
+ */
+function scheduleSmoke(): void {
+  if (app.isPackaged || process.env.ABSOLEM_SMOKE !== '1') return
+  setTimeout(() => {
+    logger.info('lifecycle', 'smoke: simulando clique esquerdo na bandeja')
+    tray?.emit('click')
+  }, 1000)
+  setTimeout(() => {
+    logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
+    tray?.emit('click')
+  }, 1600)
+  setTimeout(() => {
+    logger.info('lifecycle', 'smoke: solicitando encerramento')
+    requestQuit()
+  }, 2400)
 }
 
 app.whenReady().then(() => {
   // Lock negado: o app.quit() acima já encerra; nada de bootstrap.
   if (!gotSingleInstanceLock) return
 
+  // Precisa vir antes da bandeja: displayBalloon depende do AppUserModelId.
   app.setAppUserModelId('com.kolnd.absolem')
-  logger.info('app', `Absolem ${app.getVersion()} iniciando (${process.platform})`)
+
+  const hidden = process.argv.includes('--hidden')
+  logger.info('lifecycle', `iniciando (${hidden ? '--hidden' : 'normal'})`)
 
   registerIpc(ctx)
-  createWindow()
+
+  tray = createTray({
+    showOverlay,
+    toggleOverlay,
+    openSettings,
+    quit: requestQuit
+  })
+  logger.info('lifecycle', 'bandeja criada')
+
+  if (isFirstRun()) {
+    logger.info('lifecycle', 'firstRun: true')
+    showTrayBalloon('Absolem está na bandeja. Botão direito > Abrir Overlay.')
+    try {
+      markFirstRunComplete()
+    } catch (err) {
+      logger.warn('firstRun', 'falha ao gravar a flag de primeira execução', err)
+    }
+  }
+
+  scheduleSmoke()
 })
 
 if (gotSingleInstanceLock) {
-  // A bandeja entra na task 01: fechar a janela não encerra o app.
+  // Fechar a janela não encerra o app: ele continua na bandeja.
   app.on('window-all-closed', () => {})
 
   app.on('before-quit', () => {
@@ -107,11 +155,6 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('activate', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      createWindow()
-      return
-    }
-    mainWindow.show()
-    mainWindow.focus()
+    showMainWindow()
   })
 }

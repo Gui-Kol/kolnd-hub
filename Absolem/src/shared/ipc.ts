@@ -14,6 +14,8 @@ import type { StoreKey, ThemeConfig } from './config'
 export const IPC = {
   appGetInfo: 'app:get-info',
   appQuit: 'app:quit',
+  appGetAutostart: 'app:get-autostart',
+  appSetAutostart: 'app:set-autostart',
   overlayShow: 'overlay:show',
   overlayHide: 'overlay:hide',
   overlayToggle: 'overlay:toggle',
@@ -44,6 +46,18 @@ export interface IpcError {
 export type SimpleResult = { ok: true } | IpcError
 
 export type AppInfoResult = { ok: true; info: AppInfo } | IpcError
+
+/** Estado do autostart por usuário: o SO é a fonte da verdade de `enabled`. */
+export interface AutostartState {
+  enabled: boolean
+  supported: boolean
+}
+
+export interface AutostartSetRequest {
+  enabled: boolean
+}
+
+export type AutostartGetResult = { ok: true; state: AutostartState } | IpcError
 
 export interface StoreGetRequest {
   key: StoreKey
@@ -77,6 +91,8 @@ export type ThemeGetResult = { ok: true; theme: ThemeConfig } | IpcError
 export interface IpcContract {
   [IPC.appGetInfo]: { request: undefined; response: AppInfoResult }
   [IPC.appQuit]: { request: undefined; response: SimpleResult }
+  [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
+  [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
   [IPC.overlayShow]: { request: undefined; response: SimpleResult }
   [IPC.overlayHide]: { request: undefined; response: SimpleResult }
   [IPC.overlayToggle]: { request: undefined; response: SimpleResult }
@@ -98,6 +114,8 @@ export type IpcResponse<C extends IpcChannel> = IpcContract[C]['response']
 export interface AbsolemApi {
   getAppInfo: () => Promise<AppInfoResult>
   quit: () => Promise<SimpleResult>
+  getAutostart: () => Promise<AutostartGetResult>
+  setAutostart: (enabled: boolean) => Promise<SimpleResult>
   overlayShow: () => Promise<SimpleResult>
   overlayHide: () => Promise<SimpleResult>
   overlayToggle: () => Promise<SimpleResult>

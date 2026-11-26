@@ -11,6 +11,9 @@ const absolem: AbsolemApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appGetInfo),
   quit: () => ipcRenderer.invoke(IPC.appQuit),
 
+  getAutostart: () => ipcRenderer.invoke(IPC.appGetAutostart),
+  setAutostart: (enabled: boolean) => ipcRenderer.invoke(IPC.appSetAutostart, { enabled }),
+
   overlayShow: () => ipcRenderer.invoke(IPC.overlayShow),
   overlayHide: () => ipcRenderer.invoke(IPC.overlayHide),
   overlayToggle: () => ipcRenderer.invoke(IPC.overlayToggle),

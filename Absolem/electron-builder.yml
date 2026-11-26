@@ -14,6 +14,10 @@ files:
   - '!{LICENSE,README.md,electron-builder.yml}'
   - '!**/*.tsbuildinfo'
   - '!*.log'
+# Ícone da bandeja: em produção o main lê <resources>/tray-icon.png.
+extraResources:
+  - from: resources/tray-icon.png
+    to: tray-icon.png
 win:
   # Nome estável do artefato: a versão vem de Absolem/package.json.
   artifactName: Absolem Setup ${version}.exe

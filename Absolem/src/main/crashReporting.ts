@@ -9,9 +9,9 @@ import { logger } from './logger'
  * e nunca são transmitidos. Qualquer envio remoto futura exigiria decisão
  * explícita do usuário.
  *
- * Este módulo é o PRIMEIRO import de `index.ts`: `crashReporter.start()` roda no
- * module scope, antes de `app.whenReady()` e antes de qualquer import que possa
- * lançar.
+ * Este módulo é o primeiro import de `index.ts` DEPOIS do isolamento de
+ * `userData` (`testUserData.ts`): `crashReporter.start()` roda no module scope,
+ * antes de `app.whenReady()` e de qualquer outro módulo do main.
  */
 
 /** Caminho efetivo dos minidumps (para log). Nunca lança. */
@@ -78,6 +78,6 @@ export function installCrashHandlers(): void {
 }
 
 // Efeitos colaterais intencionais no topo do módulo: index.ts importa este
-// arquivo primeiro, antes de qualquer outro módulo do main.
+// arquivo logo depois do isolamento de userData, antes dos demais módulos.
 startCrashReporting()
 installCrashHandlers()

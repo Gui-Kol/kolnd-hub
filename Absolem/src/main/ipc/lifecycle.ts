@@ -1,7 +1,5 @@
-import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
 import type { AbsolemConfig } from '../../shared/config'
-import { markQuitting } from '../quitState'
 
 /**
  * Contexto compartilhado dos módulos IPC (`src/main/ipc/*.ts`).
@@ -18,15 +16,8 @@ export interface IpcContext {
 }
 
 /**
- * Encerramento explícito do app: marca a saída antes de destruir as janelas e
- * chamar `app.quit()`, para que os handlers de `close` não segurem o processo.
- * Nenhum segredo é lido nem gravado aqui.
+ * O encerramento explícito vive em `../shutdown` (ganchos best-effort). O
+ * re-export mantém os imports históricos de `ipc/app.ts` e dos testes válidos.
  */
-export function shutdownApp(ctx: IpcContext): void {
-  markQuitting()
-  const overlay = ctx.getOverlayWindow()
-  if (overlay && !overlay.isDestroyed()) overlay.destroy()
-  const main = ctx.getMainWindow()
-  if (main && !main.isDestroyed()) main.destroy()
-  app.quit()
-}
+export { shutdownApp } from '../shutdown'
+export type { ShutdownReason } from '../shutdown'
