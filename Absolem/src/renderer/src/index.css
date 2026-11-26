@@ -30,3 +30,41 @@ body {
     'Segoe UI',
     sans-serif;
 }
+
+/*
+ * Rota `#overlay`: sem fundo, sem moldura e sem faixa preta. O `body` pinta
+ * `--bg-base` por padrão (janela de fundação); no overlay isso apareceria como
+ * um retângulo escuro atrás do avatar.
+ */
+html.overlay-route,
+html.overlay-route body,
+html.overlay-route #root {
+  background: transparent;
+}
+
+.overlay-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/*
+ * Marcador provisório do avatar (task 03 substitui pelo holograma). Só esta
+ * área recebe clique; o resto da janela deixa o mouse atravessar para a área
+ * de trabalho de trás.
+ */
+.overlay-avatar {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 64px;
+  height: 64px;
+  border-radius: 9999px;
+  pointer-events: auto;
+  background: radial-gradient(circle at 35% 30%, #93c5fd 0%, #3b82f6 45%, #1d4ed8 100%);
+  border: 1px solid rgba(219, 234, 254, 0.8);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.35),
+    0 0 18px rgba(59, 130, 246, 0.55);
+}

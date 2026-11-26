@@ -1,15 +1,13 @@
-import type { StoreKey, ThemeConfig } from './config'
+import type { OverlayLayout, OverlayPosition, StoreKey, ThemeConfig } from './config'
 
 /**
  * Contrato IPC do Absolem.
  *
  * Regras:
  * - Um canal por operação, nomeado `<prefixo>:<ação>`.
- * - O preload só faz `ipcRenderer.invoke`; o `event` nunca cruza a ponte.
+ * - O preload faz `ipcRenderer.invoke` para consultas/ações e `ipcRenderer.on`
+ *   apenas para o push `overlay:status-changed`; o `event` nunca cruza a ponte.
  * - O main recebe `unknown` e valida; falha sempre vira `{ ok: false, error }`.
- *
- * Nesta task (00) apenas os canais de `app` têm handler. Os demais estão
- * declarados para as tasks 01, 02, 05 e 11 e não executam nada ainda.
  */
 export const IPC = {
   appGetInfo: 'app:get-info',
@@ -19,6 +17,10 @@ export const IPC = {
   overlayShow: 'overlay:show',
   overlayHide: 'overlay:hide',
   overlayToggle: 'overlay:toggle',
+  overlayStatus: 'overlay:status',
+  overlaySetLayout: 'overlay:set-layout',
+  overlaySetInteractive: 'overlay:set-interactive',
+  overlayStatusChanged: 'overlay:status-changed',
   storeGet: 'store:get',
   storeSet: 'store:set',
   settingsOpen: 'settings:open',
@@ -59,6 +61,38 @@ export interface AutostartSetRequest {
 
 export type AutostartGetResult = { ok: true; state: AutostartState } | IpcError
 
+/** Estado do atalho global no momento (conflito vira `registered:false`). */
+export interface OverlayShortcutStatus {
+  registered: boolean
+  accelerator: string
+}
+
+/** Status devolvido por todos os canais do overlay. */
+export interface OverlayStatus {
+  visible: boolean
+  interactive: boolean
+  /** Oculto automaticamente por tela cheia (não por ação do usuário). */
+  autoHidden: boolean
+  layout: OverlayLayout
+  shortcut: OverlayShortcutStatus
+  hideOnFullscreen: boolean
+}
+
+export type OverlayStatusResult = { ok: true; status: OverlayStatus } | IpcError
+
+/** Patch de layout: campos ausentes mantêm o valor vigente. */
+export interface OverlaySetLayoutRequest {
+  position?: OverlayPosition
+  offsetX?: number
+  offsetY?: number
+  width?: number
+  height?: number
+}
+
+export interface OverlaySetInteractiveRequest {
+  interactive: boolean
+}
+
 export interface StoreGetRequest {
   key: StoreKey
 }
@@ -93,9 +127,16 @@ export interface IpcContract {
   [IPC.appQuit]: { request: undefined; response: SimpleResult }
   [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
   [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
-  [IPC.overlayShow]: { request: undefined; response: SimpleResult }
-  [IPC.overlayHide]: { request: undefined; response: SimpleResult }
-  [IPC.overlayToggle]: { request: undefined; response: SimpleResult }
+  [IPC.overlayShow]: { request: undefined; response: OverlayStatusResult }
+  [IPC.overlayHide]: { request: undefined; response: OverlayStatusResult }
+  [IPC.overlayToggle]: { request: undefined; response: OverlayStatusResult }
+  [IPC.overlayStatus]: { request: undefined; response: OverlayStatusResult }
+  [IPC.overlaySetLayout]: { request: OverlaySetLayoutRequest; response: OverlayStatusResult }
+  [IPC.overlaySetInteractive]: {
+    request: OverlaySetInteractiveRequest
+    response: OverlayStatusResult
+  }
+  [IPC.overlayStatusChanged]: { request: undefined; response: OverlayStatus }
   [IPC.storeGet]: { request: StoreGetRequest; response: StoreGetResult }
   [IPC.storeSet]: { request: StoreSetRequest; response: SimpleResult }
   [IPC.settingsOpen]: { request: SettingsOpenRequest; response: SimpleResult }
@@ -116,9 +157,13 @@ export interface AbsolemApi {
   quit: () => Promise<SimpleResult>
   getAutostart: () => Promise<AutostartGetResult>
   setAutostart: (enabled: boolean) => Promise<SimpleResult>
-  overlayShow: () => Promise<SimpleResult>
-  overlayHide: () => Promise<SimpleResult>
-  overlayToggle: () => Promise<SimpleResult>
+  overlayShow: () => Promise<OverlayStatusResult>
+  overlayHide: () => Promise<OverlayStatusResult>
+  overlayToggle: () => Promise<OverlayStatusResult>
+  overlayStatus: () => Promise<OverlayStatusResult>
+  overlaySetLayout: (layout: OverlaySetLayoutRequest) => Promise<OverlayStatusResult>
+  overlaySetInteractive: (interactive: boolean) => Promise<OverlayStatusResult>
+  onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => () => void
   storeGet: (key: StoreKey) => Promise<StoreGetResult>
   storeSet: (key: StoreKey, value: unknown) => Promise<SimpleResult>
   openSettings: (section?: SettingsSection) => Promise<SimpleResult>

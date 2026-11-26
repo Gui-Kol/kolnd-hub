@@ -76,23 +76,40 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.1.0')
-    expect(Object.keys(options.migrations ?? {})).toEqual(['1.0.0', '1.1.0'])
+    expect(options.projectVersion).toBe('1.2.0')
+    expect(Object.keys(options.migrations ?? {})).toEqual(['1.0.0', '1.1.0', '1.2.0'])
   })
 
   it('valor inválido é normalizado sem perder os válidos', () => {
     state.data.set('theme', { mode: 'neon', accent: '#123456' })
-    state.data.set('overlay', { enabled: true, position: 'top-right', scale: 'enorme' })
+    state.data.set('overlay', {
+      visible: true,
+      position: 'top-right',
+      offsetX: 'longe',
+      width: 5,
+      height: 9999,
+      shortcut: 'invalido',
+      hideOnFullscreen: 'sim'
+    })
     state.data.set('voice', { enabled: true, inputDeviceId: 42, outputVolume: 9 })
 
     const snapshot = storeMod.getStoreSnapshot()
 
     expect(snapshot.theme).toEqual({ mode: 'dark', accent: '#123456' })
-    expect(snapshot.overlay).toEqual({ enabled: true, position: 'top-right', scale: 1 })
+    expect(snapshot.overlay).toEqual({
+      visible: true,
+      position: 'top-right',
+      offsetX: 0,
+      offsetY: 0,
+      width: 240,
+      height: 560,
+      shortcut: 'Control+Alt+A',
+      hideOnFullscreen: true
+    })
     expect(snapshot.voice).toEqual({ enabled: true, inputDeviceId: null, outputVolume: 1 })
   })
 
-  it('migração 1.1.0 preserva dados da 1.0.0', () => {
+  it('migração 1.1.0 preserva dados da 1.0.0 e 1.2.0 converte', () => {
     state.data.set('theme', { mode: 'light', accent: '#abcdef' })
     state.data.set('overlay', { enabled: true, position: 'top-left', scale: 1.5 })
     const store = fakeStore()
@@ -111,6 +128,23 @@ describe('store persistente', () => {
     for (const key of STORE_KEYS) {
       expect(state.data.has(key)).toBe(true)
     }
+
+    storeMod.STORE_MIGRATIONS['1.2.0'](store)
+    const migrated = {
+      visible: true,
+      position: 'top-left',
+      offsetX: 0,
+      offsetY: 0,
+      width: 320,
+      height: 360,
+      shortcut: 'Control+Alt+A',
+      hideOnFullscreen: true
+    }
+    expect(state.data.get('overlay')).toEqual(migrated)
+
+    // Idempotente: rodar de novo sobre o formato atual não muda nada.
+    storeMod.STORE_MIGRATIONS['1.2.0'](store)
+    expect(state.data.get('overlay')).toEqual(migrated)
   })
 
   it('store corrompido não lança', async () => {

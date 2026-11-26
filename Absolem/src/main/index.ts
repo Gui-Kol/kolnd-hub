@@ -5,7 +5,7 @@ import './testUserData'
 // (uploadToServer: false) e registra os handlers de crash antes da avaliação de
 // qualquer outro módulo do main.
 import './crashReporting'
-import { app, Tray } from 'electron'
+import { app, screen, Tray } from 'electron'
 import { registerIpc } from './ipc'
 import type { IpcContext } from './ipc'
 import { isQuitting, markQuitting } from './quitState'
@@ -16,21 +16,25 @@ import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { getMainWindow, showMainWindow } from './lifecycle'
 import { shutdownApp } from './shutdown'
 import { handleSecondInstance } from './singleInstance'
+import { getOverlayWindow, isOverlayVisible } from './overlay/overlayWindow'
+import {
+  getOverlayStatus,
+  initializeOverlay,
+  showOverlay,
+  toggleOverlay
+} from './overlay/controller'
 
 // Referência viva obrigatória: o GC do Node destrói o ícone da bandeja se a
 // instância só existir em variável local.
 let tray: Tray | null = null
-// Estado pedido pelo usuário neste task (sem overlay real ainda): só serve
-// para o log de ciclo de vida distinguir abrir de fechar no toggle.
-let overlayRequestedVisible = false
 
 /**
  * Contexto dos módulos IPC. A janela é lida por getter (criada sob demanda em
- * lifecycle.ts); o overlay entra na task 02 e por isso ainda devolve null.
+ * lifecycle.ts) e o overlay agora devolve a janela real (task 02).
  */
 const ctx: IpcContext = {
   getMainWindow,
-  getOverlayWindow: () => null,
+  getOverlayWindow,
   getStoreSnapshot,
   isQuitting
 }
@@ -43,25 +47,6 @@ function showTrayBalloon(content: string): void {
   } catch (err) {
     logger.warn('tray', 'falha ao exibir balão da bandeja', err)
   }
-}
-
-/**
- * "Abrir Overlay" ainda não tem overlay (task 02): registra a solicitação e
- * avisa pelo balão. Substituído pelo controlador real na próxima task.
- */
-function showOverlay(): void {
-  overlayRequestedVisible = true
-  logger.info('tray', 'abrir overlay solicitado')
-  logger.info('lifecycle', 'overlay abrir solicitado')
-  showTrayBalloon('O overlay chega na próxima etapa.')
-}
-
-/** Clique esquerdo no ícone: alterna o overlay (task 02). */
-function toggleOverlay(): void {
-  overlayRequestedVisible = !overlayRequestedVisible
-  logger.info('tray', 'toggle solicitado')
-  logger.info('lifecycle', `overlay ${overlayRequestedVisible ? 'abrir' : 'fechar'} solicitado`)
-  showTrayBalloon('O overlay chega na próxima etapa.')
 }
 
 /**
@@ -92,21 +77,48 @@ if (gotSingleInstanceLock) {
   app.quit()
 }
 
+/** Loga visibilidade e bounds reais do overlay no smoke. */
+function logOverlaySmoke(label: string): void {
+  const window = getOverlayWindow()
+  const status = getOverlayStatus()
+  const bounds = window && !window.isDestroyed() ? window.getBounds() : null
+  logger.info('lifecycle', `smoke: overlay ${label}`, {
+    visible: isOverlayVisible(),
+    autoHidden: status.autoHidden,
+    window: window !== null,
+    bounds
+  })
+}
+
 /**
- * Smoke de runtime (dev/teste): simula o clique esquerdo na bandeja e encerra.
- * Só roda com ABSOLEM_SMOKE=1 e fora do app empacotado; em produção a env var
- * não existe e o build instalado nunca entra neste caminho.
+ * Smoke de runtime (dev/teste): prova o ciclo oculto -> visível -> oculto pelo
+ * clique da bandeja e encerra. Só roda com ABSOLEM_SMOKE=1 e fora do app
+ * empacotado; em produção a env var não existe e o build instalado nunca entra
+ * neste caminho.
  */
 function scheduleSmoke(): void {
   if (app.isPackaged || process.env.ABSOLEM_SMOKE !== '1') return
   setTimeout(() => {
+    logger.info('lifecycle', 'smoke: estado no boot')
+    logger.info('lifecycle', 'smoke: workArea primária', screen.getPrimaryDisplay().workArea)
+    logOverlaySmoke('boot')
+  }, 400)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando clique esquerdo na bandeja')
     tray?.emit('click')
+    logOverlaySmoke('após clique 1')
   }, 1000)
+  setTimeout(() => {
+    logOverlaySmoke('aberto')
+  }, 1400)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
     tray?.emit('click')
+    logOverlaySmoke('após clique 2')
   }, 1600)
+  setTimeout(() => {
+    logOverlaySmoke('oculto')
+  }, 2000)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: solicitando encerramento')
     requestQuit()
@@ -132,6 +144,9 @@ app.whenReady().then(() => {
     quit: requestQuit
   })
   logger.info('lifecycle', 'bandeja criada')
+
+  // screen/globalShortcut exigem app pronto: o controlador só nasce aqui.
+  initializeOverlay(ctx)
 
   if (isFirstRun()) {
     logger.info('lifecycle', 'firstRun: true')

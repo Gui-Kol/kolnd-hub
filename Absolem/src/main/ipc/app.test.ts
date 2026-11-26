@@ -31,7 +31,16 @@ let appMod: AppModule
 let quitState: QuitStateModule
 
 const defaultConfig: AbsolemConfig = {
-  overlay: { enabled: false, position: 'bottom-left', scale: 1 },
+  overlay: {
+    visible: false,
+    position: 'bottom-left',
+    offsetX: 0,
+    offsetY: 0,
+    width: 320,
+    height: 360,
+    shortcut: 'Control+Alt+A',
+    hideOnFullscreen: true
+  },
   theme: { mode: 'dark', accent: '#3b82f6' },
   voice: { enabled: false, inputDeviceId: null, outputVolume: 1 },
   gemini: { model: 'gemini-2.0-flash', temperature: 0.7 },

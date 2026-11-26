@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type AbsolemApi } from '../shared/ipc'
+import { IPC, type AbsolemApi, type OverlayStatus } from '../shared/ipc'
+import type { OverlaySetLayoutRequest } from '../shared/ipc'
 import type { StoreKey, ThemeConfig } from '../shared/config'
 import type { SettingsSection } from '../shared/ipc'
 
@@ -17,6 +18,18 @@ const absolem: AbsolemApi = {
   overlayShow: () => ipcRenderer.invoke(IPC.overlayShow),
   overlayHide: () => ipcRenderer.invoke(IPC.overlayHide),
   overlayToggle: () => ipcRenderer.invoke(IPC.overlayToggle),
+  overlayStatus: () => ipcRenderer.invoke(IPC.overlayStatus),
+  overlaySetLayout: (layout: OverlaySetLayoutRequest) =>
+    ipcRenderer.invoke(IPC.overlaySetLayout, layout),
+  overlaySetInteractive: (interactive: boolean) =>
+    ipcRenderer.invoke(IPC.overlaySetInteractive, { interactive }),
+  onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => {
+    const handler = (_event: unknown, status: OverlayStatus) => listener(status)
+    ipcRenderer.on(IPC.overlayStatusChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC.overlayStatusChanged, handler)
+    }
+  },
 
   storeGet: (key: StoreKey) => ipcRenderer.invoke(IPC.storeGet, { key }),
   storeSet: (key: StoreKey, value: unknown) => ipcRenderer.invoke(IPC.storeSet, { key, value }),

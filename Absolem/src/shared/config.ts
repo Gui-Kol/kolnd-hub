@@ -22,10 +22,19 @@ export const OVERLAY_POSITIONS = ['bottom-left', 'bottom-right', 'top-left', 'to
 
 export type OverlayPosition = (typeof OVERLAY_POSITIONS)[number]
 
-export interface OverlayConfig {
-  enabled: boolean
+/** Geometria persistida do overlay, em DIPs. */
+export interface OverlayLayout {
   position: OverlayPosition
-  scale: number
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+}
+
+export interface OverlayConfig extends OverlayLayout {
+  visible: boolean
+  shortcut: string
+  hideOnFullscreen: boolean
 }
 
 export const THEME_MODES = ['dark', 'light', 'system'] as const

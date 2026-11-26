@@ -77,6 +77,14 @@ se o perfil for restaurado em outra máquina ou a proteção de credenciais do W
 ficar indisponível, a chave **precisa ser redigitada**. Não existe fallback para
 texto plano: sem `safeStorage.isEncryptionAvailable()` a gravação é recusada.
 
+## Acessibilidade do overlay
+
+O overlay do avatar usa `focusable: false` e `showInactive()` para nunca roubar o
+foco de um jogo, vídeo ou campo de texto. Consequência: ele **não recebe
+navegação por teclado**. O caminho acessível é a tela de configurações (task 11),
+que ajusta posição, tamanho e atalho; enquanto ela não existe, a bandeja e o
+atalho global `Control+Alt+A` continuam funcionando sem exigir foco na janela.
+
 ## Privacidade
 
 Nada sai da máquina: crash reporting local com `uploadToServer: false`, sem

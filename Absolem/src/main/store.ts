@@ -1,7 +1,6 @@
 import Store from 'electron-store'
 import { logger } from './logger'
 import {
-  OVERLAY_POSITIONS,
   STORE_KEYS,
   THEME_MODES,
   type AbsolemConfig,
@@ -14,6 +13,13 @@ import {
   type UiConfig,
   type VoiceConfig
 } from '../shared/config'
+import {
+  normalizeOverlayConfig,
+  OVERLAY_DEFAULT_POSITION,
+  OVERLAY_DEFAULT_SHORTCUT
+} from '../shared/overlay'
+
+export { normalizeOverlayConfig }
 
 /**
  * Store persistente do Absolem (`%APPDATA%\absolem\config.json`).
@@ -21,12 +27,12 @@ import {
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.1.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.2.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.1.0'
+export const STORE_SCHEMA_VERSION = '1.2.0'
 
 const DEFAULT_ACCENT = '#3b82f6'
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
@@ -36,7 +42,12 @@ const MAX_DEVICE_ID_LENGTH = 200
 const MAX_LANGUAGE_LENGTH = 20
 
 export function defaultOverlayConfig(): OverlayConfig {
-  return { enabled: false, position: 'bottom-left', scale: 1 }
+  return normalizeOverlayConfig({
+    position: OVERLAY_DEFAULT_POSITION,
+    visible: false,
+    shortcut: OVERLAY_DEFAULT_SHORTCUT,
+    hideOnFullscreen: true
+  })
 }
 
 export function defaultThemeConfig(): ThemeConfig {
@@ -91,18 +102,6 @@ function normalizeOptionalId(value: unknown): string | null {
   const trimmed = value.trim()
   if (!trimmed || trimmed.length > MAX_DEVICE_ID_LENGTH) return null
   return trimmed
-}
-
-export function normalizeOverlayConfig(input: unknown): OverlayConfig {
-  const raw = asRecord(input)
-  const position = OVERLAY_POSITIONS.includes(raw.position as (typeof OVERLAY_POSITIONS)[number])
-    ? (raw.position as OverlayConfig['position'])
-    : 'bottom-left'
-  return {
-    enabled: raw.enabled === true,
-    position,
-    scale: clampNumber(raw.scale, 0.5, 2, 1)
-  }
 }
 
 export function normalizeThemeConfig(input: unknown): ThemeConfig {
@@ -213,8 +212,18 @@ const schema: Store.Schema<AbsolemConfig> = {
     type: 'object',
     default: defaultOverlayConfig(),
     properties: {
-      enabled: { type: 'boolean' },
+      visible: { type: 'boolean' },
       position: { type: 'string' },
+      offsetX: { type: 'number' },
+      offsetY: { type: 'number' },
+      width: { type: 'number' },
+      height: { type: 'number' },
+      shortcut: { type: 'string' },
+      hideOnFullscreen: { type: 'boolean' },
+      // Formato legado da 1.1.0. Precisa continuar válido no schema porque o
+      // electron-store valida o arquivo ANTES de rodar as migrações; a 1.2.0
+      // converte e descarta estes dois campos.
+      enabled: { type: 'boolean' },
       scale: { type: 'number' }
     },
     additionalProperties: false
@@ -291,9 +300,10 @@ export function migrate100(_store: StoreLike): void {
   // Intencionalmente vazio: 1.0.0 é a baseline do formato atual.
 }
 
-/** 1.1.0: garante todas as chaves atuais, preservando valores válidos da 1.0.0. */
+/** 1.1.0: garante as chaves da 1.1.0, preservando valores válidos da 1.0.0. */
 export function migrate110(store: StoreLike): void {
-  store.set('overlay', normalizeOverlayConfig(store.get('overlay', defaultOverlayConfig())))
+  // `overlay` NÃO é tocada aqui: a 1.2.0 converte o formato legado
+  // (`enabled`/`scale`) que já está no disco e descarta os campos antigos.
   store.set('theme', normalizeThemeConfig(store.get('theme', defaultThemeConfig())))
   store.set('voice', normalizeVoiceConfig(store.get('voice', defaultVoiceConfig())))
   store.set('gemini', normalizeGeminiConfig(store.get('gemini', defaultGeminiConfig())))
@@ -305,9 +315,24 @@ export function migrate110(store: StoreLike): void {
   store.set('ui', normalizeUiConfig(store.get('ui', defaultUiConfig())))
 }
 
+/**
+ * 1.2.0: `{ enabled, position, scale }` -> `{ visible, position, offsetX,
+ * offsetY, width, height, shortcut, hideOnFullscreen }`.
+ *
+ * `enabled` vira `visible`, `scale` é descartado (o tamanho passa a ser em
+ * DIPs) e os campos novos recebem os defaults. É idempotente: rodar de novo
+ * sobre o formato atual devolve o mesmo objeto normalizado.
+ */
+export function migrate120(store: StoreLike): void {
+  const raw = asRecord(store.get('overlay', defaultOverlayConfig()))
+  const visible = typeof raw.visible === 'boolean' ? raw.visible : raw.enabled === true
+  store.set('overlay', normalizeOverlayConfig({ ...raw, visible }))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
-  '1.1.0': migrate110
+  '1.1.0': migrate110,
+  '1.2.0': migrate120
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
