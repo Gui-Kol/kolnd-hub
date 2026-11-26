@@ -6,6 +6,12 @@ import type { StoreKey } from '../shared/config'
 import type { ThemeConfig } from '../shared/theme'
 import type { SettingsSection, ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../shared/ipc'
 import type { GeminiUsageWarningPush } from '../shared/gemini'
+import type {
+  VoiceAudioPush,
+  VoiceSetDeviceRequest,
+  VoiceStatePush,
+  VoiceTranscriptPush
+} from '../shared/voice'
 
 /**
  * Ponte fina: cada método só repassa o payload para `ipcRenderer.invoke`.
@@ -112,6 +118,42 @@ const absolem: AbsolemApi = {
 
   diagnostics: {
     gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini)
+  },
+
+  voice: {
+    start: () => ipcRenderer.invoke(IPC.voiceStart),
+    stop: () => ipcRenderer.invoke(IPC.voiceStop),
+    toggle: () => ipcRenderer.invoke(IPC.voiceToggle),
+    status: () => ipcRenderer.invoke(IPC.voiceStatus),
+    interrupt: () => ipcRenderer.invoke(IPC.voiceInterrupt),
+    setConsent: (granted: boolean) => ipcRenderer.invoke(IPC.voiceSetConsent, { granted }),
+    setDevice: (request: VoiceSetDeviceRequest) => ipcRenderer.invoke(IPC.voiceSetDevice, request),
+    // Caminho de áudio: `send` não cria promise nem espera o main. O bloco
+    // chega como Uint8Array (structured clone), sem cópia extra no renderer.
+    sendAudioChunk: (data: Uint8Array) => ipcRenderer.send(IPC.voiceAudioChunk, data),
+    sendBargeIn: () => ipcRenderer.send(IPC.voiceBargeIn),
+    sendSilence: () => ipcRenderer.send(IPC.voiceSilence),
+    onState: (listener: (push: VoiceStatePush) => void) => {
+      const handler = (_event: unknown, push: VoiceStatePush) => listener(push)
+      ipcRenderer.on(IPC.voiceState, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.voiceState, handler)
+      }
+    },
+    onAudio: (listener: (push: VoiceAudioPush) => void) => {
+      const handler = (_event: unknown, push: VoiceAudioPush) => listener(push)
+      ipcRenderer.on(IPC.voiceAudio, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.voiceAudio, handler)
+      }
+    },
+    onTranscript: (listener: (push: VoiceTranscriptPush) => void) => {
+      const handler = (_event: unknown, push: VoiceTranscriptPush) => listener(push)
+      ipcRenderer.on(IPC.voiceTranscript, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.voiceTranscript, handler)
+      }
+    }
   }
 }
 

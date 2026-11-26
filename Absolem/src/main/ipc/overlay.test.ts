@@ -119,7 +119,14 @@ function makeConfig(): AbsolemConfig {
       hideOnFullscreen: true
     },
     theme: defaultTheme(),
-    voice: { enabled: false, inputDeviceId: null, outputVolume: 1 },
+    voice: {
+      enabled: false,
+      inputDeviceId: null,
+      outputDeviceId: null,
+      outputVolume: 1,
+      maxSessionMinutes: 15,
+      silenceTimeoutSeconds: 20
+    },
     gemini: { model: 'gemini-2.0-flash', temperature: 0.7, monthlyTokenCap: 2_000_000 },
     privacy: { telemetry: false, screenCapture: false },
     permissions: {

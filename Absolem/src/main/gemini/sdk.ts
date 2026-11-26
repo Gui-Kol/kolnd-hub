@@ -7,6 +7,8 @@ import type {
   GeminiTransport,
   GeminiUsageMetadata
 } from './transport'
+import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } from './liveTransport'
+import { LIVE_AUDIO_OUTPUT_RATE } from './liveTransport'
 
 /**
  * Único arquivo do main que importa `@google/genai`.
@@ -131,6 +133,156 @@ export class SdkGeminiTransport implements GeminiTransport {
         typeof response.candidates?.[0]?.finishReason === 'string'
           ? String(response.candidates[0].finishReason)
           : undefined
+    }
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64')
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  return new Uint8Array(Buffer.from(value, 'base64'))
+}
+
+function rateFromMimeType(mimeType: string | undefined): number {
+  if (!mimeType) return LIVE_AUDIO_OUTPUT_RATE
+  const match = /rate=(\d+)/i.exec(mimeType)
+  if (!match) return LIVE_AUDIO_OUTPUT_RATE
+  const rate = Number(match[1])
+  return Number.isFinite(rate) && rate > 0 ? rate : LIVE_AUDIO_OUTPUT_RATE
+}
+
+/**
+ * Transporte real da Live API (`ai.live.connect`).
+ *
+ * Métodos usados do SDK 3.6.1 (confirmados no gate):
+ * - `ai.live.connect({ model, config, callbacks })` -> `Session`;
+ * - `Session.sendRealtimeInput({ audio: { data, mimeType } })` (PCM16 16 kHz)
+ *   e `sendRealtimeInput({ text })`;
+ * - `Session.sendClientContent({ turns, turnComplete })` (histórico textual na
+ *   reconexão);
+ * - `Session.sendRealtimeInput({ activityStart: {} })` como sinal de
+ *   interrupção (o default `START_OF_ACTIVITY_INTERRUPTS` corta a resposta);
+ * - `Session.close()`;
+ * - `LiveServerMessage.serverContent` (`modelTurn`, `inputTranscription`,
+ *   `outputTranscription`, `interrupted`, `turnComplete`), `toolCall` e
+ *   `usageMetadata`.
+ *
+ * O áudio do modelo sai em PCM16 24 kHz; o MIME type do chunk manda quando
+ * presente. Nada é gravado em disco.
+ */
+export class SdkLiveTransport implements LiveTransport {
+  async connect(options: LiveConnectOptions): Promise<LiveConnection> {
+    const { GoogleGenAI, Modality } = await loadSdk()
+    const ai = new GoogleGenAI({ apiKey: options.apiKey })
+
+    const config: Record<string, unknown> = {
+      responseModalities: [Modality.AUDIO],
+      temperature: options.temperature,
+      systemInstruction: { parts: [{ text: options.systemInstruction }] },
+      inputAudioTranscription: {},
+      outputAudioTranscription: {}
+    }
+    if (options.tools && options.tools.length > 0) {
+      config.tools = [
+        {
+          functionDeclarations: options.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          }))
+        }
+      ]
+    }
+
+    const emit = (event: LiveEvent): void => options.onEvent(event)
+
+    const session = await ai.live.connect({
+      model: options.model,
+      config: config as never,
+      callbacks: {
+        onmessage: (message) => {
+          const content = message.serverContent
+          if (content) {
+            if (content.interrupted) emit({ type: 'interrupted' })
+            if (content.turnComplete) emit({ type: 'turnComplete' })
+
+            const input = content.inputTranscription ?? content.interimInputTranscription
+            if (input?.text) {
+              const final = content.inputTranscription !== undefined && input.finished === true
+              emit({ type: 'transcript', role: 'user', text: input.text, final })
+            }
+            if (content.outputTranscription?.text) {
+              emit({
+                type: 'transcript',
+                role: 'model',
+                text: content.outputTranscription.text,
+                final: content.outputTranscription.finished === true
+              })
+            }
+
+            for (const part of content.modelTurn?.parts ?? []) {
+              const inline = part.inlineData
+              if (!inline?.data) continue
+              emit({
+                type: 'audio',
+                data: base64ToBytes(inline.data),
+                sampleRate: rateFromMimeType(inline.mimeType)
+              })
+            }
+          }
+
+          if (message.toolCall?.functionCalls) {
+            const calls = message.toolCall.functionCalls
+              .filter(
+                (call): call is { name: string; args?: Record<string, unknown> } =>
+                  typeof call.name === 'string' && call.name.length > 0
+              )
+              .map((call) => ({ name: call.name, args: call.args ?? {} }))
+            if (calls.length > 0) emit({ type: 'toolCall', calls })
+          }
+
+          if (message.usageMetadata) {
+            const usage = toUsage(message.usageMetadata)
+            if (usage) emit({ type: 'usage', usage })
+          }
+        },
+        onerror: (event) => emit({ type: 'error', error: event }),
+        onclose: (event) => emit({ type: 'closed', reason: String(event?.reason ?? '') })
+      }
+    })
+
+    if (options.history && options.history.length > 0) {
+      session.sendClientContent({
+        turns: options.history.map((turn) => ({
+          role: turn.role,
+          parts: [{ text: turn.text }]
+        })) as never,
+        turnComplete: false
+      })
+    }
+
+    return {
+      sendAudio: (pcm) => {
+        session.sendRealtimeInput({
+          audio: {
+            data: bytesToBase64(pcm),
+            mimeType: `audio/pcm;rate=${16_000}`
+          }
+        })
+      },
+      sendText: (text) => {
+        session.sendRealtimeInput({ text })
+      },
+      interrupt: () => {
+        // Atividade de usuário interrompe a resposta por padrão
+        // (`ActivityHandling.START_OF_ACTIVITY_INTERRUPTS`).
+        session.sendRealtimeInput({ activityStart: {} })
+      },
+      close: () => {
+        session.close()
+      }
     }
   }
 }

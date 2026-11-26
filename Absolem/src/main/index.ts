@@ -12,7 +12,7 @@ import { setThemeFromRequest } from './ipc/theme'
 import { isQuitting, markQuitting } from './quitState'
 import { getStoreSnapshot } from './store'
 import { logger } from './logger'
-import { getUsageMeter } from './gemini/instance'
+import { getUsageMeter, getGeminiEngine } from './gemini/instance'
 import { createTray } from './tray/tray'
 import { isFirstRun, markFirstRunComplete } from './firstRun'
 import { getMainWindow, showMainWindow } from './lifecycle'
@@ -190,6 +190,28 @@ function scheduleSmoke(): void {
         logger.warn('lifecycle', 'smoke: falha ao ler gemini:status', err)
       })
   }, 2450)
+  setTimeout(() => {
+    // Voz sem chave: `voice:status` responde localmente e `voice:start` vira
+    // `error`/auth sem abrir microfone nem rede. Com chave configurada o smoke
+    // nunca inicia captura (o teste manual cobre o caminho real).
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler voice:status')
+      return
+    }
+    const configured = getGeminiEngine().isConfigured()
+    const script = configured
+      ? `(async () => ({ status: await window.absolem.voice.status(), start: 'ignorado (chave configurada)' }))()`
+      : `(async () => ({ status: await window.absolem.voice.status(), start: await window.absolem.voice.start(), after: await window.absolem.voice.status() }))()`
+    void window.webContents
+      .executeJavaScript(script)
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: voice:status + voice:start sem chave', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao exercitar a voz', err)
+      })
+  }, 2500)
   setTimeout(() => {
     logger.info('lifecycle', 'smoke: abrindo Configurações (rota #settings)')
     showMainWindow()

@@ -46,7 +46,12 @@ export interface OverlayConfig extends OverlayLayout {
 export interface VoiceConfig {
   enabled: boolean
   inputDeviceId: string | null
+  outputDeviceId: string | null
   outputVolume: number
+  /** Limite de duração contínua da sessão Live (gate de custo). */
+  maxSessionMinutes: number
+  /** Fechamento automático por falta de fala (gate de custo). */
+  silenceTimeoutSeconds: number
 }
 
 export interface GeminiConfig {

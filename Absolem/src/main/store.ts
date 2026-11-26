@@ -32,12 +32,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.3.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.5.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.4.0'
+export const STORE_SCHEMA_VERSION = '1.5.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -58,7 +58,14 @@ export function defaultThemeConfig(): ThemeConfig {
 }
 
 export function defaultVoiceConfig(): VoiceConfig {
-  return { enabled: false, inputDeviceId: null, outputVolume: 1 }
+  return {
+    enabled: false,
+    inputDeviceId: null,
+    outputDeviceId: null,
+    outputVolume: 1,
+    maxSessionMinutes: 15,
+    silenceTimeoutSeconds: 20
+  }
 }
 
 export function defaultGeminiConfig(): GeminiConfig {
@@ -130,7 +137,10 @@ export function normalizeVoiceConfig(input: unknown): VoiceConfig {
   return {
     enabled: raw.enabled === true,
     inputDeviceId: normalizeOptionalId(raw.inputDeviceId),
-    outputVolume: clampNumber(raw.outputVolume, 0, 1, 1)
+    outputDeviceId: normalizeOptionalId(raw.outputDeviceId),
+    outputVolume: clampNumber(raw.outputVolume, 0, 1, 1),
+    maxSessionMinutes: clampNumber(raw.maxSessionMinutes, 1, 120, 15),
+    silenceTimeoutSeconds: clampNumber(raw.silenceTimeoutSeconds, 5, 600, 20)
   }
 }
 
@@ -273,7 +283,10 @@ const schema: Store.Schema<AbsolemConfig> = {
     properties: {
       enabled: { type: 'boolean' },
       inputDeviceId: { type: ['string', 'null'] },
-      outputVolume: { type: 'number' }
+      outputDeviceId: { type: ['string', 'null'] },
+      outputVolume: { type: 'number' },
+      maxSessionMinutes: { type: 'number' },
+      silenceTimeoutSeconds: { type: 'number' }
     },
     additionalProperties: false
   },
@@ -431,12 +444,22 @@ export function migrate140(store: StoreLike): void {
   store.set('chat', normalizeChatState(store.get('chat', defaultChatConfig())))
 }
 
+/**
+ * 1.5.0: aditiva. Preserva `voice.enabled`/`inputDeviceId`/`outputVolume` e
+ * acrescenta `outputDeviceId`, `maxSessionMinutes` (15) e
+ * `silenceTimeoutSeconds` (20). Idempotente.
+ */
+export function migrate150(store: StoreLike): void {
+  store.set('voice', normalizeVoiceConfig(store.get('voice', defaultVoiceConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
   '1.2.0': migrate120,
   '1.3.0': migrate130,
-  '1.4.0': migrate140
+  '1.4.0': migrate140,
+  '1.5.0': migrate150
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

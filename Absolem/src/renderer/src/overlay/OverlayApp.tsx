@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_AVATAR_ACCENT } from '../../../shared/avatar'
+import { VOICE_REASONS, VOICE_STATE_LABELS, type VoiceState } from '../../../shared/voice'
 import type { AvatarHandle } from './avatar'
 import { parseOverlayFlags } from './overlayFlags'
+import workletUrl from '../audio/pcm-worklet.js?url'
+import {
+  PCM_WORKLET_NAME,
+  createPcmCapture,
+  type AudioContextLike,
+  type AudioWorkletNodeLike,
+  type PcmCapture
+} from '../audio/capture'
+import { createPlayback, type Playback, type PlaybackAudioContextLike } from '../audio/playback'
+import { createVad, type Vad } from '../audio/vad'
+import { pcm16BytesToFloat, pcm16Rms } from '../audio/pcm'
+import { createDeviceWatcher, type DeviceWatcher, type MediaDevicesLike } from '../audio/devices'
 
 /**
  * Casca do overlay do avatar (task 02).
@@ -21,6 +34,9 @@ export function OverlayApp() {
   const [debugLine, setDebugLine] = useState<string | null>(null)
   // Observável de smoke: prova que o push `theme:changed` chegou e foi aplicado.
   const [themePresetId, setThemePresetId] = useState('')
+  const [voiceState, setVoiceState] = useState<VoiceState>('off')
+  const [voiceReason, setVoiceReason] = useState<string | null>(null)
+  const voiceToggleRef = useRef<() => void>(() => undefined)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -38,6 +54,155 @@ export function OverlayApp() {
     let visible = true
     let themeReducedMotion = false
 
+    // Voz (task 06): captura PCM, reprodução e VAD vivem no renderer; o main
+    // é o dono do estado. Estas variáveis são recriadas a cada mount.
+    let playback: Playback | null = null
+    let playbackContext: AudioContext | null = null
+    let capture: PcmCapture | null = null
+    let vad: Vad = createVad()
+    let unsubscribeVoiceState: (() => void) | null = null
+    let unsubscribeVoiceAudio: (() => void) | null = null
+    let voiceLevelTimer: ReturnType<typeof setInterval> | null = null
+    let currentVoiceState: VoiceState = 'off'
+    let lastMicLevel = 0
+    let inputDeviceId: string | null = null
+    let outputDeviceId: string | null = null
+    let outputVolume = 1
+    let deviceWatcher: DeviceWatcher | null = null
+
+    const ensurePlayback = async (): Promise<boolean> => {
+      if (disposed) return false
+      if (!playbackContext) {
+        try {
+          playbackContext = new AudioContext({ sampleRate: 48_000 })
+        } catch {
+          try {
+            playbackContext = new AudioContext()
+          } catch {
+            return false
+          }
+        }
+        playback = createPlayback({
+          context: playbackContext as unknown as PlaybackAudioContextLike,
+          getVolume: () => outputVolume,
+          logger: { warn: (scope, message) => console.warn(scope, message) }
+        })
+        if (outputDeviceId) void playback.setOutputDevice(outputDeviceId)
+      }
+      if (playbackContext.state === 'suspended') {
+        try {
+          await playbackContext.resume()
+        } catch {
+          // Sem gesto: o próximo clique tenta de novo.
+        }
+      }
+      return true
+    }
+
+    const handleMicChunk = (chunk: Uint8Array): void => {
+      window.absolem.voice.sendAudioChunk(chunk)
+      lastMicLevel = pcm16Rms(chunk)
+      const events = vad.process(pcm16BytesToFloat(chunk), performance.now())
+      for (const event of events) {
+        if (event.type === 'speech-start') {
+          // Barge-in só durante a fala do modelo; em `listening` o VAD só
+          // alimenta o indicador.
+          if (currentVoiceState === 'speaking') {
+            playback?.flush()
+            window.absolem.voice.sendBargeIn()
+          }
+        } else {
+          window.absolem.voice.sendSilence()
+        }
+      }
+    }
+
+    const startCapture = async (): Promise<void> => {
+      if (disposed) return
+      if (!(await ensurePlayback())) return
+      if (!capture) {
+        capture = createPcmCapture({
+          // Contexto próprio da captura: fechá-lo no stop não derruba o
+          // contexto de reprodução.
+          createContext: () => {
+            try {
+              return new AudioContext({ sampleRate: 48_000 }) as unknown as AudioContextLike
+            } catch {
+              return new AudioContext() as unknown as AudioContextLike
+            }
+          },
+          getUserMedia: (constraints) =>
+            navigator.mediaDevices.getUserMedia(constraints as unknown as MediaStreamConstraints),
+          createWorkletNode: (context) =>
+            new AudioWorkletNode(
+              context as unknown as BaseAudioContext,
+              PCM_WORKLET_NAME
+            ) as unknown as AudioWorkletNodeLike,
+          workletUrl,
+          getDeviceId: () => inputDeviceId,
+          onChunk: handleMicChunk,
+          logger: { warn: (scope, message) => console.warn(scope, message) }
+        })
+      }
+      await capture.start()
+    }
+
+    const startLevelTimer = (): void => {
+      if (voiceLevelTimer) return
+      voiceLevelTimer = setInterval(() => {
+        if (currentVoiceState === 'speaking') {
+          handle?.setLevel(playback?.getLastLevel() ?? 0)
+        } else if (currentVoiceState === 'listening' || currentVoiceState === 'thinking') {
+          handle?.setLevel(lastMicLevel)
+          lastMicLevel *= 0.82
+        } else {
+          handle?.setLevel(0)
+        }
+      }, 60)
+    }
+
+    const stopLevelTimer = (): void => {
+      if (voiceLevelTimer) clearInterval(voiceLevelTimer)
+      voiceLevelTimer = null
+    }
+
+    const applyVoiceState = (change: { state: VoiceState; reason?: string }): void => {
+      currentVoiceState = change.state
+      setVoiceState(change.state)
+      setVoiceReason(change.reason ?? null)
+      if (
+        change.state === 'listening' &&
+        (change.reason === VOICE_REASONS.interrupted || change.reason === VOICE_REASONS.bargeIn)
+      ) {
+        // Interrupção pedida pelo main (botão "interromper") ou barge-in:
+        // corta o áudio já agendado no renderer. O fim natural do turno não
+        // flusha, para não cortar a cauda da resposta.
+        playback?.flush()
+      }
+      if (change.state === 'listening' || change.state === 'speaking') {
+        startLevelTimer()
+        void startCapture()
+      } else if (change.state === 'connecting' || change.state === 'thinking') {
+        startLevelTimer()
+      } else {
+        capture?.stop()
+        playback?.flush()
+        vad = createVad()
+        lastMicLevel = 0
+        handle?.setLevel(0)
+        stopLevelTimer()
+      }
+    }
+
+    const onAvatarPointerDown = (): void => {
+      setInteractive(true)
+      void (async () => {
+        await ensurePlayback()
+        await window.absolem.voice.toggle()
+      })()
+    }
+    voiceToggleRef.current = onAvatarPointerDown
+
     const onMotionChange = (): void => {
       handle?.setReducedMotion(motionMedia?.matches === true || themeReducedMotion)
     }
@@ -49,14 +214,41 @@ export function OverlayApp() {
         const statusPromise = window.absolem.overlayStatus().catch(() => null)
         const avatarStatusPromise = window.absolem.avatar.getStatus().catch(() => null)
         const themePromise = window.absolem.themeGet().catch(() => null)
+        const voiceStatusPromise = window.absolem.voice.status().catch(() => null)
         const module = await import('./avatar')
-        const [status, avatarStatus, themeResult] = await Promise.all([
+        const [status, avatarStatus, themeResult, voiceStatusResult] = await Promise.all([
           statusPromise,
           avatarStatusPromise,
-          themePromise
+          themePromise,
+          voiceStatusPromise
         ])
         if (disposed) return
 
+        if (voiceStatusResult?.ok) {
+          inputDeviceId = voiceStatusResult.status.inputDeviceId
+          outputDeviceId = voiceStatusResult.status.outputDeviceId
+          outputVolume = Math.min(1, Math.max(0, voiceStatusResult.status.outputVolume))
+        }
+
+        // Hot-swap: se o dispositivo escolhido sumir, o main encerra a sessão
+        // e a preferência volta ao default. Nunca troca no meio de uma fala.
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+          deviceWatcher = createDeviceWatcher({
+            mediaDevices: navigator.mediaDevices as unknown as MediaDevicesLike,
+            getSelection: () => ({ inputDeviceId, outputDeviceId }),
+            onSelectionLost: (kind) => {
+              if (kind === 'input') {
+                inputDeviceId = null
+                void window.absolem.voice.setDevice({ inputDeviceId: null })
+              } else {
+                outputDeviceId = null
+                void window.absolem.voice.setDevice({ outputDeviceId: null })
+              }
+            },
+            onError: (err) => console.warn('devices: falha ao atualizar a lista', err)
+          })
+          void deviceWatcher.refresh()
+        }
         if (status?.ok) visible = status.status.visible
         const systemReducedMotion =
           typeof window.matchMedia === 'function' &&
@@ -102,8 +294,30 @@ export function OverlayApp() {
           if (typeof payload.level === 'number') handle?.setLevel(payload.level)
         })
 
+        // Voz: o main manda o estado; o renderer só reflete e alimenta o
+        // áudio local (captura, reprodução e VAD).
+        unsubscribeVoiceState = window.absolem.voice.onState((change) => {
+          if (!disposed) applyVoiceState(change)
+        })
+        unsubscribeVoiceAudio = window.absolem.voice.onAudio((push) => {
+          if (disposed) return
+          if (!playback) {
+            void ensurePlayback().then(() => {
+              playback?.enqueue(push.data, push.sampleRate)
+            })
+            return
+          }
+          playback.enqueue(push.data, push.sampleRate)
+        })
+
         // Hidratação no mount: cobre o caso de o overlay abrir depois que a
         // task 06 já mudou o estado.
+        if (voiceStatusResult?.ok) {
+          applyVoiceState({
+            state: voiceStatusResult.status.state,
+            ...(voiceStatusResult.status.reason ? { reason: voiceStatusResult.status.reason } : {})
+          })
+        }
         if (avatarStatus?.ok) {
           handle.setState(avatarStatus.state)
           handle.setLevel(avatarStatus.level)
@@ -140,28 +354,59 @@ export function OverlayApp() {
       disposed = true
       if (hudTimer) clearInterval(hudTimer)
       if (fakeVoiceTimer) clearInterval(fakeVoiceTimer)
+      stopLevelTimer()
+      deviceWatcher?.stop()
+      capture?.stop()
+      playback?.dispose()
+      if (playbackContext) void playbackContext.close().catch(() => undefined)
       motionMedia?.removeEventListener('change', onMotionChange)
       unsubscribeStatus?.()
       unsubscribeApply?.()
       unsubscribeTheme?.()
+      unsubscribeVoiceState?.()
+      unsubscribeVoiceAudio?.()
       handle?.dispose()
       handle = null
     }
   }, [])
 
   return (
-    <div className="overlay-root" data-theme-preset={themePresetId}>
-      {/* A task 06 substitui o pointerdown por clique-para-falar. Por ora,
-          reafirmar o estado interativo prova que o evento chegou ao overlay. */}
+    <div className="overlay-root" data-theme-preset={themePresetId} data-voice-state={voiceState}>
+      {/* Clique no avatar = toggle da voz (task 06). O pointerdown também
+          mantém a janela interativa enquanto o mouse está sobre o avatar. */}
       <div
         className="overlay-avatar"
-        role="img"
-        aria-label="Avatar do Absolem"
+        role="button"
+        tabIndex={-1}
+        aria-label={`Avatar do Absolem. ${VOICE_STATE_LABELS[voiceState]}.`}
+        aria-pressed={voiceState !== 'off'}
+        title={voiceReason ?? VOICE_STATE_LABELS[voiceState]}
         onPointerEnter={() => setInteractive(true)}
         onPointerLeave={() => setInteractive(false)}
-        onPointerDown={() => setInteractive(true)}
+        onPointerDown={() => voiceToggleRef.current()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            voiceToggleRef.current()
+          }
+        }}
       >
         <canvas ref={canvasRef} className="overlay-canvas" aria-hidden="true" />
+      </div>
+      <div
+        className="voice-indicator"
+        data-voice-state={voiceState}
+        role="status"
+        aria-live="polite"
+        title={voiceReason ?? VOICE_STATE_LABELS[voiceState]}
+      >
+        <span className="voice-indicator__dot" aria-hidden="true" />
+        <span className="voice-indicator__waves" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="voice-indicator__label">{VOICE_STATE_LABELS[voiceState]}</span>
       </div>
       {debugLine ? <pre className="overlay-debug">{debugLine}</pre> : null}
     </div>

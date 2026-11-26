@@ -129,6 +129,99 @@ html.overlay-route #root {
   display: none;
 }
 
+/* Indicador de voz (task 06): ponto vermelho quando o microfone está aberto
+ * e ondas quando o Absolem está ouvindo. O texto fica só para leitores de tela
+ * (a task 11 expõe o estado completo). */
+.voice-indicator {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.voice-indicator[data-voice-state='listening'],
+.voice-indicator[data-voice-state='thinking'],
+.voice-indicator[data-voice-state='speaking'],
+.voice-indicator[data-voice-state='error'] {
+  opacity: 1;
+}
+
+.voice-indicator__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.85);
+}
+
+.voice-indicator[data-voice-state='error'] .voice-indicator__dot {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.85);
+}
+
+.voice-indicator__waves {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.voice-indicator[data-voice-state='listening'] .voice-indicator__waves {
+  display: inline-flex;
+}
+
+.voice-indicator__waves i {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 9999px;
+  background: #93c5fd;
+  transform-origin: bottom;
+  animation: voice-wave 900ms ease-in-out infinite;
+}
+
+.voice-indicator__waves i:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.voice-indicator__waves i:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.voice-indicator__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes voice-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-indicator__waves i {
+    animation: none;
+    transform: scaleY(0.6);
+  }
+}
+
 /* HUD de debug (`?debug=1`): fora do caminho do mouse e sem fundo opaco. */
 .overlay-debug {
   position: absolute;

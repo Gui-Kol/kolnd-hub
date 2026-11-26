@@ -16,6 +16,14 @@ import type {
   GeminiUsageWarningPush
 } from './gemini'
 import type { ThemeConfig } from './theme'
+import type {
+  VoiceAudioPush,
+  VoiceSetConsentRequest,
+  VoiceSetDeviceRequest,
+  VoiceStatePush,
+  VoiceStatus,
+  VoiceTranscriptPush
+} from './voice'
 
 /**
  * Contrato IPC do Absolem.
@@ -60,6 +68,19 @@ export const IPC = {
   chatDelta: 'chat:delta',
   chatDone: 'chat:done',
   chatError: 'chat:error',
+  voiceStart: 'voice:start',
+  voiceStop: 'voice:stop',
+  voiceToggle: 'voice:toggle',
+  voiceStatus: 'voice:status',
+  voiceInterrupt: 'voice:interrupt',
+  voiceSetConsent: 'voice:set-consent',
+  voiceSetDevice: 'voice:set-device',
+  voiceAudioChunk: 'voice:audio-chunk',
+  voiceBargeIn: 'voice:barge-in',
+  voiceSilence: 'voice:silence',
+  voiceState: 'voice:state',
+  voiceAudio: 'voice:audio',
+  voiceTranscript: 'voice:transcript',
   diagnosticsGemini: 'diagnostics:gemini'
 } as const
 
@@ -74,6 +95,7 @@ export const IPC_PREFIXES = [
   'theme',
   'gemini',
   'chat',
+  'voice',
   'diagnostics'
 ] as const
 
@@ -194,9 +216,19 @@ export interface ChatCancelRequest {
   requestId: string
 }
 
+export type VoiceStatusResult = { ok: true; status: VoiceStatus } | IpcError
+
 export type DiagnosticsGeminiResult = { ok: true; diagnostics: GeminiDiagnostics } | IpcError
 
 export type { ChatDeltaPush, ChatDonePush, ChatErrorPush, ChatUsagePayload, GeminiUsageWarningPush }
+export type {
+  VoiceAudioPush,
+  VoiceSetConsentRequest,
+  VoiceSetDeviceRequest,
+  VoiceStatePush,
+  VoiceStatus,
+  VoiceTranscriptPush
+}
 
 /**
  * Mapa canal → request/response. Mantém o preload e os handlers alinhados:
@@ -239,6 +271,19 @@ export interface IpcContract {
   [IPC.chatDelta]: { request: undefined; response: ChatDeltaPush }
   [IPC.chatDone]: { request: undefined; response: ChatDonePush }
   [IPC.chatError]: { request: undefined; response: ChatErrorPush }
+  [IPC.voiceStart]: { request: undefined; response: VoiceStatusResult }
+  [IPC.voiceStop]: { request: undefined; response: VoiceStatusResult }
+  [IPC.voiceToggle]: { request: undefined; response: VoiceStatusResult }
+  [IPC.voiceStatus]: { request: undefined; response: VoiceStatusResult }
+  [IPC.voiceInterrupt]: { request: undefined; response: VoiceStatusResult }
+  [IPC.voiceSetConsent]: { request: VoiceSetConsentRequest; response: VoiceStatusResult }
+  [IPC.voiceSetDevice]: { request: VoiceSetDeviceRequest; response: VoiceStatusResult }
+  [IPC.voiceAudioChunk]: { request: Uint8Array; response: never }
+  [IPC.voiceBargeIn]: { request: undefined; response: never }
+  [IPC.voiceSilence]: { request: undefined; response: never }
+  [IPC.voiceState]: { request: undefined; response: VoiceStatePush }
+  [IPC.voiceAudio]: { request: undefined; response: VoiceAudioPush }
+  [IPC.voiceTranscript]: { request: undefined; response: VoiceTranscriptPush }
   [IPC.diagnosticsGemini]: { request: undefined; response: DiagnosticsGeminiResult }
 }
 
@@ -289,6 +334,22 @@ export interface AbsolemApi {
     onDelta: (listener: (push: ChatDeltaPush) => void) => () => void
     onDone: (listener: (push: ChatDonePush) => void) => () => void
     onError: (listener: (push: ChatErrorPush) => void) => () => void
+  }
+  voice: {
+    start: () => Promise<VoiceStatusResult>
+    stop: () => Promise<VoiceStatusResult>
+    toggle: () => Promise<VoiceStatusResult>
+    status: () => Promise<VoiceStatusResult>
+    interrupt: () => Promise<VoiceStatusResult>
+    setConsent: (granted: boolean) => Promise<VoiceStatusResult>
+    setDevice: (request: VoiceSetDeviceRequest) => Promise<VoiceStatusResult>
+    /** Envia PCM16 16 kHz sem esperar resposta (nunca `invoke`). */
+    sendAudioChunk: (data: Uint8Array) => void
+    sendBargeIn: () => void
+    sendSilence: () => void
+    onState: (listener: (push: VoiceStatePush) => void) => () => void
+    onAudio: (listener: (push: VoiceAudioPush) => void) => () => void
+    onTranscript: (listener: (push: VoiceTranscriptPush) => void) => () => void
   }
   diagnostics: {
     gemini: () => Promise<DiagnosticsGeminiResult>

@@ -33,6 +33,18 @@ export default [
     ...jsxA11y.flatConfigs.recommended
   },
   {
+    // Worklet: globais do AudioWorkletScope (não existem no escopo global do
+    // Node/ESLint; o arquivo é emitido como asset e roda no Chromium).
+    files: ['src/renderer/src/audio/pcm-worklet.js'],
+    languageOptions: {
+      globals: {
+        AudioWorkletProcessor: 'readonly',
+        registerProcessor: 'readonly',
+        sampleRate: 'readonly'
+      }
+    }
+  },
+  {
     rules: {
       // catch {} vazio é intencional nos caminhos best-effort do logger.
       'no-empty': ['error', { allowEmptyCatch: true }],

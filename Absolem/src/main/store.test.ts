@@ -77,13 +77,14 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.4.0')
+    expect(options.projectVersion).toBe('1.5.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
       '1.2.0',
       '1.3.0',
-      '1.4.0'
+      '1.4.0',
+      '1.5.0'
     ])
   })
 
@@ -117,7 +118,14 @@ describe('store persistente', () => {
       shortcut: 'Control+Alt+A',
       hideOnFullscreen: true
     })
-    expect(snapshot.voice).toEqual({ enabled: true, inputDeviceId: null, outputVolume: 1 })
+    expect(snapshot.voice).toEqual({
+      enabled: true,
+      inputDeviceId: null,
+      outputDeviceId: null,
+      outputVolume: 1,
+      maxSessionMinutes: 15,
+      silenceTimeoutSeconds: 20
+    })
   })
 
   it('migração 1.1.0 preserva dados da 1.0.0, 1.2.0 converte e 1.3.0 migra o tema', () => {

@@ -93,6 +93,16 @@ export function getAvatarStatus(): AvatarStatus {
   return { state, level }
 }
 
+/**
+ * Atualiza o avatar a partir do main (task 06), sem passar por IPC.
+ * O push `avatar:apply` mantém o overlay sincronizado; se a janela ainda não
+ * existe, o `did-finish-load` reenvia o estado vigente.
+ */
+export function applyAvatarState(next: AvatarState): void {
+  state = next
+  send({ state })
+}
+
 /** Hook exclusivo de teste: solta a janela e volta ao estado inicial. */
 export function resetAvatarIpcForTests(): void {
   unbind()

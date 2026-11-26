@@ -36,6 +36,12 @@ export default defineConfig({
         '@': resolve('src/renderer/src')
       }
     },
+    build: {
+      // O worklet precisa sair como arquivo real em `assets/`: o
+      // `addModule` do AudioWorklet não aceita o conteúdo inline como data URL
+      // em todos os casos. Não há outros assets pequenos no renderer.
+      assetsInlineLimit: 0
+    },
     // Fonte única da versão: Absolem/package.json.
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version)

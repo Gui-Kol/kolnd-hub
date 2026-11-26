@@ -4,6 +4,7 @@ import type { OverlayLayout } from '../../shared/config'
 import { normalizeOverlayLayout } from '../../shared/overlay'
 import { logger } from '../logger'
 import { isAllowedNavigationUrl } from '../navigation'
+import { emitOverlayHidden } from '../voice/overlayEvents'
 import { computeBoundsForLayout } from './displays'
 import type { OverlayBounds } from './geometry'
 import {
@@ -188,9 +189,12 @@ export function showOverlayWindow(): BrowserWindow {
 export function hideOverlayWindow(): void {
   const window = getOverlayWindow()
   resetInteractive()
-  if (!window) return
-  if (window.isVisible()) window.hide()
-  logger.info('overlay', 'ocultada')
+  if (window && window.isVisible()) {
+    window.hide()
+    logger.info('overlay', 'ocultada')
+  }
+  // Privacidade: esconder o overlay fecha a captura de microfone (task 06).
+  emitOverlayHidden()
 }
 
 /** Alterna e devolve o estado resultante. */
