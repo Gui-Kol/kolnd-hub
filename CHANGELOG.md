@@ -8,6 +8,10 @@ Repositório: <https://github.com/Gui-Kol/kolnd-hub>
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Aba Memória em Meu PC**: monitoramento local da RAM com uso, total, disponível, cache/standby, commit e os 10 programas que mais consomem memória, atualizado a cada ~3 s apenas enquanto a aba está aberta. Duas otimizações por clique, sempre explícitas: **Liberar memória dos programas** devolve os working sets ao sistema sem UAC (nunca fecha nada e preserva o Hub e processos essenciais) e **Otimização avançada (UAC)** limpa a memória standby com elevação por `-EncodedCommand` (sem gravar scripts em pasta do usuário). A recusa do UAC vira mensagem amigável. Nada roda automaticamente e nada sai da máquina
+
 ## [1.2.2] - 2026-11-25
 
 ### Adicionado

@@ -19,6 +19,8 @@ import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot, getUsageLogPref
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
+import { registerRamMonitorIpc } from './ramMonitor'
+import { registerRamOptimizerIpc } from './ramOptimizer'
 import { registerBenchmarkIpc } from './benchmark'
 import { registerHwMonitorIpc } from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
@@ -357,6 +359,13 @@ app.whenReady().then(() => {
 
   // Registra os canais IPC da limpeza de arquivos temporários.
   registerTempCleanerIpc()
+
+  // Registra o canal IPC do monitor de memória (aba Memória em Meu PC).
+  registerRamMonitorIpc()
+
+  // Registra os canais IPC das otimizações de memória por clique (working sets
+  // sem UAC e standby list com UAC).
+  registerRamOptimizerIpc()
 
   // Registra os canais IPC do benchmark de CPU e do teste de estresse.
   registerBenchmarkIpc()

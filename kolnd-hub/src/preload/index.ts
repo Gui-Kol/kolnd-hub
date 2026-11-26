@@ -13,6 +13,7 @@ import type {
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
   ClearUsageResult,
@@ -244,6 +245,13 @@ const api = {
     paths?: string[]
     error?: string
   }> => ipcRenderer.invoke('system:clean-temp'),
+
+  // ── Memória do PC (Meu PC) ───────────────────────
+  ramInfo: (): Promise<RamSnapshot> => ipcRenderer.invoke('ram:info'),
+
+  optimizeRam: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:optimize'),
+
+  purgeStandbyMemory: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:purge-standby'),
 
   // ── Benchmark de CPU (Meu PC) ────────────────────
   // Tipos duplicados de propósito (main/preload/renderer não se importam).

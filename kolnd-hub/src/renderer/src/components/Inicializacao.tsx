@@ -11,7 +11,8 @@ import {
   Play,
   ArrowUpCircle,
   Trash,
-  Gauge
+  Gauge,
+  MemoryStick
 } from 'lucide-react'
 import { PcCleanup } from './PcCleanup'
 import { Badge, Button, Card, EmptyState } from './ui'
@@ -32,14 +33,17 @@ const PcUpdates = lazy(() => import('./PcUpdates').then((m) => ({ default: m.PcU
 const PcBenchmark = lazy(() => import('./PcBenchmark').then((m) => ({ default: m.PcBenchmark })))
 const PcMonitor = lazy(() => import('./PcMonitor').then((m) => ({ default: m.PcMonitor })))
 const PcDisplay = lazy(() => import('./PcDisplay').then((m) => ({ default: m.PcDisplay })))
+const PcMemory = lazy(() => import('./PcMemory').then((m) => ({ default: m.PcMemory })))
 
-type PcTab = 'inicializacao' | 'tela' | 'atualizacoes' | 'limpeza' | 'benchmark' | 'monitor'
+type PcTab =
+  'inicializacao' | 'tela' | 'atualizacoes' | 'limpeza' | 'memoria' | 'benchmark' | 'monitor'
 
 const PC_TABS: Array<{ id: PcTab; label: string; icon: typeof Monitor }> = [
   { id: 'inicializacao', label: 'Inicialização', icon: Monitor },
   { id: 'tela', label: 'Tela', icon: MonitorCog },
   { id: 'atualizacoes', label: 'Atualizações', icon: ArrowUpCircle },
   { id: 'limpeza', label: 'Limpeza', icon: Trash2 },
+  { id: 'memoria', label: 'Memória', icon: MemoryStick },
   { id: 'benchmark', label: 'Benchmark', icon: Gauge },
   { id: 'monitor', label: 'Monitor', icon: Activity }
 ]
@@ -568,6 +572,13 @@ export function Inicializacao({
 
       {/* ── Aba: Limpeza (temporários do sistema) ────────── */}
       {activeTab === 'limpeza' && <PcCleanup />}
+
+      {/* ── Aba: Memória (uso e otimizações por clique) ──── */}
+      {activeTab === 'memoria' && (
+        <Suspense fallback={null}>
+          <PcMemory />
+        </Suspense>
+      )}
 
       {/* ── Aba: Benchmark de CPU ────────────────────────── */}
       {activeTab === 'benchmark' && (

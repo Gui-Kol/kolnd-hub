@@ -192,6 +192,45 @@ export interface CleanResult {
   error?: string
 }
 
+/** Processo que mais consome memória física (working set). */
+export interface RamProcessInfo {
+  pid: number
+  name: string
+  workingSetBytes: number
+}
+
+/** Leitura pontual da memória do PC (aba Memória em Meu PC). */
+export interface RamSnapshot {
+  ok: boolean
+  totalBytes: number
+  usedBytes: number
+  usedPercent: number
+  freeBytes: number
+  /** Disponível para novos processos; null na leitura básica do Node. */
+  availableBytes: number | null
+  /** Cache do sistema; null na leitura básica do Node. */
+  cacheBytes: number | null
+  /** Soma das listas standby; null na leitura básica do Node. */
+  standbyBytes: number | null
+  /** Commit total; null na leitura básica do Node. */
+  committedBytes: number | null
+  topProcesses: RamProcessInfo[]
+  source: 'cim' | 'os'
+  error?: string
+}
+
+/** Resultado das otimizações de memória (working sets ou standby list). */
+export interface RamOptimizeResult {
+  ok: boolean
+  cancelled?: boolean
+  mode: 'trim' | 'purge'
+  freedBytes: number
+  trimmedProcesses?: number
+  skipped: number
+  errors: number
+  error?: string
+}
+
 /** Nota de uma carga do benchmark (MOps/s em cada fase). */
 export interface BenchmarkTestScore {
   id: string

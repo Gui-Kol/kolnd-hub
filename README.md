@@ -7,7 +7,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | Pasta / arquivo            | O que é                                                                                                                                                                                                      | Stack                                                              |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                                                                      | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
-| `Mark-LVII/`                | **Mark LVII (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                                                                | Python + PyQt6, empacotado com PyInstaller                         |
+| `Mark-LVII/`               | **Mark LVII (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                                                               | Python + PyQt6, empacotado com PyInstaller                         |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                                                                | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                                                              | CMD + PowerShell                                                   |
 | `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
@@ -16,18 +16,18 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 - **Dashboard** com o status de cada programa do ecossistema (rodando/parado, PID, logs ao vivo), iniciar/parar individual e ações em lote.
 - **Biblioteca de jogos**: busca e adiciona automaticamente os jogos instalados na Steam, Epic Games e Minecraft Launcher (ou adiciona qualquer `.exe`), extrai o ícone do executável, permite escolher uma capa, renomeia/troca ícone, capa e `.exe`, inicia o jogo (ou foca a janela se já estiver aberto) e encerra a árvore de processos.
-- **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
+- **Meu PC**: programas que iniciam com o Windows (com classificação de importância e remoção), escala/resolução de tela, atualizações via `winget`, limpeza de temporários, **memória** (uso, cache/standby, commit, top processos e otimizações por clique, sem nada automático), benchmark de CPU e monitor de hardware (CPU/GPU, temperaturas, energia) com intervalo ajustável e **HUD** sobreposto ao jogo.
 - **Big Picture**: interface em tela cheia navegável por controle (gamepad/TV).
 - **Acesso remoto** (ZeroTier) e **atualização pelo próprio app**, descritos abaixo.
 - **Bandeja do sistema** com abrir/ocultar, autostart opcional e encerramento; fechar a janela (X) mantém o Hub na bandeja.
 
 ## Programas gerenciados pelo Hub
 
-| Programa                                                                | Como é distribuído                                                           | Instalação                                                                                                                                                           |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mark LVII (JARVIS)**                                                   | Embutido no instalador do Hub em `resources/programs/MarkLVII/` (PyInstaller) | Automática na primeira execução do Hub                                                                                                                               |
-| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)         | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
-| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)             | Configurados em **Configurações** do app                                                                                                                             |
+| Programa                                                                | Como é distribuído                                                            | Instalação                                                                                                                                                           |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mark LVII (JARVIS)**                                                  | Embutido no instalador do Hub em `resources/programs/MarkLVII/` (PyInstaller) | Automática na primeira execução do Hub                                                                                                                               |
+| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)          | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
+| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)              | Configurados em **Configurações** do app                                                                                                                             |
 
 ## Acesso remoto (jogar de qualquer lugar)
 
@@ -262,7 +262,7 @@ kolnd-hub/src/
 │               # config persistente (electron-store com schema + migração IPC)
 ├── preload/    # bridge segura (contextBridge, sandbox habilitado)
 └── renderer/   # React: Dashboard, Biblioteca, Meu PC (inicialização, tela,
-                # atualizações, limpeza, benchmark, monitor + HUD),
+                # atualizações, limpeza, memória, benchmark, monitor + HUD),
                 # Configurações, FirstRunInstall e Big Picture (gamepad/TV)…
 ```
 
@@ -284,7 +284,7 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 | -------------- | -------------------------------------- |
 | `kolnd-hub/`   | MIT (ver `package.json`)               |
 | `kloud-games/` | GPL-3.0 (fork do Sunshine, LizardByte) |
-| `Mark-LVII/`   | Ver `Mark-LVII/LICENSE`                 |
+| `Mark-LVII/`   | Ver `Mark-LVII/LICENSE`                |
 
 ## Documentação adicional
 
