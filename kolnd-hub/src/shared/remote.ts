@@ -23,7 +23,7 @@ export const ZEROTIER_DOWNLOAD_URL = 'https://www.zerotier.com/download/'
  * Vídeo explicativo do modo remoto (Moonlight + ZeroTier). O Hub nunca carrega
  * nada sozinho: o navegador externo só abre no clique do usuário.
  */
-export const KLOUD_REMOTE_VIDEO_URL = 'https://www.youtube.com/watch?v=up3-UYYpErk'
+export const KLOUD_REMOTE_VIDEO_URL = 'https://youtu.be/2Ymk4tL5ryI'
 
 /**
  * Endpoint usado APENAS quando o usuário clica em "Descobrir meu IP público".
