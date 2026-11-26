@@ -8,7 +8,7 @@ import type { E2eContext } from './global-setup'
  * Navegação pelo novo shell "Estação" (task frontend-modelo-03).
  *
  * Cobre o que a sidebar fazia e que agora vive na topbar/mega menu:
- * mega abre e fecha com Esc (devolvendo o foco), as 4 páginas continuam
+ * mega abre e fecha com Esc (devolvendo o foco), as 5 páginas continuam
  * acessíveis, o item ativo tem `aria-current="page"` e `/` abre a busca global.
  *
  * Electron REAL (build de produção em `out/`), com `userData` isolado e
@@ -21,7 +21,7 @@ function loadContext(): E2eContext {
   return JSON.parse(readFileSync(CONTEXT_FILE, 'utf8')) as E2eContext
 }
 
-test('navegação: mega menu, 4 páginas e busca por atalho', async () => {
+test('navegação: mega menu, 5 páginas e busca por atalho', async () => {
   const ctx = loadContext()
 
   const electronApp = await electron.launch({
@@ -60,13 +60,20 @@ test('navegação: mega menu, 4 páginas e busca por atalho', async () => {
     await expect(window.getByRole('heading', { name: 'Biblioteca', exact: true })).toBeVisible()
     await expect(nav('Biblioteca')).toHaveAttribute('aria-current', 'page')
 
-    // 4) Mega → Configurações.
+    // 4) Mega → Chat: só a página (o conteúdo do site é do chat.spec para não
+    //    acoplar este teste à rede) e o webview começa a carregar em segundo plano.
+    await mais.click()
+    await menu.getByRole('button', { name: /Chat/ }).click()
+    await expect(window.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible()
+    await expect(nav('Chat')).toHaveAttribute('aria-current', 'page')
+
+    // 5) Mega → Configurações.
     await mais.click()
     await menu.getByRole('button', { name: /Configurações/ }).click()
     await expect(window.getByRole('heading', { name: 'Configurações', exact: true })).toBeVisible()
     await expect(nav('Configurações')).toHaveAttribute('aria-current', 'page')
 
-    // 5) Mega → Meu PC: o heading é o nome real do PC (chip da titlebar).
+    // 6) Mega → Meu PC: o heading é o nome real do PC (chip da titlebar).
     const pcName = (await window.locator('.title-bar [title]').first().innerText()).trim()
     expect(pcName.length).toBeGreaterThan(0)
     await mais.click()
@@ -75,7 +82,7 @@ test('navegação: mega menu, 4 páginas e busca por atalho', async () => {
     await expect(window.getByText('Manutenção e inicialização do seu PC')).toBeVisible()
     await expect(nav('Meu PC')).toHaveAttribute('aria-current', 'page')
 
-    // 6) "/" abre a busca global (mesmo overlay existente) e Esc fecha.
+    // 7) "/" abre a busca global (mesmo overlay existente) e Esc fecha.
     await window.keyboard.press('/')
     await expect(window.getByRole('combobox', { name: 'Busca global' })).toBeVisible()
     await window.keyboard.press('Escape')

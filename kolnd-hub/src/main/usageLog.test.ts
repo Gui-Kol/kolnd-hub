@@ -285,7 +285,8 @@ describe('summarizeUsage', () => {
       dashboard: 2,
       settings: 1,
       inicializacao: 0,
-      biblioteca: 0
+      biblioteca: 0,
+      chat: 0
     })
     expect(summary.byDay).toEqual([{ date: '2026-11-25', events: 9, seconds: 3600 }])
   })

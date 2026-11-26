@@ -48,6 +48,7 @@ import { stopProcessWatch } from './processWatch'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
 import { registerUsageIpc } from './ipc/usage'
+import { configureChatSession, installChatGuards } from './chat'
 import {
   appendUsageEvent,
   buildUsageEvent,
@@ -167,9 +168,15 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Só a janela principal pode criar o <webview> do Chat; o guest recebe
+      // `webviewTag: false` em `installChatGuards` (ver src/main/chat.ts).
+      webviewTag: true
     }
   })
+
+  // Valida o src, remove o preload e força isolamento/sandbox no guest.
+  installChatGuards(mainWindow)
 
   // O polling do monitor só roda com alguém olhando: X para a bandeja oculta a
   // janela e pausa o timer (o HUD, se visível, mantém). `--hidden` nasce oculta
@@ -475,6 +482,10 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // Sessão do <webview> do Chat: permissões restritas à origem do site. Precisa
+  // existir antes do primeiro attach (a janela é criada logo abaixo).
+  configureChatSession()
 
   const firstRun = isFirstRun()
   // --hidden: o Windows lança o Hub com essa flag (args registrados no Run,

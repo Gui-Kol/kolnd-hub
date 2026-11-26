@@ -118,12 +118,18 @@ e quebra os três processos em compilação, se esquecida.
 React puro (sem acesso a Node/DOM do main). Estrutura:
 
 - `components/` — Dashboard, Settings, Inicializacao (startup do PC), Biblioteca,
-  Big Picture (`BigPicture*.tsx`), FirstRunInstall, Uninstall* (zona de perigo), etc.
+  Chat (`Chat.tsx`, `<webview>` do Go Live em partição própria, fora das transições
+  animadas), Big Picture (`BigPicture*.tsx`), FirstRunInstall, Uninstall* (zona de
+  perigo), etc.
 - `hooks/` — `useGamepad.ts`, `useGamesRunning.ts`, `useGuideButtonShortcut.ts`
 - `lib/` — lógica pura e testável (`appsConfig.ts`, `hubConfig.ts`, `spatialNav.ts`,
   `gamepad/`, `sfx.ts`, `startup.ts`, `uninstall.ts`…). Testes Vitest co-localizados
   (`*.test.ts`).
 - `config/apps.ts` — definição estática dos apps padrão do Hub.
+
+A topbar expõe **5 páginas**: Ferramentas, Biblioteca, Chat, Meu PC (Inicialização) e
+Configurações. Só a página **Chat** renderiza um `<webview>` (Go Live) e fica fora das
+transições animadas; as demais seguem no `AnimatePresence` do `App.tsx`.
 
 Fallback de config no renderer: `lib/hubConfig.ts` lê/grava via IPC (`config:*`); se o
 store estiver indisponível/corrompido, cai no `localStorage` (e na primeira abertura
@@ -376,6 +382,17 @@ janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
 base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`/`data:`).
 - **Navegação**: `will-navigate` bloqueado (dev: só origem do dev server);
   `window.open` sempre negado, abrindo no navegador só `https:`/`http:`/`mailto:`.
+- **`<webview>` do Chat (Go Live)**: `webviewTag: true` **só** na janela principal. O
+  handler `will-attach-webview` valida o `src` pela allowlist (`isChatUrl`, https no host
+  exato), apaga o `preload` e força `nodeIntegration: false`, `contextIsolation: true`,
+  `sandbox: true`, `webviewTag: false` e `nodeIntegrationInSubFrames: false` no guest;
+  a partição é fixada em `persist:golive` e `allowpopups` é removido. Nesse guest
+  (`did-attach-webview`), links externos abrem no navegador via `isAllowedExternalUrl` e
+  popups são negados; `will-navigate`/`will-redirect` só permitem `golive.nemtudo.me`.
+  Na sessão da partição, `media`/`display-capture`/`fullscreen`/
+  `clipboard-sanitized-write` são concedidos **apenas** à origem do site (o resto é negado
+  e logado), o compartilhamento de tela usa a tela primária + loopback quando possível e
+  downloads são cancelados. O guest não recebe `window.api`.
 - **Single instance**: segunda instância nunca toca no disco nem no IPC.
 - **Crash reporting local** (`crashReporting.ts`, primeiro import do main):
   `crashReporter.start({ uploadToServer: false, submitURL: '', compress: true })` — nada
@@ -479,6 +496,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                     |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
+| Chat (Go Live embutido)                 | `kolnd-hub/src/main/chat.ts`, `kolnd-hub/src/shared/chat.ts`, `kolnd-hub/src/renderer/src/components/Chat.tsx`                                               |
 | Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |
 | Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                            |
 | Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                |

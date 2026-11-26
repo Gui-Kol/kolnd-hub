@@ -18,7 +18,7 @@ export type UsageEventType =
   | 'action'
 
 /** Páginas do app que geram `page-view` (whitelist). */
-export type UsagePage = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca'
+export type UsagePage = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca' | 'chat'
 
 /** Ações explícitas registradas no evento `action`. */
 export type UsageAction = 'config-export' | 'config-import'
@@ -104,7 +104,8 @@ export const USAGE_PAGES: readonly UsagePage[] = [
   'dashboard',
   'settings',
   'inicializacao',
-  'biblioteca'
+  'biblioteca',
+  'chat'
 ] as const
 
 export const USAGE_ACTIONS: readonly UsageAction[] = ['config-export', 'config-import'] as const

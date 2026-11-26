@@ -35,6 +35,7 @@ const Inicializacao = lazy(() =>
 const Biblioteca = lazy(() =>
   import('./components/Biblioteca').then((m) => ({ default: m.Biblioteca }))
 )
+const Chat = lazy(() => import('./components/Chat').then((m) => ({ default: m.Chat })))
 const BigPicture = lazy(() =>
   import('./components/BigPicture').then((m) => ({ default: m.BigPicture }))
 )
@@ -714,6 +715,7 @@ function App(): JSX.Element {
             onNavigate={setCurrentPage}
             runningCount={runningCount}
             toolCount={apps.length}
+            fullBleed={currentPage === 'chat'}
             pcName={pcName}
             onExit={() => setExitModalOpen(true)}
             onEnterBigPicture={enterBigPicture}
@@ -733,53 +735,66 @@ function App(): JSX.Element {
             {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
                 easing --ease-standard; uma camada por página. Com reduce: 0 ms.
                 O <main> rolável vem do Layout; o wrapper anima só a troca. ── */}
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={currentPage}
-                initial={{ opacity: 0, y: reduced ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: reduced ? 0 : -8 }}
-                transition={reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {currentPage === 'dashboard' ? (
-                  <Dashboard
-                    apps={apps}
-                    appStates={effectiveStates}
-                    onLaunch={handleLaunch}
-                    onStop={handleStop}
-                    onToast={onToast}
-                    onOpenSettings={() => setCurrentPage('settings')}
-                  />
-                ) : currentPage === 'inicializacao' ? (
-                  <ErrorBoundary>
+            {currentPage === 'chat' ? (
+              // D7: o <webview> fica FORA do motion — transform no ancestral
+              // quebra a composição do guest. O Layout em fullBleed remove
+              // padding/rolagem; sair da página desmonta o webview.
+              <ErrorBoundary>
+                <Suspense fallback={null}>
+                  <Chat />
+                </Suspense>
+              </ErrorBoundary>
+            ) : (
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={currentPage}
+                  initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: reduced ? 0 : -8 }}
+                  transition={
+                    reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
+                  }
+                >
+                  {currentPage === 'dashboard' ? (
+                    <Dashboard
+                      apps={apps}
+                      appStates={effectiveStates}
+                      onLaunch={handleLaunch}
+                      onStop={handleStop}
+                      onToast={onToast}
+                      onOpenSettings={() => setCurrentPage('settings')}
+                    />
+                  ) : currentPage === 'inicializacao' ? (
+                    <ErrorBoundary>
+                      <Suspense fallback={null}>
+                        <Inicializacao
+                          pcName={pcName ?? ''}
+                          items={startupItems}
+                          importance={startupImportance}
+                          labels={IMPORTANCE_LABELS}
+                          onRemove={handleRemoveStartup}
+                          onRemoveBatch={handleRemoveBatchStartup}
+                          onAdd={handleAddStartup}
+                          onAddBatch={handleAddBatchStartup}
+                          onReload={() => loadStartupItems(true)}
+                          appsNotInStartup={appsNotInStartup}
+                        />
+                      </Suspense>
+                    </ErrorBoundary>
+                  ) : currentPage === 'biblioteca' ? (
+                    <ErrorBoundary>
+                      <Suspense fallback={null}>
+                        <Biblioteca />
+                      </Suspense>
+                    </ErrorBoundary>
+                  ) : (
                     <Suspense fallback={null}>
-                      <Inicializacao
-                        pcName={pcName ?? ''}
-                        items={startupItems}
-                        importance={startupImportance}
-                        labels={IMPORTANCE_LABELS}
-                        onRemove={handleRemoveStartup}
-                        onRemoveBatch={handleRemoveBatchStartup}
-                        onAdd={handleAddStartup}
-                        onAddBatch={handleAddBatchStartup}
-                        onReload={() => loadStartupItems(true)}
-                        appsNotInStartup={appsNotInStartup}
-                      />
+                      <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
                     </Suspense>
-                  </ErrorBoundary>
-                ) : currentPage === 'biblioteca' ? (
-                  <ErrorBoundary>
-                    <Suspense fallback={null}>
-                      <Biblioteca />
-                    </Suspense>
-                  </ErrorBoundary>
-                ) : (
-                  <Suspense fallback={null}>
-                    <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
-                  </Suspense>
-                )}
-              </motion.div>
-            </AnimatePresence>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </Layout>
 
           {/* ── Error toast ──────────────────────────────── */}
