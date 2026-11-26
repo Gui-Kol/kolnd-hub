@@ -9,5 +9,6 @@ function hashBody(hash: string): string {
 }
 
 export function isSettingsHash(hash: string): boolean {
-  return hashBody(hash).split('?')[0] === 'settings'
+  const body = hashBody(hash).split('?')[0]
+  return body === 'settings' || body.startsWith('settings/')
 }

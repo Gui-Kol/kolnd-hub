@@ -99,6 +99,12 @@ function buildConfig(request: GeminiRequest): Record<string, unknown> {
   if (typeof request.maxOutputTokens === 'number') {
     config.maxOutputTokens = request.maxOutputTokens
   }
+  if (typeof request.responseMimeType === 'string') {
+    config.responseMimeType = request.responseMimeType
+  }
+  if (request.responseSchema) {
+    config.responseSchema = request.responseSchema
+  }
   if (request.tools && request.tools.length > 0) {
     config.tools = [
       {

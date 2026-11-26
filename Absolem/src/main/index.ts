@@ -309,6 +309,42 @@ function scheduleSmoke(): void {
   }, 4100)
 }
 
+/**
+ * Smoke do app empacotado: prova que o módulo nativo do SQLite carrega e que
+ * `memory:stats` responde no renderer (preload + IPC + banco). Só roda com
+ * `ABSOLEM_MEMORY_SMOKE=1`; não existe em produção.
+ */
+function scheduleMemorySmoke(): void {
+  if (process.env.ABSOLEM_MEMORY_SMOKE !== '1') return
+  let attempts = 0
+  const run = (): void => {
+    attempts += 1
+    const window = getOverlayWindow()
+    if (!window || window.isDestroyed()) {
+      if (attempts === 1) showOverlay()
+      if (attempts < 20) {
+        setTimeout(run, 250)
+        return
+      }
+      logger.warn('lifecycle', 'smoke: overlay ausente para memory:stats')
+      requestQuit()
+      return
+    }
+    void window.webContents
+      .executeJavaScript('window.absolem.memory.stats()')
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: memory:stats', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha em memory:stats', err)
+      })
+      .finally(() => {
+        setTimeout(requestQuit, 400)
+      })
+  }
+  setTimeout(run, 1200)
+}
+
 app.whenReady().then(() => {
   // Lock negado: o app.quit() acima já encerra; nada de bootstrap.
   if (!gotSingleInstanceLock) return
@@ -345,6 +381,7 @@ app.whenReady().then(() => {
   }
 
   scheduleSmoke()
+  scheduleMemorySmoke()
 })
 
 if (gotSingleInstanceLock) {

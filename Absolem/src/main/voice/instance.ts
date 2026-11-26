@@ -12,6 +12,7 @@ import { logger } from '../logger'
 import { registerMediaPermissions } from '../permissions'
 import { getApiKey } from '../secrets'
 import { getPersistentStore, getStoreSnapshot, setStoreValue } from '../store'
+import { getMemoryBlock, getMemoryRuntime } from '../memory/instance'
 import { registerShutdownHook } from '../shutdown'
 import { showOverlay as showOverlayWindow } from '../overlay/controller'
 import { getActionsRuntime } from '../actions/instance'
@@ -101,6 +102,7 @@ export interface VoiceRuntime {
 let runtime: VoiceRuntime | null = null
 
 export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
+  const chatHistory = createChatHistory({ store: getPersistentStore() })
   const controller = new VoiceController({
     getConfig: () => getStoreSnapshot().voice,
     updateConfig: (patch) => setStoreValue('voice', { ...getStoreSnapshot().voice, ...patch }),
@@ -118,23 +120,26 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
       const tools = getActionsRuntime()?.registry.listTools() ?? []
+      const basePrompt = buildSystemPrompt({
+        defaultLanguage: snapshot.ui.language,
+        ...(tools.length > 0
+          ? {
+              tools: tools.map((tool) => ({
+                name: tool.name,
+                category: tool.category
+              }))
+            }
+          : {})
+      })
+      // Memória recuperada no início da sessão (pinned/perfil). Pausada = ''.
+      const memoryBlock = getMemoryBlock('')
       const live = new LiveSession({
         transport: new SdkLiveTransport(),
         keys: { getApiKey },
         usage: getUsageMeter(),
         model: snapshot.gemini.model,
         temperature: snapshot.gemini.temperature,
-        systemInstruction: buildSystemPrompt({
-          defaultLanguage: snapshot.ui.language,
-          ...(tools.length > 0
-            ? {
-                tools: tools.map((tool) => ({
-                  name: tool.name,
-                  category: tool.category
-                }))
-              }
-            : {})
-        }),
+        systemInstruction: memoryBlock ? `${basePrompt}\n\n${memoryBlock}` : basePrompt,
         tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description,
@@ -167,8 +172,15 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
       showOverlayWindow()
     },
     notify: (message) => logger.info('voice', message),
-    memoryEnabled: () => false,
-    history: createChatHistory({ store: getPersistentStore() }),
+    memoryEnabled: () => getStoreSnapshot().memory.enabled,
+    history: {
+      append: (role, text) => {
+        chatHistory.append(role, text)
+      },
+      beginSession: (sessionId, at) => getMemoryRuntime()?.beginSession(sessionId, at),
+      endSession: (sessionId, at) => getMemoryRuntime()?.endSession(sessionId, at),
+      appendTurn: (turn) => getMemoryRuntime()?.recordTurn(turn)
+    },
     logger
   })
 

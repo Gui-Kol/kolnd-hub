@@ -9,7 +9,14 @@ import type {
   ChatDeltaPush,
   ChatDonePush,
   ChatErrorPush,
-  PermissionsSetRequest
+  PermissionsSetRequest,
+  MemoryListRequest,
+  MemorySearchRequest,
+  MemoryCreateRequest,
+  MemoryUpdateRequest,
+  MemoryRemoveRequest,
+  MemoryRemoveAllRequest,
+  MemoryExportRequest
 } from '../shared/ipc'
 import type {
   CaptureAskRequest,
@@ -142,6 +149,21 @@ const absolem: AbsolemApi = {
   actions: {
     pause: (paused: boolean) => ipcRenderer.invoke(IPC.actionsPause, { paused }),
     status: () => ipcRenderer.invoke(IPC.actionsStatus)
+  },
+
+  memory: {
+    list: (request?: MemoryListRequest) =>
+      ipcRenderer.invoke(IPC.memoryList, request === undefined ? {} : request),
+    search: (request: MemorySearchRequest) => ipcRenderer.invoke(IPC.memorySearch, request),
+    create: (request: MemoryCreateRequest) => ipcRenderer.invoke(IPC.memoryCreate, request),
+    update: (request: MemoryUpdateRequest) => ipcRenderer.invoke(IPC.memoryUpdate, request),
+    remove: (request: MemoryRemoveRequest) => ipcRenderer.invoke(IPC.memoryRemove, request),
+    removeAll: (request: MemoryRemoveAllRequest) =>
+      ipcRenderer.invoke(IPC.memoryRemoveAll, request),
+    stats: () => ipcRenderer.invoke(IPC.memoryStats),
+    export: (request?: MemoryExportRequest) =>
+      ipcRenderer.invoke(IPC.memoryExport, request === undefined ? {} : request),
+    import: () => ipcRenderer.invoke(IPC.memoryImport)
   },
 
   capture: {

@@ -30,7 +30,8 @@ export const STORE_KEYS = [
   'permissions',
   'ui',
   'usage',
-  'chat'
+  'chat',
+  'memory'
 ] as const
 
 export type StoreKey = (typeof STORE_KEYS)[number]
@@ -119,6 +120,18 @@ export interface ChatConfig {
   turns: ChatTurn[]
 }
 
+/**
+ * Chave `memory` (task 09). `enabled:false` pausa extração e recuperação sem
+ * apagar nada; `autoExtract:false` mantém a memória existente e só desliga a
+ * extração automática.
+ */
+export interface MemoryConfig {
+  enabled: boolean
+  autoExtract: boolean
+  /** Epoch ms da última consolidação concluída. */
+  lastConsolidationAt: number | null
+}
+
 /** Snapshot completo do store, sempre normalizado pelo main. */
 export interface AbsolemConfig {
   overlay: OverlayConfig
@@ -130,6 +143,7 @@ export interface AbsolemConfig {
   ui: UiConfig
   usage: UsageConfig
   chat: ChatConfig
+  memory: MemoryConfig
   /** Rotinas agendadas (task 08, T8). Não é chave do IPC genérico do store. */
   routines: Routine[]
 }

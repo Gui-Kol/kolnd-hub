@@ -71,6 +71,8 @@ export interface GeminiEngineOptions {
   route?: (call: GeminiFunctionCall) => Promise<ToolCallResult>
   /** Continuações após uma chamada de ferramenta (default 2). */
   maxToolContinuations?: number
+  /** Bloco de memória para o prompt (task 09); ausente = sem memória. */
+  memoryBlock?: (query: string) => string
 }
 
 export const DEFAULT_MAX_TOOL_CONTINUATIONS = 2
@@ -106,6 +108,9 @@ export interface GeminiSendOptions {
 
 export type GeminiStatus = GeminiStatusInfo
 
+export type StructuredGenerationResult =
+  { ok: true; text: string; usage: ChatUsagePayload } | { ok: false; error: GeminiErrorSummary }
+
 export interface TestKeyResult {
   ok: boolean
   model?: string
@@ -133,6 +138,7 @@ export class GeminiEngine {
   private readonly tools?: () => readonly ToolDefinition[]
   private readonly route?: (call: GeminiFunctionCall) => Promise<ToolCallResult>
   private readonly maxToolContinuations: number
+  private readonly memoryBlock?: (query: string) => string
 
   private lastError: GeminiErrorSummary | null = null
   private active: { requestId: string; controller: AbortController } | null = null
@@ -154,6 +160,7 @@ export class GeminiEngine {
       0,
       options.maxToolContinuations ?? DEFAULT_MAX_TOOL_CONTINUATIONS
     )
+    this.memoryBlock = options.memoryBlock
   }
 
   getPromptVersion(): string {
@@ -263,6 +270,72 @@ export class GeminiEngine {
   }
 
   /**
+   * Chamada única de JSON estruturado (extração de memória, task 09).
+   * Sem histórico e sem ferramentas; usa o mesmo deadline/retry/taxonomia e
+   * conta os tokens no medidor mensal. Erros não lançam.
+   */
+  async generateStructured(
+    prompt: string,
+    options: {
+      systemInstruction?: string
+      responseSchema?: Record<string, unknown>
+      maxOutputTokens?: number
+      signal?: AbortSignal
+    } = {}
+  ): Promise<StructuredGenerationResult> {
+    const startedAt = Date.now()
+    try {
+      this.assertEnabled()
+      const config = this.config()
+      const systemInstruction = options.systemInstruction ?? ''
+      const result = await this.client.generateText(
+        {
+          apiKey: this.requireKey(),
+          model: config.model,
+          temperature: 0.2,
+          systemInstruction,
+          contents: [{ role: 'user', text: prompt }],
+          maxOutputTokens: options.maxOutputTokens ?? 1200,
+          responseMimeType: 'application/json',
+          ...(options.responseSchema ? { responseSchema: options.responseSchema } : {})
+        },
+        { signal: options.signal }
+      )
+      const amounts = resolveUsage(systemInstruction + prompt, result.text, result.usage)
+      this.usage.record(amounts)
+      this.lastError = null
+      this.logger?.info('gemini', 'generateStructured ok', {
+        model: config.model,
+        promptChars: prompt.length,
+        outputChars: result.text.length,
+        tokens: amounts.total,
+        estimated: amounts.estimated,
+        durationMs: Date.now() - startedAt
+      })
+      return {
+        ok: true,
+        text: result.text,
+        usage: {
+          input: amounts.input,
+          output: amounts.output,
+          total: amounts.total,
+          estimated: amounts.estimated
+        }
+      }
+    } catch (err) {
+      const error = classifyError(err)
+      if (error.kind !== 'cancelled') {
+        this.lastError = { kind: error.kind, message: error.message }
+        this.logger?.warn('gemini', 'generateStructured falhou', {
+          kind: error.kind,
+          status: error.status
+        })
+      }
+      return { ok: false, error: { kind: error.kind, message: error.message } }
+    }
+  }
+
+  /**
    * Envia um turno e entrega a resposta em deltas. Um requestId novo cancela o
    * anterior; nenhum delta sai depois do cancelamento.
    */
@@ -321,7 +394,15 @@ export class GeminiEngine {
       defaultLanguage: this.defaultLanguage,
       ...(promptTools.length > 0 ? { tools: promptTools } : {})
     })
-    const systemInstruction = append ? `${basePrompt}\n\n${append}` : basePrompt
+    let memoryText = ''
+    try {
+      memoryText = this.memoryBlock?.(trimmed)?.trim() ?? ''
+    } catch (err) {
+      this.logger?.warn('gemini', 'falha ao montar o bloco de memória', err)
+    }
+    const systemInstruction = [basePrompt, memoryText, append]
+      .filter((part): part is string => Boolean(part))
+      .join('\n\n')
     const baseContents = buildContextWindow(this.history.getTurns(), trimmed)
     const images = Array.isArray(options.images) ? options.images : []
     const contents =

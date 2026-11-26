@@ -24,6 +24,14 @@ import type {
 } from './permissions'
 import type { Routine } from './routines'
 import type {
+  MemoryArchiveRecord,
+  MemoryKind,
+  MemoryMaintenanceEntry,
+  MemoryRecord,
+  MemorySort,
+  MemoryStats
+} from './memory'
+import type {
   CaptureIndicatorPush,
   CaptureKind,
   CaptureRequestPush,
@@ -109,7 +117,16 @@ export const IPC = {
   permissionsGet: 'permissions:get',
   permissionsSet: 'permissions:set',
   actionsPause: 'actions:pause',
-  actionsStatus: 'actions:status'
+  actionsStatus: 'actions:status',
+  memoryList: 'memory:list',
+  memorySearch: 'memory:search',
+  memoryCreate: 'memory:create',
+  memoryUpdate: 'memory:update',
+  memoryRemove: 'memory:remove',
+  memoryRemoveAll: 'memory:remove-all',
+  memoryStats: 'memory:stats',
+  memoryExport: 'memory:export',
+  memoryImport: 'memory:import'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -127,7 +144,8 @@ export const IPC_PREFIXES = [
   'diagnostics',
   'capture',
   'permissions',
-  'actions'
+  'actions',
+  'memory'
 ] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
@@ -278,6 +296,105 @@ export interface ActionsStatus {
 
 export type ActionsStatusResult = { ok: true; status: ActionsStatus } | IpcError
 
+/** Lista/busca de memórias (task 09). */
+export interface MemoryListRequest {
+  query?: string
+  kind?: MemoryKind
+  sort?: MemorySort
+  offset?: number
+  limit?: number
+}
+
+export type MemoryListResult =
+  | {
+      ok: true
+      memories: MemoryRecord[]
+      total: number
+      hasMore: boolean
+      /** MEMÓRIAS arquivadas, somente leitura na tela. */
+      archived: MemoryArchiveRecord[]
+      /** Últimas linhas do relatório de manutenção. */
+      maintenance: MemoryMaintenanceEntry[]
+    }
+  | IpcError
+
+export interface MemorySearchRequest {
+  query: string
+  limit?: number
+}
+
+export type MemorySearchResult = { ok: true; memories: MemoryRecord[] } | IpcError
+
+export interface MemoryCreateRequest {
+  kind: MemoryKind
+  content: string
+  tags?: string[]
+  confidence?: number
+  expiresAt?: number | null
+  pinned?: boolean
+}
+
+export type MemoryCreateResult = { ok: true; memory: MemoryRecord } | IpcError
+
+/** Patch aceito por `memory:update`; `id`/`createdAt` nunca são editáveis. */
+export interface MemoryUpdatePatchRequest {
+  kind?: MemoryKind
+  content?: string
+  tags?: string[]
+  confidence?: number
+  expiresAt?: number | null
+  pinned?: boolean
+}
+
+export interface MemoryUpdateRequest {
+  id: string
+  patch: MemoryUpdatePatchRequest
+}
+
+export type MemoryUpdateResult = { ok: true; memory: MemoryRecord } | IpcError
+
+export interface MemoryRemoveRequest {
+  id: string
+}
+
+export type MemoryRemoveResult = { ok: true; removed: boolean } | IpcError
+
+export interface MemoryRemoveAllRequest {
+  confirm: string
+  includeTurns?: boolean
+}
+
+export type MemoryRemoveAllResult =
+  { ok: true; removed: number; turns: number; sessions: number } | IpcError
+
+export type MemoryStatsResult = { ok: true; stats: MemoryStats } | IpcError
+
+export interface MemoryExportRequest {
+  includeTranscripts?: boolean
+}
+
+export type MemoryExportResult =
+  | {
+      ok: true
+      canceled: boolean
+      filePath?: string
+      count?: number
+      bytes?: number
+      sessions?: number
+    }
+  | IpcError
+
+export type MemoryImportResult =
+  | {
+      ok: true
+      canceled: boolean
+      imported?: number
+      duplicates?: number
+      invalid?: number
+    }
+  | IpcError
+
+export type { MemoryKind, MemoryRecord, MemoryStats }
 export type { PermissionCategory, PermissionDecision, PermissionCategories, PermissionsState }
 
 /** `capture:ask`: captura + envio multimodal, com streaming em `chat:*`. */
@@ -403,6 +520,15 @@ export interface IpcContract {
   [IPC.permissionsSet]: { request: PermissionsSetRequest; response: SimpleResult }
   [IPC.actionsPause]: { request: { paused: boolean }; response: ActionsPauseResult }
   [IPC.actionsStatus]: { request: undefined; response: ActionsStatusResult }
+  [IPC.memoryList]: { request: MemoryListRequest | undefined; response: MemoryListResult }
+  [IPC.memorySearch]: { request: MemorySearchRequest; response: MemorySearchResult }
+  [IPC.memoryCreate]: { request: MemoryCreateRequest; response: MemoryCreateResult }
+  [IPC.memoryUpdate]: { request: MemoryUpdateRequest; response: MemoryUpdateResult }
+  [IPC.memoryRemove]: { request: MemoryRemoveRequest; response: MemoryRemoveResult }
+  [IPC.memoryRemoveAll]: { request: MemoryRemoveAllRequest; response: MemoryRemoveAllResult }
+  [IPC.memoryStats]: { request: undefined; response: MemoryStatsResult }
+  [IPC.memoryExport]: { request: MemoryExportRequest | undefined; response: MemoryExportResult }
+  [IPC.memoryImport]: { request: undefined; response: MemoryImportResult }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -479,6 +605,17 @@ export interface AbsolemApi {
   actions: {
     pause: (paused: boolean) => Promise<ActionsPauseResult>
     status: () => Promise<ActionsStatusResult>
+  }
+  memory: {
+    list: (request?: MemoryListRequest) => Promise<MemoryListResult>
+    search: (request: MemorySearchRequest) => Promise<MemorySearchResult>
+    create: (request: MemoryCreateRequest) => Promise<MemoryCreateResult>
+    update: (request: MemoryUpdateRequest) => Promise<MemoryUpdateResult>
+    remove: (request: MemoryRemoveRequest) => Promise<MemoryRemoveResult>
+    removeAll: (request: MemoryRemoveAllRequest) => Promise<MemoryRemoveAllResult>
+    stats: () => Promise<MemoryStatsResult>
+    export: (request?: MemoryExportRequest) => Promise<MemoryExportResult>
+    import: () => Promise<MemoryImportResult>
   }
   capture: {
     /** Lista telas/janelas com thumbnails 320x180 para escolha. */

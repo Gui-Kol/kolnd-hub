@@ -51,6 +51,9 @@ export interface GeminiRequest {
   contents: GeminiContent[]
   tools?: GeminiToolDeclaration[]
   maxOutputTokens?: number
+  /** JSON estruturado (extração de memória, task 09). */
+  responseMimeType?: string
+  responseSchema?: Record<string, unknown>
   abortSignal?: AbortSignal
 }
 

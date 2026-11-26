@@ -5,6 +5,7 @@ import {
   type AbsolemConfig,
   type ChatConfig,
   type GeminiConfig,
+  type MemoryConfig,
   type OverlayConfig,
   type PermissionsConfig,
   type PrivacyConfig,
@@ -36,12 +37,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.7.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.8.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.7.0'
+export const STORE_SCHEMA_VERSION = '1.8.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -112,6 +113,10 @@ export function defaultUiConfig(): UiConfig {
   return { language: 'pt-BR', reducedMotion: false, startMinimized: false }
 }
 
+export function defaultMemoryConfig(): MemoryConfig {
+  return { enabled: true, autoExtract: true, lastConsolidationAt: null }
+}
+
 export function defaultAbsolemConfig(): AbsolemConfig {
   return {
     overlay: defaultOverlayConfig(),
@@ -123,6 +128,7 @@ export function defaultAbsolemConfig(): AbsolemConfig {
     ui: defaultUiConfig(),
     usage: defaultUsageConfig(),
     chat: defaultChatConfig(),
+    memory: defaultMemoryConfig(),
     routines: defaultRoutinesConfig()
   }
 }
@@ -210,6 +216,21 @@ export function normalizeUiConfig(input: unknown): UiConfig {
   }
 }
 
+export function normalizeMemoryConfig(input: unknown): MemoryConfig {
+  const raw = asRecord(input)
+  const lastConsolidationAt =
+    typeof raw.lastConsolidationAt === 'number' &&
+    Number.isFinite(raw.lastConsolidationAt) &&
+    raw.lastConsolidationAt > 0
+      ? Math.floor(raw.lastConsolidationAt)
+      : null
+  return {
+    enabled: raw.enabled !== false,
+    autoExtract: raw.autoExtract !== false,
+    lastConsolidationAt
+  }
+}
+
 /** Normaliza o snapshot completo, campo a campo, sem descartar valores válidos. */
 export function normalizeAbsolemConfig(input: unknown): AbsolemConfig {
   const raw = asRecord(input)
@@ -223,6 +244,7 @@ export function normalizeAbsolemConfig(input: unknown): AbsolemConfig {
     ui: normalizeUiConfig(raw.ui),
     usage: normalizeUsageState(raw.usage),
     chat: normalizeChatState(raw.chat),
+    memory: normalizeMemoryConfig(raw.memory),
     routines: normalizeRoutinesConfig(raw.routines)
   }
 }
@@ -253,6 +275,8 @@ export function normalizeStoreValue(key: StoreKey, value: unknown): AbsolemConfi
       return normalizeUsageState(value)
     case 'chat':
       return normalizeChatState(value)
+    case 'memory':
+      return normalizeMemoryConfig(value)
   }
 }
 
@@ -421,6 +445,16 @@ const schema: Store.Schema<AbsolemConfig> = {
     },
     additionalProperties: false
   },
+  memory: {
+    type: 'object',
+    default: defaultMemoryConfig(),
+    properties: {
+      enabled: { type: 'boolean' },
+      autoExtract: { type: 'boolean' },
+      lastConsolidationAt: { type: ['number', 'null'] }
+    },
+    additionalProperties: false
+  },
   routines: {
     type: 'array',
     default: defaultRoutinesConfig(),
@@ -573,6 +607,14 @@ export function migrate170(store: StoreLike): void {
   store.set('routines', normalizeRoutinesConfig(store.get('routines', defaultRoutinesConfig())))
 }
 
+/**
+ * 1.8.0: aditiva. Acrescenta `memory` (task 09) com extração e recuperação
+ * ligadas por padrão. Nada do formato anterior é descartado; idempotente.
+ */
+export function migrate180(store: StoreLike): void {
+  store.set('memory', normalizeMemoryConfig(store.get('memory', defaultMemoryConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -581,7 +623,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.4.0': migrate140,
   '1.5.0': migrate150,
   '1.6.0': migrate160,
-  '1.7.0': migrate170
+  '1.7.0': migrate170,
+  '1.8.0': migrate180
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -665,6 +708,7 @@ export function getStoreSnapshot(): AbsolemConfig {
       ui: store.get('ui', defaultUiConfig()),
       usage: store.get('usage', defaultUsageConfig()),
       chat: store.get('chat', defaultChatConfig()),
+      memory: store.get('memory', defaultMemoryConfig()),
       routines: store.get('routines', defaultRoutinesConfig())
     })
   } catch (err) {

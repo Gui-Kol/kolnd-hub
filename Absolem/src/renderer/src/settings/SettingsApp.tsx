@@ -16,7 +16,14 @@ import {
 } from '../../../shared/theme'
 import { AppearanceTab } from './AppearanceTab'
 import { AvatarPreview } from './AvatarPreview'
+import { MemoryPanel } from './memory/MemoryPanel'
 import { createDebounced, createThrottled } from './timing'
+
+type SettingsRoute = 'appearance' | 'memory'
+
+function readRoute(hash: string): SettingsRoute {
+  return hash.includes('/memory') ? 'memory' : 'appearance'
+}
 
 /** Envio ao overlay e persistência têm cadências diferentes (task 04/T5). */
 const OVERLAY_PUSH_DELAY_MS = 100
@@ -34,6 +41,7 @@ const PERSIST_INTERVAL_MS = 300
  * montado enquanto a janela está visível e é descartado ao ocultar.
  */
 export function SettingsApp() {
+  const [section, setSection] = useState<SettingsRoute>(() => readRoute(window.location.hash))
   const [theme, setTheme] = useState<ThemeConfig>(defaultTheme)
   const [layout, setLayout] = useState<OverlayLayout>(() => ({ ...DEFAULT_OVERLAY_LAYOUT }))
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -86,6 +94,21 @@ export function SettingsApp() {
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
+
+  useEffect(() => {
+    const onHashChange = (): void => {
+      setSection(readRoute(window.location.hash))
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => {
+      window.removeEventListener('hashchange', onHashChange)
+    }
+  }, [])
+
+  function navigate(next: SettingsRoute): void {
+    setSection(next)
+    window.location.hash = next === 'memory' ? '#settings/memory' : '#settings'
+  }
 
   useEffect(() => {
     return () => {
@@ -195,7 +218,8 @@ export function SettingsApp() {
       <header className="border-b border-surface-2 px-6 py-4">
         <h1 className="text-lg font-semibold tracking-wide">Configurações do Absolem</h1>
         <p className="text-xs text-ink-tertiary">
-          Aparência do avatar e posição do overlay. As alterações são locais a esta máquina.
+          Aparência, posição do overlay e memória de longo prazo. As alterações são locais a esta
+          máquina.
         </p>
       </header>
 
@@ -208,75 +232,100 @@ export function SettingsApp() {
             <li>
               <button
                 type="button"
-                aria-current="page"
-                className="w-full rounded bg-surface-2 px-3 py-2 text-left text-sm font-medium text-ink-primary"
+                aria-current={section === 'appearance' ? 'page' : undefined}
+                onClick={() => navigate('appearance')}
+                className={`w-full rounded px-3 py-2 text-left text-sm ${
+                  section === 'appearance'
+                    ? 'bg-surface-2 font-medium text-ink-primary'
+                    : 'text-ink-secondary hover:text-ink-primary'
+                }`}
               >
                 Aparência
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={section === 'memory' ? 'page' : undefined}
+                onClick={() => navigate('memory')}
+                className={`w-full rounded px-3 py-2 text-left text-sm ${
+                  section === 'memory'
+                    ? 'bg-surface-2 font-medium text-ink-primary'
+                    : 'text-ink-secondary hover:text-ink-primary'
+                }`}
+              >
+                Memória
               </button>
             </li>
           </ul>
         </nav>
 
         <main className="flex-1 overflow-y-auto px-6 py-5">
-          <h2 className="mb-4 text-base font-semibold">Aparência</h2>
-          {loadError ? (
-            <p
-              role="alert"
-              className="mb-4 rounded border border-red-400/40 px-3 py-2 text-sm text-red-300"
-            >
-              Não foi possível carregar o tema: {loadError}
-            </p>
-          ) : null}
+          {section === 'memory' ? (
+            <MemoryPanel />
+          ) : (
+            <>
+              <h2 className="mb-4 text-base font-semibold">Aparência</h2>
+              {loadError ? (
+                <p
+                  role="alert"
+                  className="mb-4 rounded border border-red-400/40 px-3 py-2 text-sm text-red-300"
+                >
+                  Não foi possível carregar o tema: {loadError}
+                </p>
+              ) : null}
 
-          <div className="flex flex-col gap-6 lg:flex-row">
-            <div className="min-w-0 flex-1">
-              <AppearanceTab
-                theme={theme}
-                layout={layout}
-                onThemeChange={updateTheme}
-                onPreset={(presetId: ThemePresetId) => updateTheme(applyThemePreset(presetId))}
-                onResetTheme={() => updateTheme(defaultTheme())}
-                onLayoutChange={changeLayout}
-                onResetLayout={resetLayout}
-              />
-            </div>
-            <aside className="flex flex-col gap-2" aria-labelledby="appearance-preview-title">
-              <h3 id="appearance-preview-title" className="text-xs text-ink-secondary">
-                Prévia
-              </h3>
-              {windowVisible ? <AvatarPreview theme={theme} /> : null}
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
-                  onClick={() => {
-                    void exportTheme()
-                  }}
-                >
-                  Exportar tema…
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
-                  onClick={() => {
-                    void importTheme()
-                  }}
-                >
-                  Importar tema…
-                </button>
+              <div className="flex flex-col gap-6 lg:flex-row">
+                <div className="min-w-0 flex-1">
+                  <AppearanceTab
+                    theme={theme}
+                    layout={layout}
+                    onThemeChange={updateTheme}
+                    onPreset={(presetId: ThemePresetId) => updateTheme(applyThemePreset(presetId))}
+                    onResetTheme={() => updateTheme(defaultTheme())}
+                    onLayoutChange={changeLayout}
+                    onResetLayout={resetLayout}
+                  />
+                </div>
+                <aside className="flex flex-col gap-2" aria-labelledby="appearance-preview-title">
+                  <h3 id="appearance-preview-title" className="text-xs text-ink-secondary">
+                    Prévia
+                  </h3>
+                  {windowVisible ? <AvatarPreview theme={theme} /> : null}
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
+                      onClick={() => {
+                        void exportTheme()
+                      }}
+                    >
+                      Exportar tema…
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
+                      onClick={() => {
+                        void importTheme()
+                      }}
+                    >
+                      Importar tema…
+                    </button>
+                  </div>
+                  {notice ? (
+                    <p role="status" className="max-w-[240px] text-xs text-ink-secondary">
+                      {notice}
+                    </p>
+                  ) : null}
+                  {actionError ? (
+                    <p role="alert" className="max-w-[240px] text-xs text-red-300">
+                      {actionError}
+                    </p>
+                  ) : null}
+                </aside>
               </div>
-              {notice ? (
-                <p role="status" className="max-w-[240px] text-xs text-ink-secondary">
-                  {notice}
-                </p>
-              ) : null}
-              {actionError ? (
-                <p role="alert" className="max-w-[240px] text-xs text-red-300">
-                  {actionError}
-                </p>
-              ) : null}
-            </aside>
-          </div>
+            </>
+          )}
         </main>
       </div>
     </div>

@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.7.0')
+    expect(options.projectVersion).toBe('1.8.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -86,7 +86,8 @@ describe('store persistente', () => {
       '1.4.0',
       '1.5.0',
       '1.6.0',
-      '1.7.0'
+      '1.7.0',
+      '1.8.0'
     ])
   })
 
@@ -147,6 +148,8 @@ describe('store persistente', () => {
       scale: 1.5
     })
     for (const key of STORE_KEYS) {
+      // `memory` só nasce na 1.8.0 (task 09).
+      if (key === 'memory') continue
       expect(state.data.has(key)).toBe(true)
     }
 
@@ -269,6 +272,25 @@ describe('store persistente', () => {
     const first = state.data.get('permissions')
     storeMod.STORE_MIGRATIONS['1.7.0'](store)
     expect(state.data.get('permissions')).toEqual(first)
+  })
+
+  it('1.8.0 adiciona memória ligada por padrão e preserva a escolha existente', () => {
+    const store = fakeStore()
+
+    storeMod.STORE_MIGRATIONS['1.8.0'](store)
+    expect(state.data.get('memory')).toEqual({
+      enabled: true,
+      autoExtract: true,
+      lastConsolidationAt: null
+    })
+
+    state.data.set('memory', { enabled: false, autoExtract: false, lastConsolidationAt: 123 })
+    storeMod.STORE_MIGRATIONS['1.8.0'](store)
+    expect(state.data.get('memory')).toEqual({
+      enabled: false,
+      autoExtract: false,
+      lastConsolidationAt: 123
+    })
   })
 
   it('store corrompido não lança', async () => {

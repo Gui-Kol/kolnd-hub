@@ -18,6 +18,9 @@ files:
 extraResources:
   - from: resources/tray-icon.png
     to: tray-icon.png
+# better-sqlite3 é módulo nativo: o .node precisa ficar fora do asar.
+asarUnpack:
+  - node_modules/better-sqlite3/**
 win:
   # Nome estável do artefato: a versão vem de Absolem/package.json.
   artifactName: Absolem Setup ${version}.exe

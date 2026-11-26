@@ -72,6 +72,7 @@ const defaultConfig: AbsolemConfig = {
   ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
   usage: { days: {}, warnedMonths: [] },
   chat: { turns: [] },
+  memory: { enabled: true, autoExtract: true, lastConsolidationAt: null },
   routines: []
 }
 

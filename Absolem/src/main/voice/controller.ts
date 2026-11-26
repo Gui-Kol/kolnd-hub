@@ -49,6 +49,18 @@ export interface VoiceSessionLike {
 
 export interface VoiceHistoryLike {
   append: (role: 'user' | 'model', text: string) => void
+  /** Memória de longo prazo (task 09): sessão/turnos no SQLite. */
+  beginSession?: (sessionId: string, at: number) => void
+  endSession?: (sessionId: string, at: number) => void
+  appendTurn?: (turn: VoiceHistoryTurn) => void
+}
+
+export interface VoiceHistoryTurn {
+  sessionId: string
+  role: 'user' | 'model'
+  content: string
+  at: number
+  interrupted: boolean
 }
 
 export interface VoiceLoggerLike {
@@ -127,6 +139,7 @@ export class VoiceController {
   private silenceTimer: ReturnType<typeof setTimeout> | null = null
   private maxTimer: ReturnType<typeof setTimeout> | null = null
   private transcripts = { user: emptyBuffer(), model: emptyBuffer() }
+  private memorySessionId: string | null = null
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps
@@ -188,6 +201,7 @@ export class VoiceController {
   stop(reason: string = VOICE_REASONS.user): VoiceStatus {
     this.epoch += 1
     this.clearTimers()
+    this.finishMemorySession()
     const session = this.session
     this.session = null
     this.transcripts = { user: emptyBuffer(), model: emptyBuffer() }
@@ -341,6 +355,7 @@ export class VoiceController {
         return
       }
       this.transcripts = { user: emptyBuffer(), model: emptyBuffer() }
+      this.beginMemorySession()
       this.machine.transition('listening', 'connected')
       this.armSilenceTimer()
       this.armSessionTimer()
@@ -381,6 +396,7 @@ export class VoiceController {
         if (epoch !== this.epoch) return
         this.session = null
         this.clearTimers()
+        this.finishMemorySession()
         if (this.machine.getState() !== 'off' && this.machine.getState() !== 'error') {
           this.machine.transition('off', reason)
         }
@@ -463,7 +479,7 @@ export class VoiceController {
       this.session?.appendHistory('model', model.text)
       if (!model.final && !model.persisted) {
         model.persisted = true
-        this.persistTurn('model', model.text)
+        this.persistTurn('model', model.text, true)
       }
       model.closed = true
     }
@@ -473,20 +489,58 @@ export class VoiceController {
     }
   }
 
-  private persistTurn(role: 'user' | 'model', text: string): void {
+  private persistTurn(role: 'user' | 'model', text: string, interrupted = false): void {
     // Histórico textual em memória da sessão: usado na reconexão do Live.
     this.session?.appendHistory(role, text)
     if (!this.deps.memoryEnabled()) return
     try {
-      this.deps.history.append(role, text)
+      if (this.memorySessionId && this.deps.history.appendTurn) {
+        this.deps.history.appendTurn({
+          sessionId: this.memorySessionId,
+          role,
+          content: text,
+          at: this.now(),
+          interrupted
+        })
+      } else {
+        this.deps.history.append(role, text)
+      }
     } catch (err) {
       this.deps.logger?.warn('voice', 'falha ao gravar transcrição na memória', err)
+    }
+  }
+
+  private now(): number {
+    return this.deps.now ? this.deps.now() : Date.now()
+  }
+
+  private beginMemorySession(): void {
+    this.memorySessionId = null
+    if (!this.deps.memoryEnabled() || !this.deps.history.beginSession) return
+    const sessionId = `${this.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    try {
+      this.deps.history.beginSession(sessionId, this.now())
+      this.memorySessionId = sessionId
+    } catch (err) {
+      this.deps.logger?.warn('voice', 'falha ao abrir a sessão de memória', err)
+    }
+  }
+
+  private finishMemorySession(): void {
+    const sessionId = this.memorySessionId
+    this.memorySessionId = null
+    if (!sessionId || !this.deps.history.endSession) return
+    try {
+      this.deps.history.endSession(sessionId, this.now())
+    } catch (err) {
+      this.deps.logger?.warn('voice', 'falha ao encerrar a sessão de memória', err)
     }
   }
 
   private fail(message: string): void {
     this.epoch += 1
     this.clearTimers()
+    this.finishMemorySession()
     const session = this.session
     this.session = null
     this.transcripts = { user: emptyBuffer(), model: emptyBuffer() }

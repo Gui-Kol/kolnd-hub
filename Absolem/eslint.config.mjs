@@ -6,7 +6,15 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 
 export default [
   {
-    ignores: ['out/**', 'dist/**', 'coverage/**', 'node_modules/**', 'resources/**', '**/*.log']
+    ignores: [
+      'out/**',
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'resources/**',
+      'scripts/**',
+      '**/*.log'
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

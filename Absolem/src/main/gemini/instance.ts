@@ -2,6 +2,7 @@ import { getPersistentStore, getStoreSnapshot } from '../store'
 import { getActionsRuntime } from '../actions/instance'
 import { clearApiKey, getApiKey, hasApiKey, setApiKey } from '../secrets'
 import { logger } from '../logger'
+import { configureMemoryExtraction, getMemoryBlock } from '../memory/instance'
 import { GeminiEngine, type GeminiEngineConfig } from './engine'
 import { createChatHistory } from './history'
 import { SdkGeminiTransport } from './sdk'
@@ -76,12 +77,26 @@ export function createGeminiEngine(): GeminiEngine {
         }
       }
       return runtime.route(call)
-    }
+    },
+    memoryBlock: (query) => getMemoryBlock(query)
   })
 }
 
 export function getGeminiEngine(): GeminiEngine {
-  if (!engine) engine = createGeminiEngine()
+  if (!engine) {
+    engine = createGeminiEngine()
+    configureMemoryExtraction(async (request) => {
+      const current = engine
+      if (!current) return { ok: false, error: 'Motor Gemini indisponível.' }
+      const result = await current.generateStructured(request.prompt, {
+        systemInstruction: request.system,
+        responseSchema: request.schema
+      })
+      return result.ok
+        ? { ok: true, text: result.text }
+        : { ok: false, error: result.error.message }
+    })
+  }
   return engine
 }
 

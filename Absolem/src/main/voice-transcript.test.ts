@@ -3,6 +3,7 @@ import type { VoiceConfig } from '../shared/config'
 import type { VoiceStateChange, VoiceTranscriptPush } from '../shared/voice'
 import {
   VoiceController,
+  type VoiceHistoryTurn,
   type VoiceSessionHandlers,
   type VoiceSessionLike
 } from './voice/controller'
@@ -44,6 +45,9 @@ async function setup(memoryEnabled = false) {
   const sessions: FakeSession[] = []
   const transcripts: VoiceTranscriptPush[] = []
   const appended: Array<{ role: string; text: string }> = []
+  const turns: VoiceHistoryTurn[] = []
+  const started: Array<{ id: string; at: number }> = []
+  const ended: Array<{ id: string; at: number }> = []
   const controller = new VoiceController({
     getConfig: voiceConfig,
     updateConfig: () => ({ success: true }),
@@ -65,15 +69,19 @@ async function setup(memoryEnabled = false) {
     showOverlay: () => undefined,
     notify: () => undefined,
     memoryEnabled: () => memoryEnabled,
+    now: () => 1234,
     history: {
       append: (role, text) => {
         appended.push({ role, text })
-      }
+      },
+      beginSession: (sessionId, at) => started.push({ id: sessionId, at }),
+      endSession: (sessionId, at) => ended.push({ id: sessionId, at }),
+      appendTurn: (turn) => turns.push(turn)
     }
   })
   controller.start()
   await flushAsync()
-  return { controller, session: sessions[0], transcripts, appended }
+  return { controller, session: sessions[0], transcripts, appended, turns, started, ended }
 }
 
 describe('transcrição da voz', () => {
@@ -117,6 +125,33 @@ describe('transcrição da voz', () => {
 
     const on = await setup(true)
     on.session.handlers.onTranscript({ role: 'user', text: 'lembre disso', final: true })
-    expect(on.appended).toEqual([{ role: 'user', text: 'lembre disso' }])
+    expect(on.appended).toEqual([])
+    expect(on.turns).toEqual([
+      {
+        sessionId: on.started[0]?.id,
+        role: 'user',
+        content: 'lembre disso',
+        at: 1234,
+        interrupted: false
+      }
+    ])
+  })
+
+  it('memória ligada abre sessão, grava turno interrompido e encerra', async () => {
+    const { controller, session, turns, started, ended } = await setup(true)
+
+    expect(started).toHaveLength(1)
+    session.handlers.onTranscript({ role: 'user', text: 'meu nome é Ana', final: true })
+    session.handlers.onAudio(new Uint8Array([1, 2]), 24_000)
+    session.handlers.onTranscript({ role: 'model', text: 'prazer', final: false })
+    session.handlers.onInterrupted()
+
+    expect(turns).toHaveLength(2)
+    expect(turns[0]).toMatchObject({ role: 'user', content: 'meu nome é Ana', interrupted: false })
+    expect(turns[1]).toMatchObject({ role: 'model', content: 'prazer', interrupted: true })
+
+    controller.stop()
+    expect(ended).toHaveLength(1)
+    expect(ended[0]?.id).toBe(started[0]?.id)
   })
 })
