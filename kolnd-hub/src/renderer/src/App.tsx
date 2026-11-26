@@ -307,43 +307,37 @@ function App(): JSX.Element {
     })()
   }, [isLoading])
 
-  // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
-  // 10s com a janela visível, 60s quando oculta (bandeja), trocando
-  // imediatamente no visibilitychange. O baseline (T0) mostrou que cada
-  // consulta custava ~5 s de CPU do PowerShell; o main agora usa um helper
-  // persistente e não bloqueia mais, e o intervalo maior evita trabalho
-  // contínuo enquanto o usuário joga.
+  // Processos do sistema em segundo plano: o main tem UM agendador (WMI a cada
+  // 15 s com a janela visível, 60 s na bandeja). Antes este efeito tinha o
+  // próprio setTimeout recursivo e consultava o WMI em paralelo ao Big
+  // Picture/Biblioteca. O badge "em segundo plano" usa o mesmo estado.
   useEffect(() => {
-    let cancelled = false
-    let timer: number | undefined
+    let active = true
+    const consumerId = 'app:background-processes'
 
-    const tick = async (): Promise<void> => {
-      try {
-        const procs = await window.api.systemRunningProcesses()
-        if (!cancelled) setBgProcesses(procs as SystemProcess[])
-      } catch {
-        // Ignore polling errors
-      } finally {
-        if (!cancelled) {
-          const delay = document.visibilityState === 'visible' ? 10000 : 60000
-          timer = window.setTimeout(() => void tick(), delay)
-        }
-      }
+    const unsubscribe = window.api.onProcessWatchUpdate((processes) => {
+      if (active) setBgProcesses(processes)
+    })
+
+    const subscribe = (): void => {
+      const intervalMs = document.visibilityState === 'visible' ? 15000 : 60000
+      void window.api.startProcessWatch(consumerId, intervalMs).catch(() => {
+        // Sem main: mantém o último retrato conhecido e não trava a UI.
+      })
     }
 
     const onVisibility = (): void => {
-      // Reinicia já com o intervalo novo; se a janela voltou a ficar visível,
-      // atualiza na hora em vez de esperar o ciclo de 30s.
-      window.clearTimeout(timer)
-      void tick()
+      // Re-registrar o mesmo id atualiza o intervalo no agendador único.
+      subscribe()
     }
 
-    void tick()
+    subscribe()
     document.addEventListener('visibilitychange', onVisibility)
     return (): void => {
-      cancelled = true
-      window.clearTimeout(timer)
+      active = false
       document.removeEventListener('visibilitychange', onVisibility)
+      unsubscribe()
+      void window.api.stopProcessWatch(consumerId).catch(() => undefined)
     }
   }, [])
 

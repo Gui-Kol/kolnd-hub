@@ -43,6 +43,8 @@ import { registerRemoteAccessIpc } from './ipc/remoteAccess'
 import { registerUpdatesIpc } from './ipc/updates'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
+import { registerProcessWatchIpc } from './ipc/processWatch'
+import { stopProcessWatch } from './processWatch'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
 import { registerUsageIpc } from './ipc/usage'
@@ -458,6 +460,9 @@ app.whenReady().then(() => {
   // Reencaminha os eventos do ProcessManager para o renderer (status/output).
   registerProcessEvents(ctx)
 
+  // Agendador único das consultas de processos (Dashboard/Biblioteca/BP assinam).
+  registerProcessWatchIpc(ctx)
+
   // Registra o canal IPC de exportação de diagnóstico (diagnostic:export).
   registerDiagnosticIpc(ctx)
 
@@ -520,6 +525,11 @@ if (gotSingleInstanceLock) {
     // garante que nenhum filho sobreviva ao Hub. O tray já esperou o killAll()
     // normal antes de chamar app.quit(); esta chamada cobre os demais caminhos.
     processManager.killAllSync()
+  })
+
+  app.on('will-quit', () => {
+    // Para o timer único de processos: nenhuma consulta durante a saída.
+    stopProcessWatch()
   })
 
   app.on('activate', () => {

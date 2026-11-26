@@ -39,6 +39,25 @@ const api = {
   systemRunningProcesses: (): Promise<Array<{ name: string; id: number; path: string }>> =>
     ipcRenderer.invoke('system:running-processes'),
 
+  // Agendador único de processos: o renderer pede o ritmo, o main consulta o
+  // WMI no menor intervalo ativo e empurra o mesmo formato de systemRunningProcesses.
+  startProcessWatch: (id: string, intervalMs: number): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('process-watch:start', { id, intervalMs }),
+
+  stopProcessWatch: (id: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('process-watch:stop', { id }),
+
+  onProcessWatchUpdate: (
+    callback: (processes: Array<{ name: string; id: number; path: string }>) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      processes: Array<{ name: string; id: number; path: string }>
+    ): void => callback(processes)
+    ipcRenderer.on('process-watch:update', handler)
+    return () => ipcRenderer.removeListener('process-watch:update', handler)
+  },
+
   // ── Kloud Games ─────────────────────────────────
   kloudGamesLaunch: (): Promise<{
     success: boolean

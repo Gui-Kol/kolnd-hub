@@ -38,6 +38,10 @@ describe('preload — contrato de window.api', () => {
     expect(Object.keys(api).length).toBeGreaterThanOrEqual(80)
     for (const key of [
       'systemPcName',
+      'systemRunningProcesses',
+      'startProcessWatch',
+      'stopProcessWatch',
+      'onProcessWatchUpdate',
       'getGames',
       'getGameCollections',
       'createGameCollection',
@@ -61,6 +65,15 @@ describe('preload — contrato de window.api', () => {
   it('encaminha os canais principais com os argumentos certos', async () => {
     await api.systemPcName()
     expect(mocks.invoke).toHaveBeenLastCalledWith('system:pc-name')
+
+    await api.startProcessWatch('games:running', 10000)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('process-watch:start', {
+      id: 'games:running',
+      intervalMs: 10000
+    })
+
+    await api.stopProcessWatch('games:running')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('process-watch:stop', { id: 'games:running' })
 
     await api.launchApp('app1', 'run.exe', 'C:\\app', false)
     expect(mocks.invoke).toHaveBeenLastCalledWith('app:launch', 'app1', 'run.exe', 'C:\\app', false)
@@ -156,6 +169,9 @@ describe('preload — contrato de window.api', () => {
 
     api.onStatusChanged(vi.fn() as never)
     expect(mocks.on).toHaveBeenLastCalledWith('app:status-changed', expect.any(Function))
+
+    api.onProcessWatchUpdate(vi.fn() as never)
+    expect(mocks.on).toHaveBeenLastCalledWith('process-watch:update', expect.any(Function))
   })
 
   it('onStatusChanged repassa appId e status separadamente', () => {

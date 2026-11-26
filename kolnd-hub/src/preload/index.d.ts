@@ -36,6 +36,12 @@ declare global {
       // ── Sistema ─────────────────────────────────────
       systemPcName: () => Promise<string>
       systemRunningProcesses: () => Promise<Array<{ name: string; id: number; path: string }>>
+      // Agendador único (push do main) — mesmo formato de systemRunningProcesses.
+      startProcessWatch: (id: string, intervalMs: number) => Promise<{ ok: boolean }>
+      stopProcessWatch: (id: string) => Promise<{ ok: boolean }>
+      onProcessWatchUpdate: (
+        callback: (processes: Array<{ name: string; id: number; path: string }>) => void
+      ) => () => void
 
       // ── Kloud Games ─────────────────────────────────
       kloudGamesLaunch: () => Promise<{

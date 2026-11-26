@@ -391,9 +391,17 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   timeout de 15 s com kill/respawn, morre quando o stdin fecha) roda
   `Get-CimInstance Win32_Process` — com anti-cheat ativo o antigo `Get-Process … Path`
   levava ~5 s abrindo handle em cada processo. `listRunningProcesses()` é assíncrona,
-  tem cache de 5 s e o renderer consulta a cada 10 s (60 s com a janela na bandeja);
-  **nenhum spawn periódico**. `listStartupItems()` é assíncrona (2 `execFile` em
-  paralelo) e não segura a tela de loading.
+  tem cache de 5 s e **nenhum spawn periódico**. `listStartupItems()` é assíncrona
+  (2 `execFile` em paralelo) e não segura a tela de loading.
+- **Agendador único de processos** (`processWatch.ts`): o main é o dono do ritmo das
+  consultas de WMI. O renderer assina `process-watch:start` (`{ id, intervalMs }`,
+  4–120 s) e recebe o resultado por `process-watch:update` com o mesmo formato de
+  `system:running-processes`; `process-watch:stop` remove o consumidor. Existe **um**
+  timer, no menor intervalo ativo, com uma consulta em voo (tick concorrente é
+  ignorado) e sem timer quando não há consumidor. O Dashboard assina com 15 s visível /
+  60 s na bandeja; Biblioteca e Big Picture com 10 s. Os dois caminhos dividem o cache
+  de 5 s, então o custo real é uma consulta por ciclo, não uma por consumidor.
+  `stopProcessWatch()` no `will-quit` encerra o timer.
 - **Shell externo**: `shell:openExternal` com allowlist de esquemas; `shell:openPath`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
 - **Artefato elevado**: nunca em diretório gravável pelo usuário. O agente de sensores
