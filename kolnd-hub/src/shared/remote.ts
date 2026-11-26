@@ -20,6 +20,12 @@ export const KLOUD_WEB_URL = `http://localhost:${KLOUD_WEB_PORT}`
 export const ZEROTIER_DOWNLOAD_URL = 'https://www.zerotier.com/download/'
 
 /**
+ * Vídeo explicativo do modo remoto (Moonlight + ZeroTier). O Hub nunca carrega
+ * nada sozinho: o navegador externo só abre no clique do usuário.
+ */
+export const KLOUD_REMOTE_VIDEO_URL = 'https://www.youtube.com/watch?v=up3-UYYpErk'
+
+/**
  * Endpoint usado APENAS quando o usuário clica em "Descobrir meu IP público".
  * A escolha é explícita e aparece na UI — o Hub nunca consulta isso sozinho.
  * IPv4 de propósito: é o que permite distinguir NAT de CGNAT (o Moonlight e o
