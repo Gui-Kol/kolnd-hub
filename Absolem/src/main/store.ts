@@ -20,6 +20,7 @@ import {
   OVERLAY_DEFAULT_SHORTCUT
 } from '../shared/overlay'
 import { defaultTheme, normalizeTheme } from '../shared/theme'
+import { normalizePrivacyScreenConfig } from '../shared/screen'
 import { DEFAULT_MONTHLY_TOKEN_CAP, clampCap } from './gemini/usage'
 import { defaultChatState, normalizeChatState } from './gemini/history'
 import { defaultUsageState, normalizeUsageState } from './gemini/usage'
@@ -32,12 +33,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.5.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.6.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.5.0'
+export const STORE_SCHEMA_VERSION = '1.6.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -85,7 +86,7 @@ export function defaultChatConfig(): ChatConfig {
 }
 
 export function defaultPrivacyConfig(): PrivacyConfig {
-  return { telemetry: false, screenCapture: false }
+  return { telemetry: false, screen: normalizePrivacyScreenConfig(undefined) }
 }
 
 export function defaultPermissionsConfig(): PermissionsConfig {
@@ -159,9 +160,20 @@ export function normalizeGeminiConfig(input: unknown): GeminiConfig {
 
 export function normalizePrivacyConfig(input: unknown): PrivacyConfig {
   const raw = asRecord(input)
+  // `screenCapture` booleano é o formato legado (até 1.5.0). Continua aceito na
+  // leitura direta e é descartado pelo normalizador; a 1.6.0 persiste o formato
+  // novo e a migração roda antes de qualquer leitura normal do snapshot.
+  const legacyMode =
+    raw.screen === undefined && typeof raw.screenCapture === 'boolean'
+      ? raw.screenCapture
+        ? 'on'
+        : 'off'
+      : undefined
+  const screenInput =
+    raw.screen === undefined && legacyMode !== undefined ? { mode: legacyMode } : raw.screen
   return {
     telemetry: raw.telemetry === true,
-    screenCapture: raw.screenCapture === true
+    screen: normalizePrivacyScreenConfig(screenInput)
   }
 }
 
@@ -305,6 +317,18 @@ const schema: Store.Schema<AbsolemConfig> = {
     default: defaultPrivacyConfig(),
     properties: {
       telemetry: { type: 'boolean' },
+      screen: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string' },
+          blocklist: { type: 'array', items: { type: 'string' } },
+          proactive: { type: 'boolean' }
+        },
+        additionalProperties: false
+      },
+      // Formato legado (1.5.0). Precisa continuar válido no schema porque o
+      // electron-store valida o arquivo ANTES de rodar as migrações; a 1.6.0
+      // converte `screenCapture` em `screen.mode` e descarta o campo.
       screenCapture: { type: 'boolean' }
     },
     additionalProperties: false
@@ -453,13 +477,36 @@ export function migrate150(store: StoreLike): void {
   store.set('voice', normalizeVoiceConfig(store.get('voice', defaultVoiceConfig())))
 }
 
+/**
+ * 1.6.0: `privacy.screenCapture` (boolean) vira `privacy.screen`.
+ *
+ * `true` -> `{ mode:'on', proactive:false }`; `false` -> `{ mode:'off',
+ * proactive:false }`. Uma configuração já no formato novo é apenas normalizada
+ * (blocklist/default inclusos). `telemetry` fica intacto e o campo legado é
+ * descartado. Idempotente.
+ */
+export function migrate160(store: StoreLike): void {
+  const raw = asRecord(store.get('privacy', defaultPrivacyConfig()))
+  const input: Record<string, unknown> = { telemetry: raw.telemetry === true }
+  if (raw.screen && typeof raw.screen === 'object' && !Array.isArray(raw.screen)) {
+    input.screen = raw.screen
+  } else {
+    input.screen = {
+      mode: raw.screenCapture === true ? 'on' : 'off',
+      proactive: false
+    }
+  }
+  store.set('privacy', normalizePrivacyConfig(input))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
   '1.2.0': migrate120,
   '1.3.0': migrate130,
   '1.4.0': migrate140,
-  '1.5.0': migrate150
+  '1.5.0': migrate150,
+  '1.6.0': migrate160
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

@@ -1,6 +1,8 @@
 import { GeminiError, classifyError } from './errors'
 import type {
+  GeminiContent,
   GeminiFunctionCall,
+  GeminiImage,
   GeminiRequest,
   GeminiTransport,
   GeminiUsageMetadata
@@ -19,6 +21,16 @@ import type {
  */
 
 export type GeminiCallRequest = Omit<GeminiRequest, 'abortSignal'>
+
+/**
+ * Chamada multimodal: `text` + imagens viram o último turno do usuário.
+ * `contents` opcional permite incluir histórico antes da imagem.
+ */
+export type GeminiImagesRequest = Omit<GeminiRequest, 'contents' | 'abortSignal'> & {
+  text: string
+  images: GeminiImage[]
+  contents?: GeminiContent[]
+}
 
 export interface GeminiCallResult {
   text: string
@@ -136,6 +148,26 @@ export class GeminiClient {
     this.retry = { ...DEFAULT_RETRY, ...options.retry }
     this.now = options.now ?? (() => Date.now())
     this.sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  }
+
+  /**
+   * Chamada multimodal (visão de tela, task 07). Usa exatamente o mesmo
+   * deadline/retry/taxonomia de `generateText`; a única diferença é o turno
+   * final, que carrega as imagens.
+   */
+  async generateWithImages(
+    request: GeminiImagesRequest,
+    options?: { signal?: AbortSignal }
+  ): Promise<GeminiCallResult> {
+    const { text, images, contents, ...base } = request
+    if (!Array.isArray(images) || images.length === 0) {
+      throw new GeminiError('invalid', 'Chamada multimodal sem imagem.')
+    }
+    const merged: GeminiContent[] = [
+      ...(contents ?? []),
+      { role: 'user', text, images: images.map((image) => ({ ...image })) }
+    ]
+    return this.generateText({ ...base, contents: merged }, options)
   }
 
   async generateText(

@@ -17,6 +17,14 @@ import type {
 } from './gemini'
 import type { ThemeConfig } from './theme'
 import type {
+  CaptureIndicatorPush,
+  CaptureKind,
+  CaptureRequestPush,
+  CaptureSource,
+  CaptureStatus,
+  RegionSelection
+} from './screen'
+import type {
   VoiceAudioPush,
   VoiceSetConsentRequest,
   VoiceSetDeviceRequest,
@@ -81,7 +89,16 @@ export const IPC = {
   voiceState: 'voice:state',
   voiceAudio: 'voice:audio',
   voiceTranscript: 'voice:transcript',
-  diagnosticsGemini: 'diagnostics:gemini'
+  diagnosticsGemini: 'diagnostics:gemini',
+  captureSources: 'capture:sources',
+  captureAsk: 'capture:ask',
+  captureRegion: 'capture:region',
+  captureRegionResult: 'capture:region-result',
+  captureCancel: 'capture:cancel',
+  captureStatus: 'capture:status',
+  captureRequest: 'capture:request',
+  captureResult: 'capture:result',
+  captureIndicator: 'capture:indicator'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -96,7 +113,8 @@ export const IPC_PREFIXES = [
   'gemini',
   'chat',
   'voice',
-  'diagnostics'
+  'diagnostics',
+  'capture'
 ] as const
 
 export type IpcPrefix = (typeof IPC_PREFIXES)[number]
@@ -220,7 +238,52 @@ export type VoiceStatusResult = { ok: true; status: VoiceStatus } | IpcError
 
 export type DiagnosticsGeminiResult = { ok: true; diagnostics: GeminiDiagnostics } | IpcError
 
+/** `capture:ask`: captura + envio multimodal, com streaming em `chat:*`. */
+export interface CaptureAskRequest {
+  requestId: string
+  kind: CaptureKind
+  question: string
+  displayId?: string
+  region?: RegionSelection
+  proactive?: boolean
+}
+
+/** `capture:cancel`: Cancela a seleção de região e/ou a resposta em curso. */
+export interface CaptureCancelRequest {
+  requestId?: string
+  kind?: 'region' | 'ask'
+}
+
+/**
+ * `capture:result` (renderer -> main): frame capturado. `data` é o ArrayBuffer
+ * codificado; nunca é persistido.
+ */
+export interface CaptureFrameResultRequest {
+  requestId: string
+  ok: boolean
+  mime?: 'image/jpeg' | 'image/png'
+  data?: ArrayBuffer
+  width?: number
+  height?: number
+  error?: string
+}
+
+export type CaptureSourcesResult =
+  { ok: true; screens: CaptureSource[]; windows: CaptureSource[] } | IpcError
+
+export type CaptureStatusResult = { ok: true; status: CaptureStatus } | IpcError
+
+export type CaptureRegionResult =
+  { ok: true; canceled: boolean; selection: RegionSelection | null } | IpcError
+
 export type { ChatDeltaPush, ChatDonePush, ChatErrorPush, ChatUsagePayload, GeminiUsageWarningPush }
+export type {
+  CaptureIndicatorPush,
+  CaptureRequestPush,
+  CaptureStatus,
+  CaptureSource,
+  CaptureKind
+} from './screen'
 export type {
   VoiceAudioPush,
   VoiceSetConsentRequest,
@@ -285,6 +348,15 @@ export interface IpcContract {
   [IPC.voiceAudio]: { request: undefined; response: VoiceAudioPush }
   [IPC.voiceTranscript]: { request: undefined; response: VoiceTranscriptPush }
   [IPC.diagnosticsGemini]: { request: undefined; response: DiagnosticsGeminiResult }
+  [IPC.captureSources]: { request: undefined; response: CaptureSourcesResult }
+  [IPC.captureAsk]: { request: CaptureAskRequest; response: SimpleResult }
+  [IPC.captureRegion]: { request: undefined; response: CaptureRegionResult }
+  [IPC.captureRegionResult]: { request: RegionSelection; response: never }
+  [IPC.captureCancel]: { request: CaptureCancelRequest; response: SimpleResult }
+  [IPC.captureStatus]: { request: undefined; response: CaptureStatusResult }
+  [IPC.captureRequest]: { request: undefined; response: CaptureRequestPush }
+  [IPC.captureResult]: { request: CaptureFrameResultRequest; response: SimpleResult }
+  [IPC.captureIndicator]: { request: undefined; response: CaptureIndicatorPush }
 }
 
 export type IpcRequest<C extends IpcChannel> = IpcContract[C]['request']
@@ -353,5 +425,21 @@ export interface AbsolemApi {
   }
   diagnostics: {
     gemini: () => Promise<DiagnosticsGeminiResult>
+  }
+  capture: {
+    /** Lista telas/janelas com thumbnails 320x180 para escolha. */
+    sources: () => Promise<CaptureSourcesResult>
+    /** Captura + pergunta; a resposta chega pelos pushes de `chat:*`. */
+    ask: (request: CaptureAskRequest) => Promise<SimpleResult>
+    /** Abre a seleção de região; `canceled` quando Esc/fechamento. */
+    region: () => Promise<CaptureRegionResult>
+    cancel: (request?: CaptureCancelRequest) => Promise<SimpleResult>
+    status: () => Promise<CaptureStatusResult>
+    /** Resposta do overlay para `capture:request` (nunca grava em disco). */
+    sendFrame: (result: CaptureFrameResultRequest) => Promise<SimpleResult>
+    /** Resultado da janela de região (canal interno, sem resposta). */
+    submitRegion: (selection: RegionSelection) => void
+    onRequest: (listener: (push: CaptureRequestPush) => void) => () => void
+    onIndicator: (listener: (push: CaptureIndicatorPush) => void) => () => void
   }
 }

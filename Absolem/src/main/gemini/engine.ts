@@ -3,7 +3,7 @@ import { GeminiError, classifyError } from './errors'
 import type { ChatHistory } from './history'
 import { buildContextWindow } from './history'
 import { buildSystemPrompt, PROMPT_VERSION } from './prompts'
-import type { GeminiTransport } from './transport'
+import type { GeminiFunctionCall, GeminiImage, GeminiTransport } from './transport'
 import { clampCap, quotaMessage, resolveUsage, type UsageMeter } from './usage'
 import type { ChatUsagePayload, GeminiErrorSummary, GeminiStatusInfo } from '../../shared/gemini'
 
@@ -60,6 +60,17 @@ export interface ChatSinks {
   delta: (text: string) => void
   done: (usage: ChatUsagePayload) => void
   error: (error: GeminiErrorSummary) => void
+  /** Chamadas de ferramenta pedidas pelo modelo (entrada não confiável). */
+  functionCalls?: (calls: GeminiFunctionCall[]) => void
+}
+
+/** Extensão multimodal de `send` (visão de tela, task 07). */
+export interface GeminiSendOptions {
+  images?: GeminiImage[]
+  /** Regras adicionais de sistema (envelope/conteúdo de tela). */
+  systemInstructionAppend?: string
+  /** Tokens estimados da imagem, contabilizados logo após o envio. */
+  imageTokens?: number
 }
 
 export type GeminiStatus = GeminiStatusInfo
@@ -215,7 +226,12 @@ export class GeminiEngine {
    * Envia um turno e entrega a resposta em deltas. Um requestId novo cancela o
    * anterior; nenhum delta sai depois do cancelamento.
    */
-  async send(requestId: string, text: string, sinks: ChatSinks): Promise<void> {
+  async send(
+    requestId: string,
+    text: string,
+    sinks: ChatSinks,
+    options: GeminiSendOptions = {}
+  ): Promise<void> {
     if (typeof requestId !== 'string' || requestId.length === 0) {
       sinks.error({ kind: 'invalid', message: 'requestId inválido.' })
       return
@@ -249,8 +265,24 @@ export class GeminiEngine {
     this.active = entry
 
     const config = this.config()
-    const systemInstruction = buildSystemPrompt({ defaultLanguage: this.defaultLanguage })
-    const contents = buildContextWindow(this.history.getTurns(), trimmed)
+    const append = options.systemInstructionAppend?.trim()
+    const systemInstruction = append
+      ? `${buildSystemPrompt({ defaultLanguage: this.defaultLanguage })}\n\n${append}`
+      : buildSystemPrompt({ defaultLanguage: this.defaultLanguage })
+    const baseContents = buildContextWindow(this.history.getTurns(), trimmed)
+    const images = Array.isArray(options.images) ? options.images : []
+    const contents =
+      images.length > 0
+        ? baseContents.map((part, index) =>
+            index === baseContents.length - 1 ? { ...part, images } : part
+          )
+        : baseContents
+    const imageTokens =
+      typeof options.imageTokens === 'number' &&
+      Number.isFinite(options.imageTokens) &&
+      options.imageTokens > 0
+        ? Math.floor(options.imageTokens)
+        : 0
     const promptChars = contents.reduce((total, part) => total + part.text.length, 0)
 
     let partial = ''
@@ -258,11 +290,13 @@ export class GeminiEngine {
     this.logger?.debug('gemini', 'chat:send', {
       chars: promptChars,
       turns: contents.length,
-      model: config.model
+      model: config.model,
+      images: images.length,
+      imageTokens
     })
 
     try {
-      const result = await this.client.streamText(
+      const streamPromise = this.client.streamText(
         {
           apiKey: this.requireKey(),
           model: config.model,
@@ -279,24 +313,44 @@ export class GeminiEngine {
           }
         }
       )
+      // Custo de imagem entra no medidor imediatamente após o envio, antes da
+      // resposta; o total do provedor (se vier) já inclui a imagem e por isso
+      // ela é descontada da entrada final para não contar duas vezes.
+      if (imageTokens > 0) {
+        try {
+          this.usage.record({ input: imageTokens, output: 0 })
+        } catch (err) {
+          this.logger?.warn('gemini', 'falha ao registrar tokens de imagem', err)
+        }
+      }
+      const result = await streamPromise
       const amounts = resolveUsage(systemInstruction + partial, result.text, result.usage)
-      this.usage.record(amounts)
+      const inputTokens =
+        imageTokens > 0 && !amounts.estimated
+          ? Math.max(0, amounts.input - imageTokens)
+          : amounts.input
+      this.usage.record({ input: inputTokens, output: amounts.output })
       this.history.append('user', trimmed)
       this.history.append('model', result.text)
       this.lastError = null
+      if (result.functionCalls && result.functionCalls.length > 0) {
+        sinks.functionCalls?.(result.functionCalls)
+      }
       const durationMs = Date.now() - startedAt
       this.logger?.info('gemini', 'chat:done', {
         model: config.model,
         chars: result.text.length,
-        tokens: amounts.total,
+        tokens: inputTokens + amounts.output,
         estimated: amounts.estimated,
+        imageTokens,
         durationMs
       })
       sinks.done({
-        input: amounts.input,
+        input: inputTokens,
         output: amounts.output,
-        total: amounts.total,
-        estimated: amounts.estimated
+        total: inputTokens + amounts.output,
+        estimated: amounts.estimated,
+        ...(imageTokens > 0 ? { imageTokens, imageEstimated: true } : {})
       })
     } catch (err) {
       const error = classifyError(err)

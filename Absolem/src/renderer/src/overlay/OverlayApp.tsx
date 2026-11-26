@@ -15,6 +15,8 @@ import { createPlayback, type Playback, type PlaybackAudioContextLike } from '..
 import { createVad, type Vad } from '../audio/vad'
 import { pcm16BytesToFloat, pcm16Rms } from '../audio/pcm'
 import { createDeviceWatcher, type DeviceWatcher, type MediaDevicesLike } from '../audio/devices'
+import { createDomGrabFactories, grabFrame } from '../capture/grab'
+import type { CaptureIndicatorPush, CaptureRequestPush } from '../../../shared/screen'
 
 /**
  * Casca do overlay do avatar (task 02).
@@ -36,6 +38,7 @@ export function OverlayApp() {
   const [themePresetId, setThemePresetId] = useState('')
   const [voiceState, setVoiceState] = useState<VoiceState>('off')
   const [voiceReason, setVoiceReason] = useState<string | null>(null)
+  const [captureIndicator, setCaptureIndicator] = useState<CaptureIndicatorPush | null>(null)
   const voiceToggleRef = useRef<() => void>(() => undefined)
 
   useEffect(() => {
@@ -62,6 +65,8 @@ export function OverlayApp() {
     let vad: Vad = createVad()
     let unsubscribeVoiceState: (() => void) | null = null
     let unsubscribeVoiceAudio: (() => void) | null = null
+    let unsubscribeCaptureRequest: (() => void) | null = null
+    let unsubscribeCaptureIndicator: (() => void) | null = null
     let voiceLevelTimer: ReturnType<typeof setInterval> | null = null
     let currentVoiceState: VoiceState = 'off'
     let lastMicLevel = 0
@@ -147,6 +152,28 @@ export function OverlayApp() {
       await capture.start()
     }
 
+    const handleCaptureRequest = async (push: CaptureRequestPush): Promise<void> => {
+      try {
+        const frame = await grabFrame(push.sourceId, createDomGrabFactories(), {
+          lossless: push.lossless
+        })
+        await window.absolem.capture.sendFrame({
+          requestId: push.requestId,
+          ok: true,
+          mime: frame.mime,
+          data: frame.data,
+          width: frame.width,
+          height: frame.height
+        })
+      } catch (err) {
+        await window.absolem.capture.sendFrame({
+          requestId: push.requestId,
+          ok: false,
+          error: err instanceof Error ? err.message.slice(0, 300) : 'falha ao capturar a tela'
+        })
+      }
+    }
+
     const startLevelTimer = (): void => {
       if (voiceLevelTimer) return
       voiceLevelTimer = setInterval(() => {
@@ -215,14 +242,34 @@ export function OverlayApp() {
         const avatarStatusPromise = window.absolem.avatar.getStatus().catch(() => null)
         const themePromise = window.absolem.themeGet().catch(() => null)
         const voiceStatusPromise = window.absolem.voice.status().catch(() => null)
+        const captureStatusPromise = window.absolem.capture.status().catch(() => null)
+
+        // Captura (task 07): o main pede um frame e o overlay responde. O
+        // indicador de olho aparece enquanto a captura está em curso.
+        unsubscribeCaptureRequest = window.absolem.capture.onRequest((push) => {
+          if (!disposed) void handleCaptureRequest(push)
+        })
+        unsubscribeCaptureIndicator = window.absolem.capture.onIndicator((push) => {
+          if (!disposed) setCaptureIndicator(push.active ? push : null)
+        })
+
         const module = await import('./avatar')
-        const [status, avatarStatus, themeResult, voiceStatusResult] = await Promise.all([
-          statusPromise,
-          avatarStatusPromise,
-          themePromise,
-          voiceStatusPromise
-        ])
+        const [status, avatarStatus, themeResult, voiceStatusResult, captureStatus] =
+          await Promise.all([
+            statusPromise,
+            avatarStatusPromise,
+            themePromise,
+            voiceStatusPromise,
+            captureStatusPromise
+          ])
         if (disposed) return
+
+        if (captureStatus?.ok && captureStatus.status.active) {
+          setCaptureIndicator({
+            active: true,
+            ...(captureStatus.status.kind ? { kind: captureStatus.status.kind } : {})
+          })
+        }
 
         if (voiceStatusResult?.ok) {
           inputDeviceId = voiceStatusResult.status.inputDeviceId
@@ -365,6 +412,8 @@ export function OverlayApp() {
       unsubscribeTheme?.()
       unsubscribeVoiceState?.()
       unsubscribeVoiceAudio?.()
+      unsubscribeCaptureRequest?.()
+      unsubscribeCaptureIndicator?.()
       handle?.dispose()
       handle = null
     }
@@ -408,6 +457,18 @@ export function OverlayApp() {
         </span>
         <span className="voice-indicator__label">{VOICE_STATE_LABELS[voiceState]}</span>
       </div>
+      {captureIndicator?.active ? (
+        <div
+          className="capture-indicator"
+          data-capture-kind={captureIndicator.kind ?? 'screen'}
+          role="status"
+          aria-live="polite"
+          title="Absolem está vendo a tela"
+        >
+          <span className="capture-indicator__eye" aria-hidden="true" />
+          <span className="capture-indicator__label">Vendo a tela</span>
+        </div>
+      ) : null}
       {debugLine ? <pre className="overlay-debug">{debugLine}</pre> : null}
     </div>
   )

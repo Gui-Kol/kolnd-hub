@@ -77,14 +77,15 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.5.0')
+    expect(options.projectVersion).toBe('1.6.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
       '1.2.0',
       '1.3.0',
       '1.4.0',
-      '1.5.0'
+      '1.5.0',
+      '1.6.0'
     ])
   })
 
@@ -191,6 +192,37 @@ describe('store persistente', () => {
     // Idempotente.
     storeMod.STORE_MIGRATIONS['1.4.0'](store)
     expect(state.data.get('gemini')).toMatchObject({ monthlyTokenCap: 2_000_000 })
+  })
+
+  it('1.6.0 migra screenCapture e preserva telemetry', () => {
+    state.data.set('privacy', { telemetry: true, screenCapture: true })
+    const store = fakeStore()
+
+    storeMod.STORE_MIGRATIONS['1.6.0'](store)
+
+    const migrated = state.data.get('privacy') as Record<string, unknown>
+    expect(migrated).toMatchObject({
+      telemetry: true,
+      screen: { mode: 'on', proactive: false }
+    })
+    expect(migrated).not.toHaveProperty('screenCapture')
+    expect((migrated.screen as Record<string, unknown>).blocklist).toContain('1password')
+
+    // `false` vira off.
+    state.data.set('privacy', { screenCapture: false })
+    storeMod.STORE_MIGRATIONS['1.6.0'](store)
+    expect(state.data.get('privacy')).toMatchObject({
+      telemetry: false,
+      screen: { mode: 'off', proactive: false }
+    })
+
+    // Idempotente sobre o formato novo.
+    state.data.set('privacy', { telemetry: true, screen: { mode: 'ask', proactive: true } })
+    storeMod.STORE_MIGRATIONS['1.6.0'](store)
+    expect(state.data.get('privacy')).toMatchObject({
+      telemetry: true,
+      screen: { mode: 'ask', proactive: true }
+    })
   })
 
   it('store corrompido não lança', async () => {

@@ -7,8 +7,10 @@
  */
 
 import type { ThemeConfig } from './theme'
+import type { PrivacyScreenConfig } from './screen'
 
 export type { ThemeConfig } from './theme'
+export type { PrivacyScreenConfig, ScreenMode } from './screen'
 
 export const STORE_KEYS = [
   'overlay',
@@ -63,7 +65,11 @@ export interface GeminiConfig {
 
 export interface PrivacyConfig {
   telemetry: boolean
-  screenCapture: boolean
+  /**
+   * Política da visão de tela (task 07). `mode:'off'` é o default; a captura só
+   * acontece depois de o usuário escolher `ask` ou `on`.
+   */
+  screen: PrivacyScreenConfig
 }
 
 export interface PermissionsConfig {

@@ -2,6 +2,7 @@ import type {
   GeminiContent,
   GeminiFunctionCall,
   GeminiGenerateResult,
+  GeminiImage,
   GeminiRequest,
   GeminiStreamChunk,
   GeminiTransport,
@@ -35,11 +36,25 @@ function loadSdk(): Promise<GenAiModule> {
   return loaded
 }
 
+function imageToBase64(image: GeminiImage): string {
+  if (typeof image.data === 'string') return image.data
+  const bytes = image.data instanceof ArrayBuffer ? new Uint8Array(image.data) : image.data
+  return Buffer.from(bytes).toString('base64')
+}
+
 function toContents(contents: GeminiContent[]): Array<Record<string, unknown>> {
-  return contents.map((content) => ({
-    role: content.role === 'model' ? 'model' : 'user',
-    parts: [{ text: content.text }]
-  }))
+  return contents.map((content) => {
+    const parts: Array<Record<string, unknown>> = []
+    if (content.text) parts.push({ text: content.text })
+    for (const image of content.images ?? []) {
+      parts.push({ inlineData: { mimeType: image.mime, data: imageToBase64(image) } })
+    }
+    if (parts.length === 0) parts.push({ text: '' })
+    return {
+      role: content.role === 'model' ? 'model' : 'user',
+      parts
+    }
+  })
 }
 
 function toUsage(

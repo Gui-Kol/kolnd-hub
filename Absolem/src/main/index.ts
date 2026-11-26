@@ -244,6 +244,30 @@ function scheduleSmoke(): void {
       })
   }, 2700)
   setTimeout(() => {
+    // Visão de tela: com o default `privacy.screen.mode = 'off'`, o status
+    // aparece, mas `capture:ask` e `capture:region` são recusados sem capturar
+    // e sem abrir janela de seleção. O teste manual cobre os modos ligados.
+    const window = getOverlayWindow()
+    if (!window) {
+      logger.warn('lifecycle', 'smoke: overlay ausente ao ler capture:status')
+      return
+    }
+    void window.webContents
+      .executeJavaScript(
+        `(async () => ({
+          status: await window.absolem.capture.status(),
+          ask: await window.absolem.capture.ask({ requestId: 'smoke-capture', kind: 'screen', question: 'olha minha tela' }),
+          region: await window.absolem.capture.region()
+        }))()`
+      )
+      .then((info: unknown) => {
+        logger.info('lifecycle', 'smoke: capture:status + recusas em modo off', info)
+      })
+      .catch((err: unknown) => {
+        logger.warn('lifecycle', 'smoke: falha ao exercitar a visão de tela', err)
+      })
+  }, 2950)
+  setTimeout(() => {
     logger.info('lifecycle', 'smoke: simulando segundo clique (fechar)')
     tray?.emit('click')
     logOverlaySmoke('após clique 2')

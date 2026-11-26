@@ -19,10 +19,18 @@ export interface GeminiToolDeclaration {
   parameters: Record<string, unknown>
 }
 
+/** Imagem anexada a um turno (base64 já decodificado ou string base64). */
+export interface GeminiImage {
+  mime: string
+  data: Uint8Array | ArrayBuffer | string
+}
+
 /** Turno de conversa enviado ao modelo. */
 export interface GeminiContent {
   role: 'user' | 'model'
   text: string
+  /** Imagens anexadas a este turno (visão de tela, task 07). */
+  images?: GeminiImage[]
 }
 
 export interface GeminiRequest {

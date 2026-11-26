@@ -52,7 +52,10 @@ const defaultConfig: AbsolemConfig = {
     silenceTimeoutSeconds: 20
   },
   gemini: { model: 'gemini-2.0-flash', temperature: 0.7, monthlyTokenCap: 2_000_000 },
-  privacy: { telemetry: false, screenCapture: false },
+  privacy: {
+    telemetry: false,
+    screen: { mode: 'off', blocklist: [], proactive: false }
+  },
   permissions: {
     microphone: false,
     screenVision: false,

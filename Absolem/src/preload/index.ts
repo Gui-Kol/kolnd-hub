@@ -5,6 +5,14 @@ import type { AvatarApplyPush, AvatarState } from '../shared/avatar'
 import type { StoreKey } from '../shared/config'
 import type { ThemeConfig } from '../shared/theme'
 import type { SettingsSection, ChatDeltaPush, ChatDonePush, ChatErrorPush } from '../shared/ipc'
+import type {
+  CaptureAskRequest,
+  CaptureCancelRequest,
+  CaptureFrameResultRequest,
+  CaptureIndicatorPush,
+  CaptureRequestPush
+} from '../shared/ipc'
+import type { RegionSelection } from '../shared/screen'
 import type { GeminiUsageWarningPush } from '../shared/gemini'
 import type {
   VoiceAudioPush,
@@ -118,6 +126,33 @@ const absolem: AbsolemApi = {
 
   diagnostics: {
     gemini: () => ipcRenderer.invoke(IPC.diagnosticsGemini)
+  },
+
+  capture: {
+    sources: () => ipcRenderer.invoke(IPC.captureSources),
+    ask: (request: CaptureAskRequest) => ipcRenderer.invoke(IPC.captureAsk, request),
+    region: () => ipcRenderer.invoke(IPC.captureRegion),
+    cancel: (request?: CaptureCancelRequest) =>
+      ipcRenderer.invoke(IPC.captureCancel, request === undefined ? {} : request),
+    status: () => ipcRenderer.invoke(IPC.captureStatus),
+    sendFrame: (result: CaptureFrameResultRequest) => ipcRenderer.invoke(IPC.captureResult, result),
+    submitRegion: (selection: RegionSelection) => {
+      ipcRenderer.send(IPC.captureRegionResult, selection)
+    },
+    onRequest: (listener: (push: CaptureRequestPush) => void) => {
+      const handler = (_event: unknown, push: CaptureRequestPush) => listener(push)
+      ipcRenderer.on(IPC.captureRequest, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.captureRequest, handler)
+      }
+    },
+    onIndicator: (listener: (push: CaptureIndicatorPush) => void) => {
+      const handler = (_event: unknown, push: CaptureIndicatorPush) => listener(push)
+      ipcRenderer.on(IPC.captureIndicator, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.captureIndicator, handler)
+      }
+    }
   },
 
   voice: {

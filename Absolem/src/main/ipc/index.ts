@@ -1,6 +1,7 @@
 import type { IpcContext } from './lifecycle'
 import { registerAppIpc } from './app'
 import { registerAvatarIpc } from './avatar'
+import { registerCaptureIpc } from './capture'
 import { registerChatIpc } from './chat'
 import { registerDiagnosticsIpc } from './diagnostics'
 import { registerGeminiIpc } from './gemini'
@@ -8,6 +9,7 @@ import { registerOverlayIpc } from './overlay'
 import { registerThemeIpc } from './theme'
 import { getGeminiEngine } from '../gemini/instance'
 import { ensureVoiceRuntime } from '../voice/instance'
+import { ensureCaptureRuntime } from '../capture/instance'
 
 export type { IpcContext } from './lifecycle'
 
@@ -27,4 +29,5 @@ export function registerIpc(ctx: IpcContext): void {
   registerChatIpc(ctx, engine)
   registerDiagnosticsIpc(engine)
   ensureVoiceRuntime(ctx)
+  registerCaptureIpc(ensureCaptureRuntime(ctx))
 }

@@ -47,6 +47,10 @@ export interface ChatUsagePayload {
   output: number
   total: number
   estimated: boolean
+  /** Tokens estimados da imagem capturada (task 07), quando houver. */
+  imageTokens?: number
+  /** `true` quando `imageTokens` veio da fórmula largura*altura/750. */
+  imageEstimated?: boolean
 }
 
 export interface ChatDeltaPush {
