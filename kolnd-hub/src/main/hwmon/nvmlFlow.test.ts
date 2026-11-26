@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
   resolvePowershellPath: vi.fn(() => 'C:\\ps.exe'),
   windowsRoot: vi.fn(() => 'C:\\Windows'),
   logWarn: vi.fn(),
-  logInfo: vi.fn()
+  logInfo: vi.fn(),
+  collectRequest: vi.fn(),
+  // Padrão: coletor desativado — os testes exercitam o helper por processo,
+  // que é o fallback histórico. Casos específicos ligam o coletor.
+  collectDisabled: vi.fn(() => true),
+  setAssetLoader: vi.fn()
 }))
 
 vi.mock('electron', () => ({ app: { getPath: () => mocks.userData } }))
@@ -29,6 +34,13 @@ vi.mock('./powershell', () => ({
 vi.mock('./systemPaths', () => ({
   resolvePowershellPath: mocks.resolvePowershellPath,
   windowsRoot: mocks.windowsRoot
+}))
+vi.mock('./collector', () => ({
+  getHwCollector: () => ({
+    request: mocks.collectRequest,
+    isDisabled: mocks.collectDisabled
+  }),
+  setHwCollectorAssetLoader: mocks.setAssetLoader
 }))
 vi.mock('../logger', () => ({
   logger: { info: mocks.logInfo, warn: mocks.logWarn, error: vi.fn(), debug: vi.fn() }
@@ -53,6 +65,8 @@ function okProcess(stdout: string): void {
 beforeEach(() => {
   vi.clearAllMocks()
   resetNvmlForTests()
+  mocks.collectRequest.mockReset()
+  mocks.collectDisabled.mockReturnValue(true)
   mocks.readFile.mockRejectedValue(new Error('ENOENT'))
   mocks.writeFile.mockResolvedValue(undefined)
   mocks.mkdir.mockResolvedValue(undefined)
@@ -225,5 +239,46 @@ describe('readNvmlFan — respostas do helper', () => {
     withCompiledAssets()
     okProcess(JSON.stringify({ ok: true, fans: [{ percent: 20 }] }))
     await expect(probeNvml()).resolves.toBe(false)
+  })
+})
+
+describe('readNvmlFan — coletor persistente', () => {
+  beforeEach(() => {
+    mocks.collectDisabled.mockReturnValue(false)
+  })
+
+  it('usa o job nvml e não cria processo algum', async () => {
+    mocks.collectRequest.mockResolvedValue({
+      available: true,
+      rpm: 1450,
+      percent: 38,
+      fanCount: 1
+    })
+    await expect(readNvmlFan()).resolves.toEqual({ rpm: 1450, percent: 38 })
+    expect(mocks.collectRequest).toHaveBeenCalledWith('nvml')
+    expect(mocks.runProcess).not.toHaveBeenCalled()
+    expect(mocks.runPowerShell).not.toHaveBeenCalled()
+  })
+
+  it('máquina sem NVIDIA: available:false responde null sem processo', async () => {
+    mocks.collectRequest.mockResolvedValue({
+      available: false,
+      rpm: null,
+      percent: null,
+      fanCount: 0
+    })
+    await expect(readNvmlFan()).resolves.toBeNull()
+    expect(mocks.runProcess).not.toHaveBeenCalled()
+  })
+
+  it('coletor morto cai no helper por processo (fallback)', async () => {
+    mocks.existsSync.mockImplementation(
+      (path: string) => path === DLL || path === join(HELPERS, 'KolndNvml.dll')
+    )
+    mocks.collectRequest.mockRejectedValue(new Error('coletor encerrou'))
+    okProcess(JSON.stringify({ ok: true, fans: [{ rpm: 900, percent: 30 }] }))
+
+    await expect(readNvmlFan()).resolves.toEqual({ rpm: 900, percent: 30 })
+    expect(mocks.runProcess).toHaveBeenCalledTimes(1)
   })
 })

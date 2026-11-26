@@ -404,6 +404,17 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 
 ## 9. Sensores elevados
 
+- **Monitor sem privilégio (`src/main/hwmon/`)**: o polling compartilhado (aba Monitor e HUD)
+  faz as consultas caras (CIM dinâmico/estático e NVML) em **um** `powershell.exe` persistente
+  por sessão (`collector.ts`), criado na primeira coleta. A `CimSession` é aberta uma vez, o
+  assembly C#/`nvml.dll` é carregado uma vez e os jobs `cim-dynamic`, `static` e `nvml` respondem
+  por linha (`KOLND-HWM <id> <json>`), com 1 request em voo e timeout de 2 s (8 s nas primeiras
+  respostas, que incluem sessão/`Add-Type`). O `nvidia-smi` continua sendo a fonte de
+  uso/temperatura/energia da GPU. O corpo CIM é o mesmo nos dois caminhos (`cimScripts.ts`); após
+  2 falhas seguidas o main desiste do helper e volta ao processo por tick até o fim da sessão.
+  `stopHwCollector()` no `will-quit` fecha o stdin, agenda o kill de segurança (1 s) e não deixa
+  órfãos. `nvml.ts` mantém `readNvmlFanDirect` como fallback e `nativeSensors.ts` mantém o caminho
+  `runFile` quando o coletor está desativado.
 - **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
   a 1 Hz. O main só lê o arquivo (sem privilégio); amostra com mais de 3 s é stale. O script
@@ -439,6 +450,7 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 | Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
 | Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
 | Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
+| Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                     |
 | Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
 | Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
 | Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |

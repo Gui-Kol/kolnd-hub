@@ -10,6 +10,7 @@ import {
   type DriverStatusInfo,
   type InstallDriverResult
 } from './driver'
+import { stopHwCollector } from './collector'
 import { snapshotNative, type DriverStatus, type HwSnapshot } from './nativeSensors'
 import { estimatePlatformWatts, estimateTotalWatts } from './powerEstimate'
 
@@ -331,10 +332,17 @@ export function releaseHwPolling(): void {
   if (refCount === 0) stopPolling()
 }
 
-/** Para o polling e zera o refcount (chamado no `will-quit`). */
+/**
+ * Para o polling e zera o refcount (chamado no `will-quit`).
+ *
+ * O coletor persistente também é encerrado aqui: a sessão acabou e o helper não
+ * pode virar órfão. `stop` fecha o stdin (o script sai do loop) e agenda o kill
+ * de segurança.
+ */
 export function stopHwMonitorPolling(): void {
   refCount = 0
   stopPolling()
+  stopHwCollector()
 }
 
 /** Apenas para testes: quantos consumidores estão segurando o polling agora. */

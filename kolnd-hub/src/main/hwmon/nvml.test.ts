@@ -13,6 +13,7 @@ import {
   describeNvmlError,
   nvmlDllCandidates,
   parseNvmlHelperOutput,
+  parseNvmlJobPayload,
   pickExistingDll,
   pickFanReading,
   type NvmlFanSample
@@ -71,6 +72,47 @@ describe('parseNvmlHelperOutput', () => {
     )
     expect(parsed?.fans).toEqual([])
     expect(parsed?.deviceCount).toBe(1)
+  })
+})
+
+describe('parseNvmlJobPayload (coletor persistente)', () => {
+  it('paridade com o fixture real do helper (zero-fan: 0 RPM é válido)', () => {
+    expect(parseNvmlJobPayload({ available: true, rpm: 0, percent: 0, fanCount: 1 })).toEqual({
+      available: true,
+      rpm: 0,
+      percent: 0,
+      fanCount: 1
+    })
+  })
+
+  it('mantém rpm null quando o driver não expõe RPM (percentual continua)', () => {
+    expect(parseNvmlJobPayload({ available: true, rpm: null, percent: 42, fanCount: 1 })).toEqual({
+      available: true,
+      rpm: null,
+      percent: 42,
+      fanCount: 1
+    })
+  })
+
+  it('máquina sem NVML responde available:false sem inventar leitura', () => {
+    expect(parseNvmlJobPayload({ available: false, rpm: 999, percent: 50, fanCount: 2 })).toEqual({
+      available: false,
+      rpm: null,
+      percent: null,
+      fanCount: 0
+    })
+  })
+
+  it('descarta faixas inválidas e clampa o percentual em 100', () => {
+    expect(
+      parseNvmlJobPayload({ available: true, rpm: 999999, percent: 140, fanCount: '1' })
+    ).toEqual({ available: true, rpm: null, percent: 100, fanCount: 1 })
+  })
+
+  it('payload que não é objeto devolve null', () => {
+    expect(parseNvmlJobPayload(null)).toBeNull()
+    expect(parseNvmlJobPayload('x')).toBeNull()
+    expect(parseNvmlJobPayload([])).toBeNull()
   })
 })
 

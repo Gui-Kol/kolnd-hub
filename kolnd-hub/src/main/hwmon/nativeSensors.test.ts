@@ -6,6 +6,15 @@ vi.mock('../logger', () => ({
 }))
 // O NVML roda PowerShell de verdade; aqui só interessa o que chega ao snapshot.
 vi.mock('./nvml', () => ({ readNvmlFan: vi.fn(async () => null) }))
+// O coletor persistente é substituído por um stub: os testes puros não podem
+// criar `powershell.exe`. `null` = caminho legado (o padrão de cada caso).
+const collectorState = vi.hoisted(() => ({
+  current: null as null | {
+    request: (job: string, options?: unknown) => Promise<unknown>
+    isDisabled: () => boolean
+  }
+}))
+vi.mock('./collector', () => ({ getHwCollector: () => collectorState.current }))
 
 import {
   acpiTenthsKelvinToCelsius,
@@ -147,6 +156,7 @@ function cpuTimes(entries: Array<{ idle: number; user: number }>): CpuTimesLike[
 
 // Cada teste decide se a máquina tem NVML; o padrão é "sem leitura".
 beforeEach(() => {
+  collectorState.current = null
   vi.mocked(readNvmlFan).mockReset()
   vi.mocked(readNvmlFan).mockResolvedValue(null)
 })
@@ -831,5 +841,79 @@ describe('snapshotNative — CIM estática x dinâmica', () => {
     expect(first.gpu.fanRpm).toBeNull()
     // 0 RPM é leitura válida (modo zero-fan), não ausência de leitura.
     expect(second.gpu.fanRpm).toBe(0)
+  })
+})
+
+describe('snapshotNative — coletor persistente', () => {
+  beforeEach(() => {
+    resetNativeSensorsForTests()
+  })
+
+  const STATIC_PAYLOAD = JSON.parse(CIM_JSON) as Record<string, unknown>
+  const DYNAMIC_PAYLOAD = {
+    gpuUsagePercent: 42,
+    gpuDedicatedBytes: 1024 * 1024 * 1024,
+    gpuSharedBytes: 8192,
+    processor: { PercentProcessorPerformance: 100 }
+  }
+
+  it('usa o coletor para estático e dinâmico, sem executar CIM por processo', async () => {
+    const request = vi.fn(async (job: string) => {
+      if (job === 'static') return STATIC_PAYLOAD
+      if (job === 'cim-dynamic') return DYNAMIC_PAYLOAD
+      return null
+    })
+    collectorState.current = { request, isDisabled: () => false }
+    // Sem nvidia-smi o uso vem do CIM com o GPUEngine (máquina AMD/Intel).
+    const runner = vi.fn<CommandRunner>(async () => null)
+
+    const snapshot = await snapshotNative(runner)
+
+    expect(request).toHaveBeenCalledWith('static')
+    expect(request).toHaveBeenCalledWith('cim-dynamic', { includeGpuEngine: true })
+    // Nenhuma consulta CIM criou processo; só o nvidia-smi continua no tick.
+    expect(runner.mock.calls.some(([, args]) => isStaticCim(args) || isDynamicCim(args))).toBe(
+      false
+    )
+    expect(snapshot.cpu.model).toBe('AMD Ryzen 7 5700X 8-Core Processor')
+    expect(snapshot.ram.installedGb).toBe(24)
+    expect(snapshot.gpu.usagePercent).toBe(42)
+    expect(snapshot.gpu.vramUsedMb).toBe(1024)
+    expect(snapshot.cpu.clockMhz).toBe(3401)
+  })
+
+  it('falha do coletor cai no caminho por processo no MESMO tick', async () => {
+    const request = vi.fn(async () => {
+      throw new Error('helper morto')
+    })
+    collectorState.current = { request, isDisabled: () => false }
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return NVIDIA_LINE
+      if (isStaticCim(args) || isDynamicCim(args)) return CIM_JSON
+      return null
+    })
+
+    const snapshot = await snapshotNative(runner)
+
+    expect(request).toHaveBeenCalled()
+    expect(runner.mock.calls.filter(([, args]) => isStaticCim(args))).toHaveLength(1)
+    expect(runner.mock.calls.filter(([, args]) => isDynamicCim(args))).toHaveLength(1)
+    expect(snapshot.cpu.model).toBe('AMD Ryzen 7 5700X 8-Core Processor')
+  })
+
+  it('coletor desativado não é consultado (fallback até o fim da sessão)', async () => {
+    const request = vi.fn(async () => null)
+    collectorState.current = { request, isDisabled: () => true }
+    const runner = vi.fn<CommandRunner>(async (_file, args) => {
+      if (isNvidiaQuery(args)) return NVIDIA_LINE
+      if (isStaticCim(args) || isDynamicCim(args)) return CIM_JSON
+      return null
+    })
+
+    const snapshot = await snapshotNative(runner)
+
+    expect(request).not.toHaveBeenCalled()
+    expect(runner.mock.calls.filter(([, args]) => isDynamicCim(args))).toHaveLength(1)
+    expect(snapshot.cpu.model).toBe('AMD Ryzen 7 5700X 8-Core Processor')
   })
 })

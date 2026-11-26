@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import { existsSync, statSync } from 'fs'
 import { join } from 'path'
 import { logger } from '../logger'
+import { getHwCollector, setHwCollectorAssetLoader } from './collector'
 import { runProcess, runPowerShell } from './powershell'
 import { resolvePowershellPath, windowsRoot } from './systemPaths'
 
@@ -108,6 +109,20 @@ public static class KolndNvml
     private static readonly uint FanSpeedInfoVersion =
         (uint)Marshal.SizeOf(typeof(FanSpeedInfo)) | (1u << 24);
 
+    // Estado persistente: o coletor carrega a NVML uma vez e so le nas
+    // chamadas seguintes. O Run legado usa o mesmo caminho (Init + ReadFans
+    // + Shutdown) para nao existirem duas implementacoes.
+    private static IntPtr lib = IntPtr.Zero;
+    private static bool initialized = false;
+    private static uint deviceCount = 0;
+    private static IntPtr device = IntPtr.Zero;
+    private static ShutdownDelegate shutdown = null;
+    private static NumFansDelegate numFans = null;
+    private static FanSpeedDelegate fanSpeedV2 = null;
+    private static FanSpeedLegacyDelegate fanSpeedLegacy = null;
+    private static FanRpmDelegate fanRpm = null;
+    private static string initError = null;
+
     // Formato do erro: "etapa|codigo|detalhe". A etapa e traduzida no lado TS;
     // o detalhe (caminho, nome da funcao) fica para o log, nunca para a UI.
     private static string Error(string stage, int code, string detail)
@@ -144,16 +159,46 @@ public static class KolndNvml
         return Marshal.GetDelegateForFunctionPointer(address, type);
     }
 
-    public static string Run(string dllPath)
+    private static string BuildJson(string error, string fans)
     {
-        bool initialized = false;
-        uint deviceCount = 0;
-        StringBuilder fans = new StringBuilder();
-        int fanCount = 0;
-        string error = null;
-        IntPtr lib = IntPtr.Zero;
-        ShutdownDelegate shutdown = null;
+        StringBuilder json = new StringBuilder();
+        json.Append("{\"ok\":").Append(error == null ? "true" : "false");
+        json.Append(",\"initialized\":").Append(initialized ? "true" : "false");
+        json.Append(",\"deviceCount\":").Append(deviceCount.ToString(CultureInfo.InvariantCulture));
+        json.Append(",\"fans\":[").Append(fans).Append(']');
+        json.Append(",\"error\":").Append(JsonString(error)).Append('}');
+        return json.ToString();
+    }
 
+    private static void Cleanup()
+    {
+        if (initialized && shutdown != null)
+        {
+            try { shutdown(); } catch { }
+        }
+        if (lib != IntPtr.Zero)
+        {
+            try { FreeLibrary(lib); } catch { }
+        }
+        lib = IntPtr.Zero;
+        initialized = false;
+        device = IntPtr.Zero;
+        deviceCount = 0;
+        shutdown = null;
+        numFans = null;
+        fanSpeedV2 = null;
+        fanSpeedLegacy = null;
+        fanRpm = null;
+        initError = null;
+    }
+
+    // Carrega a DLL e inicializa a NVML UMA vez. Idempotente: o helper
+    // persistente chama no start e continua usando o handle.
+    public static string Init(string dllPath)
+    {
+        if (lib != IntPtr.Zero) return BuildJson(initError, "");
+
+        string error = null;
         try
         {
             // LoadLibrary em vez de DllImport: a DLL vive em System32 (ou no
@@ -172,10 +217,10 @@ public static class KolndNvml
 
                 // Opcionais: drivers antigos nao tem NumFans/FanSpeed_v2/RPM. Sem
                 // eles ainda e possivel entregar o percentual pela funcao legada.
-                NumFansDelegate numFans = (NumFansDelegate)Bind(lib, "nvmlDeviceGetNumFans", typeof(NumFansDelegate));
-                FanSpeedDelegate fanSpeedV2 = (FanSpeedDelegate)Bind(lib, "nvmlDeviceGetFanSpeed_v2", typeof(FanSpeedDelegate));
-                FanSpeedLegacyDelegate fanSpeedLegacy = (FanSpeedLegacyDelegate)Bind(lib, "nvmlDeviceGetFanSpeed", typeof(FanSpeedLegacyDelegate));
-                FanRpmDelegate fanRpm = (FanRpmDelegate)Bind(lib, "nvmlDeviceGetFanSpeedRPM", typeof(FanRpmDelegate));
+                numFans = (NumFansDelegate)Bind(lib, "nvmlDeviceGetNumFans", typeof(NumFansDelegate));
+                fanSpeedV2 = (FanSpeedDelegate)Bind(lib, "nvmlDeviceGetFanSpeed_v2", typeof(FanSpeedDelegate));
+                fanSpeedLegacy = (FanSpeedLegacyDelegate)Bind(lib, "nvmlDeviceGetFanSpeed", typeof(FanSpeedLegacyDelegate));
+                fanRpm = (FanRpmDelegate)Bind(lib, "nvmlDeviceGetFanSpeedRPM", typeof(FanRpmDelegate));
 
                 string missing = null;
                 if (init == null) missing = "nvmlInit_v2";
@@ -203,64 +248,15 @@ public static class KolndNvml
                         }
                         else
                         {
-                            IntPtr device;
-                            code = handleByIndex(0, out device);
-                            if (code != 0 || device == IntPtr.Zero)
+                            IntPtr handle;
+                            code = handleByIndex(0, out handle);
+                            if (code != 0 || handle == IntPtr.Zero)
                             {
                                 error = Error("handle", code, "0");
                             }
                             else
                             {
-                                uint fanTotal = 1;
-                                if (numFans != null && numFans(device, out fanTotal) != 0) fanTotal = 0;
-
-                                if (fanTotal == 0)
-                                {
-                                    error = Error("fans", 0, "count");
-                                }
-                                else
-                                {
-                                    for (uint fan = 0; fan < fanTotal; fan++)
-                                    {
-                                        uint rpm = 0;
-                                        uint percent = 0;
-                                        bool hasRpm = false;
-
-                                        if (fanRpm != null)
-                                        {
-                                            FanSpeedInfo info = new FanSpeedInfo();
-                                            info.version = FanSpeedInfoVersion;
-                                            info.fan = fan;
-                                            if (fanRpm(device, ref info) == 0)
-                                            {
-                                                rpm = info.speed;
-                                                hasRpm = true;
-                                            }
-                                        }
-
-                                        bool hasPercent = false;
-                                        if (fanSpeedV2 != null)
-                                        {
-                                            hasPercent = fanSpeedV2(device, fan, out percent) == 0;
-                                        }
-                                        else if (fan == 0 && fanSpeedLegacy != null)
-                                        {
-                                            // API legada: so conhece a primeira ventoinha.
-                                            hasPercent = fanSpeedLegacy(device, out percent) == 0;
-                                        }
-
-                                        if (!hasRpm && !hasPercent) continue;
-                                        if (fanCount > 0) fans.Append(',');
-                                        fans.Append("{\"rpm\":");
-                                        fans.Append(hasRpm ? rpm.ToString(CultureInfo.InvariantCulture) : "null");
-                                        fans.Append(",\"percent\":");
-                                        fans.Append(hasPercent ? percent.ToString(CultureInfo.InvariantCulture) : "null");
-                                        fans.Append('}');
-                                        fanCount++;
-                                    }
-
-                                    if (fanCount == 0) error = Error("fans", 0, "leitura");
-                                }
+                                device = handle;
                             }
                         }
                     }
@@ -271,22 +267,101 @@ public static class KolndNvml
         {
             if (error == null) error = Error("helper", 0, ex.Message);
         }
-        finally
+
+        if (error != null) Cleanup();
+        initError = error;
+        return BuildJson(error, "");
+    }
+
+    // Le as ventoinhas do device guardado no Init. Um erro de leitura nao
+    // derruba a NVML (modo zero-fan/driver antigo): a proxima chamada tenta de novo.
+    public static string ReadFans()
+    {
+        if (lib == IntPtr.Zero || initError != null)
         {
-            if (initialized && shutdown != null)
-            {
-                try { shutdown(); } catch { }
-            }
-            if (lib != IntPtr.Zero) FreeLibrary(lib);
+            return BuildJson(initError ?? Error("init", 0, ""), "");
         }
 
-        StringBuilder json = new StringBuilder();
-        json.Append("{\"ok\":").Append(error == null ? "true" : "false");
-        json.Append(",\"initialized\":").Append(initialized ? "true" : "false");
-        json.Append(",\"deviceCount\":").Append(deviceCount.ToString(CultureInfo.InvariantCulture));
-        json.Append(",\"fans\":[").Append(fans).Append(']');
-        json.Append(",\"error\":").Append(JsonString(error)).Append('}');
-        return json.ToString();
+        StringBuilder fans = new StringBuilder();
+        int fanCount = 0;
+        string error = null;
+
+        try
+        {
+            uint fanTotal = 1;
+            if (numFans != null && numFans(device, out fanTotal) != 0) fanTotal = 0;
+
+            if (fanTotal == 0)
+            {
+                error = Error("fans", 0, "count");
+            }
+            else
+            {
+                for (uint fan = 0; fan < fanTotal; fan++)
+                {
+                    uint rpm = 0;
+                    uint percent = 0;
+                    bool hasRpm = false;
+
+                    if (fanRpm != null)
+                    {
+                        FanSpeedInfo info = new FanSpeedInfo();
+                        info.version = FanSpeedInfoVersion;
+                        info.fan = fan;
+                        if (fanRpm(device, ref info) == 0)
+                        {
+                            rpm = info.speed;
+                            hasRpm = true;
+                        }
+                    }
+
+                    bool hasPercent = false;
+                    if (fanSpeedV2 != null)
+                    {
+                        hasPercent = fanSpeedV2(device, fan, out percent) == 0;
+                    }
+                    else if (fan == 0 && fanSpeedLegacy != null)
+                    {
+                        // API legada: so conhece a primeira ventoinha.
+                        hasPercent = fanSpeedLegacy(device, out percent) == 0;
+                    }
+
+                    if (!hasRpm && !hasPercent) continue;
+                    if (fanCount > 0) fans.Append(',');
+                    fans.Append("{\"rpm\":");
+                    fans.Append(hasRpm ? rpm.ToString(CultureInfo.InvariantCulture) : "null");
+                    fans.Append(",\"percent\":");
+                    fans.Append(hasPercent ? percent.ToString(CultureInfo.InvariantCulture) : "null");
+                    fans.Append('}');
+                    fanCount++;
+                }
+
+                if (fanCount == 0) error = Error("fans", 0, "leitura");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (error == null) error = Error("helper", 0, ex.Message);
+        }
+
+        return BuildJson(error, fans.ToString());
+    }
+
+    public static string Shutdown()
+    {
+        Cleanup();
+        return BuildJson(null, "");
+    }
+
+    // Caminho legado (um PowerShell por leitura): mesmo Init/ReadFans, com
+    // Shutdown no fim. O JSON continua identico ao da versao anterior.
+    public static string Run(string dllPath)
+    {
+        string result = Init(dllPath);
+        if (initError != null) return result;
+        result = ReadFans();
+        Cleanup();
+        return result;
     }
 }
 `
@@ -329,6 +404,8 @@ export interface NvmlFanReading {
 
 interface HelperAssets {
   scriptPath: string
+  /** Assembly C# compilado uma vez; o helper persistente o carrega no start. */
+  assemblyPath: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -436,6 +513,32 @@ export function pickFanReading(fans: ReadonlyArray<NvmlFanSample>): NvmlFanSampl
   return fans.find((fan) => fan.percent !== null) ?? null
 }
 
+/** Resposta do job `nvml` do coletor persistente. */
+export interface NvmlJobResult {
+  available: boolean
+  rpm: number | null
+  percent: number | null
+  fanCount: number
+}
+
+/**
+ * Parser do payload do job `nvml` — puro, exportado para testes. O helper já
+ * escolhe a ventoinha (primeira com RPM; senão a primeira com percentual), mas
+ * revalidamos as faixas para nunca propagar lixo da DLL.
+ */
+export function parseNvmlJobPayload(value: unknown): NvmlJobResult | null {
+  if (!isRecord(value)) return null
+  if (value.available !== true) {
+    return { available: false, rpm: null, percent: null, fanCount: 0 }
+  }
+  return {
+    available: true,
+    rpm: toRpm(value.rpm),
+    percent: toPercent(value.percent),
+    fanCount: toUnsigned(value.fanCount) ?? 0
+  }
+}
+
 /**
  * Traduz o `stage|codigo|detalhe` do helper para uma frase de UI. Pura,
  * exportada para testes. `null` = sem erro.
@@ -521,10 +624,11 @@ async function ensureAssets(): Promise<HelperAssets> {
     }
   }
 
-  return { scriptPath }
+  return { scriptPath, assemblyPath: dllPath }
 }
 
-function getAssets(): Promise<HelperAssets> {
+/** Exportado para o coletor reaproveitar a MESMA compilação do helper C#. */
+export function getAssets(): Promise<HelperAssets> {
   if (!assetsPromise) {
     assetsPromise = ensureAssets().catch((err) => {
       assetsPromise = null
@@ -534,18 +638,54 @@ function getAssets(): Promise<HelperAssets> {
   return assetsPromise
 }
 
+// O coletor não importa `electron`/FS nem duplica o C#: o dono do helper
+// registra como descobrir a DLL e o assembly. Sem DLL (AMD/Intel), o job
+// `nvml` responde `available:false` sem erro.
+setHwCollectorAssetLoader(async () => {
+  const dllPath = resolveNvmlDllPath()
+  if (!dllPath) return null
+  const assets = await getAssets()
+  return { dllPath, assemblyPath: assets.assemblyPath }
+})
+
 /** Depois de uma falha/sem suporte, não vale gastar um processo por segundo. */
 let retryAfter = 0
 /** O aviso "sem RPM" é de sessão: a capacidade do driver não muda no meio dela. */
 let rpmUnsupportedLogged = false
 
 /**
- * Lê as ventoinhas do **primeiro** dispositivo NVIDIA. Nunca lança:
- * `null` = NVML indisponível nesta máquina (sem NVIDIA, sem DLL, init falhou).
+ * Lê a ventoinha pelo coletor persistente; se ele estiver morto ou desativado
+ * (2 falhas), cai no helper por processo (`readNvmlFanDirect`). Nunca lança.
  *
  * O RPM é `0` em modo zero-fan (GPU fria) — 0 é leitura válida, não ausência.
  */
 export async function readNvmlFan(
+  timeoutMs: number = HELPER_TIMEOUT_MS
+): Promise<NvmlFanReading | null> {
+  if (process.platform !== 'win32') return null
+
+  const collector = getHwCollector()
+  if (!collector.isDisabled()) {
+    try {
+      const result = parseNvmlJobPayload(await collector.request('nvml'))
+      if (result) {
+        // `available:false` é resposta legítima de máquina sem NVML: não vale
+        // gastar um processo por tick só para confirmar.
+        return result.available ? { rpm: result.rpm, percent: result.percent } : null
+      }
+    } catch {
+      // Coletor morto/timeout: este tick usa o helper por processo.
+    }
+  }
+
+  return readNvmlFanDirect(timeoutMs)
+}
+
+/**
+ * Implementação histórica (um PowerShell por leitura), mantida como fallback.
+ * Nunca lança: `null` = NVML indisponível nesta máquina.
+ */
+export async function readNvmlFanDirect(
   timeoutMs: number = HELPER_TIMEOUT_MS
 ): Promise<NvmlFanReading | null> {
   if (process.platform !== 'win32') return null

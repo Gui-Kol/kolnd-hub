@@ -25,7 +25,13 @@ import {
   type GpuAdapterInfo
 } from './gpuInfo'
 import { readNvmlFan } from './nvml'
+import { getHwCollector, type HwCollectorClient } from './collector'
+import { buildCimDynamicScript, buildCimStaticScript } from './cimScripts'
 import { estimateCpuWatts, estimatePlatformWatts, estimateTotalWatts } from './powerEstimate'
+
+// Os scripts CIM vivem em `cimScripts.ts` para o coletor persistente usar
+// exatamente o mesmo corpo; a reexportação mantém a API histórica deste módulo.
+export { buildCimDynamicScript } from './cimScripts'
 
 export type {
   DriverStatus,
@@ -135,89 +141,6 @@ const SMBIOS_MEMORY_TYPES: Record<number, string> = {
   24: 'DDR3',
   26: 'DDR4',
   34: 'DDR5'
-}
-
-/**
- * Consulta CIM estática (RAM, CPU, placa e temperatura ACPI) — uma execução por
- * sessão. `[Console]::OutputEncoding` força UTF-8 no stdout mesmo em console
- * localizado; `$ErrorActionPreference` evita que uma classe ausente escreva lixo
- * no JSON.
- *
- * A temperatura entra AQUI (e não no tick) porque `MSAcpi_ThermalZoneTemperature`
- * não existe em muitos desktops — medido nesta máquina: a consulta falha. Pagar
- * a falha uma vez por sessão evita custo e log repetido a cada segundo.
- */
-const CIM_STATIC_SCRIPT = [
-  '[Console]::OutputEncoding=[Text.Encoding]::UTF8',
-  "$ErrorActionPreference='SilentlyContinue'",
-  '$ram=@(Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,ConfiguredClockSpeed,ConfiguredVoltage,SMBIOSMemoryType)',
-  '$cpu=Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed',
-  '$board=Get-CimInstance Win32_BaseBoard | Select-Object -First 1 Manufacturer,Product',
-  '$acpi=@(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | Select-Object InstanceName,CurrentTemperature)',
-  '$thermal=@(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation | Select-Object Name,HighPrecisionTemperature,Temperature)',
-  // GPU é estática (modelo/driver/VRAM não mudam no tick). A VRAM real vem do
-  // registro: `AdapterRAM` satura em ~4 GiB e mentiria numa placa de 8 GB.
-  '$video=@(Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID,DriverVersion,DriverDate,AdapterRAM)',
-  `$gpuReg=@(Get-ChildItem "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}" | ForEach-Object { $p=Get-ItemProperty $_.PSPath; [pscustomobject]@{DriverDesc=$p.DriverDesc;DriverVersion=$p.DriverVersion;MatchingDeviceId=$p.MatchingDeviceId;'HardwareInformation.qwMemorySize'=$p.'HardwareInformation.qwMemorySize'} })`,
-  '[pscustomobject]@{ram=@($ram);cpu=$cpu;board=$board;acpi=@($acpi);thermal=@($thermal);video=@($video);gpuRegistry=@($gpuReg)} | ConvertTo-Json -Depth 6 -Compress'
-].join('; ')
-
-/**
- * Consulta CIM dinâmica (GPU + performance do processador) por tick.
- *
- * Por que a agregação acontece aqui: o contador `\GPU Engine(*)\Utilization
- * Percentage` tem o caminho LOCALIZADO (pt-BR quebra), mas as classes CIM
- * `Win32_PerfFormattedData_GPUPerformanceCounters_*` são independentes de
- * idioma. A regra de uso é a mesma do Gerenciador de Tarefas: somar as
- * instâncias do motor 3D por adaptador (LUID) e ler o adaptador primário —
- * `Copy`, `VideoDecode`, `Security` e afins não são "uso da GPU" para o
- * usuário. O adaptador primário é o de maior memória dedicada; um adaptador
- * virtual (ex.: Parsec) tem 0 dedicado e não zera a leitura da GPU real.
- *
- * O bloco de uso é CONDICIONAL: em NVIDIA o `nvidia-smi` já entrega o uso com
- * mais precisão, e consultar o `GPUEngine` custa ~300 ms por tick (medido:
- * 486 instâncias). Com ele o tick ia de ~610 ms para ~960 ms; sem ele a máquina
- * NVIDIA continua no orçamento antigo e AMD/Intel pagam só quando precisam.
- *
- * Tudo é agregado no PowerShell e só os totais voltam: o JSON por tick precisa
- * continuar pequeno (1 processo por tick, sem custo extra de parsing).
- *
- * Medição empírica nesta máquina (RTX 5060 Ti, 18/11/2026), comparando com
- * `nvidia-smi --query-gpu=utilization.gpu`: em repouso 2% (CIM) × 2%
- * (nvidia-smi); com carga leve ~25% × 26–28%; saturada 97–100% × 99–100%.
- * A memória dedicada acompanhou `memory.used` dentro de ~15 MiB. Agregar só o
- * `3D` por LUID é o que replica o Gerenciador de Tarefas; somar todas as
- * instâncias (Copy/VideoDecode) inflaria o número sem relação com o uso.
- */
-export function buildCimDynamicScript(includeGpuEngine: boolean): string {
-  const lines = [
-    '[Console]::OutputEncoding=[Text.Encoding]::UTF8',
-    "$ErrorActionPreference='SilentlyContinue'",
-    '$mem=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,DedicatedUsage,SharedUsage)',
-    `$rows=@($mem | ForEach-Object { $p=$_.Name -split '_'; [pscustomobject]@{ luid="$($p[1])_$($p[2])"; dedicated=[double]$_.DedicatedUsage; shared=[double]$_.SharedUsage } })`,
-    `$primary=$rows | Sort-Object -Property @{Expression='dedicated';Descending=$true},@{Expression='shared';Descending=$true} | Select-Object -First 1`,
-    '$usage=$null'
-  ]
-
-  if (includeGpuEngine) {
-    lines.push(
-      `$eng=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine | Where-Object { $_.Name -match '_engtype_3D$' } | Select-Object Name,UtilizationPercentage)`,
-      '$sums=@{}',
-      `foreach ($e in $eng) { $p=$e.Name -split '_'; $key="$($p[3])_$($p[4])"; $v=[double]$e.UtilizationPercentage; if ($sums.ContainsKey($key)) { $sums[$key]=$sums[$key]+$v } else { $sums[$key]=$v } }`,
-      'if ($primary -and $sums.ContainsKey($primary.luid)) { $usage=$sums[$primary.luid] } elseif ($sums.Count -gt 0) { $usage=($sums.Values | Measure-Object -Maximum).Maximum }',
-      'if ($usage -ne $null) { $usage=[math]::Min(100,[math]::Max(0,$usage)) }'
-    )
-  }
-
-  lines.push(
-    '$dedicated=$null',
-    '$shared=$null',
-    'if ($primary) { $dedicated=$primary.dedicated; $shared=$primary.shared }',
-    "$perf=Get-CimInstance Win32_PerfFormattedData_Counters_ProcessorInformation | Where-Object { $_.Name -eq '_Total' } | Select-Object -First 1 PercentProcessorPerformance",
-    '[pscustomobject]@{gpuUsagePercent=$usage;gpuDedicatedBytes=$dedicated;gpuSharedBytes=$shared;processor=$perf} | ConvertTo-Json -Depth 6 -Compress'
-  )
-
-  return lines.join('; ')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -355,23 +278,11 @@ export function selectCpuTempFromAcpi(zones: unknown, thermal: unknown): number 
   return valid.length > 0 ? Math.max(...valid) : null
 }
 
-/** Parser do JSON de uma consulta CIM (estática ou dinâmica). Null se inválido. */
-export function parseCimJson(raw: string | null | undefined): CimFacts | null {
-  if (!raw) return null
-  const text = raw.replace(/^\uFEFF/, '').trim()
-  if (!text) return null
-
-  // PowerShell pode emitir avisos antes/depois do JSON em máquinas localizadas.
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) return null
-
-  let value: unknown
-  try {
-    value = JSON.parse(text.slice(start, end + 1))
-  } catch {
-    return null
-  }
+/**
+ * Parser do objeto já parseado de uma consulta CIM. Usado pelo coletor
+ * persistente (a resposta já chega como JSON) e por `parseCimJson`.
+ */
+export function parseCimPayload(value: unknown): CimFacts | null {
   if (!isRecord(value)) return null
 
   const ramModules = toRecordList(value.ram).map((row): CimRamModule => ({
@@ -411,6 +322,26 @@ export function parseCimJson(raw: string | null | undefined): CimFacts | null {
     processorPerformancePercent: toPositive(processorRecord.PercentProcessorPerformance),
     cpuTempAcpiC: selectCpuTempFromAcpi(value.acpi, value.thermal)
   }
+}
+
+/** Parser do JSON de uma consulta CIM (estática ou dinâmica). Null se inválido. */
+export function parseCimJson(raw: string | null | undefined): CimFacts | null {
+  if (!raw) return null
+  const text = raw.replace(/^\uFEFF/, '').trim()
+  if (!text) return null
+
+  // PowerShell pode emitir avisos antes/depois do JSON em máquinas localizadas.
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+
+  let value: unknown
+  try {
+    value = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return null
+  }
+  return parseCimPayload(value)
 }
 
 export interface CpuTimesLike {
@@ -663,11 +594,33 @@ function cimArgs(script: string): string[] {
  * naquele instante), tenta de novo no próximo tick; sucesso — mesmo vazio —
  * fica cacheado e não repete.
  */
-async function readStaticCim(runner: CommandRunner): Promise<StaticFacts | null> {
+async function readStaticCim(
+  runner: CommandRunner,
+  collector: HwCollectorClient | null
+): Promise<StaticFacts | null> {
   if (staticResolved) return staticCache
 
-  const stdout = await runner(resolvePowershellPath(), cimArgs(CIM_STATIC_SCRIPT), CIM_TIMEOUT_MS)
-  const facts = parseCimJson(stdout)
+  // O coletor já entrega o JSON parseado; no legado o stdout pode vir com
+  // avisos do PowerShell, então o parser de texto continua sendo usado.
+  let facts: CimFacts | null = null
+  if (collector && !collector.isDisabled()) {
+    try {
+      facts = parseCimPayload(await collector.request('static'))
+    } catch {
+      // Transporte falhou: este tick paga o caminho por processo e o coletor
+      // decide sozinho quando desistir de vez (2 falhas seguidas).
+      facts = null
+    }
+  }
+
+  if (!facts) {
+    const stdout = await runner(
+      resolvePowershellPath(),
+      cimArgs(buildCimStaticScript()),
+      CIM_TIMEOUT_MS
+    )
+    facts = parseCimJson(stdout)
+  }
   if (!facts) return staticCache
 
   staticCache = {
@@ -687,6 +640,7 @@ async function readStaticCim(runner: CommandRunner): Promise<StaticFacts | null>
 
 async function readDynamicCim(
   runner: CommandRunner,
+  collector: HwCollectorClient | null,
   includeGpuEngine: boolean
 ): Promise<{
   gpuSharedBytes: number | null
@@ -694,12 +648,24 @@ async function readDynamicCim(
   gpuUsagePercent: number | null
   processorPerformancePercent: number | null
 }> {
-  const stdout = await runner(
-    resolvePowershellPath(),
-    cimArgs(buildCimDynamicScript(includeGpuEngine)),
-    CIM_TIMEOUT_MS
-  )
-  const facts = parseCimJson(stdout)
+  let facts: CimFacts | null = null
+  if (collector && !collector.isDisabled()) {
+    try {
+      facts = parseCimPayload(await collector.request('cim-dynamic', { includeGpuEngine }))
+    } catch {
+      // Sem coletor vivo, o tick segue pelo caminho antigo (1 processo).
+      facts = null
+    }
+  }
+
+  if (!facts) {
+    const stdout = await runner(
+      resolvePowershellPath(),
+      cimArgs(buildCimDynamicScript(includeGpuEngine)),
+      CIM_TIMEOUT_MS
+    )
+    facts = parseCimJson(stdout)
+  }
   return {
     gpuSharedBytes: facts?.gpuSharedBytes ?? null,
     gpuDedicatedBytes: facts?.gpuDedicatedBytes ?? null,
@@ -717,7 +683,10 @@ function isKnownNvidia(): boolean {
   return (staticCache?.gpuAdapters ?? []).some((adapter) => adapter.vendor === 'nvidia')
 }
 
-async function capture(runner: CommandRunner): Promise<HwSnapshot> {
+async function capture(
+  runner: CommandRunner,
+  collector: HwCollectorClient | null
+): Promise<HwSnapshot> {
   const nvidiaPath = resolveNvidiaSmiPath()
 
   // O `nvidia-smi` roda primeiro (é rápido, ~50 ms) para decidir se o uso da
@@ -739,8 +708,8 @@ async function capture(runner: CommandRunner): Promise<HwSnapshot> {
   // CIM estática (1ª vez) e dinâmica em paralelo: um sensor lento não penaliza
   // o outro; depois do 1º tick só a dinâmica permanece.
   const [staticFacts, dynamic, nvml] = await Promise.all([
-    readStaticCim(runner),
-    readDynamicCim(runner, nvidia === null),
+    readStaticCim(runner, collector),
+    readDynamicCim(runner, collector, nvidia === null),
     fan
   ])
 
@@ -766,10 +735,16 @@ async function capture(runner: CommandRunner): Promise<HwSnapshot> {
 /**
  * Snapshot nativo. Chamadas concorrentes compartilham a mesma leitura — o
  * polling de 1 Hz nunca empilha processos do PowerShell.
+ *
+ * O segundo parâmetro é a superfície do coletor persistente; `null` força o
+ * caminho legado (testes puros e fallback de sessão).
  */
-export function snapshotNative(runner: CommandRunner = runFile): Promise<HwSnapshot> {
+export function snapshotNative(
+  runner: CommandRunner = runFile,
+  collector: HwCollectorClient | null = getHwCollector()
+): Promise<HwSnapshot> {
   if (inflight) return inflight
-  inflight = capture(runner).finally(() => {
+  inflight = capture(runner, collector).finally(() => {
     inflight = null
   })
   return inflight
