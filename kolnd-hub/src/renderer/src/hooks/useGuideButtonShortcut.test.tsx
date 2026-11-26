@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
-import { GUIDE_POLL_MS, useGuideButtonShortcut } from './useGuideButtonShortcut'
+import {
+  GUIDE_POLL_MS,
+  GUIDE_PRESENCE_POLL_MS,
+  useGuideButtonShortcut
+} from './useGuideButtonShortcut'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -32,6 +36,7 @@ function setButton(current: Gamepad, index: number, pressed: boolean): void {
 
 let pads: (Gamepad | null)[]
 let focused: boolean
+let visible: boolean
 let getGamepads: ReturnType<typeof vi.fn>
 let onTrigger: ReturnType<typeof vi.fn>
 let container: HTMLDivElement
@@ -47,9 +52,27 @@ function render(enabled: boolean): void {
   act(() => root.render(<Harness enabled={enabled} />))
 }
 
-function tick(times = 1): void {
+function advance(ms: number): void {
   act(() => {
-    vi.advanceTimersByTime(GUIDE_POLL_MS * times)
+    vi.advanceTimersByTime(ms)
+  })
+}
+
+function tick(times = 1): void {
+  advance(GUIDE_POLL_MS * times)
+}
+
+/** Evento de gamepad: o hook ignora o payload (nem todo ambiente tem GamepadEvent). */
+function dispatchGamepadEvent(type: 'gamepadconnected' | 'gamepaddisconnected'): void {
+  act(() => {
+    window.dispatchEvent(new Event(type))
+  })
+}
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  visible = state === 'visible'
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'))
   })
 }
 
@@ -57,16 +80,22 @@ beforeEach(() => {
   vi.useFakeTimers()
   pads = []
   focused = true
+  visible = true
   getGamepads = vi.fn(() => pads)
   Object.defineProperty(Navigator.prototype, 'getGamepads', {
     configurable: true,
     value: getGamepads
   })
-  // `document.hasFocus()` é determinístico no jsdom via propriedade própria
-  // (removida no afterEach) — o teste não depende do foco real da janela.
+  // `document.hasFocus()`/`visibilityState` são determinísticos no jsdom via
+  // propriedades próprias (removidas no afterEach) — o teste não depende do
+  // foco/visibilidade reais da janela.
   Object.defineProperty(document, 'hasFocus', {
     configurable: true,
     value: () => focused
+  })
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => (visible ? 'visible' : 'hidden')
   })
   onTrigger = vi.fn()
 
@@ -82,6 +111,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   delete (document as { hasFocus?: unknown }).hasFocus
+  delete (document as { visibilityState?: unknown }).visibilityState
   if (originalGetGamepads) {
     Object.defineProperty(Navigator.prototype, 'getGamepads', originalGetGamepads)
   }
@@ -97,6 +127,122 @@ describe('useGuideButtonShortcut', () => {
     tick(10)
     expect(onTrigger).not.toHaveBeenCalled()
     expect(getGamepads).not.toHaveBeenCalled()
+  })
+
+  it('sem controle: nenhum tick do detector, só a checagem de presença a cada 2 s', () => {
+    render(true)
+
+    // Montagem: 1 leitura de presença. Nada de getGamepads a cada 150 ms.
+    expect(getGamepads).toHaveBeenCalledTimes(1)
+    advance(GUIDE_POLL_MS * 10) // 1,5 s
+    expect(getGamepads).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(1)
+
+    // A checagem de presença é o único wake periódico (1 a cada 2 s).
+    advance(GUIDE_PRESENCE_POLL_MS)
+    expect(getGamepads).toHaveBeenCalledTimes(2)
+    expect(onTrigger).not.toHaveBeenCalled()
+  })
+
+  it('conecta (evento + pad no mock): poll de 150 ms e dispara na borda', () => {
+    render(true)
+    const current = pad()
+
+    // Sem pad: 10 intervalos de 150 ms não consultam a API.
+    tick(10)
+    expect(getGamepads).toHaveBeenCalledTimes(1)
+
+    pads = [current]
+    dispatchGamepadEvent('gamepadconnected')
+    // Presença reavaliada no evento e poll armado.
+    expect(getGamepads).toHaveBeenCalledTimes(2)
+    tick() // prime silencioso
+    expect(getGamepads).toHaveBeenCalledTimes(3)
+
+    setButton(current, 16, true)
+    tick()
+    expect(onTrigger).toHaveBeenCalledTimes(1)
+
+    // Tick seguinte não repete (segurar não dispara em loop).
+    tick(3)
+    expect(onTrigger).toHaveBeenCalledTimes(1)
+  })
+
+  it('a checagem de presença liga o poll quando o evento não dispara', () => {
+    render(true)
+    const current = pad()
+    pads = [current]
+
+    advance(GUIDE_PRESENCE_POLL_MS)
+    expect(vi.getTimerCount()).toBe(1)
+
+    tick() // prime
+    setButton(current, 16, true)
+    tick()
+    expect(onTrigger).toHaveBeenCalledTimes(1)
+  })
+
+  it('desconecta: para o poll de 150 ms e volta ao modo de presença', () => {
+    const current = pad()
+    pads = [current]
+    render(true)
+    tick() // prime
+
+    pads = []
+    dispatchGamepadEvent('gamepaddisconnected')
+    const calls = getGamepads.mock.calls.length
+
+    // Menos de 2 s: só a checagem de presença pode acordar.
+    tick(10)
+    expect(getGamepads).toHaveBeenCalledTimes(calls)
+    expect(onTrigger).not.toHaveBeenCalled()
+
+    advance(GUIDE_PRESENCE_POLL_MS)
+    expect(getGamepads).toHaveBeenCalledTimes(calls + 1)
+  })
+
+  it('desconexão sem evento é detectada no tick e derruba o poll', () => {
+    const current = pad()
+    pads = [current]
+    render(true)
+    tick() // prime
+
+    pads = []
+    tick() // snapshot vazio → volta ao modo de presença
+    const calls = getGamepads.mock.calls.length
+
+    tick(10)
+    expect(getGamepads).toHaveBeenCalledTimes(calls)
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it('janela oculta: nenhum timer roda até voltar a ficar visível', () => {
+    const current = pad()
+    pads = [current]
+    render(true)
+    tick() // prime
+
+    setVisibility('hidden')
+    const calls = getGamepads.mock.calls.length
+    tick(10) // 1,5 s oculto
+    advance(GUIDE_PRESENCE_POLL_MS)
+    expect(getGamepads).toHaveBeenCalledTimes(calls)
+    expect(vi.getTimerCount()).toBe(0)
+
+    // Voltar a ficar visível reavalia a presença na hora e rearma o poll.
+    setVisibility('visible')
+    expect(getGamepads).toHaveBeenCalledTimes(calls + 1)
+    expect(vi.getTimerCount()).toBe(1)
+
+    // Prime silencioso após o rearme: o PS segurado durante o oculto não abre.
+    setButton(current, 16, true)
+    tick()
+    expect(onTrigger).not.toHaveBeenCalled()
+    setButton(current, 16, false)
+    tick()
+    setButton(current, 16, true)
+    tick()
+    expect(onTrigger).toHaveBeenCalledTimes(1)
   })
 
   it('sem foco nunca dispara e rearma em silêncio', () => {
@@ -174,10 +320,11 @@ describe('useGuideButtonShortcut', () => {
     })
     render(true)
     tick(3)
+    advance(GUIDE_PRESENCE_POLL_MS)
     expect(onTrigger).not.toHaveBeenCalled()
   })
 
-  it('desmontar limpa o intervalo', () => {
+  it('desmontar limpa os timers e remove os listeners', () => {
     pads = [pad()]
     render(true)
     tick()
@@ -188,6 +335,9 @@ describe('useGuideButtonShortcut', () => {
     expect(vi.getTimerCount()).toBe(0)
 
     const calls = getGamepads.mock.calls.length
+    dispatchGamepadEvent('gamepadconnected')
+    dispatchGamepadEvent('gamepaddisconnected')
+    setVisibility('hidden')
     tick(5)
     expect(getGamepads).toHaveBeenCalledTimes(calls)
   })

@@ -5,7 +5,7 @@ import { entranceProps, useReducedMotion } from '../lib/motion'
 import { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../types'
 import { Badge, Button, Card, Input, Modal, Switch } from './ui'
 
-const POLL_INTERVAL_MS = 3000
+const POLL_INTERVAL_MS = 5000
 const DASH = '—'
 
 /** Formata bytes em KB/MB/GB para o usuário final. */
@@ -79,7 +79,7 @@ function Metric({
 export function PcMemory(): JSX.Element {
   const reduced = useReducedMotion()
   const mountedRef = useRef(true)
-  // Impede que o polling de 3 s e o botão "Atualizar" sobreponham chamadas.
+  // Impede que o polling de 5 s e o botão "Atualizar" sobreponham chamadas.
   const pollingRef = useRef(false)
   const [snapshot, setSnapshot] = useState<RamSnapshot | null>(null)
   const [loading, setLoading] = useState(true)

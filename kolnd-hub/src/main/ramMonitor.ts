@@ -4,7 +4,7 @@ import type { RamProcessInfo, RamSnapshot } from '../shared/ram'
 import { runPowerShellCommand } from './hwmon/powershell'
 import { logger } from './logger'
 
-/** O polling da aba Memória é de ~3 s; 1 s de cache só absorve cliques e abas. */
+/** O polling da aba Memória é de ~5 s; 1 s de cache só absorve cliques e abas. */
 const CACHE_TTL_MS = 1000
 const COLLECT_TIMEOUT_MS = 8000
 const MAX_PROCESSES = 10
