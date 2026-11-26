@@ -26,6 +26,11 @@ import {
 } from '../shared/hud'
 import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../shared/hwmon'
 import { defaultUsageLogPrefs, isUsageRetentionDays, type UsageLogPrefs } from '../shared/usage'
+import {
+  defaultRamAutoPrefs,
+  normalizeRamAutoIntervalMinutes,
+  type RamAutoPrefs
+} from '../shared/ram'
 export type {
   GamepadProfile,
   GamepadAction,
@@ -149,6 +154,12 @@ export interface HubStoreSchema {
    * Conteúdo sempre revalidado por `normalizeUsageLogPrefs`.
    */
   usageLog: UsageLogPrefs
+  /**
+   * Otimização automática de RAM (somente trim, sem UAC): liga/desliga e
+   * intervalo em minutos (1–60). Conteúdo sempre revalidado por
+   * `normalizeRamAutoPrefs`.
+   */
+  ramAuto: RamAutoPrefs
 }
 
 // ── Big Picture: controle (gamepad) ──────────────────────
@@ -224,6 +235,22 @@ export function normalizeUsageLogPrefs(input: unknown): UsageLogPrefs {
     retentionDays: isUsageRetentionDays(raw.retentionDays)
       ? raw.retentionDays
       : defaults.retentionDays
+  }
+}
+
+/**
+ * Normaliza as preferências da otimização automática de RAM.
+ *
+ * `enabled` só conta como ligado quando é exatamente `true`; o intervalo é
+ * arredondado e preso a 1–60. Entrada inválida nunca impede o app de abrir.
+ */
+export function normalizeRamAutoPrefs(input: unknown): RamAutoPrefs {
+  const defaults = defaultRamAutoPrefs()
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return defaults
+  const raw = input as Record<string, unknown>
+  return {
+    enabled: raw.enabled === true,
+    intervalMinutes: normalizeRamAutoIntervalMinutes(raw.intervalMinutes)
   }
 }
 
@@ -857,6 +884,19 @@ const schema: Store.Schema<HubStoreSchema> = {
       retentionDays: { type: 'number' }
     },
     additionalProperties: false
+  },
+  // Otimização automática de RAM (padrão desligado, 10 min). Sem
+  // `minimum`/`maximum` de propósito: um valor editado à mão fora da faixa não
+  // pode derrubar a criação do config.json inteiro — normalizeRamAutoPrefs()
+  // corrige na leitura, na escrita e na migração.
+  ramAuto: {
+    type: 'object',
+    default: { enabled: false, intervalMinutes: 10 },
+    properties: {
+      enabled: { type: 'boolean' },
+      intervalMinutes: { type: 'number' }
+    },
+    additionalProperties: false
   }
 }
 
@@ -894,6 +934,7 @@ function createStore(): Store<HubStoreSchema> | null {
       // 1.9.0 acrescenta `mode` ao `remoteAccess` (modo remoto do Kloud Games).
       // 1.10.0 existiu para as chaves do OpenOffice, recurso removido.
       // 1.11.0 garante a chave `usageLog` (registro de uso local, ligado, 30 dias).
+      // 1.12.0 garante a chave `ramAuto` (otimização automática de RAM desligada).
       // `notifyOnCrash` (07-7.2) entra só pelo default do schema — sem migração.
       migrations: {
         '1.0.0': (): void => {
@@ -987,6 +1028,15 @@ function createStore(): Store<HubStoreSchema> | null {
           try {
             // Chave nova do registro de uso; valores válidos são preservados.
             s.set('usageLog', normalizeUsageLogPrefs(s.get('usageLog', defaultUsageLogPrefs())))
+          } catch {
+            // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
+          }
+        },
+        '1.12.0': (s): void => {
+          try {
+            // Chave nova da otimização automática (desligada, 10 min); o
+            // intervalo é normalizado e um `enabled` inválido vira false.
+            s.set('ramAuto', normalizeRamAutoPrefs(s.get('ramAuto', defaultRamAutoPrefs())))
           } catch {
             // Arquivo inconsistente — o schema cuida dos defaults na leitura/escrita.
           }
@@ -1266,6 +1316,46 @@ export function setUsageLogPrefs(value: unknown): { success: boolean; error?: st
     const message = err instanceof Error ? err.message : String(err)
     logger.error('store', 'Falha ao salvar usageLog:', message)
     return { success: false, error: message }
+  }
+}
+
+/**
+ * Persiste as preferências da otimização automática de RAM.
+ * Exige um objeto com `enabled` booleano; o intervalo é sempre normalizado.
+ */
+export function setRamAutoPrefs(value: unknown): { success: boolean; error?: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { success: false, error: 'Preferências da otimização automática inválidas.' }
+  }
+  const raw = value as Record<string, unknown>
+  if (typeof raw.enabled !== 'boolean') {
+    return {
+      success: false,
+      error: 'Preferências da otimização automática inválidas: `enabled` deve ser booleano.'
+    }
+  }
+  if (!store) return { success: false, error: 'Store persistente indisponível' }
+  try {
+    store.set('ramAuto', {
+      enabled: raw.enabled,
+      intervalMinutes: normalizeRamAutoIntervalMinutes(raw.intervalMinutes)
+    })
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error('store', 'Falha ao salvar ramAuto:', message)
+    return { success: false, error: message }
+  }
+}
+
+/** Lê as preferências da otimização automática (default desligado, 10 min). */
+export function getRamAutoPrefs(): RamAutoPrefs {
+  if (!store) return defaultRamAutoPrefs()
+  try {
+    return normalizeRamAutoPrefs(store.get('ramAuto', defaultRamAutoPrefs()))
+  } catch (err) {
+    logger.error('store', 'Falha ao ler ramAuto:', err)
+    return defaultRamAutoPrefs()
   }
 }
 

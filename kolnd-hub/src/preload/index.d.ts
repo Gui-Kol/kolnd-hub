@@ -11,7 +11,7 @@ import type {
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
-import type { RamOptimizeResult, RamSnapshot } from '../shared/ram'
+import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
   ClearUsageResult,
@@ -185,6 +185,8 @@ declare global {
       ramInfo: () => Promise<RamSnapshot>
       optimizeRam: () => Promise<RamOptimizeResult>
       purgeStandbyMemory: () => Promise<RamOptimizeResult>
+      getRamAutoPrefs: () => Promise<RamAutoPrefs>
+      setRamAutoPrefs: (prefs: RamAutoPrefs) => Promise<{ success: boolean; error?: string }>
 
       // ── Benchmark de CPU (Meu PC) ────────────────────
       runBenchmark: () => Promise<

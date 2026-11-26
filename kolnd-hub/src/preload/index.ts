@@ -13,7 +13,7 @@ import type {
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
-import type { RamOptimizeResult, RamSnapshot } from '../shared/ram'
+import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
   ClearUsageResult,
@@ -252,6 +252,11 @@ const api = {
   optimizeRam: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:optimize'),
 
   purgeStandbyMemory: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:purge-standby'),
+
+  getRamAutoPrefs: (): Promise<RamAutoPrefs> => ipcRenderer.invoke('ram:auto-get'),
+
+  setRamAutoPrefs: (prefs: RamAutoPrefs): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('ram:auto-set', prefs),
 
   // ── Benchmark de CPU (Meu PC) ────────────────────
   // Tipos duplicados de propósito (main/preload/renderer não se importam).

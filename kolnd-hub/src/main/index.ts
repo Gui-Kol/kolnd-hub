@@ -21,6 +21,7 @@ import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
 import { registerRamMonitorIpc } from './ramMonitor'
 import { registerRamOptimizerIpc } from './ramOptimizer'
+import { registerRamAutoIpc, startRamAutoOptimizer, stopRamAutoOptimizer } from './ramAutoOptimizer'
 import { registerBenchmarkIpc } from './benchmark'
 import { registerHwMonitorIpc } from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
@@ -367,6 +368,11 @@ app.whenReady().then(() => {
   // sem UAC e standby list com UAC).
   registerRamOptimizerIpc()
 
+  // Registra a otimização automática de RAM (somente trim, sem UAC) e aplica
+  // a preferência persistida — desligada por padrão.
+  registerRamAutoIpc()
+  startRamAutoOptimizer()
+
   // Registra os canais IPC do benchmark de CPU e do teste de estresse.
   registerBenchmarkIpc()
 
@@ -461,6 +467,8 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    // Cancela o timer da otimização automática antes de qualquer limpeza.
+    stopRamAutoOptimizer()
     // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
     markQuitting()
     // Tempo de jogo pendente: flush síncrono no store. Durante a desinstalação

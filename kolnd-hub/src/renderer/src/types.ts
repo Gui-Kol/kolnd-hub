@@ -231,6 +231,13 @@ export interface RamOptimizeResult {
   error?: string
 }
 
+/** Preferências da otimização automática de RAM (somente trim, sem UAC). */
+export interface RamAutoPrefs {
+  enabled: boolean
+  /** Intervalo entre execuções, em minutos (1–60). */
+  intervalMinutes: number
+}
+
 /** Nota de uma carga do benchmark (MOps/s em cada fase). */
 export interface BenchmarkTestScore {
   id: string

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, Loader2, MemoryStick, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import { entranceProps, useReducedMotion } from '../lib/motion'
-import { RamOptimizeResult, RamSnapshot } from '../types'
-import { Badge, Button, Card, Modal } from './ui'
+import { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../types'
+import { Badge, Button, Card, Input, Modal, Switch } from './ui'
 
 const POLL_INTERVAL_MS = 3000
 const DASH = '—'
@@ -86,6 +86,12 @@ export function PcMemory(): JSX.Element {
   const [action, setAction] = useState<'trim' | 'purge' | null>(null)
   const [modal, setModal] = useState<'trim' | 'purge' | null>(null)
   const [result, setResult] = useState<RamOptimizeResult | null>(null)
+  // Otimização automática (somente trim, sem UAC): preferência do store e
+  // rascunho do intervalo enquanto o usuário digita.
+  const [autoPrefs, setAutoPrefs] = useState<RamAutoPrefs | null>(null)
+  const [autoInterval, setAutoInterval] = useState('10')
+  const [autoFeedback, setAutoFeedback] = useState<'saved' | 'error' | null>(null)
+  const autoFeedbackTimer = useRef<number | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     if (pollingRef.current) return
@@ -119,6 +125,78 @@ export function PcMemory(): JSX.Element {
       window.clearInterval(timer)
     }
   }, [refresh])
+
+  // Carrega a preferência da otimização automática ao montar. Falha de leitura
+  // cai no padrão desligado (nunca liga nada por acidente).
+  useEffect(() => {
+    let mounted = true
+    window.api
+      .getRamAutoPrefs()
+      .then((next) => {
+        if (!mounted) return
+        setAutoPrefs(next)
+        setAutoInterval(String(next.intervalMinutes))
+      })
+      .catch(() => {
+        if (!mounted) return
+        setAutoPrefs({ enabled: false, intervalMinutes: 10 })
+        setAutoInterval('10')
+      })
+    return (): void => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (autoFeedbackTimer.current) window.clearTimeout(autoFeedbackTimer.current)
+    },
+    []
+  )
+
+  /** Salva a preferência de forma otimista, revertendo em caso de erro. */
+  const saveAutoPrefs = async (next: RamAutoPrefs): Promise<void> => {
+    const previous = autoPrefs
+    setAutoPrefs(next)
+    setAutoInterval(String(next.intervalMinutes))
+    setAutoFeedback(null)
+    try {
+      const response = await window.api.setRamAutoPrefs(next)
+      if (!response.success) throw new Error(response.error ?? 'erro desconhecido')
+      if (mountedRef.current) setAutoFeedback('saved')
+    } catch {
+      if (mountedRef.current) {
+        if (previous) {
+          setAutoPrefs(previous)
+          setAutoInterval(String(previous.intervalMinutes))
+        }
+        setAutoFeedback('error')
+      }
+    } finally {
+      if (autoFeedbackTimer.current) window.clearTimeout(autoFeedbackTimer.current)
+      autoFeedbackTimer.current = window.setTimeout(() => setAutoFeedback(null), 2500)
+    }
+  }
+
+  const handleToggleAuto = (enabled: boolean): void => {
+    if (!autoPrefs) return
+    void saveAutoPrefs({ ...autoPrefs, enabled })
+  }
+
+  /** Clamp de 1–60 ao sair do campo/Enter; grava só se o valor mudou. */
+  const commitAutoInterval = (): void => {
+    if (!autoPrefs) return
+    const trimmed = autoInterval.trim()
+    const parsed = Number(trimmed)
+    const next =
+      trimmed === '' || !Number.isFinite(parsed)
+        ? autoPrefs.intervalMinutes
+        : Math.min(60, Math.max(1, Math.round(parsed)))
+    setAutoInterval(String(next))
+    if (next !== autoPrefs.intervalMinutes) {
+      void saveAutoPrefs({ ...autoPrefs, intervalMinutes: next })
+    }
+  }
 
   const runAction = async (mode: 'trim' | 'purge'): Promise<void> => {
     if (action) return
@@ -353,6 +431,69 @@ export function PcMemory(): JSX.Element {
               )}
             </Button>
           </div>
+        </Card>
+
+        {/* ── Otimização automática (trim, sem UAC) ──────── */}
+        <Card className="space-y-4 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <h3 className="text-sm font-semibold tracking-tight text-ink-primary">
+                Otimização automática
+              </h3>
+              <p className="text-[12px] leading-relaxed text-ink-secondary">
+                Libera a memória ociosa dos programas no intervalo escolhido, sem pedir
+                administrador e sem fechar nada. Nada roda com o Hub fechado. Padrão: desligado.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-tertiary">
+                {autoPrefs?.enabled ? 'Ligada' : 'Desligada'}
+              </span>
+              <Switch
+                aria-label="Otimização automática de memória"
+                checked={autoPrefs?.enabled === true}
+                onCheckedChange={handleToggleAuto}
+                disabled={autoPrefs === null}
+                className="shrink-0"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="text-xs font-semibold text-ink-secondary">
+              <span>Executar a cada</span>
+              <div className="mt-1.5 flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={1}
+                  inputMode="numeric"
+                  value={autoInterval}
+                  onChange={(event) => setAutoInterval(event.target.value)}
+                  onBlur={commitAutoInterval}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                  }}
+                  disabled={autoPrefs === null || !autoPrefs.enabled}
+                  aria-label="Intervalo da otimização automática em minutos"
+                  className="w-24"
+                />
+                <span className="text-xs text-ink-tertiary">min</span>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-ink-tertiary" role="status">
+            Só a liberação de memória roda sozinha; a limpeza standby com UAC continua sendo sempre
+            por clique.
+            {autoFeedback === 'saved' && (
+              <span className="ml-2 text-success">Preferência salva.</span>
+            )}
+            {autoFeedback === 'error' && (
+              <span className="ml-2 text-danger">Não foi possível salvar a preferência.</span>
+            )}
+          </p>
         </Card>
 
         {/* ── Resultado da última ação ───────────────────── */}
