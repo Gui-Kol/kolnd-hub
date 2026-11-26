@@ -70,6 +70,7 @@ export const IPC = {
   appGetAutostart: 'app:get-autostart',
   appSetAutostart: 'app:set-autostart',
   appOpenFolder: 'app:open-folder',
+  appOpenUpdates: 'app:open-updates',
   overlayShow: 'overlay:show',
   overlayHide: 'overlay:hide',
   overlayToggle: 'overlay:toggle',
@@ -523,6 +524,7 @@ export interface IpcContract {
   [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
   [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
   [IPC.appOpenFolder]: { request: AppOpenFolderRequest; response: SimpleResult }
+  [IPC.appOpenUpdates]: { request: undefined; response: SimpleResult }
   [IPC.overlayShow]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayHide]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayToggle]: { request: undefined; response: OverlayStatusResult }
@@ -619,6 +621,8 @@ export interface AbsolemApi {
   setAutostart: (enabled: boolean) => Promise<SimpleResult>
   /** Abre uma pasta do app (enum fechado; nunca caminho livre). */
   openFolder: (target: AppFolderTarget) => Promise<SimpleResult>
+  /** Abre a pagina de releases (https, shell.openExternal; nada baixado). Updater manual v1. */
+  openUpdates: () => Promise<SimpleResult>
   overlayShow: () => Promise<OverlayStatusResult>
   overlayHide: () => Promise<OverlayStatusResult>
   overlayToggle: () => Promise<OverlayStatusResult>

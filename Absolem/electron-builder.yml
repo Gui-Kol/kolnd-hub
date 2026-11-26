@@ -1,35 +1,71 @@
+# electron-builder final (task 12, T2). Instalador NSIS por usuário, sem assinatura.
 appId: com.kolnd.absolem
 productName: Absolem
+
 directories:
   buildResources: resources
   output: dist
+
+# Somente o app empacotado: código-fonte, testes, docs, configs internos e
+# scripts de build ficam fora do app.asar. LICENSE acompanha a distribuição.
 files:
   - '!**/.vscode/*'
-  - '!src/*'
-  - '!tests/*'
+  - '!src'
+  - '!src/**'
+  - '!tests'
+  - '!tests/**'
+  - '!docs'
+  - '!docs/**'
+  - '!scripts'
+  - '!scripts/**'
+  - '!resources'
   - '!electron.vite.config.*'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts,eslint.config.mjs}'
   - '!{tailwind.config.js,postcss.config.js}'
   - '!{.prettierrc.json,.prettierignore,.gitignore,.gitattributes,.npmrc}'
-  - '!{LICENSE,README.md,electron-builder.yml}'
+  - '!{README.md,electron-builder.yml}'
   - '!**/*.tsbuildinfo'
   - '!*.log'
-# Ícone da bandeja: em produção o main lê <resources>/tray-icon.png.
+
+# Ícones da bandeja chegam em <resources>/ (fora do asar).
 extraResources:
   - from: resources/tray-icon.png
     to: tray-icon.png
-# better-sqlite3 é módulo nativo: o .node precisa ficar fora do asar.
+  - from: resources/tray-icon@2x.png
+    to: tray-icon@2x.png
+
+# app.asar ligado; módulo nativo FORA do asar (better-sqlite3 + qualquer .node).
+asar: true
 asarUnpack:
-  - node_modules/better-sqlite3/**
+  - '**/node_modules/better-sqlite3/**'
+  - '**/*.node'
+
+# Rebuild dos módulos nativos para a ABI do Electron 28 (Windows x64).
+npmRebuild: true
+
 win:
-  # Nome estável do artefato: a versão vem de Absolem/package.json.
+  # Ícone do app e do instalador (lagarta holográfica própria; ver resources/CREDITS.md).
+  icon: resources/icon.ico
+  # Nome estável do artefato; a versão vem de Absolem/package.json (fonte única).
   artifactName: Absolem Setup ${version}.exe
   target:
     - nsis
+
 nsis:
+  # Instalador guiado (não one-click), sem escolher pasta (per-user padrão).
   oneClick: false
-  # Instalação por usuário, sem exigir Administrador.
+  # Instalação por usuário em %LOCALAPPDATA%\Programs\Absolem, sem Administrador.
   perMachine: false
   allowToChangeInstallationDirectory: false
-  # Desinstalar preserva %APPDATA%\absolem (config, logs e a chave cifrada).
+  # Sem atalho na Área de Trabalho; atalho no Menu Iniciar.
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  # Desinstalar PRESERVA %APPDATA%\absolem (memória, config, logs, chave cifrada).
+  # Nunca apaga dados do usuário; limpeza manual documentada no README.
   deleteAppDataOnUninstall: false
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+
+# Assinatura de código NÃO configurada na v1 (task 12, T10). Sem certificado,
+# sem publish. SmartScreen pode avisar; SHA-256 publicado.
+# Para assinar no futuro, ver Absolem/docs/SIGNING.md. Nada de segredo no git.

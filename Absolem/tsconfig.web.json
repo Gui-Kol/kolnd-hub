@@ -22,6 +22,7 @@
     "src/renderer/src/**/*",
     "src/renderer/*.d.ts",
     "src/preload/*.d.ts",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "package.json"
   ]
 }

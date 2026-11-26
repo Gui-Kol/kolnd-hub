@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import pkg from '../../../package.json'
 import type { AbsolemConfig } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
 import { defaultTheme } from '../../shared/theme'
@@ -15,7 +16,7 @@ const state = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   app: {
     getName: () => 'Absolem',
-    getVersion: () => '0.1.0',
+    getVersion: () => pkg.version,
     quit: state.quit
   },
   ipcMain: {
@@ -112,7 +113,7 @@ describe('IPC base do app', () => {
       ok: true,
       info: {
         name: 'Absolem',
-        version: '0.1.0',
+        version: pkg.version,
         platform: process.platform,
         electron: process.versions.electron ?? '',
         chromium: process.versions.chrome ?? '',

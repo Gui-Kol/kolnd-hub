@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
+import pkg from '../../../../package.json'
 import {
   buildDiagnosticsReport,
   exportDiagnosticsReport,
@@ -30,7 +31,7 @@ function gemini(): GeminiDiagnostics {
 
 function report() {
   return buildDiagnosticsReport({
-    app: { name: 'Absolem', version: '0.1.0', platform: 'win32' },
+    app: { name: 'Absolem', version: pkg.version, platform: 'win32' },
     runtime: { electron: '28.0.0', chromium: '120.0.0', node: '18.0.0' },
     liveModel: 'gemini-2.0-flash',
     gemini: gemini(),
@@ -75,7 +76,7 @@ describe('diagnóstico', () => {
       app: { version: string }
     }
     expect(parsed.runtime).toEqual({ electron: '28.0.0', chromium: '120.0.0', node: '18.0.0' })
-    expect(parsed.app.version).toBe('0.1.0')
+    expect(parsed.app.version).toBe(pkg.version)
   })
 
   it('erros limitados a 5', () => {

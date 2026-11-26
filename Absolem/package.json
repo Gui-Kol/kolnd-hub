@@ -1,10 +1,15 @@
 {
   "name": "absolem",
   "version": "0.1.0",
-  "description": "Absolem - Assistente de IA para Windows",
+  "description": "Absolem - Assistente de IA para Windows. Agente de IA presente na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini.",
   "main": "./out/main/index.js",
   "author": "Kolnd",
   "license": "MIT",
+  "homepage": "https://github.com/Gui-Kol/kolnd-hub",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gui-Kol/kolnd-hub"
+  },
   "engines": {
     "node": ">=22",
     "npm": ">=10"
@@ -14,6 +19,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder --win",
+    "package:dir": "electron-builder --dir",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -25,7 +31,7 @@
     "verify": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "verify:build": "npm run verify && npm run build",
     "test:e2e": "npm run build && playwright test --config=tests/e2e/playwright.config.ts",
-    "postinstall": "node scripts/postinstall-sqlite.cjs"
+    "postinstall": "node scripts/postinstall-sqlite.cjs && electron-builder install-app-deps"
   },
   "dependencies": {
     "@google/genai": "3.6.1",

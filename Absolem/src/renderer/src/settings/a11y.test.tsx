@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import pkg from '../../../../package.json'
 import type { AbsolemApi } from '../../../shared/ipc'
 import { defaultTheme } from '../../../shared/theme'
 import { ConversationLayer } from '../overlay/conversation/ConversationLayer'
@@ -158,7 +159,7 @@ function makeApi(configured = true): AbsolemApi {
       ok: true as const,
       info: {
         name: 'Absolem',
-        version: '0.1.0',
+        version: pkg.version,
         platform: 'win32',
         electron: '28.0.0',
         chromium: '120.0.0',

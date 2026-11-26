@@ -20,7 +20,9 @@ import type { UrlValidation } from './validateUrl'
 export const FETCH_TIMEOUT_MS = 10_000
 export const FETCH_MAX_BYTES = 2 * 1024 * 1024
 export const FETCH_MAX_REDIRECTS = 3
-export const ABSOLEM_USER_AGENT = 'Absolem/0.1.0 (Windows; +https://github.com/kolnd/absolem)'
+// User-Agent identifica o Absolem sem fixar versão; nada de versão hardcoded em src/
+// (fonte única da versão: Absolem/package.json). Ver teste src/shared/version.test.ts.
+export const ABSOLEM_USER_AGENT = 'Absolem/unknown (Windows; +https://github.com/Gui-Kol/kolnd-hub)'
 
 export const ALLOWED_CONTENT_TYPES = [
   'text/html',

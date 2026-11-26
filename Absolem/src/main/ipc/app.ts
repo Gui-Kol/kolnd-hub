@@ -11,6 +11,7 @@ import type {
   SimpleResult
 } from '../../shared/ipc'
 import { getAutostart, setAutostart } from '../autostart'
+import { openReleasesPage } from '../updates'
 import { showMainWindow } from '../lifecycle'
 import { shutdownApp } from './lifecycle'
 import type { IpcContext } from './lifecycle'
@@ -123,6 +124,19 @@ export function registerAppIpc(ctx: IpcContext): void {
     } catch (err) {
       return failure(
         `Não foi possível abrir a pasta: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  })
+
+  ipcMain.handle(IPC.appOpenUpdates, async (_event, payload: unknown): Promise<SimpleResult> => {
+    if (!isVoidPayload(payload)) {
+      return failure(`Payload inválido para ${IPC.appOpenUpdates}: ${describe(payload)}`)
+    }
+    try {
+      return await openReleasesPage()
+    } catch (err) {
+      return failure(
+        `Falha ao abrir a página de atualizações: ${err instanceof Error ? err.message : String(err)}`
       )
     }
   })
