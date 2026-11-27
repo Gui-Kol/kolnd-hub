@@ -132,14 +132,7 @@ else()
 endif()
 
 # platform specific dependencies
-if(WIN32)
-    include("${CMAKE_MODULE_PATH}/dependencies/windows.cmake")
-elseif(UNIX)
-    include("${CMAKE_MODULE_PATH}/dependencies/unix.cmake")
-
-    if(APPLE)
-        include("${CMAKE_MODULE_PATH}/dependencies/macos.cmake")
-    else()
-        include("${CMAKE_MODULE_PATH}/dependencies/linux.cmake")
-    endif()
+if(NOT WIN32)
+    message(FATAL_ERROR "KLOUD_GAMES only supports Windows builds.")
 endif()
+include("${CMAKE_MODULE_PATH}/dependencies/windows.cmake")

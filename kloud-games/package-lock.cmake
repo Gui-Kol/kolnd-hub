@@ -47,17 +47,6 @@ CPMDeclarePackage(build_deps
         DOWNLOAD_ONLY YES
 )
 
-# glad
-# renovate: datasource=github-tags depName=Dav1dde/glad
-set(GLAD_TAG v2.0.8)
-CPMDeclarePackage(glad
-        NAME glad
-        GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-        GIT_TAG ${GLAD_TAG}
-        GIT_SHALLOW TRUE
-        DOWNLOAD_ONLY YES
-)
-
 # libdisplaydevice
 # renovate: datasource=github-tags depName=LizardByte/libdisplaydevice
 set(LIBDISPLAYDEVICE_TAG v2026.1008.124543)
@@ -105,17 +94,6 @@ CPMDeclarePackage(nvapi
         DOWNLOAD_ONLY YES
 )
 
-# Plasma Wayland protocols
-# renovate: datasource=github-tags depName=KDE/plasma-wayland-protocols
-set(PLASMA_WAYLAND_PROTOCOLS_TAG v1.23.0)
-CPMDeclarePackage(plasma_wayland_protocols
-        NAME plasma_wayland_protocols
-        GIT_REPOSITORY https://github.com/KDE/plasma-wayland-protocols.git
-        GIT_TAG ${PLASMA_WAYLAND_PROTOCOLS_TAG}
-        GIT_SHALLOW TRUE
-        DOWNLOAD_ONLY YES
-)
-
 # Simple-Web-Server
 # renovate: datasource=git-refs depName=eidheim/Simple-Web-Server
 # ref=master
@@ -159,24 +137,3 @@ CPMDeclarePackage(vigemclient
         DOWNLOAD_ONLY YES
 )
 
-# Wayland protocols
-# renovate: datasource=github-tags depName=wayland/wayland-protocols
-set(WAYLAND_PROTOCOLS_TAG 1.50)
-CPMDeclarePackage(wayland_protocols
-        NAME wayland_protocols
-        GIT_REPOSITORY https://github.com/LizardByte-infrastructure/wayland-protocols.git
-        GIT_TAG ${WAYLAND_PROTOCOLS_TAG}
-        GIT_SHALLOW TRUE
-        DOWNLOAD_ONLY YES
-)
-
-# wlroots protocols
-# renovate: datasource=git-refs depName=wlroots/wlr-protocols
-# ref=master
-set(WLR_PROTOCOLS_COMMIT 1106a4a1c57562ddd438c547da4c0d6dc150d624)
-CPMDeclarePackage(wlr_protocols
-        NAME wlr_protocols
-        GIT_REPOSITORY https://github.com/LizardByte-infrastructure/wlr-protocols.git
-        GIT_TAG ${WLR_PROTOCOLS_COMMIT}
-        DOWNLOAD_ONLY YES
-)

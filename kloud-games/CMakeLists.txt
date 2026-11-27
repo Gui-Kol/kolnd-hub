@@ -69,7 +69,7 @@ include(${CMAKE_MODULE_PATH}/prep/static_qt.cmake)
 # initial prep
 include(${CMAKE_MODULE_PATH}/prep/init.cmake)
 
-# configure special package files, such as KLOUD_GAMES.desktop, Flatpak manifest, Portfile , etc.
+# handle the configure-only early exit
 include(${CMAKE_MODULE_PATH}/prep/special_package_configuration.cmake)
 
 # Exit early if END_BUILD is ON, i.e. when only generating package manifests

@@ -24,7 +24,6 @@ inputs = [
   "README.md",
   "docs/getting_started.md",
   "docs/changelog.md",
-  "DOCKER_README.md",
   "docs/third_party_packages.md",
   "docs/gamestream_migration.md",
   "docs/legal.md",

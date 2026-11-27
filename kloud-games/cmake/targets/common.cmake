@@ -1,27 +1,16 @@
 # common target definitions
 # this file will also load platform specific macros
 
-if(APPLE AND NOT KLOUD_GAMES_BUILD_HOMEBREW)
-    add_executable(KLOUD_GAMES MACOSX_BUNDLE ${KLOUD_GAMES_TARGET_FILES})
-else()
-    add_executable(KLOUD_GAMES ${KLOUD_GAMES_TARGET_FILES})
-endif()
+add_executable(KLOUD_GAMES ${KLOUD_GAMES_TARGET_FILES})
 foreach(dep ${KLOUD_GAMES_TARGET_DEPENDENCIES})
     add_dependencies(KLOUD_GAMES ${dep})  # compile these before KLOUD_GAMES
 endforeach()
 
 # platform specific target definitions
-if(WIN32)
-    include(${CMAKE_MODULE_PATH}/targets/windows.cmake)
-elseif(UNIX)
-    include(${CMAKE_MODULE_PATH}/targets/unix.cmake)
-
-    if(APPLE)
-        include(${CMAKE_MODULE_PATH}/targets/macos.cmake)
-    else()
-        include(${CMAKE_MODULE_PATH}/targets/linux.cmake)
-    endif()
+if(NOT WIN32)
+    message(FATAL_ERROR "KLOUD_GAMES only supports Windows builds.")
 endif()
+include(${CMAKE_MODULE_PATH}/targets/windows.cmake)
 
 target_link_libraries(KLOUD_GAMES ${KLOUD_GAMES_EXTERNAL_LIBRARIES} ${EXTRA_LIBS})
 target_compile_definitions(KLOUD_GAMES PUBLIC ${KLOUD_GAMES_DEFINITIONS})
@@ -36,16 +25,10 @@ endif()
 target_compile_options(KLOUD_GAMES PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${KLOUD_GAMES_COMPILE_OPTIONS}>;$<$<COMPILE_LANGUAGE:CUDA>:${KLOUD_GAMES_COMPILE_OPTIONS_CUDA};-std=c++17>)  # cmake-lint: disable=C0301
 target_link_options(KLOUD_GAMES PRIVATE ${KLOUD_GAMES_LINK_OPTIONS})
 
-# Homebrew build fails the vite build if we set these environment variables
-if(${KLOUD_GAMES_BUILD_HOMEBREW})
-    set(NPM_SOURCE_ASSETS_DIR "")
-    set(NPM_ASSETS_DIR "")
-    set(NPM_BUILD_HOMEBREW "true")
-else()
-    set(NPM_SOURCE_ASSETS_DIR ${KLOUD_GAMES_SOURCE_ASSETS_DIR})
-    set(NPM_ASSETS_DIR ${CMAKE_BINARY_DIR})
-    set(NPM_BUILD_HOMEBREW "")
-endif()
+# Web UI output directories
+set(NPM_SOURCE_ASSETS_DIR ${KLOUD_GAMES_SOURCE_ASSETS_DIR})
+set(NPM_ASSETS_DIR ${CMAKE_BINARY_DIR})
+set(NPM_BUILD_HOMEBREW "")
 
 #WebUI build
 find_program(NPM npm REQUIRED)

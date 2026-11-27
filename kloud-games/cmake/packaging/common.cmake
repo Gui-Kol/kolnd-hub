@@ -16,17 +16,9 @@ set(CPACK_PACKAGE_ICON ${PROJECT_SOURCE_DIR}/KLOUD_GAMES.png)
 set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}")
 set(CPACK_STRIP_FILES YES)
 
-# Keep macOS assets in the Runtime component so app assets are installed
-# before macos.cmake signs the finished bundle.
-set(_KLOUD_GAMES_common_asset_component)
-if(APPLE)
-    set(_KLOUD_GAMES_common_asset_component COMPONENT Runtime)
-endif()
-
 # install common assets
 install(DIRECTORY "${KLOUD_GAMES_SOURCE_ASSETS_DIR}/common/assets/"
         DESTINATION "${KLOUD_GAMES_ASSETS_DIR}"
-        ${_KLOUD_GAMES_common_asset_component}
         PATTERN "web" EXCLUDE)
 # copy assets to build directory, for running without install
 file(GLOB_RECURSE ALL_ASSETS
@@ -39,20 +31,12 @@ endforeach()
 
 # install built vite assets
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/assets/web"
-        DESTINATION "${KLOUD_GAMES_ASSETS_DIR}"
-        ${_KLOUD_GAMES_common_asset_component})
+        DESTINATION "${KLOUD_GAMES_ASSETS_DIR}")
 
 # platform specific packaging
-if(WIN32)
-    include(${CMAKE_MODULE_PATH}/packaging/windows.cmake)
-elseif(UNIX)
-    include(${CMAKE_MODULE_PATH}/packaging/unix.cmake)
-
-    if(APPLE)
-        include(${CMAKE_MODULE_PATH}/packaging/macos.cmake)
-    else()
-        include(${CMAKE_MODULE_PATH}/packaging/linux.cmake)
-    endif()
+if(NOT WIN32)
+    message(FATAL_ERROR "KLOUD_GAMES only supports Windows builds.")
 endif()
+include(${CMAKE_MODULE_PATH}/packaging/windows.cmake)
 
 include(CPack)

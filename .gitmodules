@@ -6,11 +6,6 @@
 # kolnd-hub/scripts/patches/moonlight-stdatomic-guards.patch no
 # third-party/moonlight-common-c (ver kolnd-hub/scripts/build-kloud-games.ps1).
 
-[submodule "kloud-games/packaging/linux/flatpak/deps/flatpak-builder-tools"]
-	path = kloud-games/packaging/linux/flatpak/deps/flatpak-builder-tools
-	url = https://github.com/flatpak/flatpak-builder-tools.git
-	branch = master
-
 [submodule "kloud-games/third-party/Simple-Web-Server"]
 	path = kloud-games/third-party/Simple-Web-Server
 	url = https://github.com/LizardByte-infrastructure/Simple-Web-Server.git
@@ -35,10 +30,6 @@
 	path = kloud-games/third-party/dockle
 	url = https://github.com/LizardByte/dockle.git
 	branch = master
-
-[submodule "kloud-games/third-party/glad"]
-	path = kloud-games/third-party/glad
-	url = https://github.com/Dav1dde/glad.git
 
 [submodule "kloud-games/third-party/libdisplaydevice"]
 	path = kloud-games/third-party/libdisplaydevice
@@ -65,25 +56,11 @@
 	url = https://github.com/NVIDIA/nvapi.git
 	branch = main
 
-[submodule "kloud-games/third-party/plasma-wayland-protocols"]
-	path = kloud-games/third-party/plasma-wayland-protocols
-	url = https://github.com/KDE/plasma-wayland-protocols.git
-	branch = master
-
 [submodule "kloud-games/third-party/tray"]
 	path = kloud-games/third-party/tray
 	url = https://github.com/LizardByte/tray.git
 	branch = master
 
-[submodule "kloud-games/third-party/wayland-protocols"]
-	path = kloud-games/third-party/wayland-protocols
-	url = https://github.com/LizardByte-infrastructure/wayland-protocols.git
-	branch = main
-
-[submodule "kloud-games/third-party/wlr-protocols"]
-	path = kloud-games/third-party/wlr-protocols
-	url = https://github.com/LizardByte-infrastructure/wlr-protocols.git
-	branch = master
 [submodule "Mark-LVII"]
 	path = Mark-LVII
 	url = https://github.com/FatihMakes/Mark-LVII.git
