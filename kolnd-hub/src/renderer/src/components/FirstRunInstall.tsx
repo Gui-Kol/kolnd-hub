@@ -152,12 +152,6 @@ export function FirstRunInstall({ onComplete }: FirstRunInstallProps): JSX.Eleme
 
   return (
     <div className="fixed inset-0 z-modal bg-surface-base flex flex-col items-center justify-center overflow-hidden">
-      {/* ── Fundo decorativo ─────────────────────────── */}
-      {/* Overlay arcade legado — remoção final na migração das telas (ver index.css) */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-        <div className="scanlines" />
-      </div>
-
       {/* ── Conteúdo central ─────────────────────────── */}
       <motion.div
         {...entranceProps(reduced, { scale: 0.95 }, { duration: 0.4 })}

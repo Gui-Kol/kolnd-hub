@@ -64,11 +64,11 @@ describe('limites, custo e indicador', () => {
     expect(fetchPage).not.toHaveBeenCalled()
   })
 
-  it('orçamento de 30 s encerra o turno', () => {
+  it('orçamento de 90 s encerra o turno', () => {
     let now = 5_000
     const limits = createSearchTurnLimits({ now: () => now })
     limits.beginTurn('req-budget', now)
-    now += 29_999
+    now += 89_999
     expect(limits.check('fetch')).toEqual({ ok: true })
     now += 1
     expect(limits.check('fetch')).toMatchObject({ ok: false, reason: 'budget' })

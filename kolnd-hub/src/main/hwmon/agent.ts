@@ -612,8 +612,9 @@ export async function readSensorsLatestFile(
 
 /**
  * Leitor padrão do `cpuPower`: traduz o sink em um `HwRegisterBatchResult`
- * alinhado com o pedido. Sink stale/vazio = device indisponível, com motivo em
- * pt-BR — nunca um número inventado.
+ * alinhado com o pedido, preservando o `sampledAtMs` do arquivo (base de tempo
+ * dos watts). Sink stale/vazio = device indisponível, com motivo em pt-BR —
+ * nunca um número inventado.
  */
 export function createSensorsAgentReader(): HwRegisterReader {
   return {
@@ -648,6 +649,9 @@ export function createSensorsAgentReader(): HwRegisterReader {
         available: true,
         msr: pick(msrIndices, parsed.sample.msr),
         smn: pick(smnIndices, parsed.sample.smn),
+        // O timestamp da amostra (não o instante da leitura) é a base de tempo
+        // dos watts: o sink escreve a 1 Hz e o monitor pode ler a 2 Hz.
+        sampledAtMs: parsed.capturedAtMs ?? undefined,
         error: parsed.error
       }
     }

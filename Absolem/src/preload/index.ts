@@ -42,6 +42,7 @@ import type {
 const absolem: AbsolemApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appGetInfo),
   quit: () => ipcRenderer.invoke(IPC.appQuit),
+  relaunch: () => ipcRenderer.invoke(IPC.appRelaunch),
 
   getAutostart: () => ipcRenderer.invoke(IPC.appGetAutostart),
   setAutostart: (enabled: boolean) => ipcRenderer.invoke(IPC.appSetAutostart, { enabled }),

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createToolRegistry } from './registry'
 import {
+  FETCH_URL_TOOL_TIMEOUT_MS,
+  WEB_SEARCH_TOOL_TIMEOUT_MS,
   WEB_SEARCH_TOOL_NAME,
   createWebSearchHandler,
   registerWebTools,
@@ -93,7 +95,7 @@ describe('registro das ferramentas web', () => {
       expect(tool).toMatchObject({
         sensitive: false,
         category: 'web.search',
-        timeoutMs: 20_000
+        timeoutMs: name === 'web_search' ? WEB_SEARCH_TOOL_TIMEOUT_MS : FETCH_URL_TOOL_TIMEOUT_MS
       })
     }
   })

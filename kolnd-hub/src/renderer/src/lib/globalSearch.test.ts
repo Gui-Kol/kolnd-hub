@@ -28,21 +28,21 @@ const game = (over: Partial<Game>): Game => ({
 
 describe('filterSearch', () => {
   it('retorna vazio para query vazia ou só espaços', () => {
-    const apps = [app({ name: 'Mark LVI' })]
+    const apps = [app({ name: 'Absolem' })]
     expect(filterSearch('', apps, [])).toEqual([])
     expect(filterSearch('   ', apps, [])).toEqual([])
   })
 
   it('ignora espaços ao redor da query (trim)', () => {
-    const apps = [app({ id: 'a1', name: 'Mark LVI' })]
-    const out = filterSearch('  mark  ', apps, [])
+    const apps = [app({ id: 'a1', name: 'Absolem' })]
+    const out = filterSearch('  abso  ', apps, [])
     expect(out.map((r) => r.id)).toEqual(['a1'])
   })
 
   it('casa substring case-insensitive no nome', () => {
-    const apps = [app({ id: 'a1', name: 'Mark LVI' })]
-    expect(filterSearch('MARK', apps, []).map((r) => r.id)).toEqual(['a1'])
-    expect(filterSearch('lvi', apps, []).map((r) => r.id)).toEqual(['a1'])
+    const apps = [app({ id: 'a1', name: 'Absolem' })]
+    expect(filterSearch('ABSO', apps, []).map((r) => r.id)).toEqual(['a1'])
+    expect(filterSearch('solem', apps, []).map((r) => r.id)).toEqual(['a1'])
     expect(filterSearch('kloud', apps, [])).toEqual([])
   })
 

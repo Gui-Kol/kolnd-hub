@@ -21,11 +21,6 @@ export const LEGACY_IMPORTANCE_BACKUP_KEY = 'kolnd-hub-startup-importance.bak'
  * personalizou fica intacto.
  */
 const LEGACY_DEFAULTS: Record<string, Array<{ command: string; cwd: string }>> = {
-  'mark-lvi': [
-    // Mark LVI (fonte, antes do bundle) e Mark LVI empacotado → Mark LVII.
-    { command: 'py main.py', cwd: '../Mark-LVI' },
-    { command: 'MarkLVI.exe', cwd: 'resources/programs/MarkLVI' }
-  ],
   'kloud-games': [
     { command: 'kloud-games.exe', cwd: '../kloud-games' },
     // Default da era MSI: jogo instalado pelo Hub na 1ª execução
@@ -33,10 +28,12 @@ const LEGACY_DEFAULTS: Record<string, Array<{ command: string; cwd: string }>> =
   ]
 }
 
-/** Nomes default antigos — atualizados junto com o comando/cwd migrados. */
-const LEGACY_NAMES: Record<string, string[]> = {
-  'mark-lvi': ['Mark LVI (JARVIS)', 'Mark LVI']
-}
+/**
+ * Apps descontinuados: entradas salvas são descartadas no merge para que o
+ * card não reapareça em instalações antigas (o id `mark-lvi` era o assistente
+ * JARVIS, removido do ecossistema).
+ */
+const REMOVED_APP_IDS = new Set(['mark-lvi'])
 
 /** Atualiza uma entrada se ela ainda tiver os valores default legados. */
 export function migrateLegacyDefaults(app: AppConfig): AppConfig {
@@ -46,8 +43,7 @@ export function migrateLegacyDefaults(app: AppConfig): AppConfig {
   if (!legacy) return app
   const def = defaultApps.find((d) => d.id === app.id)
   if (!def) return app
-  const renamed = (LEGACY_NAMES[app.id] ?? []).includes(app.name) ? { name: def.name } : {}
-  return { ...def, ...app, ...renamed, command: def.command, cwd: def.cwd }
+  return { ...def, ...app, command: def.command, cwd: def.cwd }
 }
 
 /** Faz o parse do JSON salvo. Retorna null se corrompido/inválido. */
@@ -71,12 +67,13 @@ export function parseSavedApps(json: string | null): AppConfig[] | null {
 
 /**
  * Faz merge da configuração salva com os defaults atuais:
+ * - entradas de apps descontinuados são descartadas;
  * - entradas salvas são migradas (legado → defaults novos) e sobrepõem defaults;
  * - apps novos dos defaults aparecem mesmo sem entrada salva correspondente;
  * - entradas salvas de apps que não existem mais nos defaults são preservadas.
  */
 export function mergeAppConfigs(saved: AppConfig[]): AppConfig[] {
-  const migrated = saved.map(migrateLegacyDefaults)
+  const migrated = saved.filter((app) => !REMOVED_APP_IDS.has(app.id)).map(migrateLegacyDefaults)
   const merged = defaultApps.map((def) => {
     const savedApp = migrated.find((a) => a.id === def.id)
     return savedApp ? { ...def, ...savedApp } : def

@@ -7,7 +7,7 @@ describe('appWarning', () => {
   })
 
   it('retorna null para apps sem aviso e para id desconhecido', () => {
-    expect(appWarning('mark-lvi')).toBeNull()
+    expect(appWarning('kloud-games')).toBeNull()
     expect(appWarning('app-inexistente')).toBeNull()
   })
 

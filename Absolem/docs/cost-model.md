@@ -1,7 +1,7 @@
 # Modelo de custo do Absolem
 
-Documento da task 13 (T3). Reúne os limites que impedem consumo sem teto,
-o comportamento em 80% e 100%, como aumentar e como zerar o medidor. O produto
+Documento da task 13 (T3). Reúne os limites internos de consumo,
+o comportamento em 80% e 100%, como aumentar, desativar o teto interno e como zerar o medidor. O produto
 mede **tokens**, não moeda: o preço é definido pelo Google e cobrado na conta
 Gemini do usuário.
 
@@ -12,25 +12,25 @@ Fonte da verdade no código: `src/main/gemini/usage.ts` (teto e medidor),
 
 ## 1. Tabela de limites
 
-| Área                  | Limite                              | Onde está                                             | Como é aplicado                                                                     |
-| --------------------- | ----------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Teto mensal           | 2.000.000 tokens (default)          | `DEFAULT_MONTHLY_TOKEN_CAP`, `gemini.monthlyTokenCap` | `UsageMeter.checkBudget` antes de qualquer transporte; `quota` bloqueia             |
-| Aviso                 | 80% do teto, uma vez por mês        | `USAGE_WARNING_PERCENT`                               | Push `gemini:usage-warning` e tarja na aba Chave e custo                            |
-| Bloqueio              | 100% do teto                        | `checkBudget`                                         | Erro `quota` com a mensagem do medidor; nenhuma chamada de rede                     |
-| Retenção do medidor   | 62 dias de dias diários             | `USAGE_RETENTION_DAYS`                                | Poda na escrita; meses anteriores saem do cálculo mensal                            |
-| Sessão de voz         | 15 min contínuos                    | `voice.maxSessionMinutes` (5-30)                      | Timer do controlador encerra com aviso                                              |
-| Silêncio na voz       | 20 s sem fala                       | `voice.silenceTimeoutSeconds` (5-600)                 | Timer reiniciado por chunk com RMS de fala                                          |
-| Capturas              | 20 por hora                         | `MAX_CAPTURES_PER_HOUR`                               | Janela deslizante em memória; reiniciar zera                                        |
-| Captura proativa      | 1 a cada 60 s                       | `PROACTIVE_MIN_INTERVAL_MS`                           | Só com `privacy.screen.proactive` e voz `listening`                                 |
-| Tamanho da captura    | 8 MB e lado máximo 1280 px          | `MAX_CAPTURE_BYTES`, `MAX_CAPTURE_SIDE`               | Recusa antes de enviar ao Gemini                                                    |
-| Busca por turno       | 3 buscas grounded                   | `MAX_SEARCHES_PER_TURN`                               | Contador reiniciado por `chat:send`                                                 |
-| Abertura por turno    | 5 páginas                           | `MAX_FETCHES_PER_TURN`                                | Mesmo contador do turno                                                             |
-| Orçamento de pesquisa | 30 s por turno                      | `SEARCH_TURN_BUDGET_MS`                               | Relógio do turno; depois disso, recusa                                              |
-| Extração de memória   | a cada 6 turnos e no fim da sessão  | `MEMORY_EXTRACTION_TURN_INTERVAL`                     | `recordTurn` dispara; máximo de 5 candidatos                                        |
-| Prompt de memória     | 8 itens e 1.200 caracteres          | `MEMORY_PROMPT_BUDGET`, `MEMORY_PROMPT_MAX_ITEMS`     | Bloco limitado no prompt de sistema                                                 |
-| Ações                 | 5 apps/min, 10 operações, 1 UIA/2 s | `ACTION_LIMITS`                                       | Limitador da task 08 antes da execução                                              |
-| Imagem no turno       | largura * altura / 750              | `estimateImageTokens`                                 | Contabilizada no envio e descontada do total do provedor para não contar duas vezes |
-| `test-key`            | uma chamada mínima                  | `GeminiEngine.testKey`                                | Conta tokens como qualquer chamada                                                  |
+| Área                  | Limite                                                           | Onde está                                                                      | Como é aplicado                                                                                                |
+| --------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Teto mensal           | 2.000.000 tokens (default), opcionalmente ilimitado internamente | `DEFAULT_MONTHLY_TOKEN_CAP`, `gemini.monthlyTokenCap`, `gemini.unlimitedUsage` | `UsageMeter.checkBudget` antes de qualquer transporte; `quota` bloqueia somente com o modo ilimitado desligado |
+| Aviso                 | 80% do teto, uma vez por mês                                     | `USAGE_WARNING_PERCENT`                                                        | Push `gemini:usage-warning` e tarja na aba Chave e custo                                                       |
+| Bloqueio              | 100% do teto                                                     | `checkBudget`                                                                  | Erro `quota` com a mensagem do medidor; nenhuma chamada de rede                                                |
+| Retenção do medidor   | 62 dias de dias diários                                          | `USAGE_RETENTION_DAYS`                                                         | Poda na escrita; meses anteriores saem do cálculo mensal                                                       |
+| Sessão de voz         | 15 min contínuos                                                 | `voice.maxSessionMinutes` (5-30)                                               | Timer do controlador encerra com aviso                                                                         |
+| Silêncio na voz       | 20 s sem fala                                                    | `voice.silenceTimeoutSeconds` (5-600)                                          | Timer reiniciado por chunk com RMS de fala                                                                     |
+| Capturas              | 20 por hora                                                      | `MAX_CAPTURES_PER_HOUR`                                                        | Janela deslizante em memória; reiniciar zera                                                                   |
+| Captura proativa      | 1 a cada 60 s                                                    | `PROACTIVE_MIN_INTERVAL_MS`                                                    | Só com `privacy.screen.proactive` e voz `listening`                                                            |
+| Tamanho da captura    | 8 MB e lado máximo 1280 px                                       | `MAX_CAPTURE_BYTES`, `MAX_CAPTURE_SIDE`                                        | Recusa antes de enviar ao Gemini                                                                               |
+| Busca por turno       | 3 buscas grounded                                                | `MAX_SEARCHES_PER_TURN`                                                        | Contador reiniciado por `chat:send`                                                                            |
+| Abertura por turno    | 5 páginas                                                        | `MAX_FETCHES_PER_TURN`                                                         | Mesmo contador do turno                                                                                        |
+| Orçamento de pesquisa | 30 s por turno                                                   | `SEARCH_TURN_BUDGET_MS`                                                        | Relógio do turno; depois disso, recusa                                                                         |
+| Extração de memória   | a cada 6 turnos e no fim da sessão                               | `MEMORY_EXTRACTION_TURN_INTERVAL`                                              | `recordTurn` dispara; máximo de 5 candidatos                                                                   |
+| Prompt de memória     | 8 itens e 1.200 caracteres                                       | `MEMORY_PROMPT_BUDGET`, `MEMORY_PROMPT_MAX_ITEMS`                              | Bloco limitado no prompt de sistema                                                                            |
+| Ações                 | 5 apps/min, 10 operações, 1 UIA/2 s                              | `ACTION_LIMITS`                                                                | Limitador da task 08 antes da execução                                                                         |
+| Imagem no turno       | largura * altura / 750                                           | `estimateImageTokens`                                                          | Contabilizada no envio e descontada do total do provedor para não contar duas vezes                            |
+| `test-key`            | uma chamada mínima                                               | `GeminiEngine.testKey`                                                         | Conta tokens como qualquer chamada                                                                             |
 
 ## 2. O que acontece em 80% e em 100%
 
@@ -44,6 +44,9 @@ Fonte da verdade no código: `src/main/gemini/usage.ts` (teto e medidor),
 
 ### 100%
 
+- Com **Uso ilimitado** ativo, o teto mensal interno não bloqueia chat, voz,
+  pesquisa ou visão; o medidor continua registrando tokens, chamadas e
+  percentuais.
 - `UsageMeter.checkBudget` lança `GeminiError('quota', ...)`.
 - `GeminiEngine.assertEnabled` chama `checkBudget` antes de montar a requisição;
   o transporte não é tocado (`generateAttempts`/`streamAttempts` ficam em 0).
@@ -64,6 +67,17 @@ Fonte da verdade no código: `src/main/gemini/usage.ts` (teto e medidor),
    sem reiniciar o app.
 4. Aumentar o teto **não zera** o consumo: o valor já gasto continua no mês. O
    percentual cai porque o denominador cresceu.
+
+## 3.1 Como ativar o uso ilimitado interno
+
+1. Abra **Configurações > Chave e custo**.
+2. Clique em **Ativar uso ilimitado**. A preferência é persistida em
+   `gemini.unlimitedUsage` e o estado **Ilimitado** aparece na tela.
+3. Isso remove somente o bloqueio mensal interno do Absolem. Não remove quotas,
+   limites de requisições (rate limits), indisponibilidade ou outras políticas
+   do Google, inclusive ao usar uma API key gratuita.
+4. O uso continua sendo contabilizado. Capturas por hora, chamadas por turno,
+   intervalo proativo, duração de sessão e limites de tamanho permanecem ativos.
 
 Limite mínimo: 1 token (`clampCap`). Não há teto máximo no código; valores
 absurdos são responsabilidade do usuário e da conta Google.
@@ -100,7 +114,8 @@ absurdos são responsabilidade do usuário e da conta Google.
 - 3 buscas, 5 aberturas e 30 s por turno são constantes de projeto.
 - A extração a cada 6 turnos é constante; o usuário só liga/desliga a extração
   automática (`memory.autoExtract`).
-- Aumentar o teto de tokens é a única alavanca de custo exposta na interface.
+- Aumentar o teto ou ativar o uso ilimitado interno são as alavancas de custo
+  expostas na interface; nenhuma delas altera quotas do Google.
 
 ## 7. Evidência automatizada
 

@@ -4,7 +4,7 @@ import { logger } from './logger'
 import { markQuitting } from './quitState'
 
 /** Motivo do encerramento registrado no log de ciclo de vida. */
-export type ShutdownReason = 'tray' | 'os-session-end' | 'crash'
+export type ShutdownReason = 'tray' | 'relaunch' | 'os-session-end' | 'crash'
 
 /** Contexto mínimo do encerramento: as janelas são lidas por getter. */
 export interface ShutdownContext {

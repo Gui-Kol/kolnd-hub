@@ -743,9 +743,6 @@ export function PcMonitor(): JSX.Element {
       : driverReady
         ? 'O driver de sensores não devolveu temperatura nesta leitura.'
         : `${DASH_TITLE.cpuTemp} ${INSTALL_HINT}`
-  const cpuPowerTitle = driverReady
-    ? 'O driver de sensores não devolveu potência nesta leitura.'
-    : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
   const gpuTempTitle =
     gpuVendor === null
       ? DASH_TITLE.gpu
@@ -781,6 +778,19 @@ export function PcMonitor(): JSX.Element {
   const totalSource: HwPowerSourceCpu =
     totalW === null ? 'unavailable' : measuredTotalW !== null ? 'measured' : 'estimated'
   const barMaxW = Math.max(cpuPowerW ?? 0, gpuPowerW ?? 0, platformW ?? 0, 1)
+
+  // Título coerente com o valor mostrado: medido nunca herda o texto de "sem
+  // leitura do driver". O selo de origem ao lado do número repete essa distinção.
+  const cpuPowerTitle =
+    cpuSource === 'measured'
+      ? 'Potência do pacote medida pelo driver de sensores (RAPL).'
+      : cpuSource === 'estimated'
+        ? driverReady
+          ? 'O driver não devolveu potência nesta leitura; o valor mostrado é estimado pelo modelo fixo.'
+          : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
+        : driverReady
+          ? 'O driver não devolveu potência nesta leitura.'
+          : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
 
   // Intervalo vigente no texto do cabeçalho (a fonte da verdade é o main).
   const intervalLabel = formatIntervalLabel(hwIntervalMs)
@@ -848,9 +858,10 @@ export function PcMonitor(): JSX.Element {
       </motion.div>
 
       {/* ── Sensores avançados (driver opcional) ───────────
-          Fica no topo de propósito: sem driver, a CPU mostra "—" em temperatura e
-          potência — a ação que resolve o traço precisa estar à vista, sem rolar a
-          página. O estado do driver continua no badge do cabeçalho, sem duplicar. */}
+          Fica no topo de propósito: sem driver, a temperatura mostra "—" e a
+          potência cai para a estimativa — a ação que permite MEDIR precisa estar
+          à vista, sem rolar a página. O estado do driver continua no badge do
+          cabeçalho, sem duplicar. */}
       <motion.div {...entranceProps(reduced, { y: 10 })} data-testid="hw-advanced-sensors">
         <Card className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:gap-6 md:p-5">
           <div className="flex items-start gap-3">
@@ -865,7 +876,7 @@ export function PcMonitor(): JSX.Element {
                 }`}
               >
                 {driverState === 'absent'
-                  ? 'Sem eles, temperatura e potência da CPU ficam em “—”. A instalação é opcional e pede 1 confirmação do Windows.'
+                  ? 'Sem eles, a temperatura da CPU fica em “—” e a potência é estimada. A instalação é opcional e pede 1 confirmação do Windows.'
                   : driverState === 'present'
                     ? 'Instalado, mas a leitura não está ativa — clique para ativar.'
                     : sensorsOutdated
@@ -946,7 +957,9 @@ export function PcMonitor(): JSX.Element {
                 formatDecimal(totalW, 1)
               )}
             </span>
-            <span className="text-[11px] text-ink-tertiary">W no total</span>
+            <span className="text-[11px] text-ink-tertiary">
+              {totalSource === 'measured' ? 'W medidos (CPU + GPU)' : 'W no total'}
+            </span>
           </p>
 
           <div className="space-y-3">
@@ -978,13 +991,27 @@ export function PcMonitor(): JSX.Element {
 
           <p className="text-[10px] leading-relaxed text-ink-tertiary">
             GPU medida pelo nvidia-smi (NVIDIA); em AMD/Intel o uso vem do contador do Windows, mas
-            a potência não é exposta sem driver. CPU e plataforma são <strong>estimadas</strong>{' '}
-            pelo modelo fixo: classe térmica de 35 W + 4,5 W por núcleo (limitada a 45–150 W),
-            proporcional ao uso da CPU
-            {platformW !== null
-              ? `, mais ${formatDecimal(platformW, 0)} W fixos de plataforma`
-              : ''}
-            . O total estimado só aparece com a GPU medida; o total medido soma apenas CPU + GPU.
+            a potência não é exposta sem driver.{' '}
+            {cpuSource === 'measured' ? (
+              <>
+                A CPU é <strong>medida</strong> pelo driver de sensores; a plataforma continua{' '}
+                <strong>estimada</strong>
+                {platformW !== null
+                  ? ` em ${formatDecimal(platformW, 0)} W fixos (placa, RAM, SSDs e ventoinhas)`
+                  : ''}
+                .{' '}
+              </>
+            ) : (
+              <>
+                CPU e plataforma são <strong>estimadas</strong> pelo modelo fixo: classe térmica de
+                35 W + 4,5 W por núcleo (limitada a 45–150 W), proporcional ao uso da CPU
+                {platformW !== null
+                  ? `, mais ${formatDecimal(platformW, 0)} W fixos de plataforma`
+                  : ''}
+                .{' '}
+              </>
+            )}
+            O total estimado só aparece com a GPU medida; o total medido soma apenas CPU + GPU.
             {!driverReady ? ' Instale os sensores avançados para medir a CPU.' : ''}
           </p>
         </Card>
@@ -1047,13 +1074,26 @@ export function PcMonitor(): JSX.Element {
               </span>
             </Stat>
             <Stat label="Potência">
-              <span data-testid="hw-cpu-power">
+              <span data-testid="hw-cpu-power" className="inline-flex items-center gap-2">
                 <Value
-                  value={cpu?.watts ?? null}
+                  value={cpuPowerW}
                   format={(value) => formatDecimal(value, 1)}
                   unit="W"
                   title={cpuPowerTitle}
                 />
+                {cpuPowerW !== null ? (
+                  <span
+                    className="text-[10px] font-normal text-ink-tertiary"
+                    data-testid="hw-cpu-power-source"
+                    title={
+                      cpuSource === 'measured'
+                        ? 'Potência do pacote medida pelo driver de sensores (RAPL).'
+                        : 'Potência estimada pelo modelo fixo — não é medição.'
+                    }
+                  >
+                    {POWER_SOURCE_LABEL[cpuSource]}
+                  </span>
+                ) : null}
               </span>
             </Stat>
             <Stat label="Tensão (Vcore)">

@@ -6,6 +6,12 @@ import {
   USAGE_WARNING_PERCENT,
   type GeminiTestKeyOutcome
 } from '../../../shared/gemini'
+import {
+  GEMINI_LIVE_MODEL_OPTIONS,
+  GEMINI_TEXT_MODEL_OPTIONS,
+  isGeminiLiveModel,
+  isGeminiTextModel
+} from '../../../shared/gemini-models'
 import type {
   GeminiStatusResult,
   GeminiTestKeyResult,
@@ -66,8 +72,18 @@ function readGeminiConfig(value: unknown): GeminiConfig {
     model: typeof raw.model === 'string' ? raw.model : DEFAULT_GEMINI_MODEL,
     liveModel: typeof raw.liveModel === 'string' ? raw.liveModel : DEFAULT_GEMINI_LIVE_MODEL,
     temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
-    monthlyTokenCap: typeof raw.monthlyTokenCap === 'number' ? raw.monthlyTokenCap : 2_000_000
+    monthlyTokenCap: typeof raw.monthlyTokenCap === 'number' ? raw.monthlyTokenCap : 2_000_000,
+    unlimitedUsage: raw.unlimitedUsage === true
   }
+}
+
+function modelOptionsWithCustom(
+  options: readonly { readonly id: string; readonly label: string }[],
+  current: string,
+  isKnown: (value: unknown) => boolean
+): Array<{ id: string; label: string }> {
+  if (isKnown(current)) return options.map((option) => ({ ...option }))
+  return [{ id: current, label: `Personalizado (${current})` }, ...options]
 }
 
 export function describeTestError(outcome: GeminiTestKeyOutcome): string {
@@ -223,9 +239,55 @@ export function KeyTab({ api }: KeyTabProps) {
     await reload()
   }
 
+  async function toggleUnlimitedUsage(): Promise<void> {
+    const next: GeminiConfig = { ...config, unlimitedUsage: !config.unlimitedUsage }
+    const result = await client.setGeminiConfig(next)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setConfig(next)
+    setNotice(
+      next.unlimitedUsage
+        ? 'Uso ilimitado ativado. O teto mensal interno não bloqueará novas chamadas.'
+        : 'Uso ilimitado desativado. O teto mensal interno voltou a valer.'
+    )
+    await reload()
+  }
+
+  async function saveModel(field: 'model' | 'liveModel', value: string): Promise<void> {
+    setSaving(true)
+    setError(null)
+    const next: GeminiConfig = { ...config, [field]: value }
+    try {
+      const result = await client.setGeminiConfig(next)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setConfig(next)
+      setNotice(
+        field === 'model' ? 'Modelo de texto, visão e pesquisa salvo.' : 'Modelo Live e voz salvo.'
+      )
+      await reload()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const usage = status?.usage
   const percent = usage?.percent ?? 0
   const capNow = usage?.cap ?? config.monthlyTokenCap
+  const textModelOptions = modelOptionsWithCustom(
+    GEMINI_TEXT_MODEL_OPTIONS,
+    config.model,
+    isGeminiTextModel
+  )
+  const liveModelOptions = modelOptionsWithCustom(
+    GEMINI_LIVE_MODEL_OPTIONS,
+    config.liveModel,
+    isGeminiLiveModel
+  )
 
   return (
     <section aria-labelledby="key-title" className="flex flex-col gap-6">
@@ -252,6 +314,60 @@ export function KeyTab({ api }: KeyTabProps) {
           {notice}
         </p>
       ) : null}
+
+      <section aria-labelledby="model-settings-title" className="flex flex-col gap-3">
+        <h3 id="model-settings-title" className="text-sm font-semibold text-ink-primary">
+          Modelos do Gemini
+        </h3>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gemini-text-model" className="text-xs text-ink-secondary">
+            Modelo de texto, visão e pesquisa
+          </label>
+          <select
+            id="gemini-text-model"
+            value={config.model}
+            disabled={saving}
+            onChange={(event) => {
+              void saveModel('model', event.target.value)
+            }}
+            className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
+          >
+            {textModelOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-ink-tertiary">
+            Usado por chat, visão e pesquisa com grounding. O modelo Live não é usado neste
+            endpoint.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gemini-live-model" className="text-xs text-ink-secondary">
+            Modelo Live e voz
+          </label>
+          <select
+            id="gemini-live-model"
+            value={config.liveModel}
+            disabled={saving}
+            onChange={(event) => {
+              void saveModel('liveModel', event.target.value)
+            }}
+            className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
+          >
+            {liveModelOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-ink-tertiary">
+            Usado somente pela voz no endpoint Live; não é compatível automaticamente com chat,
+            visão ou pesquisa.
+          </p>
+        </div>
+      </section>
 
       <section aria-labelledby="key-status-title" className="flex flex-col gap-2">
         <h3 id="key-status-title" className="text-sm font-semibold text-ink-primary">
@@ -373,11 +489,31 @@ export function KeyTab({ api }: KeyTabProps) {
           Consumo em tokens
         </h3>
         <p className="text-xs text-ink-secondary" data-usage-summary>
-          {usage
-            ? `${usage.month.toLocaleString('pt-BR')} de ${usage.cap.toLocaleString(
-                'pt-BR'
-              )} tokens neste mês · hoje ${usage.today.toLocaleString('pt-BR')}`
-            : 'Carregando consumo...'}
+          {config.unlimitedUsage
+            ? `${usage?.month.toLocaleString('pt-BR') ?? 0} tokens registrados neste mês · hoje ${
+                usage?.today.toLocaleString('pt-BR') ?? 0
+              }`
+            : usage
+              ? `${usage.month.toLocaleString('pt-BR')} de ${usage.cap.toLocaleString(
+                  'pt-BR'
+                )} tokens neste mês · hoje ${usage.today.toLocaleString('pt-BR')}`
+              : 'Carregando consumo...'}
+        </p>
+        <p
+          role="status"
+          data-unlimited-status={config.unlimitedUsage ? 'true' : 'false'}
+          className={
+            config.unlimitedUsage
+              ? 'rounded border border-emerald-400/50 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-200'
+              : 'text-xs text-ink-secondary'
+          }
+        >
+          {config.unlimitedUsage ? 'Ilimitado' : 'Teto mensal interno ativo'}
+        </p>
+        <p className="text-xs text-amber-200">
+          Este controle remove somente o teto mensal interno do Absolem. Ele não remove quotas,
+          limites de requisições (rate limits) ou indisponibilidade do Google, mesmo com API key
+          gratuita.
         </p>
         <div
           role="progressbar"
@@ -404,6 +540,17 @@ export function KeyTab({ api }: KeyTabProps) {
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={config.unlimitedUsage}
+            aria-label={config.unlimitedUsage ? 'Desativar uso ilimitado' : 'Ativar uso ilimitado'}
+            onClick={() => {
+              void toggleUnlimitedUsage()
+            }}
+            className="self-start rounded border border-accent px-3 py-1.5 text-xs text-ink-primary hover:bg-accent/10"
+          >
+            {config.unlimitedUsage ? 'Desativar uso ilimitado' : 'Ativar uso ilimitado'}
+          </button>
           <button
             type="button"
             onClick={() => {

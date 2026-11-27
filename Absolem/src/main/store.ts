@@ -52,7 +52,7 @@ export { normalizeOverlayConfig }
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.14.0'
+export const STORE_SCHEMA_VERSION = '1.16.0'
 
 const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
@@ -92,7 +92,8 @@ export function defaultGeminiConfig(): GeminiConfig {
     model: DEFAULT_GEMINI_MODEL,
     liveModel: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: 0.7,
-    monthlyTokenCap: DEFAULT_MONTHLY_TOKEN_CAP
+    monthlyTokenCap: DEFAULT_MONTHLY_TOKEN_CAP,
+    unlimitedUsage: false
   }
 }
 
@@ -110,7 +111,7 @@ export function defaultPrivacyConfig(): PrivacyConfig {
 
 export function defaultPermissionsConfig(): PermissionsConfig {
   return {
-    microphone: false,
+    microphone: true,
     paused: false,
     categories: defaultPermissionCategories()
   }
@@ -134,12 +135,7 @@ export function defaultUiConfig(): UiConfig {
 }
 
 export function defaultMemoryConfig(): MemoryConfig {
-  return {
-    enabled: true,
-    autoExtract: true,
-    lastConsolidationAt: null,
-    note: ''
-  }
+  return { enabled: true, autoExtract: true, lastConsolidationAt: null, note: '' }
 }
 
 export function defaultWebConfig(): WebConfig {
@@ -221,7 +217,8 @@ export function normalizeGeminiConfig(input: unknown): GeminiConfig {
     model,
     liveModel,
     temperature: clampNumber(raw.temperature, 0, 2, 0.7),
-    monthlyTokenCap: clampCap(raw.monthlyTokenCap)
+    monthlyTokenCap: clampCap(raw.monthlyTokenCap),
+    unlimitedUsage: raw.unlimitedUsage === true
   }
 }
 
@@ -403,7 +400,8 @@ const schema: Store.Schema<AbsolemConfig> = {
       model: { type: 'string' },
       liveModel: { type: 'string' },
       temperature: { type: 'number' },
-      monthlyTokenCap: { type: 'number' }
+      monthlyTokenCap: { type: 'number' },
+      unlimitedUsage: { type: 'boolean' }
     },
     additionalProperties: false
   },
@@ -653,7 +651,7 @@ export function migrate160(store: StoreLike): void {
   const input: Record<string, unknown> = { telemetry: raw.telemetry === true }
   if (raw.screen && typeof raw.screen === 'object' && !Array.isArray(raw.screen)) {
     input.screen = raw.screen
-  } else {
+  } else if (typeof raw.screenCapture === 'boolean') {
     input.screen = {
       mode: raw.screenCapture === true ? 'on' : 'off',
       proactive: false
@@ -750,6 +748,28 @@ export function migrate1140(store: StoreLike): void {
   store.set('memory', normalizeMemoryConfig(store.get('memory', defaultMemoryConfig())))
 }
 
+/**
+ * 1.16.0: aditiva. Acrescenta `gemini.unlimitedUsage` como controle explícito
+ * do teto mensal interno; ausente ou inválido permanece desligado. O campo não
+ * altera quotas, rate limits ou disponibilidade do provedor Google.
+ */
+export function migrate1160(store: StoreLike): void {
+  store.set('gemini', normalizeGeminiConfig(store.get('gemini', defaultGeminiConfig())))
+}
+
+/**
+ * 1.15.0: defaults de consentimento solicitados pelo usuário. A normalização
+ * preenche somente campos ausentes; decisões válidas já persistidas (inclusive
+ * `off`, `deny`, `false` e `paused`) permanecem intactas.
+ */
+export function migrate1150(store: StoreLike): void {
+  store.set('privacy', normalizePrivacyConfig(store.get('privacy', defaultPrivacyConfig())))
+  store.set(
+    'permissions',
+    normalizePermissionsConfig(store.get('permissions', defaultPermissionsConfig()))
+  )
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -765,7 +785,9 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.11.0': migrate1110,
   '1.12.0': migrate1120,
   '1.13.0': migrate1130,
-  '1.14.0': migrate1140
+  '1.14.0': migrate1140,
+  '1.15.0': migrate1150,
+  '1.16.0': migrate1160
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -794,9 +816,7 @@ export interface CreatedStore {
  * mas a tipagem da v8 o remove de `Options` (o `conf` usa a versão do app).
  * A interseção mantém a versão do schema explícita sem `any`.
  */
-type AbsolemStoreOptions = Store.Options<AbsolemConfig> & {
-  projectVersion: string
-}
+type AbsolemStoreOptions = Store.Options<AbsolemConfig> & { projectVersion: string }
 
 /**
  * Abre o config.json. Falha vira store em memória e log `store`; o app nunca

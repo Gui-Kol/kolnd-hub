@@ -98,6 +98,8 @@ export interface GeminiConfig {
   temperature: number
   /** Teto mensal de tokens (aprovação do gate de custo). */
   monthlyTokenCap: number
+  /** Desliga somente o teto mensal interno; quotas/rate limits do Google continuam. */
+  unlimitedUsage: boolean
 }
 
 export interface PrivacyConfig {

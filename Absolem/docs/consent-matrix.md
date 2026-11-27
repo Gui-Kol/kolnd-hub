@@ -23,6 +23,7 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 | Pesquisa web        | Ligada (`web.enabled=true`, `web.search='allow'`) | Aba Permissões, checkbox "Permitir pesquisa..."  | Desmarcar o checkbox ou negar a categoria           | 1                    |
 | Memória             | Ligada (`memory.enabled=true`)                    | Aba Memória, checkbox "Memória ligada"           | Desmarcar "Memória ligada"                          | 1                    |
 | Chave Gemini        | Ausente                                           | Aba Chave e custo, salvar chave                  | Aba Chave e custo, "Remover chave" + confirmar      | 2                    |
+| Teto mensal interno | Ativo (`gemini.unlimitedUsage=false`)             | Aba Chave e custo, "Ativar uso ilimitado"        | Mesmo botão, "Desativar uso ilimitado"              | 1                    |
 | Pausa global        | Desligada (`permissions.paused=false`)            | Aba Permissões, checkbox "Pausar todas as ações" | Desmarcar o checkbox                                | 1                    |
 
 ## 2. Detalhe por capacidade
@@ -168,7 +169,26 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 - **Teste:** `src/main/secrets.test.ts`, `src/renderer/src/settings/KeyTab.test.tsx`
   e o teste de consentimentos.
 
-### 2.10 Pausa global
+### 2.10 Teto mensal interno
+
+- **Default:** ativo (`gemini.unlimitedUsage=false`), com teto configurável em
+  `gemini.monthlyTokenCap`.
+- **Concessão/revogação:** na aba Chave e custo, o botão alterna entre
+  "Ativar uso ilimitado" e "Desativar uso ilimitado". A preferência é persistida
+  sem gravar `Infinity`.
+- **Efeito:** quando ativo, remove somente o bloqueio mensal interno de tokens
+  para chat, voz, pesquisa e visão. O uso continua registrado.
+- **Limites preservados:** chamadas por turno, capturas por hora, intervalo
+  proativo, duração da sessão, tamanho de imagem/página e demais limites
+  operacionais continuam valendo.
+- **Limites do provedor:** quotas diárias/RPM/RPD, rate limits e indisponibilidade
+  do Google continuam valendo, inclusive com API key gratuita.
+- **Registro:** `gemini.unlimitedUsage` no `config.json`; nenhum segredo é
+  envolvido.
+- **Teste:** `src/main/gemini/usage.test.ts` e
+  `src/renderer/src/settings/KeyTab.test.tsx`.
+
+### 2.11 Pausa global
 
 - **Default:** desligada.
 - **Concessão/revogação:** checkbox "Pausar todas as ações" na aba Permissões,

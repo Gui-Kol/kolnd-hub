@@ -514,9 +514,10 @@ describe('createSensorsAgentReader', () => {
     const previous = process.env.KOLDND_HUB_SENSORS_DIR
     process.env.KOLDND_HUB_SENSORS_DIR = dir
     try {
+      const timestamp = new Date()
       await fs.writeFile(
         join(dir, 'latest.json'),
-        JSON.stringify(realSink({ timestamp: new Date().toISOString() })),
+        JSON.stringify(realSink({ timestamp: timestamp.toISOString() })),
         'utf8'
       )
       const result = await createSensorsAgentReader().readBatch({
@@ -526,6 +527,8 @@ describe('createSensorsAgentReader', () => {
       expect(result.available).toBe(true)
       expect(result.msr).toEqual([BigInt(0x000a1003), 123456789n])
       expect(result.smn).toEqual([BigInt(0x6dfb0000)])
+      // A base de tempo dos watts é o timestamp do arquivo, não a hora da leitura.
+      expect(result.sampledAtMs).toBe(timestamp.getTime())
     } finally {
       if (previous === undefined) delete process.env.KOLDND_HUB_SENSORS_DIR
       else process.env.KOLDND_HUB_SENSORS_DIR = previous
@@ -550,6 +553,8 @@ describe('createSensorsAgentReader', () => {
       expect(result.msr).toEqual([null])
       expect(result.smn).toEqual([null])
       expect(result.error).toContain('não está ativa')
+      // Stale não tem amostra: sem timestamp inventado.
+      expect(result.sampledAtMs).toBeUndefined()
     } finally {
       if (previous === undefined) delete process.env.KOLDND_HUB_SENSORS_DIR
       else process.env.KOLDND_HUB_SENSORS_DIR = previous

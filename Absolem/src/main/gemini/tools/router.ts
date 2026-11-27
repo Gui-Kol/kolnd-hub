@@ -123,6 +123,17 @@ function errorMessage(err: unknown): string {
   return String(err).slice(0, 300)
 }
 
+function timeoutMessage(tool: ToolDefinition): string {
+  const seconds = Math.round(tool.timeoutMs / 1000)
+  if (tool.name === 'web_search') {
+    return `A pesquisa na internet demorou mais de ${seconds} s e foi interrompida. Tente novamente.`
+  }
+  if (tool.name === 'fetch_url') {
+    return `A abertura da página demorou mais de ${seconds} s e foi interrompida.`
+  }
+  return `A ferramenta não respondeu em ${tool.timeoutMs} ms.`
+}
+
 /** Erros tipados da pesquisa preservam `quota`; o resto é falha comum. */
 function toolErrorKind(err: unknown): ToolCallErrorKind {
   if (err && typeof err === 'object' && (err as { kind?: unknown }).kind === 'quota') {
@@ -226,7 +237,7 @@ export async function routeToolCall(
         ok: false,
         error: {
           kind: 'timeout',
-          message: `A ferramenta não respondeu em ${tool.timeoutMs} ms.`
+          message: timeoutMessage(tool)
         }
       })
     }

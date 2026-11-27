@@ -7,7 +7,8 @@
  * a seleção de região e para validar o que volta pelo IPC.
  *
  * Decisões fechadas:
- * - `mode: 'off'` é o default absoluto; nada é capturado sem consentimento.
+ * - `mode: 'on'` é o default da visão sob demanda; nada é capturado
+ *   proativamente sem uma configuração específica.
  * - blocklist é comparada por substring, sem diferenciar maiúsculas, contra
  *   título E nome do processo, depois de normalizada (trim, minúsculas, sem
  *   duplicatas, vazio descartado).
@@ -110,7 +111,7 @@ export function isScreenMode(value: unknown): value is ScreenMode {
 }
 
 export function normalizeScreenMode(value: unknown): ScreenMode {
-  return isScreenMode(value) ? value : 'off'
+  return value === undefined ? 'on' : isScreenMode(value) ? value : 'on'
 }
 
 export function isCaptureKind(value: unknown): value is CaptureKind {

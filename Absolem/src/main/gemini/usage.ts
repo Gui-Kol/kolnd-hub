@@ -47,6 +47,7 @@ export interface UsageStoreLike {
 export interface UsageMeterOptions {
   store: UsageStoreLike
   cap: () => number
+  unlimited?: () => boolean
   now?: () => Date
   onWarning?: (warning: UsageWarning) => void
   retentionDays?: number
@@ -199,6 +200,7 @@ export class UsageMeter {
   private state: UsageState
   private readonly store: UsageStoreLike
   private readonly cap: () => number
+  private readonly unlimited: () => boolean
   private readonly now: () => Date
   private readonly onWarning?: (warning: UsageWarning) => void
   private readonly retentionDays: number
@@ -207,6 +209,7 @@ export class UsageMeter {
   constructor(options: UsageMeterOptions) {
     this.store = options.store
     this.cap = options.cap
+    this.unlimited = options.unlimited ?? (() => false)
     this.now = options.now ?? (() => new Date())
     this.onWarning = options.onWarning
     this.retentionDays = options.retentionDays ?? USAGE_RETENTION_DAYS
@@ -245,6 +248,7 @@ export class UsageMeter {
 
   /** Bloqueia antes de chamar o transporte quando o teto do mês já foi atingido. */
   checkBudget(): void {
+    if (this.unlimited()) return
     const cap = this.getCap()
     const used = this.monthTokens()
     if (used >= cap) {

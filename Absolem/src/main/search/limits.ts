@@ -10,7 +10,7 @@ import {
  * Limites de pesquisa por turno (task 10, T7).
  *
  * - no máximo 3 buscas grounded e 5 aberturas de página por turno de chat;
- * - orçamento de 30 s contado a partir do início do turno;
+ * - orçamento de 90 s contado a partir do início do turno;
  * - o teto mensal do medidor (task 05) é consultado em TODA operação: se
  *   estourou, a resposta é `quota` antes de qualquer rede;
  * - o contador reinicia no começo de cada turno (`beginTurn(requestId)`).

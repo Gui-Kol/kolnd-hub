@@ -21,6 +21,8 @@ import {
  * Regras fechadas:
  * - conexão 10 s, primeiro token 20 s, total 120 s (por chamada, retries
  *   incluídos no total);
+ * - grounding usa conexão 10 s, primeiro token 45 s e total 85 s, abaixo do
+ *   teto de 90 s da ferramenta e do orçamento de pesquisa;
  * - no máximo 2 tentativas, só para `network`, `timeout`, `429` e `5xx`;
  * - abort do usuário nunca é retry e vira `kind: 'cancelled'`;
  * - stream que já entregou texto não é repetido (evita delta duplicado);
@@ -103,6 +105,12 @@ export const DEFAULT_DEADLINES: GeminiDeadlines = {
   connectMs: 10_000,
   firstTokenMs: 20_000,
   totalMs: 120_000
+}
+
+export const GROUNDED_SEARCH_DEADLINES: GeminiDeadlines = {
+  connectMs: 10_000,
+  firstTokenMs: 45_000,
+  totalMs: 85_000
 }
 
 export const DEFAULT_RETRY: GeminiRetryPolicy = {
@@ -239,7 +247,7 @@ export class GeminiClient {
     const signal = options?.signal ?? request.signal
     const callStart = this.now()
     return this.withRetry(signal, async () => {
-      const control = this.beginAttempt(callStart, signal)
+      const control = this.beginAttempt(callStart, signal, GROUNDED_SEARCH_DEADLINES)
       try {
         const response = await raceWithAbort(
           this.transport.generate({
@@ -295,7 +303,7 @@ export class GeminiClient {
   ): Promise<GeminiCallResult> {
     const callStart = this.now()
     return this.withRetry(options?.signal, async () => {
-      const control = this.beginAttempt(callStart, options?.signal)
+      const control = this.beginAttempt(callStart, options?.signal, this.deadlines)
       try {
         const response = await raceWithAbort(
           this.transport.generate({ ...request, abortSignal: control.signal }),
@@ -323,7 +331,7 @@ export class GeminiClient {
   ): Promise<GeminiCallResult> {
     const callStart = this.now()
     return this.withRetry(handlers.signal, async () => {
-      const control = this.beginAttempt(callStart, handlers.signal)
+      const control = this.beginAttempt(callStart, handlers.signal, this.deadlines)
       const iterator = this.transport
         .stream({ ...request, abortSignal: control.signal })
         [Symbol.asyncIterator]()
@@ -379,7 +387,11 @@ export class GeminiClient {
     return new GeminiError('blocked', 'Resposta bloqueada pela política de conteúdo do Gemini.')
   }
 
-  private beginAttempt(callStart: number, userSignal?: AbortSignal): AttemptControl {
+  private beginAttempt(
+    callStart: number,
+    userSignal: AbortSignal | undefined,
+    deadlines: GeminiDeadlines
+  ): AttemptControl {
     const controller = new AbortController()
     let cause: AbortCause | null = null
 
@@ -395,10 +407,10 @@ export class GeminiClient {
       else userSignal.addEventListener('abort', onUserAbort, { once: true })
     }
 
-    const remainingTotal = Math.max(0, this.deadlines.totalMs - (this.now() - callStart))
+    const remainingTotal = Math.max(0, deadlines.totalMs - (this.now() - callStart))
     const totalTimer = setTimeout(() => abortWith('total'), remainingTotal)
-    const connectTimer = setTimeout(() => abortWith('connect'), this.deadlines.connectMs)
-    const firstTokenTimer = setTimeout(() => abortWith('first-token'), this.deadlines.firstTokenMs)
+    const connectTimer = setTimeout(() => abortWith('connect'), deadlines.connectMs)
+    const firstTokenTimer = setTimeout(() => abortWith('first-token'), deadlines.firstTokenMs)
 
     return {
       signal: controller.signal,

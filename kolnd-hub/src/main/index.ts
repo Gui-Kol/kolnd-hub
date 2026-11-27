@@ -191,8 +191,8 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
     // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
     if (!startHidden) mainWindow!.show()
     // Trabalho best-effort que não precisa estar no caminho da primeira
-    // pintura (seed do Mark LVI + reparo de ícones) roda aqui, uma vez por
-    // sessão, DEPOIS que a janela já está pronta.
+    // pintura (reparo de ícones) roda aqui, uma vez por sessão, DEPOIS que a
+    // janela já está pronta.
     runPostWindowWork()
   })
 
@@ -502,8 +502,8 @@ app.whenReady().then(() => {
     logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
   }
 
-  // A janela abre JÁ: seed do Mark LVI e reparo de ícones rodam depois do
-  // `ready-to-show` (ver runPostWindowWork), fora do caminho da primeira pintura.
+  // A janela abre JÁ: o reparo de ícones roda depois do `ready-to-show`
+  // (ver runPostWindowWork), fora do caminho da primeira pintura.
   createWindow(firstRun, startHidden)
   createTray()
 })

@@ -105,6 +105,13 @@ export interface HwRegisterBatchResult {
   msr: Array<bigint | null>
   /** Alinhado com `request.smn`; vazio quando o vendor não tem SMN. */
   smn: Array<bigint | null>
+  /**
+   * Instante em que o sink capturou a amostra (epoch ms), quando o leitor sabe.
+   * O contador RAPL é energia acumulada: os watts precisam do intervalo entre
+   * AMOSTRAS, não entre leituras (o agente grava a 1 Hz e o monitor lê a 2 Hz).
+   * Leitor sem timestamp (PawnIO legado/testes) cai para o relógio da leitura.
+   */
+  sampledAtMs?: number
   /** Mensagem para a UI; o detalhe técnico fica no log do helper. */
   error?: string
 }
@@ -317,7 +324,7 @@ export function createPawnIoRegisterReader(): HwRegisterReader {
 function updateWatts(
   unitRaw: bigint | null | undefined,
   counterRaw: bigint | null | undefined,
-  now: number
+  at: number
 ): number | null {
   const unitJ = decodeRaplUnit(unitRaw ?? null)
   const counter =
@@ -328,20 +335,37 @@ function updateWatts(
     return null
   }
 
+  // O sink do agente grava a 1 Hz, mas o monitor lê a 2 Hz: a MESMA amostra
+  // chega duas vezes. Sem esta guarda o delta zero viraria `null` (a UI cai
+  // para a estimativa) e, pior, o instante seria reescrito — o delta seguinte
+  // usaria só metade do intervalo e a potência sairia ~2× maior. Amostra
+  // repetida devolve a média já calculada e mantém a referência intacta.
+  if (lastEnergy && (lastEnergy.counter === counter || lastEnergy.at === at)) {
+    return averageOf(powerSamples)
+  }
+
   let watts: number | null = null
   if (lastEnergy) {
     const instant = computePackageWatts(
       { counter: lastEnergy.counter, unitJ: lastEnergy.unitJ },
       { counter, unitJ },
-      now - lastEnergy.at
+      at - lastEnergy.at
     )
     if (instant !== null) {
       powerSamples = pushMovingAverage(powerSamples, instant)
       watts = averageOf(powerSamples)
     }
   }
-  lastEnergy = { counter, unitJ, at: now }
+  lastEnergy = { counter, unitJ, at }
   return watts
+}
+
+/**
+ * Instante da amostra: o timestamp do sink quando ele existe; senão o relógio
+ * da leitura (leitor legado/testes que não informam `sampledAtMs`).
+ */
+function sampleAt(now: number, sampledAtMs: number | undefined): number {
+  return typeof sampledAtMs === 'number' && Number.isFinite(sampledAtMs) ? sampledAtMs : now
 }
 
 async function readAmd(now: number, reader: HwRegisterReader): Promise<CpuPowerReading> {
@@ -360,7 +384,7 @@ async function readAmd(now: number, reader: HwRegisterReader): Promise<CpuPowerR
   }
 
   const tempC = decodeSmnTemp(result.smn[0] ?? null)
-  const watts = updateWatts(result.msr[0], result.msr[1], now)
+  const watts = updateWatts(result.msr[0], result.msr[1], sampleAt(now, result.sampledAtMs))
   // `+0x10` vale para Threadripper 3000 e Zen 2–5; o restante usa `+0xC`.
   const plane0Raw =
     familyModel && amdSviPlane0Offset(familyModel.model) === AMD_SVI_PLANE0_OFFSET_MODERN
@@ -401,7 +425,7 @@ async function readIntel(now: number, reader: HwRegisterReader): Promise<CpuPowe
       ? null
       : (decodeIntelTemp(result.msr[3] ?? null, tjMax) ??
         decodeIntelTemp(result.msr[4] ?? null, tjMax))
-  const watts = updateWatts(result.msr[0], result.msr[1], now)
+  const watts = updateWatts(result.msr[0], result.msr[1], sampleAt(now, result.sampledAtMs))
   const voltageV = decodeIntelVoltage(result.msr[5] ?? null)
 
   return {

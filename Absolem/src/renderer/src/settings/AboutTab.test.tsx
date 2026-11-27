@@ -7,12 +7,16 @@ import { AboutTab } from './AboutTab'
 const reactGlobal = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 reactGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
-function makeApi(version: string) {
+function makeApi(version: string): {
+  appInfo: ReturnType<typeof vi.fn>
+  relaunch: ReturnType<typeof vi.fn>
+} {
   return {
     appInfo: vi.fn(async () => ({
       ok: true as const,
       info: { name: 'Absolem', version, platform: 'win32' }
-    }))
+    })),
+    relaunch: vi.fn(async () => ({ ok: true as const }))
   }
 }
 
@@ -61,5 +65,45 @@ describe('AboutTab (versão da Hub)', () => {
 
     expect(container.textContent).toContain('Versão do Kolnd Hub')
     expect(container.textContent).toContain('—')
+  })
+
+  it('confirma e chama o relaunch do Absolem', async () => {
+    const api = makeApi('1.2.2')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await act(async () => {
+      root.render(<AboutTab api={api} />)
+    })
+    await settle()
+    const button = Array.from(container.querySelectorAll('button')).find(
+      (item) => item.textContent === 'Reiniciar Absolem'
+    )
+    if (!button) throw new Error('botão de reinício ausente')
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+    expect(confirm).toHaveBeenCalled()
+    expect(api.relaunch).toHaveBeenCalledTimes(1)
+    confirm.mockRestore()
+  })
+
+  it('exibe falha do relaunch', async () => {
+    const api = makeApi('1.2.2')
+    api.relaunch.mockResolvedValue({ ok: false, error: 'falha de teste' })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await act(async () => {
+      root.render(<AboutTab api={api} />)
+    })
+    await settle()
+    const button = Array.from(container.querySelectorAll('button')).find(
+      (item) => item.textContent === 'Reiniciar Absolem'
+    )
+    if (!button) throw new Error('botão de reinício ausente')
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+    expect(container.textContent).toContain('falha de teste')
+    vi.restoreAllMocks()
   })
 })

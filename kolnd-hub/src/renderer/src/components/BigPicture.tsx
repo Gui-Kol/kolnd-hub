@@ -653,8 +653,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
 
 /** Fundo do Big Picture — quase plano (quase-preto azulado, mesma linguagem do
  * modo normal: bg-base → bg-sunken) + vinheta fria sutil (≤ 8%, cor de
- * --shadow-*). Sem orbs/glows, sem scanlines (removidas com aprovação no gate
- * 13.2/13.17). Alvo da máscara radial de revelação na transição (T7):
+ * --shadow-*). Sem orbs/glows. Alvo da máscara radial de revelação na transição (T7):
  * `maskRadiusPx === null` → sem máscara. */
 const BigPictureBackdrop = memo(function BigPictureBackdrop({
   refProp,

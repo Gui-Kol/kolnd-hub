@@ -4,7 +4,7 @@
 >
 > **Uso:** repetir a cada release (e após mudanças no fluxo de primeira execução ou bump de Electron). Fonte única do processo de release: [`RELEASE.md`](RELEASE.md) — este checklist detalha o **Passo 2** (e a parte de desinstalação do **Passo 5**). Marque os itens com `- [x]` durante a execução e registre o resultado na seção [Registro de execuções](#registro-de-execuções).
 >
-> **Escopo:** validar a instalação a partir do `.exe` e o fluxo de primeira execução (winget → Python; MSI do Kloud Games via UAC; implantação Mark LVII; flag de primeira execução; desinstalação preservando `%APPDATA%\kolnd-hub`).
+> **Escopo:** validar a instalação a partir do `.exe` e o fluxo de primeira execução (winget → Python; MSI do Kloud Games via UAC; implantação dos programas embutidos; flag de primeira execução; desinstalação preservando `%APPDATA%\kolnd-hub`).
 
 ---
 
@@ -19,7 +19,7 @@ Mapa levantado por leitura de `kolnd-hub/src/main/` (T1 da task 02-2.2). Cite s�
 | 1 | `check`      | `checkDependencies()` (`dependencyChecker.ts`): testa `py`, `python`, `python3 --version` e `-m pip --version` (spawnSync, timeout 5 s cada). Falta de dependência **não** interrompe; só loga `Faltam: …`. Exceção inesperada no `check` → `throw` → fluxo falha. | Na prática não-fatal (check não lança em operação normal) |
 | 2 | `python`     | Se Python **e** pip já detectados → pula (`Python já instalado`). Senão `installPython()` (`silentInstaller.ts`): `winget install --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements` (spawn, `stdio: ignore`). | **Fatal** — falha aqui aborta a 1ª execução e a flag **não** é gravada |
 | 3 | `kloud-games`| `installKloudGames()` → `ensureKloudGamesInstalled()` (`kloudGames.ts`). Já instalado → pula. Senão abre o **MSI embutido** via UAC (ver abaixo). Falha aqui **não** bloqueia o Hub. | **Não-fatal** (erro vira status `error` na UI; fluxo segue) |
-| 4 | `programs`   | `deployPrograms()` (`programsDeployer.ts`): verifica/implanta `MarkLVII` (produção: só `resources/programs/MarkLVII` embutido; o fallback de copiar de `../Mark-LVII/dist` é **somente dev**) e detecta o Kloud Games (`findKloudGamesExe`). | **Fatal se 0 programas implantados**; parcial (1 de 2) → apenas aviso no log, segue |
+| 4 | `programs`   | `deployPrograms()` (`programsDeployer.ts`): verifica/implanta o Kloud Games (`findKloudGamesExe`) e o Absolem (produção: só `resources/programs/Absolem` embutido; o fallback de copiar de `../Absolem/dist/win-unpacked` é **somente dev**). | **Fatal se 0 programas implantados**; parcial (1 de 2) → apenas aviso no log, segue |
 | 5 | `finalize`   | Etapa simulada (5 ticks × 200 ms, `runStep`) — não persiste nada além do que já foi feito; só exibe "Finalizando instalação…".                                                | Não-fatal                              |
 | — | (flag)       | `markFirstRunComplete()` (`firstRun.ts`) grava `1` em `%APPDATA%\kolnd-hub\first-run-complete.flag`. O renderer **também** chama `firstRun:markComplete` ao receber sucesso (`FirstRunInstall.tsx`, `firstRun:markComplete` → `markFirstRunComplete()`, idempotente). | —                                      |
 
@@ -39,7 +39,7 @@ Cancelamento (`firstRun:cancel`) só é checado **entre** etapas; cancelar no me
 
 | Arquivo                                              | Quem escreve                                                                     | Conteúdo relevante à 1ª execução                                                                                              |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `%APPDATA%\kolnd-hub\logs\kolnd-hub.log`            | `logger.ts` (rotação 5 MB × 2; nível mínimo `info`; `debug` só com `KOLND_HUB_LOG_LEVEL=debug`) | Linhas de `kloud-games` (ex.: "já instalado — pulando") e `programsDeployer` (falhas de implantação do Mark LVII). **A sequência de etapas da 1ª execução NÃO é gravada aqui** — `firstRunInstaller.ts` só emite para o renderer. |
+| `%APPDATA%\kolnd-hub\logs\kolnd-hub.log`            | `logger.ts` (rotação 5 MB × 2; nível mínimo `info`; `debug` só com `KOLND_HUB_LOG_LEVEL=debug`) | Linhas de `kloud-games` (ex.: "já instalado — pulando") e `programsDeployer` (falhas de implantação dos programas). **A sequência de etapas da 1ª execução NÃO é gravada aqui** — `firstRunInstaller.ts` só emite para o renderer. |
 | `%APPDATA%\kolnd-hub\logs\kloud-games-install.log`  | `appendKloudGamesLog()` (`kloudGames.ts`)                                       | Início da instalação do MSI, comando elevado, código de saída, motivo da falha (UAC negado / 1602 / 1500·1618 / 1704·1705), MSI ausente, resultado da verificação pós-instalação. |
 | `%APPDATA%\kolnd-hub\logs\kloud-games-uninstall.log`| `appendKloudGamesUninstallLog()` (`kloudGames.ts`)                              | Só nos fluxos de desinstalação do Kloud Games (etapa relevante ao Passo 5 do RELEASE.md).                                      |
 | (nenhum — volátil)                                   | UI `FirstRunInstall.tsx`                                                        | Log completo da instalação aparece **apenas na tela** (área monoespaçada, rolagem automática). Fechar o app perde o log.       |
@@ -61,10 +61,10 @@ Estado persistido também em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (exePa
 
 ## Limitações atuais (leia antes de preparar a VM)
 
-1. **O bundle real do Mark LVII não está no git** (`kolnd-hub/resources/programs/MarkLVII/` é gitignored, ~600 MB). O `npm run package` em CI usa apenas um **placeholder** (`.github/workflows/ci.yml`, "Create placeholder resources for packaging" — só um `README.txt`). O CI prova que o pipeline empacota; **não** prova que o app instalado funciona.
-2. **O MSI do Kloud Games também não está no git** (`*.msi` ignorado). O caminho esperado é `kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi` (~53 MB), gerado por `build-installer.bat` (raiz) ou `kolnd-hub\scripts\build-kloud-games.ps1`.
-3. **Validar a primeira execução de verdade exige** ou (a) o bundle local do Mark LVII (`kolnd-hub\scripts\build-mark-lvii.ps1`, requer o repo `Mark-LVII/` ao lado, Python + PyInstaller + deps) **mais** o MSI real, ou (b) aceitar explicitamente que o cenário testado é o de um instalador **sem** esses recursos.
-4. **Instalador sem Mark LVII e sem MSI → etapa `programs` FALHA de forma fatal** (0 de 2 implantados → `throw` → `complete { success: false }` → flag **não** gravada → tela de erro, e a cada reabertura o fluxo recomeça). Esse é o resultado esperado de um build CI/placeholder, **não** um bug do fluxo — mas invalida qualquer "validação" feita com ele.
+1. **O MSI do Kloud Games não está no git** (`*.msi` ignorado). O caminho esperado é `kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi` (~53 MB), gerado por `build-installer.bat` (raiz) ou `kolnd-hub\scripts\build-kloud-games.ps1`.
+2. **O Absolem também não é commitado** (`kolnd-hub/resources/programs/Absolem/` é gitignored). Em CI o `npm run package` empacota só o que estiver em `resources/programs`; o pipeline é validado, mas o app instalado completo exige o build local (`kolnd-hub\scripts\build-absolem.ps1`).
+3. **Validar a primeira execução de verdade exige** o MSI real **e** o build local do Absolem, ou aceitar explicitamente que o cenário testado é o de um instalador **sem** esses recursos.
+4. **Instalador sem MSI e sem Absolem → etapa `programs` FALHA de forma fatal** (0 de 2 implantados → `throw` → `complete { success: false }` → flag **não** gravada → tela de erro, e a cada reabertura o fluxo recomeça). Esse é o resultado esperado de um build CI/placeholder, **não** um bug do fluxo — mas invalida qualquer "validação" feita com ele.
 5. Assinatura de código pendente (task 02-2.4): SmartScreen/Defender podem sinalizar o `.exe` na VM. Isso é esperado hoje; não mascare como falha do fluxo — registre separadamente.
 6. A desinstalação preservando `%APPDATA%\kolnd-hub` é coberta pelo **Passo 5 do [`RELEASE.md`](RELEASE.md)** e pela seção "Checklist de release: verificação da desinstalação" no README raiz — este checklist replica os passos mínimos e aponta para lá.
 
@@ -78,8 +78,8 @@ Estado persistido também em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (exePa
 - [ ] Credenciais de um administrador disponíveis para aprovar/negar os prompts de UAC (MSI do Kloud Games é per-machine).
 - [ ] Rede normal (NAT) funcionando; se houver ambiente corporativo/proxy, reservar um segundo cenário (seção [F. Rede atrás de proxy](#f-rede-atrás-de-proxy-se-aplicável)).
 - [ ] Artefatos copiados para dentro da VM (pasta compartilhada ou mídia): `Kolnd Hub Setup <versão>.exe` (gerado em `kolnd-hub/dist/`) e, opcionalmente, `KLOUD_GAMES.msi` separado para instalação manual.
-- [ ] Para gerar o instalador usado no teste: rodar `npm run package` em `kolnd-hub/` (equivale a `electron-vite build && electron-builder --win`) **com o bundle real do Mark LVII e o MSI presentes** — ver Limitações. O fluxo completo a partir do zero é `build-installer.bat` (na raiz; compila o Kloud Games → MSI e depois empacota o Hub).
-- [ ] Espaço em disco: o instalador tem ~360 MB; a instalação descompactada + Mark LVII ocupa bem mais.
+- [ ] Para gerar o instalador usado no teste: rodar `npm run package` em `kolnd-hub/` (equivale a `electron-vite build && electron-builder --win`) **com o MSI e o Absolem presentes** — ver Limitações. O fluxo completo a partir do zero é `build-installer.bat` (na raiz; compila o Kloud Games → MSI e depois empacota o Hub).
+- [ ] Espaço em disco: o instalador e a instalação descompactada ocupam algumas centenas de MB.
 
 ---
 
@@ -95,7 +95,7 @@ Estado persistido também em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (exePa
 
 - [ ] Executar `Kolnd Hub Setup <versão>.exe` **como a conta sem admin**.
 - [ ] Esperado: instalação **por usuário**, sem prompt de UAC, em `%LOCALAPPDATA%\Programs\Kolnd Hub`. Critério de falha: pedir admin ou falhar por permissão.
-- [ ] Confirmar que `%LOCALAPPDATA%\Programs\Kolnd Hub\resources\programs\` contém `MarkLVII\` e `kloud-games\KLOUD_GAMES.msi` (ou registrar o que falta — ver Limitações).
+- [ ] Confirmar que `%LOCALAPPDATA%\Programs\Kolnd Hub\resources\programs\` contém `Absolem\` e `kloud-games\KLOUD_GAMES.msi` (ou registrar o que falta — ver Limitações).
 - [ ] Confirmar que o Hub aparece em "Aplicativos instalados" sem UAC para desinstalar depois.
 
 ## C. Primeira execução — caminho feliz (Python ausente, UAC aceito)
@@ -111,7 +111,7 @@ Estado persistido também em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (exePa
   - regras de firewall criadas (`wf.msc`);
   - `%APPDATA%\kolnd-hub\kloud-games.paths.json` com `exePath` apontando para `C:\Program Files\KLOUD_GAMES\KLOUD_GAMES.exe` e `installedAt` preenchido.
 - [ ] `%APPDATA%\kolnd-hub\logs\kloud-games-install.log` contém: linha de início com o caminho do MSI, comando `Start-Process … -Verb RunAs …`, código de saída `0` (ou `3010`/`1641` = sucesso com reinício pendente).
-- [ ] **Etapa programs**: log mostra relatório `=== Implantação de Programas ===` com `Mark LVII (JARVIS): OK` e `Kloud Games: OK`. (Se Mark LVII estiver ausente por falta de bundle, ver Limitações e seção [G](#g-programas-e-mark-lvii-bundle-real).)
+- [ ] **Etapa programs**: log mostra relatório `=== Implantação de Programas ===` com `Kloud Games: OK` e `Absolem: OK`. (Se o Absolem estiver ausente por falta de build, ver Limitações e seção [G](#g-programas-absolem-e-kloud-games).)
 - [ ] **Etapa finalize**: "Finalizando instalação…" por ~1 s; depois o log mostra `[KolndHub] Instalação concluída com sucesso!` e a tela fecha sozinha para o dashboard (~1,2 s).
 - [ ] **Flag persistida**: `%APPDATA%\kolnd-hub\first-run-complete.flag` existe e contém `1`.
 - [ ] `%APPDATA%\kolnd-hub\config.json` existe (electron-store criado).
@@ -122,7 +122,7 @@ Estado persistido também em `%APPDATA%\kolnd-hub\kloud-games.paths.json` (exePa
 - [ ] **winget ausente** (ex.: VM sem App Installer): a etapa python falha com `winget não encontrado. Instale o Python manualmente ou execute este app como administrador.` A tela mostra a etapa em vermelho + mensagem de erro genérica; a 1ª execução **falha** (fatal) e a flag **não** é gravada.
 - [ ] Reabrir o app após essa falha → a tela de primeira execução reaparece e recomeça (comportamento esperado). Registrar.
 - [ ] **winget falha** (ex.: rede bloqueada para as fontes do winget): a etapa falha com `winget saiu com código <N>`; mesmo resultado fatal. Registrar código de saída e mensagem.
-- [ ] **UAC negado no Python** (se o winget chegar a pedir): registrar o que acontece — o Mark LVII fica inutilizável até Python ser instalado; o Hub não deve travar.
+- [ ] **UAC negado no Python** (se o winget chegar a pedir): registrar o que acontece — o Absolem não é afetado, mas outros recursos que dependam de Python ficam indisponíveis; o Hub não deve travar.
 - [ ] Em qualquer falha acima: confirmar que `first-run-complete.flag` **não** foi criada e que `kolnd-hub.log` contém o que houver (note: a sequência de etapas em si não é logada em arquivo — ver tabela de logs).
 
 ## E. UAC do Kloud Games — aceitar e negar
@@ -142,11 +142,11 @@ Restaurar o snapshot antes de cada cenário (ou desinstalar o Kloud Games entre 
 - [ ] Repetir a seção C com a VM atrás de proxy corporativa. O winget usa as configurações de proxy do sistema/WinHTTP.
 - [ ] Registrar: funcionou / falhou com a mensagem X / não testado. Se falhar, o cenário D (winget falha) cobre o comportamento do Hub.
 
-## G. Programas e Mark LVII (bundle real)
+## G. Programas (Absolem e Kloud Games)
 
-- [ ] Se o instalador foi gerado **com** o bundle real (`build-mark-lvii.ps1` + `npm run package`, ou `build-installer.bat`): etapa programs mostra `Mark LVII (JARVIS): OK (<instalação>\resources\programs\MarkLVII)`.
-- [ ] Abrir o Mark LVII a partir do Hub → inicia (`MarkLVII.exe`); a chave de API e a memória são gravadas ao lado do executável (`resources\programs\MarkLVII\config` e `...\memory`).
-- [ ] Se o instalador foi gerado **sem** o bundle (CI/placeholder): `Mark LVII (JARVIS): FALHOU` no relatório; se o Kloud Games também não estiver implantado/instalado, a etapa programs é **fatal** e a 1ª execução termina em erro — registrar que o instalador testado é placeholder, não um release válido.
+- [ ] Se o instalador foi gerado **com** os programas embutidos (`build-absolem.ps1` + `npm run package`, ou `build-installer.bat`): etapa programs mostra `Kloud Games: OK` e `Absolem: OK (<instalação>\resources\programs\Absolem)`.
+- [ ] Abrir o Absolem a partir do Hub → inicia (`Absolem.exe`); os dados são gravados em `%APPDATA%\absolem`.
+- [ ] Se o instalador foi gerado **sem** os programas (CI): etapa programs mostra `FALHOU` no relatório; se o Kloud Games e o Absolem não estiverem implantados, a etapa programs é **fatal** e a 1ª execução termina em erro — registrar que o instalador testado é placeholder, não um release válido.
 
 ## H. Logs a observar durante toda a validação
 
@@ -163,7 +163,7 @@ Detalhe completo e fonte única: [`RELEASE.md`](RELEASE.md) — **Passo 5 — Ve
 - [ ] Confirmar que `%APPDATA%\kolnd-hub` está populado **antes**: `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log`, `kloud-games.paths.json` e — se houver — `game-icons\`.
 - [ ] Desinstalar (botão do Hub em "Zona de perigo" **ou** Windows → Aplicativos). Se pelo Hub: ele desinstala o Kloud Games antes (UAC) e pergunta como seguir se falhar; o desinstalador NSIS abre e o Hub se encerra.
 - [ ] Confirmar **preservados** em `%APPDATA%\kolnd-hub`: `config.json`, `first-run-complete.flag`, `logs\` (e o que mais existia).
-- [ ] Confirmar **removido**: o diretório de instalação inteiro — `%LOCALAPPDATA%\Programs\Kolnd Hub`, incluindo `resources\programs\MarkLVII\` (com a chave de API e a memória que o Mark LVII grava ao lado do exe). Essa perda é esperada; não há espelho em `%APPDATA%`.
+- [ ] Confirmar **removido**: o diretório de instalação inteiro — `%LOCALAPPDATA%\Programs\Kolnd Hub`, incluindo `resources\programs\Absolem\`.
 - [ ] Se a opção "Apagar também meus dados e configurações" foi usada, o `%APPDATA%\kolnd-hub` **deve** sumir — registrar separadamente (é irreversível e não é o caminho padrão).
 - [ ] Códigos `3010`/`1641` do msiexec = reinício necessário, sucesso com aviso.
 
@@ -183,7 +183,7 @@ Detalhe completo e fonte única: [`RELEASE.md`](RELEASE.md) — **Passo 5 — Ve
 
 ## Notas e pegadinhas (ler antes de abrir issue)
 
-- **Etapa `programs` fatal com 0 implantados**: em builds sem Mark LVII e sem MSI (CI/placeholder), a 1ª execução **sempre** termina em erro — não é regressão. Validar só com instalador gerado com os recursos reais.
+- **Etapa `programs` fatal com 0 implantados**: em builds sem MSI e sem Absolem (CI/placeholder), a 1ª execução **sempre** termina em erro — não é regressão. Validar só com instalador gerado com os recursos reais.
 - **Log da 1ª execução não vai para `kolnd-hub.log`**: o que aparece na tela some ao fechar o app. Para evidências, copie o texto da tela ou observe `kloud-games-install.log`/`kolnd-hub.log`.
 - **Python não é elevado pelo código**: qualquer UAC no Python vem do winget/instalador do pacote; registrar o comportamento real em vez de assumir.
 - **MSI é assistente visível** (sem `/quiet`): a instalação exige uma pessoa concluir o assistente na VM — não é automatizável por comando silencioso sem mudar o código.

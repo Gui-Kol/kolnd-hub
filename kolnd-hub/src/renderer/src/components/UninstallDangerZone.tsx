@@ -300,8 +300,8 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
                 <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
                   Remove o Kolnd Hub{' '}
                   <strong className="text-ink-primary">e também desinstala o Kloud Games</strong>{' '}
-                  durante o processo (perguntaremos a cada passo). O Mark LVI é removido junto com a
-                  pasta do Hub; as configurações do Absolem seguem a sua escolha de dados.
+                  durante o processo (perguntaremos a cada passo). As configurações do Absolem
+                  seguem a sua escolha de dados.
                 </p>
               </div>
             </div>

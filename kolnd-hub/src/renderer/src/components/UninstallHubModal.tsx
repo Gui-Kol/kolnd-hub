@@ -345,13 +345,10 @@ export function UninstallHubModal({
           </ol>
 
           <p className="w-full text-left text-[11px] leading-relaxed text-ink-tertiary">
-            O Mark LVII (assistente) será removido junto com a pasta do Kolnd Hub — inclusive a
-            chave de API e a memória, que ficam em{' '}
-            <span className="font-mono">resources\programs\MarkLVII</span> dentro da instalação.
-            Faça o backup abaixo se quiser guardá-las. O Absolem também é removido com a pasta do
-            Hub (<span className="font-mono">resources\programs\Absolem</span>) e as configurações
-            dele em <span className="font-mono">%APPDATA%\absolem</span> seguem a sua escolha de
-            dados abaixo: apagadas com "apagar também meus dados", preservadas com "manter".
+            O Absolem é removido junto com a pasta do Hub ({' '}
+            <span className="font-mono">resources\programs\Absolem</span>) e as configurações dele
+            em <span className="font-mono">%APPDATA%\absolem</span> seguem a sua escolha de dados
+            abaixo: apagadas com "apagar também meus dados", preservadas com "manter".
           </p>
 
           {gateBlocked && (
@@ -534,7 +531,11 @@ export function UninstallHubModal({
       {phase === 'running' && (
         <div className="flex flex-col items-center space-y-4 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-card border border-danger-border bg-danger-bg">
-            <Zap size={32} className="animate-pulse text-danger" aria-hidden="true" />
+            <Zap
+              size={32}
+              className="animate-pulse text-danger motion-reduce:animate-none"
+              aria-hidden="true"
+            />
           </div>
           <h3 className="text-lg font-bold text-ink-primary">Desinstalação em andamento</h3>
           <p className="text-sm text-ink-secondary" role="status" aria-live="polite">

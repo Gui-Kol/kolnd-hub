@@ -38,6 +38,8 @@ function describe(value: unknown): string {
  * payload inválido vira `{ ok: false, error }` sem lançar.
  */
 export function registerAppIpc(ctx: IpcContext): void {
+  let relaunchRequested = false
+
   ipcMain.handle(IPC.appGetInfo, (_event, payload: unknown): AppInfoResult => {
     if (!isVoidPayload(payload)) {
       return failure(`Payload inválido para ${IPC.appGetInfo}: ${describe(payload)}`)
@@ -71,6 +73,24 @@ export function registerAppIpc(ctx: IpcContext): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return failure(`Falha ao encerrar o app: ${message}`)
+    }
+  })
+
+  ipcMain.handle(IPC.appRelaunch, (_event, payload: unknown): SimpleResult => {
+    if (!isVoidPayload(payload)) {
+      return failure(`Payload inválido para ${IPC.appRelaunch}: ${describe(payload)}`)
+    }
+    if (relaunchRequested) return { ok: true }
+    try {
+      // O Electron relança o mesmo executável com os mesmos argumentos. O
+      // encerramento ordenado vem depois, sem shell nem processo externo.
+      app.relaunch()
+      relaunchRequested = true
+      shutdownApp(ctx, 'relaunch')
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return failure(`Falha ao reiniciar o Absolem: ${message}`)
     }
   })
 

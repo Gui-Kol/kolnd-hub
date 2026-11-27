@@ -27,7 +27,11 @@ function memoryStore() {
   }
 }
 
-function meter(options?: { cap?: number; store?: ReturnType<typeof memoryStore> }): {
+function meter(options?: {
+  cap?: number
+  store?: ReturnType<typeof memoryStore>
+  unlimited?: boolean
+}): {
   usage: UsageMeter
   store: ReturnType<typeof memoryStore>
   warnings: Array<{ percent: number; cap: number; used: number }>
@@ -39,6 +43,7 @@ function meter(options?: { cap?: number; store?: ReturnType<typeof memoryStore> 
   const usage = createUsageMeter({
     store,
     cap: () => cap,
+    unlimited: () => options?.unlimited === true,
     now: () => NOW,
     onWarning: (warning) => warnings.push(warning)
   })
@@ -111,6 +116,14 @@ describe('medidor de custo', () => {
     const released = await engine.testKey()
     expect(released.ok).toBe(true)
     expect(transport.generateAttempts).toBe(1)
+  })
+
+  it('modo ilimitado mantém o registro e não bloqueia no teto', () => {
+    const { usage } = meter({ cap: 20, unlimited: true })
+    usage.record({ input: 20, output: 0 })
+
+    expect(() => usage.checkBudget()).not.toThrow()
+    expect(usage.snapshot()).toEqual({ today: 20, month: 20, cap: 20, percent: 100 })
   })
 
   it('estimativa por caracteres é marcada com estimated', async () => {

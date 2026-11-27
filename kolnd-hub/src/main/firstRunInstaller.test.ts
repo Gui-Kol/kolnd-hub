@@ -90,8 +90,8 @@ beforeEach(() => {
   mocks.installPython.mockReset().mockResolvedValue({ success: true })
   mocks.installKloudGames.mockReset().mockResolvedValue({ success: true, alreadyInstalled: false })
   mocks.deployPrograms.mockReset().mockResolvedValue([
-    { id: 'mark-lvi', name: 'Mark LVII', installed: true },
-    { id: 'kloud-games', name: 'Kloud Games', installed: true }
+    { id: 'kloud-games', name: 'Kloud Games', installed: true },
+    { id: 'absolem', name: 'Absolem', installed: true }
   ])
   mocks.markFirstRunComplete.mockReset()
 })
@@ -177,8 +177,8 @@ describe('firstRunInstaller.install — caminho feliz', () => {
 
   it('programas parciais emitem aviso e continuam', async () => {
     mocks.deployPrograms.mockResolvedValue([
-      { id: 'mark-lvi', name: 'Mark LVII', installed: true },
-      { id: 'kloud-games', name: 'Kloud Games', installed: false }
+      { id: 'kloud-games', name: 'Kloud Games', installed: false },
+      { id: 'absolem', name: 'Absolem', installed: true }
     ])
     const { events } = await runInstall()
     expect(
@@ -233,8 +233,8 @@ describe('firstRunInstaller.install — erros e cancelamento', () => {
 
   it('nenhum programa implantado → erro', async () => {
     mocks.deployPrograms.mockResolvedValue([
-      { id: 'mark-lvi', name: 'Mark LVII', installed: false },
-      { id: 'kloud-games', name: 'Kloud Games', installed: false }
+      { id: 'kloud-games', name: 'Kloud Games', installed: false },
+      { id: 'absolem', name: 'Absolem', installed: false }
     ])
     const { events } = await runInstall()
     expect(progressOf(events, 'programs', 'error')).toBe(true)

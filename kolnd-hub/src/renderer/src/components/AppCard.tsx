@@ -82,7 +82,7 @@ export function AppCard({
         : 'Parado'
 
   const statusDot = isRunning
-    ? 'bg-success animate-pulse'
+    ? 'bg-success animate-pulse motion-reduce:animate-none'
     : isError
       ? 'bg-danger'
       : 'bg-ink-tertiary'
@@ -124,7 +124,7 @@ export function AppCard({
           <Badge tone="success" role="status">
             <span
               aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-pill bg-success animate-pulse"
+              className="h-1.5 w-1.5 rounded-pill bg-success animate-pulse motion-reduce:animate-none"
             />
             Online
           </Badge>

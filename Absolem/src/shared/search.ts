@@ -55,7 +55,7 @@ export const MAX_GROUNDED_SOURCES = 8
 /** Limites por turno (T7). */
 export const MAX_SEARCHES_PER_TURN = 3
 export const MAX_FETCHES_PER_TURN = 5
-export const SEARCH_TURN_BUDGET_MS = 30_000
+export const SEARCH_TURN_BUDGET_MS = 90_000
 export const MAX_PAGE_CHARS = 8_000
 
 /** Cache curto em memória (T6). */

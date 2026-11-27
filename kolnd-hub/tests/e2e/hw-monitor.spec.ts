@@ -72,8 +72,9 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
     await expect(monitor).toBeVisible()
 
     // A ação que instala os sensores avançados precisa estar visível no topo,
-    // antes dos cards: o "—" de temperatura/potência da CPU não pode aparecer
-    // antes do botão que o resolve (sem rolar a página).
+    // antes dos cards: o "—" de temperatura/Vcore da CPU não pode aparecer
+    // antes do botão que o resolve (sem rolar a página). A potência, sem driver,
+    // aparece estimada e rotulada — não é mais um traço.
     const advancedSensors = window.getByTestId('hw-advanced-sensors')
     await expect(advancedSensors).toBeInViewport()
     const advancedBox = await advancedSensors.boundingBox()
@@ -106,6 +107,9 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
       await expect(window.getByTestId('hw-cpu-temp')).not.toHaveText('—')
       // Vcore é medido pela telemetria SVI2/IA32_PERF_STATUS, nunca estimado.
       await expect(window.getByTestId('hw-cpu-voltage')).toHaveText(/^\d+,\d{3}\s*V$/)
+      // Uma leitura isolada pode não trazer watts do RAPL e cair para a
+      // estimativa; o que importa é que a origem esteja explícita, nunca "—".
+      await expect(window.getByTestId('hw-cpu-power-source')).toHaveText(/medido|estimado/)
       await expect(window.getByTestId('hw-total-power-badge')).toHaveText(/medido|estimado/i)
       await expect
         .poll(async () => parseWatts(await window.getByTestId('hw-total-power').innerText()), {
@@ -117,10 +121,12 @@ test('monitor: GPU/RAM reais, specs automáticas e campos privilegiados degradam
         `[e2e/vcore] ${await window.getByTestId('hw-cpu-voltage').innerText()} (medido pelo agente elevado)`
       )
     } else {
-      // Sem driver: campos privilegiados mostram "—" e o botão de instalação
-      // fica visível — mas NUNCA é clicado neste teste.
+      // Sem driver: temperatura e Vcore mostram "—"; a potência cai para a
+      // estimativa com selo de origem. O botão de instalação fica visível —
+      // mas NUNCA é clicado neste teste.
       await expect(window.getByTestId('hw-cpu-temp')).toHaveText('—')
-      await expect(window.getByTestId('hw-cpu-power')).toHaveText('—')
+      await expect(window.getByTestId('hw-cpu-power')).toContainText('W')
+      await expect(window.getByTestId('hw-cpu-power-source')).toHaveText('estimado')
       await expect(window.getByTestId('hw-cpu-voltage')).toHaveText('—')
 
       // Energia centralizada: total estimado com CPU/plataforma estimadas e

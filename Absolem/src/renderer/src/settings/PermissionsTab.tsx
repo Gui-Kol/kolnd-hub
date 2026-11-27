@@ -66,15 +66,15 @@ export interface PermissionsTabProps {
 
 function defaultPermissions(): PermissionsState {
   return {
-    microphone: false,
+    microphone: true,
     paused: false,
     categories: {
-      'apps.launch': 'ask',
-      'apps.close': 'ask',
-      'files.read': 'ask',
-      'files.write': 'ask',
-      'system.power': 'deny',
-      'uia.control': 'deny',
+      'apps.launch': 'allow',
+      'apps.close': 'allow',
+      'files.read': 'allow',
+      'files.write': 'allow',
+      'system.power': 'allow',
+      'uia.control': 'allow',
       'web.search': 'allow'
     }
   }

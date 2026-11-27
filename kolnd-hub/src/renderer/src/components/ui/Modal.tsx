@@ -1,7 +1,7 @@
 // Modal — casca única de diálogo do Hub (tarefa 2.0/13.6).
 //
 // Padrão fixed inset (o app NÃO usa createPortal hoje) com backdrop --bg-sunken
-// translúcido (~78%) + blur leve, painel surface-3 com raio --radius-card e
+// translúcido (~90%, sem blur), painel surface-3 com raio --radius-card e
 // shadow-elevation-3. Entrada: fade + slide curto (240 ms) via transições Tailwind/tokens;
 // com prefers-reduced-motion as transições são desligadas (motion-reduce:transition-none).
 //
@@ -53,7 +53,7 @@ export type ModalProps = ModalA11y & {
 }
 
 const BACKDROP_CLASSES =
-  'absolute inset-0 bg-[color-mix(in_srgb,var(--bg-sunken)_78%,transparent)] backdrop-blur-[6px] transition-opacity duration-2 ease-standard motion-reduce:transition-none'
+  'absolute inset-0 bg-[color-mix(in_srgb,var(--bg-sunken)_90%,transparent)] transition-opacity duration-2 ease-standard motion-reduce:transition-none'
 
 export function Modal({
   onClose,

@@ -67,6 +67,7 @@ import type {
 export const IPC = {
   appGetInfo: 'app:get-info',
   appQuit: 'app:quit',
+  appRelaunch: 'app:relaunch',
   appGetAutostart: 'app:get-autostart',
   appSetAutostart: 'app:set-autostart',
   appOpenFolder: 'app:open-folder',
@@ -526,6 +527,7 @@ export type {
 export interface IpcContract {
   [IPC.appGetInfo]: { request: undefined; response: AppInfoResult }
   [IPC.appQuit]: { request: undefined; response: SimpleResult }
+  [IPC.appRelaunch]: { request: undefined; response: SimpleResult }
   [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
   [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
   [IPC.appOpenFolder]: { request: AppOpenFolderRequest; response: SimpleResult }
@@ -625,6 +627,7 @@ export type IpcResponse<C extends IpcChannel> = IpcContract[C]['response']
 export interface AbsolemApi {
   getAppInfo: () => Promise<AppInfoResult>
   quit: () => Promise<SimpleResult>
+  relaunch: () => Promise<SimpleResult>
   getAutostart: () => Promise<AutostartGetResult>
   setAutostart: (enabled: boolean) => Promise<SimpleResult>
   /** Abre uma pasta do app (enum fechado; nunca caminho livre). */

@@ -455,7 +455,11 @@ export function GamepadSetup({
         {step === 'detect' && (
           <div className="flex flex-col items-center gap-6 py-6 text-center">
             <div className="flex h-36 w-36 items-center justify-center rounded-card border border-accent-border bg-accent-muted">
-              <Gamepad2 size={72} strokeWidth={1.25} className="animate-pulse-slow text-accent" />
+              <Gamepad2
+                size={72}
+                strokeWidth={1.25}
+                className="animate-pulse-slow text-accent motion-reduce:animate-none"
+              />
             </div>
             <div className="max-w-md space-y-2">
               <h3 className="text-2xl font-black tracking-tight text-ink-primary">
@@ -703,7 +707,7 @@ export function GamepadSetup({
   const overlayContent =
     layout === 'overlay' ? (
       <div
-        className="fixed inset-0 z-[70] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-sunken)_78%,transparent)] p-4 backdrop-blur-[6px]"
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-sunken)_90%,transparent)] p-4"
         role="dialog"
         aria-modal="true"
         aria-label="Configuração de controle"

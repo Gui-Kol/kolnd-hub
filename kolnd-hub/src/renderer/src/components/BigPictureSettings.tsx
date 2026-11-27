@@ -328,7 +328,7 @@ export function BigPictureSettings(): JSX.Element {
             {...entranceProps(reduced, { y: 20, scale: 0.95 })}
             exit={exitProps(reduced, { y: 10, scale: 0.95 })}
             role="status"
-            className="fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-card border border-success-border bg-surface-3 px-5 py-4 shadow-elevation-3 backdrop-blur-xl"
+            className="fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-card border border-success-border bg-surface-3 px-5 py-4 shadow-elevation-3"
           >
             <BadgeCheck size={18} aria-hidden="true" className="shrink-0 text-success" />
             <p className="text-sm leading-relaxed text-ink-primary">{toast}</p>
@@ -362,7 +362,7 @@ function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80"
       role="dialog"
       aria-modal="true"
       aria-label={title}

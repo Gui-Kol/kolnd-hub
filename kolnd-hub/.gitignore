@@ -7,7 +7,6 @@ coverage/
 Thumbs.db
 
 # Built program bundles (regenerate with scripts/build-*.ps1)
-resources/programs/MarkLVII/
 resources/programs/Absolem/
 resources/programs/kloud-games/KLOUD_GAMES.exe
 resources/programs/kloud-games/assets/

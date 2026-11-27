@@ -11,6 +11,7 @@ type Handler = (event: unknown, payload: unknown) => unknown
 const state = vi.hoisted(() => ({
   handlers: new Map<string, Handler>(),
   quit: vi.fn(),
+  relaunch: vi.fn(),
   quittingAtQuit: [] as boolean[]
 }))
 
@@ -18,7 +19,8 @@ vi.mock('electron', () => ({
   app: {
     getName: () => 'Absolem',
     getVersion: () => pkg.version,
-    quit: state.quit
+    quit: state.quit,
+    relaunch: state.relaunch
   },
   ipcMain: {
     handle: (channel: string, handler: Handler) => {
@@ -57,7 +59,8 @@ const defaultConfig: AbsolemConfig = {
     model: 'gemini-2.0-flash',
     liveModel: 'gemini-3.8-live',
     temperature: 0.7,
-    monthlyTokenCap: 2_000_000
+    monthlyTokenCap: 2_000_000,
+    unlimitedUsage: false
   },
   privacy: {
     telemetry: false,
@@ -103,6 +106,7 @@ beforeEach(async () => {
   vi.resetModules()
   state.handlers.clear()
   state.quit.mockReset()
+  state.relaunch.mockReset()
   state.quittingAtQuit = []
   quitState = await import('../quitState')
   appMod = await import('./app')
@@ -194,5 +198,23 @@ describe('IPC base do app', () => {
     expect(state.quit).toHaveBeenCalledTimes(1)
     expect(state.quittingAtQuit).toEqual([true])
     expect(quitState.isQuitting()).toBe(true)
+  })
+
+  it('app:relaunch agenda o mesmo executável e encerra ordenadamente', () => {
+    const result = handlerFor(IPC.appRelaunch)(undefined, undefined)
+
+    expect(result).toEqual({ ok: true })
+    expect(state.relaunch).toHaveBeenCalledTimes(1)
+    expect(state.quit).toHaveBeenCalledTimes(1)
+    expect(state.quittingAtQuit).toEqual([true])
+  })
+
+  it('app:relaunch é idempotente e valida payload', () => {
+    const relaunch = handlerFor(IPC.appRelaunch)
+    expect(relaunch(undefined, { unexpected: true })).toMatchObject({ ok: false })
+    expect(state.relaunch).not.toHaveBeenCalled()
+    expect(relaunch(undefined, undefined)).toEqual({ ok: true })
+    expect(relaunch(undefined, undefined)).toEqual({ ok: true })
+    expect(state.relaunch).toHaveBeenCalledTimes(1)
   })
 })

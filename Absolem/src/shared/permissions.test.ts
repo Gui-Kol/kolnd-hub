@@ -23,15 +23,15 @@ describe('permissões por categoria', () => {
   it('default por categoria', () => {
     const permissions = state()
 
-    expect(permissions.microphone).toBe(false)
+    expect(permissions.microphone).toBe(true)
     expect(permissions.paused).toBe(false)
     expect(permissions.categories).toEqual(DEFAULT_PERMISSION_CATEGORIES)
-    expect(permissions.categories['apps.launch']).toBe('ask')
-    expect(permissions.categories['apps.close']).toBe('ask')
-    expect(permissions.categories['files.read']).toBe('ask')
-    expect(permissions.categories['files.write']).toBe('ask')
-    expect(permissions.categories['system.power']).toBe('deny')
-    expect(permissions.categories['uia.control']).toBe('deny')
+    expect(permissions.categories['apps.launch']).toBe('allow')
+    expect(permissions.categories['apps.close']).toBe('allow')
+    expect(permissions.categories['files.read']).toBe('allow')
+    expect(permissions.categories['files.write']).toBe('allow')
+    expect(permissions.categories['system.power']).toBe('allow')
+    expect(permissions.categories['uia.control']).toBe('allow')
     expect(permissions.categories['web.search']).toBe('allow')
   })
 
@@ -53,7 +53,7 @@ describe('permissões por categoria', () => {
     }
     expect(categories['files.read']).toBe('deny')
     expect(categories['system.power']).toBe('allow')
-    expect(categories['apps.launch']).toBe('ask')
+    expect(categories['apps.launch']).toBe('allow')
     expect(categories['web.search']).toBe('allow')
     expect(categories).toEqual({
       ...defaultPermissionCategories(),
@@ -84,13 +84,13 @@ describe('permissões por categoria', () => {
   it('mudança é persistida no estado normalizado', () => {
     const before = state()
     const changed = setPermissionCategory(before, 'files.read', 'deny')
-    expect(before.categories['files.read']).toBe('ask')
+    expect(before.categories['files.read']).toBe('allow')
     expect(changed.categories['files.read']).toBe('deny')
-    expect(changed.categories['files.write']).toBe('ask')
+    expect(changed.categories['files.write']).toBe('allow')
 
     // O normalizador usado pelo store preserva a decisão gravada.
     const persisted = normalizePermissionsState(changed)
     expect(persisted).toEqual(changed)
-    expect(persisted.microphone).toBe(false)
+    expect(persisted.microphone).toBe(true)
   })
 })

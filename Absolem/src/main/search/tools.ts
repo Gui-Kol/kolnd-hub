@@ -25,7 +25,8 @@ import { SearchLimitError, SearchQuotaError, type SearchTurnLimits } from './lim
 export const FETCH_URL_TOOL_NAME = 'fetch_url'
 export const WEB_SEARCH_TOOL_NAME = 'web_search'
 export const WEB_TOOL_CATEGORY = 'web.search'
-export const WEB_TOOL_TIMEOUT_MS = 20_000
+export const FETCH_URL_TOOL_TIMEOUT_MS = 20_000
+export const WEB_SEARCH_TOOL_TIMEOUT_MS = 90_000
 
 export const DYNAMIC_PAGE_WARNING =
   'A página parece depender de JavaScript; a extração é limitada e pode faltar conteúdo.'
@@ -84,7 +85,7 @@ export function createFetchUrlDefinition(): ToolDefinition {
     },
     sensitive: false,
     category: WEB_TOOL_CATEGORY,
-    timeoutMs: WEB_TOOL_TIMEOUT_MS
+    timeoutMs: FETCH_URL_TOOL_TIMEOUT_MS
   }
 }
 
@@ -246,7 +247,7 @@ export function createWebSearchDefinition(): ToolDefinition {
     },
     sensitive: false,
     category: WEB_TOOL_CATEGORY,
-    timeoutMs: WEB_TOOL_TIMEOUT_MS
+    timeoutMs: WEB_SEARCH_TOOL_TIMEOUT_MS
   }
 }
 

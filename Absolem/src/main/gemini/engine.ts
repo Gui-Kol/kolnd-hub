@@ -50,6 +50,7 @@ export interface GeminiEngineConfig {
   model: string
   temperature: number
   monthlyTokenCap: number
+  unlimitedUsage?: boolean
 }
 
 export interface EngineLogger {
@@ -246,7 +247,8 @@ export class GeminiEngine {
     const usage = this.usage.snapshot()
     let disabledReason: string | null = null
     if (!configured) disabledReason = NO_KEY_MESSAGE
-    else if (usage.month >= usage.cap) disabledReason = quotaMessage(usage.month, usage.cap)
+    else if (!this.config().unlimitedUsage && usage.month >= usage.cap)
+      disabledReason = quotaMessage(usage.month, usage.cap)
     return {
       configured,
       model: this.config().model,

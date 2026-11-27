@@ -475,7 +475,9 @@ export function Dashboard({
               <span
                 aria-hidden="true"
                 className={`h-1.5 w-1.5 rounded-pill ${
-                  runningCount > 0 ? 'animate-pulse bg-success' : 'bg-ink-tertiary'
+                  runningCount > 0
+                    ? 'animate-pulse bg-success motion-reduce:animate-none'
+                    : 'bg-ink-tertiary'
                 }`}
               />
               <span className="tnum">{runningCount} online</span>

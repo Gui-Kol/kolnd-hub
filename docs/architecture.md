@@ -10,7 +10,7 @@
 ## 1. Visão geral
 
 O Kolnd Hub é a central de controle do ecossistema Kolnd: inicia/para/monitora os
-programas (Mark LVII, Kloud Games), gerencia a inicialização do PC, a biblioteca de
+programas (Kloud Games e Absolem), gerencia a inicialização do PC, a biblioteca de
 jogos (Steam, Epic Games e Minecraft Launcher), o modo Big Picture (gamepad/TV) e a própria
 desinstalação. É um app Electron empacotado como instalador NSIS único.
 
@@ -285,9 +285,8 @@ As etapas (`firstRunInstaller.ts`, em ordem, todas canceladas/logadas via evento
 
 ```
 check ─► python ─► kloud-games ─► programs ─► finalize
-verificar   winget      MSI embutido   Mark LVII,       marca o
-python/pip  --silent    via UAC        Kloud Games      flag e pronto
-                                       e Absolem
+verificar   winget      MSI embutido   Kloud Games     marca o
+python/pip  --silent    via UAC        e Absolem       flag e pronto
 ```
 
 1. **check** — `dependencyChecker.ts` verifica Python e pip (spawnSync `--version`).
@@ -297,9 +296,8 @@ python/pip  --silent    via UAC        Kloud Games      flag e pronto
    é instalado com `msiexec /i … /quiet /norestart`, elevado com
    `Start-Process -Verb RunAs`. **Falha aqui não bloqueia o Hub** — o MSI segue
    disponível para instalação manual.
-4. **programs** — `programsDeployer.ts` verifica/implanta o Mark LVII (bundle em
-   `resources/programs/MarkLVII`), o Kloud Games e o Absolem (build Electron em
-   `resources/programs/Absolem`).
+4. **programs** — `programsDeployer.ts` verifica/implanta o Kloud Games e o
+   Absolem (build Electron em `resources/programs/Absolem`).
 5. **finalize** — grava o flag (`markFirstRunComplete`).
 
 Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para o dashboard.
@@ -378,8 +376,7 @@ O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`
 nem `%APPDATA%\absolem` (config, flag de first-run e logs sobrevivem por padrão), mas
 **sempre remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
-`resources\programs\MarkLVII\` com os dados que o `MarkLVII.exe` grava ao lado de si
-(chave de API e memória — não há espelho em `%APPDATA%`). Durante qualquer desinstalação destrutiva, o tray, o X da
+`resources\programs\Absolem\`. Durante qualquer desinstalação destrutiva, o tray, o X da
 janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
 `isAnyUninstallInProgress`).
 
@@ -473,6 +470,9 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
   a 1 Hz. O main só lê o arquivo (sem privilégio); amostra com mais de 3 s é stale. O script
   e a DLL vivem em `...\sensors\agent` com ACL explícita e só são copiados após o SHA-256.
+  Os watts do RAPL usam o `timestamp` da amostra (não o instante da leitura): como o sink
+  grava a 1 Hz e o monitor lê a 2 Hz, a mesma amostra lida duas vezes devolve a média
+  vigente e não desloca a referência do delta seguinte.
 - **Vcore**: os SMN do SVI2 entram no mesmo lote (`0x59800`, `0x5A008`, `0x5A00C`,
   `0x5A010`). `cpuVoltage.ts` escolhe o plano 0 pelo modelo (`+0xC` legado, `+0x10` em
   Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
@@ -529,5 +529,5 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 
 Documentos relacionados: [`kolnd-hub/README.md`](../kolnd-hub/README.md) (comandos,
 qualidade/CI, primeira execução, desinstalação), [`kolnd-hub/AGENTS.md`](../kolnd-hub/AGENTS.md)
-(regras para agentes), [`RELEASE.md`](RELEASE.md) (release), `../kloud-games/AGENTS.md` e
-`../Mark-LVII/AGENTS.md` (outros componentes do monorepo).
+(regras para agentes), [`RELEASE.md`](RELEASE.md) (release) e `../kloud-games/AGENTS.md`
+(outro componente do monorepo).

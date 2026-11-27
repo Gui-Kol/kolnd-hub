@@ -31,12 +31,7 @@ vi.mock('electron-store', () => ({
 }))
 
 vi.mock('./logger', () => ({
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: state.logError
-  }
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: state.logError }
 }))
 
 interface FakeStore {
@@ -82,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.14.0')
+    expect(options.projectVersion).toBe('1.16.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -98,7 +93,9 @@ describe('store persistente', () => {
       '1.11.0',
       '1.12.0',
       '1.13.0',
-      '1.14.0'
+      '1.14.0',
+      '1.15.0',
+      '1.16.0'
     ])
   })
 
@@ -107,16 +104,41 @@ describe('store persistente', () => {
       model: 'gemini-3.8-flash',
       liveModel: 'gemini-3.8-live',
       temperature: 0.7,
-      monthlyTokenCap: 2_000_000
+      monthlyTokenCap: 2_000_000,
+      unlimitedUsage: false
     })
   })
 
-  it('valor inválido é normalizado sem perder os válidos', () => {
-    state.data.set('theme', {
-      primaryColor: '#123456',
-      style: 'inexistente',
-      scale: 9
+  it('normaliza modelos selecionados, usa defaults ausentes e preserva customizados', () => {
+    expect(
+      storeMod.normalizeGeminiConfig({
+        model: 'gemini-2.5-flash-lite',
+        liveModel: 'gemini-3-flash-live',
+        temperature: 0.4
+      })
+    ).toMatchObject({
+      model: 'gemini-2.5-flash-lite',
+      liveModel: 'gemini-3-flash-live',
+      temperature: 0.4,
+      monthlyTokenCap: 2_000_000,
+      unlimitedUsage: false
     })
+
+    expect(
+      storeMod.normalizeGeminiConfig({
+        model: ' modelo-texto-customizado ',
+        liveModel: ' voz-live-customizada '
+      })
+    ).toMatchObject({
+      model: 'modelo-texto-customizado',
+      liveModel: 'voz-live-customizada'
+    })
+    expect(storeMod.normalizeGeminiConfig({}).model).toBe('gemini-3.8-flash')
+    expect(storeMod.normalizeGeminiConfig({}).liveModel).toBe('gemini-3.8-live')
+  })
+
+  it('valor inválido é normalizado sem perder os válidos', () => {
+    state.data.set('theme', { primaryColor: '#123456', style: 'inexistente', scale: 9 })
     state.data.set('overlay', {
       visible: true,
       position: 'top-right',
@@ -126,11 +148,7 @@ describe('store persistente', () => {
       shortcut: 'invalido',
       hideOnFullscreen: 'sim'
     })
-    state.data.set('voice', {
-      enabled: true,
-      inputDeviceId: 42,
-      outputVolume: 9
-    })
+    state.data.set('voice', { enabled: true, inputDeviceId: 42, outputVolume: 9 })
 
     const snapshot = storeMod.getStoreSnapshot()
 
@@ -163,25 +181,15 @@ describe('store persistente', () => {
 
   it('migração 1.1.0 preserva dados da 1.0.0, 1.2.0 converte e 1.3.0 migra o tema', () => {
     state.data.set('theme', { mode: 'light', accent: '#abcdef' })
-    state.data.set('overlay', {
-      enabled: true,
-      position: 'top-left',
-      scale: 1.5
-    })
+    state.data.set('overlay', { enabled: true, position: 'top-left', scale: 1.5 })
     const store = fakeStore()
 
     storeMod.STORE_MIGRATIONS['1.0.0'](store)
-    expect(state.data.get('theme')).toEqual({
-      mode: 'light',
-      accent: '#abcdef'
-    })
+    expect(state.data.get('theme')).toEqual({ mode: 'light', accent: '#abcdef' })
 
     storeMod.STORE_MIGRATIONS['1.1.0'](store)
 
-    expect(state.data.get('theme')).toEqual({
-      mode: 'light',
-      accent: '#abcdef'
-    })
+    expect(state.data.get('theme')).toEqual({ mode: 'light', accent: '#abcdef' })
     expect(state.data.get('overlay')).toEqual({
       enabled: true,
       position: 'top-left',
@@ -229,15 +237,36 @@ describe('store persistente', () => {
       model: 'gemini-2.0-flash',
       liveModel: 'gemini-3.8-live',
       temperature: 0.3,
-      monthlyTokenCap: 2_000_000
+      monthlyTokenCap: 2_000_000,
+      unlimitedUsage: false
     })
     expect(state.data.get('usage')).toEqual({ days: {}, warnedMonths: [] })
     expect(state.data.get('chat')).toEqual({ turns: [] })
 
     // Idempotente.
     storeMod.STORE_MIGRATIONS['1.4.0'](store)
-    expect(state.data.get('gemini')).toMatchObject({
-      monthlyTokenCap: 2_000_000
+    expect(state.data.get('gemini')).toMatchObject({ monthlyTokenCap: 2_000_000 })
+  })
+
+  describe('1.16.0 - uso ilimitado interno', () => {
+    it('adiciona desligado por padrão e preserva valor explícito', () => {
+      const store = fakeStore()
+      state.data.set('gemini', {
+        model: 'gemini-2.0-flash',
+        liveModel: 'gemini-3.8-live',
+        temperature: 0.7,
+        monthlyTokenCap: 2_000_000
+      })
+
+      storeMod.STORE_MIGRATIONS['1.16.0'](store)
+      expect(state.data.get('gemini')).toMatchObject({ unlimitedUsage: false })
+
+      state.data.set('gemini', {
+        ...(state.data.get('gemini') as Record<string, unknown>),
+        unlimitedUsage: true
+      })
+      storeMod.STORE_MIGRATIONS['1.16.0'](store)
+      expect(state.data.get('gemini')).toMatchObject({ unlimitedUsage: true })
     })
   })
 
@@ -264,10 +293,7 @@ describe('store persistente', () => {
     })
 
     // Idempotente sobre o formato novo.
-    state.data.set('privacy', {
-      telemetry: true,
-      screen: { mode: 'ask', proactive: true }
-    })
+    state.data.set('privacy', { telemetry: true, screen: { mode: 'ask', proactive: true } })
     storeMod.STORE_MIGRATIONS['1.6.0'](store)
     expect(state.data.get('privacy')).toMatchObject({
       telemetry: true,
@@ -292,12 +318,12 @@ describe('store persistente', () => {
       microphone: true,
       paused: true,
       categories: {
-        'apps.launch': 'ask',
-        'apps.close': 'ask',
-        'files.read': 'ask',
-        'files.write': 'ask',
-        'system.power': 'deny',
-        'uia.control': 'deny',
+        'apps.launch': 'allow',
+        'apps.close': 'allow',
+        'files.read': 'allow',
+        'files.write': 'allow',
+        'system.power': 'allow',
+        'uia.control': 'allow',
         'web.search': 'allow'
       }
     })
@@ -311,7 +337,7 @@ describe('store persistente', () => {
     })
     storeMod.STORE_MIGRATIONS['1.7.0'](store)
     expect(state.data.get('permissions')).toMatchObject({
-      categories: { 'system.power': 'ask', 'uia.control': 'deny' }
+      categories: { 'system.power': 'ask', 'uia.control': 'allow' }
     })
 
     // Idempotente.
@@ -331,11 +357,7 @@ describe('store persistente', () => {
       note: ''
     })
 
-    state.data.set('memory', {
-      enabled: false,
-      autoExtract: false,
-      lastConsolidationAt: 123
-    })
+    state.data.set('memory', { enabled: false, autoExtract: false, lastConsolidationAt: 123 })
     storeMod.STORE_MIGRATIONS['1.8.0'](store)
     expect(state.data.get('memory')).toEqual({
       enabled: false,
@@ -382,10 +404,7 @@ describe('store persistente', () => {
 
       storeMod.STORE_MIGRATIONS['1.11.0'](store)
 
-      const theme = state.data.get('theme') as {
-        version: number
-        look: string
-      }
+      const theme = state.data.get('theme') as { version: number; look: string }
       expect(theme.version).toBe(2)
       expect(theme.look).toBe('storybook')
     })
@@ -408,11 +427,7 @@ describe('store persistente', () => {
 
     it('look ausente vira storybook', () => {
       const store = fakeStore()
-      state.data.set('theme', {
-        ...v1Classic,
-        presetId: 'neon',
-        look: undefined
-      })
+      state.data.set('theme', { ...v1Classic, presetId: 'neon', look: undefined })
 
       storeMod.STORE_MIGRATIONS['1.11.0'](store)
 
@@ -448,7 +463,8 @@ describe('store persistente', () => {
         model: 'gemini-3.8-flash',
         liveModel: 'gemini-3.8-live',
         temperature: 0.3,
-        monthlyTokenCap: 2_000_000
+        monthlyTokenCap: 2_000_000,
+        unlimitedUsage: false
       })
     })
 
@@ -478,7 +494,8 @@ describe('store persistente', () => {
         model: 'meu-modelo-texto',
         liveModel: 'meu-modelo-live',
         temperature: 1.1,
-        monthlyTokenCap: 2_000_000
+        monthlyTokenCap: 2_000_000,
+        unlimitedUsage: false
       })
     })
 
@@ -541,11 +558,7 @@ describe('store persistente', () => {
   describe('1.14.0 - memória em texto', () => {
     it('adiciona note vazio preservando a configuração existente', () => {
       const store = fakeStore()
-      state.data.set('memory', {
-        enabled: false,
-        autoExtract: false,
-        lastConsolidationAt: 456
-      })
+      state.data.set('memory', { enabled: false, autoExtract: false, lastConsolidationAt: 456 })
 
       storeMod.STORE_MIGRATIONS['1.14.0'](store)
 
@@ -577,6 +590,49 @@ describe('store persistente', () => {
 
       storeMod.STORE_MIGRATIONS['1.14.0'](store)
       expect(state.data.get('memory')).toEqual(capped)
+    })
+  })
+
+  describe('1.15.0 - permissões padrão solicitadas', () => {
+    it('preenche ausentes e preserva escolhas explícitas', () => {
+      const store = fakeStore()
+      storeMod.STORE_MIGRATIONS['1.15.0'](store)
+
+      expect(state.data.get('privacy')).toMatchObject({
+        telemetry: false,
+        screen: { mode: 'on' }
+      })
+      expect(state.data.get('permissions')).toEqual({
+        microphone: true,
+        paused: false,
+        categories: {
+          'apps.launch': 'allow',
+          'apps.close': 'allow',
+          'files.read': 'allow',
+          'files.write': 'allow',
+          'system.power': 'allow',
+          'uia.control': 'allow',
+          'web.search': 'allow'
+        }
+      })
+
+      state.data.set('privacy', {
+        telemetry: false,
+        screen: { mode: 'off', blocklist: [], proactive: false }
+      })
+      state.data.set('permissions', {
+        microphone: false,
+        paused: true,
+        categories: { 'apps.launch': 'deny' }
+      })
+      storeMod.STORE_MIGRATIONS['1.15.0'](store)
+
+      expect(state.data.get('privacy')).toMatchObject({ screen: { mode: 'off' } })
+      expect(state.data.get('permissions')).toMatchObject({
+        microphone: false,
+        paused: true,
+        categories: { 'apps.launch': 'deny' }
+      })
     })
   })
 

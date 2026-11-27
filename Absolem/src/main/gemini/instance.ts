@@ -34,7 +34,8 @@ function currentConfig(): GeminiEngineConfig {
   return {
     model: gemini.model,
     temperature: gemini.temperature,
-    monthlyTokenCap: gemini.monthlyTokenCap
+    monthlyTokenCap: gemini.monthlyTokenCap,
+    unlimitedUsage: gemini.unlimitedUsage
   }
 }
 
@@ -45,6 +46,7 @@ export function getUsageMeter(): UsageMeter {
     sharedUsage = createUsageMeter({
       store: getPersistentStore(),
       cap: () => currentConfig().monthlyTokenCap,
+      unlimited: () => getStoreSnapshot().gemini.unlimitedUsage,
       onWarning: (warning: UsageWarning) => {
         for (const listener of usageWarningListeners) {
           try {

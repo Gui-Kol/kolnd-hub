@@ -18,6 +18,9 @@ function makeApi(
     testOutcome?: GeminiTestKeyOutcome
     cap?: number
     monthlyTokenCap?: number
+    unlimitedUsage?: boolean
+    model?: string
+    liveModel?: string
   } = {}
 ): {
   api: KeyTabApi
@@ -29,6 +32,9 @@ function makeApi(
   const configured = options.configured ?? true
   const cap = options.cap ?? 100
   const monthlyTokenCap = options.monthlyTokenCap ?? 2_000_000
+  let persistedUnlimitedUsage = options.unlimitedUsage ?? false
+  let persistedModel = options.model ?? 'gemini-2.0-flash'
+  let persistedLiveModel = options.liveModel ?? 'gemini-3.8-live'
   const setKey = vi.fn(async () => ({ ok: true as const }))
   const clearKey = vi.fn(async () => ({ ok: true as const }))
   const testKey = vi.fn(async () => ({
@@ -42,7 +48,12 @@ function makeApi(
         usage: { input: 1, output: 1, total: 2, estimated: false }
       } satisfies GeminiTestKeyOutcome)
   }))
-  const setGeminiConfig = vi.fn(async () => ({ ok: true as const }))
+  const setGeminiConfig = vi.fn(async (config: GeminiConfig) => {
+    persistedUnlimitedUsage = config.unlimitedUsage
+    persistedModel = config.model
+    persistedLiveModel = config.liveModel
+    return { ok: true as const }
+  })
   const api: KeyTabApi = {
     status: vi.fn(async () => ({
       ok: true as const,
@@ -66,10 +77,11 @@ function makeApi(
       ok: true as const,
       key: 'gemini' as const,
       value: {
-        model: 'gemini-2.0-flash',
-        liveModel: 'gemini-3.8-live',
+        model: persistedModel,
+        liveModel: persistedLiveModel,
         temperature: 0.7,
-        monthlyTokenCap
+        monthlyTokenCap,
+        unlimitedUsage: persistedUnlimitedUsage
       } satisfies GeminiConfig
     })),
     setGeminiConfig
@@ -89,6 +101,12 @@ function button(container: HTMLElement, label: string): HTMLButtonElement {
   )
   if (!found) throw new Error(`botão ausente: ${label}`)
   return found as HTMLButtonElement
+}
+
+function select(container: HTMLElement, id: string): HTMLSelectElement {
+  const found = container.querySelector<HTMLSelectElement>(`#${id}`)
+  if (!found) throw new Error(`seletor ausente: ${id}`)
+  return found
 }
 
 async function settle(): Promise<void> {
@@ -114,6 +132,90 @@ afterEach(() => {
 })
 
 describe('aba Chave e custo', () => {
+  it('mostra os catálogos separados com defaults de texto e Live', async () => {
+    const { api } = makeApi({ model: 'gemini-3.8-flash', liveModel: 'gemini-3.8-live' })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    expect(select(container, 'gemini-text-model').value).toBe('gemini-3.8-flash')
+    expect(select(container, 'gemini-live-model').value).toBe('gemini-3.8-live')
+    expect(
+      Array.from(select(container, 'gemini-text-model').options).map((option) => option.value)
+    ).not.toContain('gemini-3.8-live')
+    expect(
+      Array.from(select(container, 'gemini-live-model').options).map((option) => option.value)
+    ).not.toContain('gemini-3.8-flash')
+  })
+
+  it('persiste a escolha de texto e Live pelo store existente', async () => {
+    const { api, setGeminiConfig } = makeApi()
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      const text = select(container, 'gemini-text-model')
+      text.value = 'gemini-2.5-flash'
+      text.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await settle()
+    expect(setGeminiConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.5-flash', liveModel: 'gemini-3.8-live' })
+    )
+
+    await act(async () => {
+      const live = select(container, 'gemini-live-model')
+      live.value = 'gemini-3-flash-live'
+      live.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await settle()
+    expect(setGeminiConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.5-flash', liveModel: 'gemini-3-flash-live' })
+    )
+  })
+
+  it('preserva e identifica modelos customizados', async () => {
+    const { api } = makeApi({
+      model: 'modelo-texto-customizado',
+      liveModel: 'modelo-live-customizado'
+    })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    expect(select(container, 'gemini-text-model').value).toBe('modelo-texto-customizado')
+    expect(select(container, 'gemini-text-model').options[0]?.textContent).toBe(
+      'Personalizado (modelo-texto-customizado)'
+    )
+    expect(select(container, 'gemini-live-model').value).toBe('modelo-live-customizado')
+    expect(select(container, 'gemini-live-model').options[0]?.textContent).toBe(
+      'Personalizado (modelo-live-customizado)'
+    )
+  })
+
+  it('mostra erro quando a seleção não pode ser persistida', async () => {
+    const { api, setGeminiConfig } = makeApi()
+    setGeminiConfig.mockResolvedValueOnce({ ok: false as const, error: 'falha ao salvar modelo' })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      const text = select(container, 'gemini-text-model')
+      text.value = 'gemini-2.5-flash'
+      text.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await settle()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'falha ao salvar modelo'
+    )
+  })
+
   it('nunca renderiza a chave', async () => {
     const { api, setKey } = makeApi()
     await act(async () => {
@@ -228,7 +330,8 @@ describe('aba Chave e custo', () => {
       model: 'gemini-2.0-flash',
       liveModel: 'gemini-3.8-live',
       temperature: 0.7,
-      monthlyTokenCap: 1_000_000
+      monthlyTokenCap: 1_000_000,
+      unlimitedUsage: false
     })
     expect(container.textContent).toContain('Teto mensal reduzido para 1.000.000 tokens.')
   })
@@ -241,6 +344,69 @@ describe('aba Chave e custo', () => {
     await settle()
 
     expect(button(container, 'Diminuir teto').disabled).toBe(true)
+  })
+
+  it('ativa uso ilimitado, persiste e mostra aviso sobre o Google', async () => {
+    const { api, setGeminiConfig } = makeApi()
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      button(container, 'Ativar uso ilimitado').click()
+    })
+    await settle()
+
+    expect(setGeminiConfig).toHaveBeenCalledWith({
+      model: 'gemini-2.0-flash',
+      liveModel: 'gemini-3.8-live',
+      temperature: 0.7,
+      monthlyTokenCap: 2_000_000,
+      unlimitedUsage: true
+    })
+    expect(container.querySelector('[data-unlimited-status]')?.textContent).toBe('Ilimitado')
+    expect(container.textContent).toContain('quotas')
+    expect(container.textContent).toContain('rate limits')
+    expect(button(container, 'Desativar uso ilimitado').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('carrega e permite desativar uso ilimitado persistido', async () => {
+    const { api, setGeminiConfig } = makeApi({ unlimitedUsage: true })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    expect(container.querySelector('[data-unlimited-status]')?.textContent).toBe('Ilimitado')
+    await act(async () => {
+      button(container, 'Desativar uso ilimitado').click()
+    })
+    await settle()
+
+    expect(setGeminiConfig).toHaveBeenCalledWith(expect.objectContaining({ unlimitedUsage: false }))
+    expect(container.querySelector('[data-unlimited-status]')?.textContent).toBe(
+      'Teto mensal interno ativo'
+    )
+  })
+
+  it('mostra erro quando não consegue persistir uso ilimitado', async () => {
+    const { api, setGeminiConfig } = makeApi()
+    setGeminiConfig.mockResolvedValueOnce({ ok: false as const, error: 'falha ao salvar' })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      button(container, 'Ativar uso ilimitado').click()
+    })
+    await settle()
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('falha ao salvar')
+    expect(container.querySelector('[data-unlimited-status]')?.textContent).toBe(
+      'Teto mensal interno ativo'
+    )
   })
 
   it('503 mostra aviso em âmbar e não acusa a chave', async () => {

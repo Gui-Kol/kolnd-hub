@@ -69,7 +69,7 @@ export const OptionsOverlay = memo(function OptionsOverlay({
 }): JSX.Element {
   return (
     <div
-      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80"
       role="dialog"
       aria-modal="true"
       aria-label="Opções do Big Picture"
@@ -119,7 +119,7 @@ export const ExitOverlay = memo(function ExitOverlay({
 }): JSX.Element {
   return (
     <div
-      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80"
       role="dialog"
       aria-modal="true"
       aria-label="Sair do Big Picture?"
@@ -181,7 +181,7 @@ export const DisconnectOverlay = memo(function DisconnectOverlay(): JSX.Element 
       aria-live="assertive"
       aria-label="Controle desconectado"
     >
-      <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-surface-sunken/90 px-12 py-10 text-center shadow-2xl shadow-black/70 backdrop-blur-xl">
+      <div className="flex max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/[0.1] bg-surface-sunken/95 px-12 py-10 text-center shadow-2xl shadow-black/70">
         <Spinner size={44} label="Reconectando controle" className="[&_svg]:text-accent" />
         <h2 className="text-3xl font-black tracking-tight text-white">Controle desconectado</h2>
         <p className="text-lg leading-relaxed text-slate-300">

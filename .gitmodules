@@ -60,7 +60,3 @@
 	path = kloud-games/third-party/tray
 	url = https://github.com/LizardByte/tray.git
 	branch = master
-
-[submodule "Mark-LVII"]
-	path = Mark-LVII
-	url = https://github.com/FatihMakes/Mark-LVII.git

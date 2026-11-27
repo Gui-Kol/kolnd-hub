@@ -400,7 +400,8 @@ describe('consentimentos e revogação', () => {
           model: 'gemini-2.0-flash',
           liveModel: 'gemini-3.8-live',
           temperature: 0.7,
-          monthlyTokenCap: 2_000_000
+          monthlyTokenCap: 2_000_000,
+          unlimitedUsage: false
         } satisfies GeminiConfig
       })),
       setGeminiConfig: vi.fn(async () => ({ ok: true as const }))

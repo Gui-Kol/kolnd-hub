@@ -47,7 +47,7 @@ export const GamepadMappingRow = memo(function GamepadMappingRow({
       </span>
 
       {listening ? (
-        <span className="flex min-w-[9rem] flex-1 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-neon-cyan animate-pulse-slow">
+        <span className="flex min-w-[9rem] flex-1 items-center justify-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-widest text-neon-cyan animate-pulse-slow motion-reduce:animate-none">
           Pressione o botão…
         </span>
       ) : (

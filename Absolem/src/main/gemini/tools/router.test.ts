@@ -95,6 +95,38 @@ describe('roteador de ferramentas', () => {
     expect(audits[0]).toMatchObject({ decision: 'ask-denied', ok: false })
   })
 
+  it('timeout de pesquisa web devolve mensagem clara em pt-BR', async () => {
+    const { registry, handlers, routerOptions } = harness()
+    const webSearch: ToolDefinition = {
+      name: 'web_search',
+      description: 'Pesquisa web.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', minLength: 1 } },
+        required: ['query'],
+        additionalProperties: false
+      },
+      sensitive: false,
+      category: 'web.search',
+      timeoutMs: 1_000
+    }
+    expect(registry.registerTool(webSearch).ok).toBe(true)
+    handlers.set(webSearch.name, () => new Promise(() => undefined))
+
+    const result = await routeToolCall(routerOptions, {
+      name: 'web_search',
+      args: { query: 'modelos de IA do Gemini' }
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        kind: 'timeout',
+        message: 'A pesquisa na internet demorou mais de 1 s e foi interrompida. Tente novamente.'
+      }
+    })
+  })
+
   it('argumento inválido não executa nem confirma', async () => {
     const { confirm, audits, routerOptions } = harness()
 

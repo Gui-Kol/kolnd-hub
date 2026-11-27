@@ -114,7 +114,7 @@ export function GlobalSearch({
       <button
         type="button"
         aria-label="Fechar busca"
-        className="absolute inset-0 cursor-default bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 cursor-default bg-black/80"
         onClick={onClose}
       />
 

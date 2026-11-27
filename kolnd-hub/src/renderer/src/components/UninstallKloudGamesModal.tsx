@@ -560,7 +560,11 @@ export function UninstallKloudGamesModal({
       {phase === 'running' && (
         <div className="flex flex-col items-center space-y-4 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-card border border-danger-border bg-danger-bg">
-            <AlertCircle size={32} className="animate-pulse text-danger" aria-hidden="true" />
+            <AlertCircle
+              size={32}
+              className="animate-pulse text-danger motion-reduce:animate-none"
+              aria-hidden="true"
+            />
           </div>
           <h3 className="text-lg font-bold text-ink-primary">Desinstalação em andamento</h3>
           <p className="text-sm text-ink-secondary" role="status" aria-live="polite">

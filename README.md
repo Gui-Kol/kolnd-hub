@@ -7,11 +7,10 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | Pasta / arquivo            | O que é                                                                                                                                                                                                      | Stack                                                              |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                                                                      | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
-| `Mark-LVII/`               | **Mark LVII (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                                                               | Python + PyQt6, empacotado com PyInstaller                         |
-| `Absolem/`                 | **Absolem** — assistente de IA na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini                                                                                         | Electron 28 + electron-vite + React 18 + TypeScript                |
+| `Absolem/`                 | **Absolem** — assistente de IA na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini                                                                                        | Electron 28 + electron-vite + React 18 + TypeScript                |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                                                                | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                                                              | CMD + PowerShell                                                   |
-| `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
+| `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` + geração do `SHA256SUMS.txt` (informativo)                                                | GitHub Actions                                                     |
 
 ## O que tem no Hub
 
@@ -25,12 +24,11 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 
 ## Programas gerenciados pelo Hub
 
-| Programa                                                                | Como é distribuído                                                            | Instalação                                                                                                                                                           |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mark LVII (JARVIS)**                                                  | Embutido no instalador do Hub em `resources/programs/MarkLVII/` (PyInstaller) | Automática na primeira execução do Hub                                                                                                                               |
-| **Absolem**                                                             | Embutido no instalador do Hub em `resources/programs/Absolem/` (build Electron) | Automática na primeira execução do Hub; roda direto da pasta e grava os dados em `%APPDATA%\absolem`                                                                  |
-| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)          | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
-| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)              | Configurados em **Configurações** do app                                                                                                                             |
+| Programa                                                                | Como é distribuído                                                              | Instalação                                                                                                                                                           |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Absolem**                                                             | Embutido no instalador do Hub em `resources/programs/Absolem/` (build Electron) | Automática na primeira execução do Hub; roda direto da pasta e grava os dados em `%APPDATA%\absolem`                                                                 |
+| **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)            | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
+| **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)                | Configurados em **Configurações** do app                                                                                                                             |
 
 ## Acesso remoto (jogar de qualquer lugar)
 
@@ -56,7 +54,7 @@ Durante a primeira execução o app mostra uma tela de progresso com as etapas:
 1. **Verificação de dependências** — Python e pip;
 2. **Python** — instala via winget se faltar;
 3. **Kloud Games** — instala o MSI embutido (falha não bloqueia o uso do Hub);
-4. **Programas** — verifica a implantação do Mark LVII, do Kloud Games e do Absolem;
+4. **Programas** — verifica a implantação do Kloud Games e do Absolem;
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Na segunda abertura o app vai direto para o dashboard. O marcador fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
@@ -70,8 +68,6 @@ O Hub consulta **a cada abertura** a release estável mais recente do GitHub e, 
 - release sem asset `.exe` anexado (ou sem digest) não habilita a atualização automática; nesse caso o banner só oferece abrir a página da release.
 
 Atualizar **por cima** é o caminho suportado e preserva `%APPDATA%\kolnd-hub` (config, biblioteca, logs, ícones). Também é possível baixar o `Kolnd Hub Setup <versao>.exe` manualmente e executá-lo.
-
-> ⚠️ O Mark LVII grava sua chave de API e a memória das conversas **junto ao executável**. Use sempre o app instalado — nunca rode diretamente o bundle de build — para não perder dados ao reconstruir o pacote.
 
 > Playnite e o SteamGridDB Manager foram removidos do projeto por decisão do usuário.
 
@@ -107,35 +103,33 @@ Em **Configurações**, no fim da página, existe a zona **"Zona de perigo"** co
 3. Por fim, o desinstalador do Windows abre e o Hub se encerra sozinho para ele assumir. O Hub não abre mais depois disso.
 
 - Pede para digitar `Kolnd Hub` antes de confirmar. Em `npm run dev` o botão fica desabilitado — só funciona no app instalado.
-- O **Mark LVII** (assistente) fica dentro da pasta do Hub em `resources/programs/MarkLVII` e **vai junto** com a desinstalação.
-- O **Absolem** também fica dentro da pasta do Hub em `resources/programs/Absolem` e sai com ela; as configurações dele em `%APPDATA%\absolem` seguem a sua escolha de dados (apagadas na opção irreversível, preservadas em "manter").
+- O **Absolem** fica dentro da pasta do Hub em `resources/programs/Absolem` e sai com ela; as configurações dele em `%APPDATA%\absolem` seguem a sua escolha de dados (apagadas na opção irreversível, preservadas em "manter").
 
 ### O que acontece com seus dados
 
 Em **qualquer** desinstalação (pelo botão do Hub ou pelo Windows), o padrão é:
 
 - **Preservado — `%APPDATA%\kolnd-hub` inteiro**: `config.json` (electron-store), a flag de primeira execução (`first-run-complete.flag`), `logs\` (`kolnd-hub.log` e `kloud-games-uninstall.log`), `kloud-games.paths.json` e `game-icons\`. Nada disso é apagado pelo desinstalador NSIS (`deleteAppDataOnUninstall: false`), a menos que você escolha a opção irreversível no botão do Hub.
-- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`, onde o `MarkLVII.exe` grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`), e `resources\programs\Absolem\`** (o programa em si; as configurações do Absolem ficam em `%APPDATA%\absolem` e seguem a escolha de dados). Os dados do Mark LVII são **perdidos** na desinstalação — o NSIS não tem como preservá-los.
+- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\Absolem\`** (o programa em si; as configurações do Absolem ficam em `%APPDATA%\absolem` e seguem a escolha de dados).
 
 Ao desinstalar o Hub pelo botão, você escolhe uma das duas opções:
 
 - **"Manter meus dados e configurações (recomendado)"** — padrão; o que está em `%APPDATA%\kolnd-hub` e em `%APPDATA%\absolem` fica intacto (config, biblioteca, logs, ícones, flag de primeira execução, memória e chave do Absolem);
 - **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `game-icons\` e qualquer outra coisa que estiver lá) **e** a pasta `%APPDATA%\absolem` (configurações, chave cifrada, memória, logs e Crashpad do Absolem). Não há como desfazer.
 
-Resumindo em uma linha: **`%APPDATA%\kolnd-hub` e `%APPDATA%\absolem` são preservados por padrão; o diretório de instalação é removido** — inclusive os dados que o Mark LVII grava ao lado do `MarkLVII.exe`. A opção irreversível apaga também os dois diretórios de dados.
+Resumindo em uma linha: **`%APPDATA%\kolnd-hub` e `%APPDATA%\absolem` são preservados por padrão; o diretório de instalação é removido**. A opção irreversível apaga também os dois diretórios de dados.
 
 Duas regras importantes:
 
-- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** e **não** inclui os dados gravados ao lado do `MarkLVII.exe`; copie manualmente `resources\programs\MarkLVII\config` e `...\memory` se quiser guardar a chave e a memória. As configurações do Absolem em `%APPDATA%\absolem` também não entram nesse backup — copie essa pasta antes se quiser guardá-las.
+- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`.** As configurações do Absolem em `%APPDATA%\absolem` não entram nesse backup — copie essa pasta antes se quiser guardá-las.
 - Fora de `%APPDATA%\kolnd-hub` e `%APPDATA%\absolem`, o Hub apaga as configurações do Kloud Games quando o desinstala (`config\` da instalação, `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES`). O resto da instalação do Kloud Games e a pasta do Hub saem pelos desinstaladores oficiais (MSI e NSIS).
 
 Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`, em `config.json`) também fica em `%APPDATA%\kolnd-hub` — ela sobrevive à desinstalação se você mantiver os dados; quem decide apagá-la é a opção de apagar tudo.
 
-### Mark LVII
+### Mark LVII (removido)
 
-- O Mark LVII é removido junto com a pasta do Hub, porque fica dentro dela.
-- O `MarkLVII.exe` empacotado grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`) **ao lado do executável**, em `%LOCALAPPDATA%\Programs\Kolnd Hub\resources\programs\MarkLVII\` — ou seja, esses arquivos **vão junto com o diretório de instalação** na desinstalação.
-- O Hub **não** copia (nem espelha) esses dados para `%APPDATA%\kolnd-hub`: não existe pasta `mark-lvii\` no `%APPDATA%`. Para guardar a chave/memória, copie manualmente `<instalação>\resources\programs\MarkLVII\config` e `...\memory` antes de desinstalar ou use o backup completo do Hub, se aplicável.
+- O Mark LVII foi removido do ecossistema e não é mais distribuído pelo Hub.
+- Instalações antigas podem manter a pasta `resources\programs\MarkLVII\` até serem desinstaladas/reinstaladas; ela sai junto com o diretório de instalação.
 
 ### Desinstalação manual pelo Windows (alternativa)
 
@@ -146,11 +140,11 @@ Você também pode desinstalar pelo sistema, sem abrir o Hub: **Configurações 
 
 É equivalente ao que os botões do Hub fazem. Códigos de retorno **3010** e **1641** do `msiexec` significam "reinício necessário para concluir a remoção" — é sucesso com aviso, não erro.
 
-O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%APPDATA%\kolnd-hub` — a decisão de apagar ou manter seus dados é sempre sua, dentro da "Zona de perigo" do Hub. Por outro lado, ele **remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\` com os dados que a build atual do Mark LVII grava ao lado do executável**. Não existe opção de "manter a pasta do programa" — o NSIS sempre a remove.
+O desinstalador do Hub **não** guarda cópia dos seus dados e **não** apaga `%APPDATA%\kolnd-hub` — a decisão de apagar ou manter seus dados é sempre sua, dentro da "Zona de perigo" do Hub. Por outro lado, ele **remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo `resources\programs\Absolem\`. Não existe opção de "manter a pasta do programa" — o NSIS sempre a remove.
 
 ### Checklist de release: verificação da desinstalação
 
-A verificação da desinstalação em máquina/VM limpa faz parte do processo de release e **não é duplicada aqui**. A fonte única é o [`docs/RELEASE.md`](docs/RELEASE.md) — seção "Passo 5 — Verificar desinstalação". Em resumo: instale o release → desinstale (botão do Hub ou Windows) → confirme que `%APPDATA%\kolnd-hub` foi preservado (`config.json`, `first-run-complete.flag`, `logs\`) e que o diretório de instalação foi removido, incluindo `resources\programs\MarkLVII\`.
+A verificação da desinstalação em máquina/VM limpa faz parte do processo de release e **não é duplicada aqui**. A fonte única é o [`docs/RELEASE.md`](docs/RELEASE.md) — seção "Passo 5 — Verificar desinstalação". Em resumo: instale o release → desinstale (botão do Hub ou Windows) → confirme que `%APPDATA%\kolnd-hub` foi preservado (`config.json`, `first-run-complete.flag`, `logs\`) e que o diretório de instalação foi removido.
 
 ### Logs de desinstalação
 
@@ -175,7 +169,7 @@ O script:
 
 1. Garante o Node.js no PATH e instala pré-requisitos via `winget` (Git, MSYS2 em `C:\msys64` e .NET SDK 8, necessários para o WiX/cpack);
 2. Roda `kolnd-hub/scripts/build-kloud-games.ps1` — correções idempotentes de renomeação do snapshot, submódulos (incluindo aninhados e o fix aplicado via `scripts/patches/moonlight-stdatomic-guards.patch`), dependências ucrt64, `cmake + ninja` com gcc, `cpack -G WIX` e cópia do MSI para `kolnd-hub/resources/programs/kloud-games/`;
-3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`; ~300 MB — 293 MiB na 1.1.0);
+3. Roda `npm run package` em `kolnd-hub/` — compila o app e gera `kolnd-hub/dist/Kolnd Hub Setup <versao>.exe` (`<versao>` = `version` de `kolnd-hub/package.json`);
 4. Gera `kolnd-hub/dist/SHA256SUMS.txt` com o SHA-256 dos artefatos finais (`KLOUD_GAMES.msi` e o `Setup.exe`) — passo best-effort: falha do hash não quebra o build.
 
 Se o Kloud Games já estiver compilado, apenas o passo 3 é necessário:
@@ -193,7 +187,6 @@ npm run package
 - Git
 - MSYS2 (`C:\msys64`) com o toolchain UCRT64 — instalado automaticamente pelo script
 - .NET SDK 8 — instalado automaticamente pelo script (necessário para o WiX)
-- Python + PyInstaller apenas se você for reconstruir o Mark LVII (`kolnd-hub/scripts/build-mark-lvii.ps1`)
 
 ## Build do Kloud Games no CI (manual/semanal)
 
@@ -238,8 +231,7 @@ O atalho **"Testes - Kolnd Hub"** na Área de Trabalho roda `scripts/run-all-tes
 2. **Kloud Hub — e2e** (`kolnd-hub`: `npm run test:e2e` — build + Playwright/Electron; a suíte mais lenta);
 3. **Kloud Games — web** (`kloud-games`: `npm test`, Vitest + cobertura);
 4. **Kloud Games — scripts** (Pester, executado só se houver Pester 5+ instalado — o Windows traz o 3.4 por padrão);
-5. **Kloud Games — C++** (`kloud-games\cmake-build-windows\tests\test_KLOUD_GAMES.exe`, usando o build existente — o script **não** recompila);
-6. **Mark LVII** — ainda sem suíte automatizada (task 04-4.5 pendente), apenas reportado.
+5. **Kloud Games — C++** (`kloud-games\cmake-build-windows\tests\test_KLOUD_GAMES.exe`, usando o build existente — o script **não** recompila).
 
 A janela mostra o andamento e um resumo (OK/FALHOU/PULADO por suíte) e permanece aberta no fim. Logs em `%TEMP%\kolnd-hub-testes`: `testes-*.log` (transcript da execução) e `testes-*.saida.log` (saída completa das suítes).
 
@@ -276,16 +268,15 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 
 ## Segurança e distribuição
 
-- **Segredos nunca vão para o instalador**: `Mark-LVII/config/api_keys.json`, `config/certs/`, `config/whatsapp_web/` e `memory/` são excluídos via `extraResources` (veja o `filter` no `electron-builder.yml`).
-- Instalação **por usuário** mantém a pasta gravável. O Mark LVII grava a chave de API e a memória **ao lado do próprio executável** (`resources/programs/MarkLVII/config` e `...\memory`); por isso a instalação permanece em `%LOCALAPPDATA%` (o instalador não permite trocar o diretório de propósito — em `Program Files` o app não teria permissão de escrita). O desinstalador remove o diretório da instalação inteiro — inclusive esses dados; o que estiver em `%APPDATA%\kolnd-hub` é preservado (veja **Desinstalação**).
+- **Segredos nunca vão para o instalador**: o filtro de `extraResources` no `electron-builder.yml` exclui dados de usuário dos programas embutidos.
+- Instalação **por usuário** mantém a pasta gravável e não exige administrador; o instalador não permite trocar o diretório de propósito. O desinstalador remove o diretório da instalação inteiro; o que estiver em `%APPDATA%\kolnd-hub` é preservado (veja **Desinstalação**).
 - O instalador dispara UAC para instalar Python (se necessário) e o MSI do Kloud Games (serviço + firewall).
 - Por ser um `.exe` único que baixa/executa instaladores, pode ser sinalizado como falso positivo pelo Defender — para distribuição pública, assine o código (ver detalhes em `kolnd-hub/README.md`, seção "Primeira execução, UAC e antivírus").
-- **Validação em máquina limpa (VM/Sandbox) — status real: checklist preparado, execução PENDENTE.** O checklist reutilizável a cada release está em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md) (pré-requisitos da VM, passos com checkbox, cenários de falha/UAC negado, logs a observar, limitações — o bundle real do Mark LVII não está no git; CI só empacota com placeholder). A instalação de Python via winget e a instalação do MSI do Kloud Games **não foram exercitadas em ambiente limpo**; esta afirmação só pode ser removida/atualizada após uma execução registrada na VM. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa") e o checklist operacional em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md).
+- **Validação em máquina limpa (VM/Sandbox) — status real: checklist preparado, execução PENDENTE.** O checklist reutilizável a cada release está em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md) (pré-requisitos da VM, passos com checkbox, cenários de falha/UAC negado, logs a observar, limitações — o MSI real do Kloud Games não está no git; CI só empacota). A instalação de Python via winget e a instalação do MSI do Kloud Games **não foram exercitadas em ambiente limpo**; esta afirmação só pode ser removida/atualizada após uma execução registrada na VM. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa") e o checklist operacional em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md).
 
 ## Credenciais e dados pessoais
 
 - **Absolem**: a chave do Gemini é cifrada no próprio PC com `safeStorage` (DPAPI) e gravada em `%APPDATA%\absolem\secrets.bin`, fora do repositório. Ela nunca vai para `config.json` nem para os logs. Não altere esse fluxo.
-- **Mark LVII**: a chave de API fica em `config/api_keys.json`, ao lado do `MarkLVII.exe` na instalação. O arquivo é ignorado pelo git e filtrado do instalador (`electron-builder.yml`).
 - **Nunca commitar segredos**: `.env*` (exceto `.env.example`), chaves de API, certificados (`*.pem`, `*.pfx`, `*.p12`), tokens, client secrets e bancos de dados de usuário (`memory.sqlite`) estão no `.gitignore` e são barrados pelo guard.
 - **Guard automatizado**: `scripts/check-secrets.mjs` (sem dependências) varre os arquivos **rastreados** pelo git — caminhos proibidos e conteúdo (chave Google `AIza…` e chave privada PEM) — e roda no CI (`.github/workflows/ci.yml`). Localmente: `node scripts/check-secrets.mjs`.
 - **Se uma chave vazar**: revogue e rotacione a chave no [Google AI Studio](https://aistudio.google.com/apikey) imediatamente. O guard impede novas inclusões, mas **não** reescreve histórico — um segredo já publicado continua acessível no passado do repositório até uma limpeza de histórico ser feita de propósito.
@@ -296,7 +287,6 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 | -------------- | -------------------------------------- |
 | `kolnd-hub/`   | MIT (ver `package.json`)               |
 | `kloud-games/` | GPL-3.0 (fork do Sunshine, LizardByte) |
-| `Mark-LVII/`   | Ver `Mark-LVII/LICENSE`                |
 
 ## Documentação adicional
 
@@ -306,7 +296,6 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 - `docs/architecture.md` — arquitetura técnica do Hub (processos, IPC, store + migrações, first-run, Big Picture, segurança)
 - `docs/RELEASE.md` — guia/checklist de release passo a passo (fonte única do processo)
 - `docs/FIRST-RUN-CHECKLIST.md` — checklist de validação em máquina limpa do fluxo de primeira execução (preparado; execução em VM pendente)
-- `Mark-LVII/readme.md` — documentação do assistente JARVIS
 - `kloud-games/AGENTS.md` — instruções de build/teste do Kloud Games
 - Repositório: [github.com/Gui-Kol/kolnd-hub](https://github.com/Gui-Kol/kolnd-hub)
 

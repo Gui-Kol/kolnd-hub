@@ -234,7 +234,7 @@ export const GameCard = memo(function GameCard({
           <Badge tone="success" title="O jogo está aberto (processo detectado)">
             <span
               aria-hidden="true"
-              className="h-1.5 w-1.5 animate-pulse rounded-pill bg-success"
+              className="h-1.5 w-1.5 animate-pulse rounded-pill bg-success motion-reduce:animate-none"
             />
             Em execução
           </Badge>

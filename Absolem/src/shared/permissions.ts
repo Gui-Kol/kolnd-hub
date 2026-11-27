@@ -36,14 +36,14 @@ export interface PermissionsState {
   categories: PermissionCategories
 }
 
-/** Defaults aprovados: ask para apps/arquivos, allow web, deny energia/UIA. */
+/** Defaults aprovados: todas as categorias de ação começam liberadas. */
 export const DEFAULT_PERMISSION_CATEGORIES: Readonly<PermissionCategories> = Object.freeze({
-  'apps.launch': 'ask',
-  'apps.close': 'ask',
-  'files.read': 'ask',
-  'files.write': 'ask',
-  'system.power': 'deny',
-  'uia.control': 'deny',
+  'apps.launch': 'allow',
+  'apps.close': 'allow',
+  'files.read': 'allow',
+  'files.write': 'allow',
+  'system.power': 'allow',
+  'uia.control': 'allow',
   'web.search': 'allow'
 })
 
@@ -94,7 +94,7 @@ export function normalizePermissionsState(input: unknown): PermissionsState {
       ? (input as Record<string, unknown>)
       : {}
   return {
-    microphone: raw.microphone === true,
+    microphone: raw.microphone === undefined ? true : raw.microphone === true,
     paused: raw.paused === true,
     categories: normalizePermissionCategories(raw.categories)
   }
