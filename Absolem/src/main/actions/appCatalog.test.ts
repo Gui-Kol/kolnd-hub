@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createAppCatalog,
+  imageNameFromTarget,
   type CatalogFs,
   type DirentLike,
   type ShortcutResolution
@@ -262,5 +263,126 @@ describe('catálogo de programas', () => {
       ok: false,
       reason: 'verify'
     })
+    const failed = await died.open('Bloco de Notas')
+    expect(failed.ok === false && failed.error).toMatch(/^Não consegui abrir o aplicativo/)
+  })
+
+  it('espera o processo com o nome da imagem do alvo aparecer', async () => {
+    let clock = 0
+    let calls = 0
+    const findRunning = vi.fn(async (_image: string) => {
+      calls += 1
+      // Primeira checagem (antes do spawn) falsa; depois o app aparece.
+      return calls > 1
+    })
+    const spawn = vi.fn(() => ({ pid: 321, unref: () => undefined }))
+    const catalog = createAppCatalog(
+      baseOptions({
+        findRunning,
+        spawn,
+        verifyTimeoutMs: 2_000,
+        now: () => clock,
+        wait: async (ms) => {
+          clock += ms
+        }
+      })
+    )
+
+    const result = await catalog.open('Bloco de Notas')
+
+    expect(result).toMatchObject({
+      ok: true,
+      verified: true,
+      pid: 321,
+      message: 'Abri o aplicativo Bloco de Notas.'
+    })
+    expect(findRunning).toHaveBeenCalledWith('notepad.exe')
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('não abre de novo quando a imagem já está rodando', async () => {
+    const findRunning = vi.fn(async () => true)
+    const spawn = vi.fn(() => ({ pid: 999, unref: () => undefined }))
+    const catalog = createAppCatalog(baseOptions({ findRunning, spawn }))
+
+    const result = await catalog.open('Bloco de Notas')
+
+    expect(result).toMatchObject({
+      ok: true,
+      verified: true,
+      alreadyRunning: true,
+      message: 'O aplicativo Bloco de Notas já estava aberto.'
+    })
+    expect(findRunning).toHaveBeenCalledWith('notepad.exe')
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('launcher vivo sem imagem própria conta como aberto (PID secundário)', async () => {
+    let clock = 0
+    const catalog = createAppCatalog(
+      baseOptions({
+        findRunning: async () => false,
+        isProcessAlive: async () => true,
+        verifyTimeoutMs: 500,
+        now: () => clock,
+        wait: async (ms) => {
+          clock += ms
+        }
+      })
+    )
+
+    const result = await catalog.open('Bloco de Notas')
+
+    expect(result).toMatchObject({
+      ok: true,
+      verified: false,
+      pid: 4242,
+      message: 'Abri o aplicativo Bloco de Notas.'
+    })
+  })
+
+  it('sem imagem e sem PID vivo falha com frase amigável', async () => {
+    let clock = 0
+    const catalog = createAppCatalog(
+      baseOptions({
+        findRunning: async () => false,
+        isProcessAlive: async () => false,
+        verifyTimeoutMs: 500,
+        now: () => clock,
+        wait: async (ms) => {
+          clock += ms
+        }
+      })
+    )
+
+    const result = await catalog.open('Bloco de Notas')
+
+    expect(result).toMatchObject({ ok: false, reason: 'verify' })
+    expect(result.ok === false && result.error).toMatch(
+      /^Não consegui abrir o aplicativo Bloco de Notas:/
+    )
+  })
+
+  it('AUMID abre sem verificação de imagem e devolve frase de sucesso', async () => {
+    const findRunning = vi.fn(async () => false)
+    const catalog = createAppCatalog(baseOptions({ findRunning }))
+    await catalog.registerAumid('Calculadora UWP', 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App')
+
+    const result = await catalog.open('Calculadora UWP')
+
+    expect(result).toMatchObject({
+      ok: true,
+      verified: false,
+      message: 'Abri o aplicativo Calculadora UWP.'
+    })
+    expect(findRunning).not.toHaveBeenCalled()
+  })
+
+  it('só o basename .exe seguro do alvo vai para o filtro do tasklist', () => {
+    expect(imageNameFromTarget('C:\\Program Files\\App\\Insomnia.exe')).toBe('Insomnia.exe')
+    expect(imageNameFromTarget('calc.exe')).toBe('calc.exe')
+    expect(imageNameFromTarget('C:\\App\\iniciar.cmd')).toBeNull()
+    expect(imageNameFromTarget('C:\\App\\app.exe" /F')).toBeNull()
+    expect(imageNameFromTarget('C:\\App\\')).toBeNull()
   })
 })

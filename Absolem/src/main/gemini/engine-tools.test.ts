@@ -227,4 +227,56 @@ describe('GeminiEngine: loop de ferramentas (T10b)', () => {
     expect(collector.done[0]).toMatchObject({ input: 170, output: 17, total: 187 })
     expect(harness.usage.snapshot().month).toBe(187)
   })
+
+  it('turno vazio depois de ferramenta emite a frase pronta da última tool ok', async () => {
+    const harness = makeHarness({
+      route: async () => ({ ok: true, result: { message: 'Abri o aplicativo Insomnia.' } }),
+      scenario: {
+        streamStepsByAttempt: [[{ functionCalls: [{ name: 'get_current_time', args: {} }] }], [{}]]
+      }
+    })
+    const collector = collectSinks()
+
+    await harness.engine.send('req-empty-ok', 'abre o Insomnia', collector.sinks)
+
+    expect(collector.deltas).toEqual(['Abri o aplicativo Insomnia.'])
+    expect(collector.done).toHaveLength(1)
+    expect(collector.errors).toHaveLength(0)
+  })
+
+  it('turno vazio depois de ferramenta que falhou emite a frase de falha', async () => {
+    const harness = makeHarness({
+      route: async () => ({
+        ok: false,
+        error: { kind: 'failed', message: 'Não consegui abrir o aplicativo Insomnia: sumiu.' }
+      }),
+      scenario: {
+        streamStepsByAttempt: [[{ functionCalls: [{ name: 'get_current_time', args: {} }] }], [{}]]
+      }
+    })
+    const collector = collectSinks()
+
+    await harness.engine.send('req-empty-fail', 'abre o Insomnia', collector.sinks)
+
+    expect(collector.deltas).toEqual(['Não consegui concluir o pedido.'])
+    expect(collector.done).toHaveLength(1)
+    expect(collector.errors).toHaveLength(0)
+  })
+
+  it('resposta não vazia do modelo não é substituída pela frase pronta', async () => {
+    const harness = makeHarness({
+      route: async () => ({ ok: true, result: { message: 'Abri o aplicativo Insomnia.' } }),
+      scenario: {
+        streamStepsByAttempt: [
+          [{ functionCalls: [{ name: 'get_current_time', args: {} }] }],
+          [{ text: 'Pronto, abri o Insomnia.' }]
+        ]
+      }
+    })
+    const collector = collectSinks()
+
+    await harness.engine.send('req-text-ok', 'abre o Insomnia', collector.sinks)
+
+    expect(collector.deltas).toEqual(['Pronto, abri o Insomnia.'])
+  })
 })

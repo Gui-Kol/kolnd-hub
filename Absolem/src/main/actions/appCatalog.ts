@@ -6,12 +6,13 @@
  *   `userData/app-catalog.json` com a assinatura de `mtime` dos diretórios;
  * - aceita AUMID de app UWP, aberto por `explorer.exe shell:AppsFolder\<AUMID>`;
  * - abre com `spawn(exe, [], { detached, stdio:'ignore', shell:false })` e
- *   confirma em até 3 s que o PID existe antes de reportar sucesso;
+ *   confirma em até 10 s que o processo com o nome da imagem do alvo existe
+ *   antes de reportar sucesso; se a imagem já estava rodando, não abre de novo;
  * - nome fora do catálogo nunca abre.
  *
  * Nada aqui interpola texto do modelo em comando: o PowerShell recebe a lista
- * de caminhos embutida no script (`-EncodedCommand`) e o destino do `.lnk` é
- * apenas `file` do `spawn`.
+ * de caminhos embutida no script (`-EncodedCommand`), o `tasklist` recebe apenas
+ * o basename `.exe` do alvo e o destino do `.lnk` é apenas `file` do `spawn`.
  */
 
 export interface CatalogApp {
@@ -66,6 +67,11 @@ export interface AppCatalogOptions {
   ) => SpawnedProcessLike
   /** `tasklist /FI "PID eq <pid>"`; nunca lança. */
   isProcessAlive: (pid: number) => Promise<boolean>
+  /**
+   * `tasklist /FI "IMAGENAME eq <exe>"`: existe processo com essa imagem?
+   * Recebe só o basename `.exe` do alvo; nunca lança.
+   */
+  findRunning?: (imageName: string) => Promise<boolean>
   wait?: (ms: number) => Promise<void>
   verifyTimeoutMs?: number
   now?: () => number
@@ -74,7 +80,16 @@ export interface AppCatalogOptions {
 export type OpenAppFailure = 'unknown' | 'spawn' | 'verify' | 'blocked'
 
 export type OpenAppResult =
-  | { ok: true; app: CatalogApp; pid: number; verified: boolean }
+  | {
+      ok: true
+      app: CatalogApp
+      pid: number
+      verified: boolean
+      /** Frase pronta em pt-BR para o modelo confirmar ao usuário. */
+      message: string
+      /** O app já estava aberto antes do pedido: nenhum spawn aconteceu. */
+      alreadyRunning?: true
+    }
   | { ok: false; reason: OpenAppFailure; error: string }
 
 export interface AppCatalog {
@@ -88,9 +103,14 @@ const CACHE_VERSION = 2
 const MAX_SCAN_DEPTH = 6
 const MAX_NAME_LENGTH = 100
 const MAX_AUMID_LENGTH = 200
-const DEFAULT_VERIFY_TIMEOUT_MS = 3_000
+const MAX_IMAGE_NAME_LENGTH = 120
+/** Espera máxima do `open_app` pelo processo do app aberto. */
+export const OPEN_APP_VERIFY_TIMEOUT_MS = 10_000
+const DEFAULT_VERIFY_TIMEOUT_MS = OPEN_APP_VERIFY_TIMEOUT_MS
 const VERIFY_INTERVAL_MS = 250
 const MAX_LISTED_NAMES = 20
+/** Só o basename `.exe` do alvo vai para o `tasklist`; nada de texto livre. */
+const SAFE_IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]*\.exe$/i
 
 interface CacheFile {
   version: number
@@ -108,6 +128,20 @@ function normalizeLookupName(input: string): string {
     .replace(/\.lnk$/i, '')
     .slice(0, MAX_NAME_LENGTH)
     .toLowerCase()
+}
+
+/**
+ * Nome da imagem (basename `.exe`) usado no filtro do `tasklist`. Alvos que
+ * delegam a outro processo (`.cmd`, `.bat`, sem `.exe`) devolvem `null` e caem
+ * na verificação por PID.
+ */
+export function imageNameFromTarget(target: string): string | null {
+  if (typeof target !== 'string') return null
+  const base = target.replace(/\\/g, '/').split('/').pop() ?? ''
+  const trimmed = base.trim()
+  if (!trimmed || trimmed.length > MAX_IMAGE_NAME_LENGTH) return null
+  if (!SAFE_IMAGE_NAME.test(trimmed)) return null
+  return trimmed
 }
 
 function isSafeAumid(value: string): boolean {
@@ -301,9 +335,44 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
     return false
   }
 
+  /**
+   * Espera o app abrir. Sinal principal: processo com a imagem do alvo
+   * (`findRunning`). Sinal secundário: o PID spawnado ficou vivo em algum
+   * momento — cobre `.lnk` cujo alvo é um launcher que delega e sai.
+   */
+  async function waitForOpen(pid: number, image: string): Promise<'image' | 'pid' | 'none'> {
+    const startedAt = options.now?.() ?? Date.now()
+    const maxAttempts = Math.ceil(verifyTimeoutMs / VERIFY_INTERVAL_MS) + 1
+    let pidAlive = false
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (options.findRunning) {
+        try {
+          if (await options.findRunning(image)) return 'image'
+        } catch {
+          // `tasklist` falhou: segue com o sinal secundário do PID.
+        }
+      }
+      if (!pidAlive) {
+        try {
+          pidAlive = await options.isProcessAlive(pid)
+        } catch {
+          pidAlive = false
+        }
+      }
+      const elapsed = (options.now?.() ?? Date.now()) - startedAt
+      if (elapsed >= verifyTimeoutMs) break
+      await wait(VERIFY_INTERVAL_MS)
+    }
+    return pidAlive ? 'pid' : 'none'
+  }
+
   async function open(name: string): Promise<OpenAppResult> {
     if (typeof name !== 'string' || !name.trim() || name.length > MAX_NAME_LENGTH) {
-      return { ok: false, reason: 'unknown', error: 'Nome de aplicativo inválido.' }
+      return {
+        ok: false,
+        reason: 'unknown',
+        error: 'Não consegui abrir o aplicativo: nome inválido.'
+      }
     }
     const app = await findByName(name)
     if (!app) {
@@ -312,8 +381,24 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
         ok: false,
         reason: 'unknown',
         error: names
-          ? `Aplicativo fora do catálogo. Disponíveis: ${names}.`
-          : 'Aplicativo fora do catálogo.'
+          ? `Não consegui abrir o aplicativo ${name.trim()}: fora do catálogo. Disponíveis: ${names}.`
+          : `Não consegui abrir o aplicativo ${name.trim()}: fora do catálogo.`
+      }
+    }
+
+    const image = app.target ? imageNameFromTarget(app.target) : null
+    if (image && options.findRunning) {
+      const running = await options.findRunning(image).catch(() => false)
+      if (running) {
+        // Já existe processo com a imagem: abrir de novo duplicaria a janela.
+        return {
+          ok: true,
+          app,
+          pid: 0,
+          verified: true,
+          alreadyRunning: true,
+          message: `O aplicativo ${app.name} já estava aberto.`
+        }
       }
     }
 
@@ -325,30 +410,54 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
       child.unref()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, reason: 'spawn', error: `Falha ao abrir ${app.name}: ${message}` }
+      return {
+        ok: false,
+        reason: 'spawn',
+        error: `Não consegui abrir o aplicativo ${app.name}: ${message}`
+      }
     }
     const pid = typeof child.pid === 'number' && child.pid > 0 ? child.pid : 0
     if (pid === 0) {
-      return { ok: false, reason: 'spawn', error: `Falha ao abrir ${app.name}: sem PID.` }
+      return {
+        ok: false,
+        reason: 'spawn',
+        error: `Não consegui abrir o aplicativo ${app.name}: o processo não iniciou.`
+      }
     }
+    const successMessage = `Abri o aplicativo ${app.name}.`
     if (app.kind === 'aumid') {
       // O explorer.exe sai logo após encaminhar o AUMID; não há PID do app
       // para verificar. O spawn sem erro é o melhor sinal disponível.
-      return { ok: true, app, pid, verified: false }
+      return { ok: true, app, pid, verified: false, message: successMessage }
+    }
+    if (image && options.findRunning) {
+      const outcome = await waitForOpen(pid, image)
+      if (outcome === 'image') {
+        return { ok: true, app, pid, verified: true, message: successMessage }
+      }
+      if (outcome === 'pid') {
+        // Launcher: o PID spawnado viveu, mas a imagem final é outra.
+        return { ok: true, app, pid, verified: false, message: successMessage }
+      }
+      return {
+        ok: false,
+        reason: 'verify',
+        error: `Não consegui abrir o aplicativo ${app.name}: ele não apareceu em ${Math.round(verifyTimeoutMs / 1000)} s.`
+      }
     }
     if (app.kind === 'known') {
       // Apps conhecidos (ex.: notepad.exe) podem delegar a outra instância e
       // sair: verificar o PID daria falso negativo. O spawn sem erro basta.
-      return { ok: true, app, pid, verified: false }
+      return { ok: true, app, pid, verified: false, message: successMessage }
     }
     if (!(await verifyPid(pid))) {
       return {
         ok: false,
         reason: 'verify',
-        error: `O processo de ${app.name} não apareceu em ${verifyTimeoutMs} ms.`
+        error: `Não consegui abrir o aplicativo ${app.name}: ele não apareceu em ${Math.round(verifyTimeoutMs / 1000)} s.`
       }
     }
-    return { ok: true, app, pid, verified: true }
+    return { ok: true, app, pid, verified: true, message: successMessage }
   }
 
   async function registerAumid(

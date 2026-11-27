@@ -45,7 +45,12 @@ import {
   type RoutineAuditEvent,
   type RoutineScheduler
 } from '../routines/scheduler'
-import { createAppCatalog, type CatalogApp, type ShortcutResolution } from './appCatalog'
+import {
+  createAppCatalog,
+  OPEN_APP_VERIFY_TIMEOUT_MS,
+  type CatalogApp,
+  type ShortcutResolution
+} from './appCatalog'
 import { batchShortcutPaths, buildShortcutResolveScript, encodePowerShell } from './shortcutResolve'
 import { closeProcess, listProcesses, parseTasklistCsv } from './processes'
 import { searchFiles, defaultSearchRoots } from './search'
@@ -55,6 +60,7 @@ import { createSystemActions } from './system'
 import { createUiAutomation } from './uia'
 import { createActionToolEntries, registerActionTools } from './tools'
 import { registerPauseShortcut, unregisterPauseShortcut } from './shortcut'
+import { resolveYoutubeVideo, youtubeSearchQueryFromUrl } from '../youtube/search'
 
 /**
  * Composição de produção das ações (task 08, T10).
@@ -72,6 +78,9 @@ interface CommandResult {
 }
 
 const MAX_EXEC_BUFFER = 2 * 1024 * 1024
+/** Só o basename `.exe` do alvo entra no filtro do `tasklist`; nunca texto livre. */
+const TASKLIST_IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]*\.exe$/i
+const MAX_TASKLIST_IMAGE_LENGTH = 120
 
 function runCommand(file: string, args: string[], timeoutMs = 30_000): Promise<CommandResult> {
   return new Promise((resolve) => {
@@ -232,6 +241,22 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
       return resolved
     },
     spawn: (file, args, options) => spawn(file, args, options),
+    verifyTimeoutMs: OPEN_APP_VERIFY_TIMEOUT_MS,
+    findRunning: async (imageName) => {
+      const image = typeof imageName === 'string' ? imageName.trim() : ''
+      if (!image || image.length > MAX_TASKLIST_IMAGE_LENGTH) return false
+      if (!TASKLIST_IMAGE_NAME.test(image)) return false
+      const result = await runCommand(
+        'tasklist.exe',
+        ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'],
+        15_000
+      )
+      if (result.code !== 0) return false
+      const expected = image.toLowerCase()
+      return parseTasklistCsv(result.stdout).some(
+        (process) => process.name.toLowerCase() === expected
+      )
+    },
     isProcessAlive: async (pid) => {
       const result = await runCommand(
         'tasklist.exe',
@@ -349,6 +374,26 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
     }
   }
 
+  /**
+   * Resolve a busca e abre somente o vídeo (`watch?v=...`). Reutilizado pelo
+   * `open_url` quando o modelo ainda passa uma URL de resultados do YouTube.
+   */
+  const openYoutubeQuery = async (
+    query: string
+  ): Promise<{ url: string; title: string; videoId: string }> => {
+    // A busca é resolvida antes de abrir: o usuário vai direto ao vídeo e
+    // nunca à página de resultados. Sem resultado, o erro sobe para o modelo.
+    const video = await resolveYoutubeVideo(query)
+    const allowed = parseAllowedExternalUrl(video.url)
+    if (!allowed || !/^https:\/\/www\.youtube\.com\/watch\?v=/.test(allowed)) {
+      throw new Error('O YouTube devolveu um link de vídeo inválido.')
+    }
+    await shell.openExternal(allowed)
+    const shortTitle = video.title.length > 80 ? `${video.title.slice(0, 77)}...` : video.title
+    logger.info('actions', `YouTube: ${video.videoId} "${shortTitle}"`)
+    return { url: allowed, title: video.title, videoId: video.videoId }
+  }
+
   const env: ActionToolsEnv = {
     catalog,
     processes,
@@ -429,9 +474,16 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
       // Mesma allowlist do IPC de pesquisa: só http/https, sem credenciais.
       const allowed = parseAllowedExternalUrl(url)
       if (!allowed) throw new Error('Apenas links http ou https podem ser abertos.')
+      const searchQuery = youtubeSearchQueryFromUrl(allowed)
+      if (searchQuery) {
+        // Sem fallback para a busca: o pedido vira o vídeo direto.
+        const video = await openYoutubeQuery(searchQuery)
+        return { url: video.url }
+      }
       await shell.openExternal(allowed)
       return { url: allowed }
     },
+    openYoutube: openYoutubeQuery,
     system,
     uia,
     limiter,

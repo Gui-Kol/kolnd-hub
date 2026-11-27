@@ -40,6 +40,8 @@ export interface ActionToolsEnv {
   undoFileOp: (id: string) => Promise<{ ok: true; id: string; undone: number }>
   /** Abre um site http/https no navegador padrão (allowlist em `instance.ts`). */
   openUrl: (url: string) => Promise<{ url: string }>
+  /** Pesquisa no YouTube e abre o vídeo direto (`watch?v=...`), nunca a busca. */
+  openYoutube: (query: string) => Promise<{ url: string; title: string; videoId: string }>
   system: SystemActions
   uia: UiAutomation
   limiter: ActionLimiter
@@ -77,6 +79,26 @@ function actionResult(result: SystemActionResult): unknown {
   return result
 }
 
+/** Erro de ferramenta sempre em linguagem amigável, começando por "Não consegui". */
+function friendlyError(action: string, err: unknown): Error {
+  const message = (err instanceof Error ? err.message : String(err)).trim()
+  if (message.startsWith('Não consegui')) return new Error(message)
+  return new Error(`Não consegui ${action}: ${message}`)
+}
+
+function urlHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+function shortTitle(title: string): string {
+  const trimmed = title.trim()
+  return trimmed.length <= 100 ? trimmed : `${trimmed.slice(0, 97)}...`
+}
+
 export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
   return [
     {
@@ -98,7 +120,9 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
     {
       definition: {
         name: 'open_app',
-        description: 'Abre um aplicativo pelo nome exato do catálogo de programas instalados.',
+        description:
+          'Abre um aplicativo pelo nome exato do catálogo de programas instalados e espera ' +
+          'até 10 s o processo aparecer; só retorna depois de confirmar que ele abriu.',
         parameters: {
           type: 'object',
           properties: {
@@ -113,24 +137,31 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
         },
         sensitive: true,
         category: 'apps.launch',
-        timeoutMs: 10_000
+        timeoutMs: 20_000
       },
       handler: async (args) => {
         if (!env.limiter.checkAppLaunch()) {
-          throw new Error('Limite de 5 aberturas de aplicativo por minuto atingido.')
+          throw new Error(
+            'Não consegui abrir o aplicativo: limite de 5 aberturas por minuto atingido.'
+          )
         }
         const result = await env.catalog.open(String(args.name ?? ''))
-        if (!result.ok) throw new Error(result.error)
-        return { app: result.app.name, pid: result.pid, verified: result.verified }
+        if (!result.ok) throw friendlyError('abrir o aplicativo', new Error(result.error))
+        return {
+          app: result.app.name,
+          pid: result.pid,
+          verified: result.verified,
+          message: result.message,
+          ...(result.alreadyRunning ? { alreadyRunning: true } : {})
+        }
       }
     },
     {
       definition: {
         name: 'open_url',
         description:
-          'Abre um site ou vídeo no navegador padrão do usuário. Use para pedidos como ' +
-          '"abrir o YouTube" ou "ver um vídeo"; para pesquisar no YouTube, monte a URL ' +
-          'https://www.youtube.com/results?search_query=... com termos em texto. Só http/https.',
+          'Abre um site ou uma URL direta http/https no navegador padrão do usuário. ' +
+          'Para pesquisar e abrir vídeos ou episódios no YouTube, use open_youtube.',
         parameters: {
           type: 'object',
           properties: {
@@ -148,8 +179,59 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
         timeoutMs: 10_000
       },
       handler: async (args) => {
-        const result = await env.openUrl(String(args.url ?? ''))
-        return { url: result.url }
+        let result: { url: string }
+        try {
+          result = await env.openUrl(String(args.url ?? ''))
+        } catch (err) {
+          throw friendlyError('abrir o site', err)
+        }
+        return {
+          url: result.url,
+          message: `Abri o site ${urlHost(result.url)} no navegador.`
+        }
+      }
+    },
+    {
+      definition: {
+        name: 'open_youtube',
+        description:
+          'Pesquisa no YouTube e abre o vídeo direto no navegador padrão. Use para pedidos ' +
+          'de vídeo ou episódio (ex.: "abre o episódio 400 de casa automática"); a busca é ' +
+          'resolvida e abre o watch?v=... em vez da página de resultados.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Busca em texto, por exemplo "episódio 400 casa automática".',
+              minLength: 1,
+              maxLength: 200
+            }
+          },
+          required: ['query'],
+          additionalProperties: false
+        },
+        sensitive: false,
+        category: 'web.search',
+        timeoutMs: 20_000
+      },
+      handler: async (args) => {
+        const query = typeof args.query === 'string' ? args.query.trim() : ''
+        if (!query || query.length > 200) {
+          throw new Error('Não consegui abrir o vídeo: a busca deve ter de 1 a 200 caracteres.')
+        }
+        let result: { url: string; title: string; videoId: string }
+        try {
+          result = await env.openYoutube(query)
+        } catch (err) {
+          throw friendlyError('abrir o vídeo', err)
+        }
+        return {
+          url: result.url,
+          title: result.title,
+          videoId: result.videoId,
+          message: `Abri o vídeo "${shortTitle(result.title || query)}" no navegador.`
+        }
       }
     },
     {
@@ -192,13 +274,31 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
       handler: async (args) => {
         const pid = Number(args.pid)
         const force = args.force === true
+        const processName =
+          (await env.processes
+            .list()
+            .then((processes) => processes.find((process) => process.pid === pid)?.name.trim())
+            .catch(() => undefined)) ?? ''
+        const label = processName || `processo ${pid}`
         if (force) {
           const confirmed = await env.confirmForceClose(pid)
-          if (!confirmed) throw new Error('Forçar encerramento não foi confirmado.')
+          if (!confirmed) {
+            throw new Error(
+              `Não consegui fechar ${label}: o encerramento forçado não foi confirmado.`
+            )
+          }
         }
         const result = await env.processes.close(pid, force)
-        if (!result.ok && result.reason !== 'still-running') throw new Error(result.error)
-        return result
+        if (!result.ok && result.reason !== 'still-running') {
+          throw friendlyError(`fechar ${label}`, new Error(result.error))
+        }
+        if (!result.ok) {
+          return {
+            ...result,
+            message: `Não consegui fechar ${label}: ${result.error}`
+          }
+        }
+        return { ...result, message: `Fechei o ${label}.` }
       }
     },
     {

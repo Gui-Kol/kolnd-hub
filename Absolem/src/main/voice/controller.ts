@@ -97,6 +97,10 @@ export interface VoiceControllerDeps {
 
 const MAX_DEVICE_ID_LENGTH = 200
 const AUDIO_SPEECH_RMS = 0.02
+/** Espera máxima pela fala de confirmação depois de uma ferramenta. */
+export const TOOL_REPLY_GUARD_MS = 6_000
+export const TOOL_REPLY_NUDGE =
+  'Responda ao usuário em uma frase curta o resultado da ação que você acabou de executar, sucesso ou falha.'
 
 interface TranscriptBuffer {
   text: string
@@ -138,6 +142,10 @@ export class VoiceController {
   private consentAsked = false
   private silenceTimer: ReturnType<typeof setTimeout> | null = null
   private maxTimer: ReturnType<typeof setTimeout> | null = null
+  /** Vigia de confirmação após `sendToolResponse` (um nudge por rodada). */
+  private toolReplyTimer: ReturnType<typeof setTimeout> | null = null
+  private toolReplyPending = false
+  private toolReplyNudged = false
   private transcripts = { user: emptyBuffer(), model: emptyBuffer() }
   private memorySessionId: string | null = null
 
@@ -372,6 +380,7 @@ export class VoiceController {
     return {
       onAudio: (data, sampleRate) => {
         if (epoch !== this.epoch) return
+        this.noteModelSpeech()
         const state = this.machine.getState()
         if (state === 'listening') {
           this.machine.transition('thinking', 'response')
@@ -409,6 +418,9 @@ export class VoiceController {
       },
       onTurnComplete: () => {
         if (epoch !== this.epoch) return
+        // Turno fechado sem fala depois de uma ferramenta: pede a confirmação
+        // uma única vez, em vez de deixar o usuário no silêncio.
+        if (this.toolReplyPending) this.sendToolReplyNudge()
         this.transcripts = { user: emptyBuffer(), model: emptyBuffer() }
         const state = this.machine.getState()
         if (state === 'speaking' || state === 'thinking') {
@@ -427,6 +439,10 @@ export class VoiceController {
     const route = this.deps.routeToolCall
     this.deps.logger?.debug('voice', 'tool call recebida do Live', { count: calls.length })
     if (!route || calls.length === 0) return
+    // Um novo `onToolCall` significa que o turno continua com ferramenta (ex.:
+    // list_apps -> open_app): o vigia da rodada anterior não pode disparar no
+    // meio da próxima ação. Cancela sem marcar como respondido.
+    this.cancelToolReplyGuard()
 
     const responses: GeminiFunctionResponse[] = []
     for (const call of calls) {
@@ -447,12 +463,18 @@ export class VoiceController {
       })
     }
     if (epoch !== this.epoch || responses.length === 0) return
-    this.session?.sendToolResponse?.(responses)
+    const session = this.session
+    if (!session) return
+    session.sendToolResponse?.(responses)
+    // A confirmação falada é obrigatória: se o modelo não falar e o turno
+    // terminar (ou 6 s passarem), um único nudge pede a frase de resultado.
+    this.armToolReplyGuard()
   }
 
   private handleTranscript(event: VoiceSessionTranscript): void {
     const text = typeof event.text === 'string' ? event.text : ''
     if (!text) return
+    if (event.role === 'model') this.noteModelSpeech()
     const buffer = this.transcripts[event.role]
     if (event.final) {
       buffer.text = text
@@ -539,6 +561,56 @@ export class VoiceController {
     }
   }
 
+  /** Novo `onToolCall`: cancela o vigia anterior sem marcar como respondido. */
+  private cancelToolReplyGuard(): void {
+    if (this.toolReplyTimer) {
+      clearTimeout(this.toolReplyTimer)
+      this.toolReplyTimer = null
+    }
+    this.toolReplyPending = false
+    this.toolReplyNudged = false
+  }
+
+  /** Arma o vigia de confirmação de UMA rodada de ferramenta. */
+  private armToolReplyGuard(): void {
+    if (this.toolReplyTimer) clearTimeout(this.toolReplyTimer)
+    this.toolReplyPending = true
+    this.toolReplyNudged = false
+    this.toolReplyTimer = setTimeout(() => {
+      this.toolReplyTimer = null
+      this.sendToolReplyNudge()
+    }, TOOL_REPLY_GUARD_MS)
+  }
+
+  /** O modelo falou (áudio ou transcrição): a confirmação chegou. */
+  private noteModelSpeech(): void {
+    if (!this.toolReplyPending) return
+    this.toolReplyPending = false
+    if (this.toolReplyTimer) {
+      clearTimeout(this.toolReplyTimer)
+      this.toolReplyTimer = null
+    }
+  }
+
+  /** No máximo um nudge por rodada; nunca depois de fechar/parar. */
+  private sendToolReplyNudge(): void {
+    if (!this.toolReplyPending || this.toolReplyNudged) return
+    const session = this.session
+    if (!session) return
+    this.toolReplyNudged = true
+    this.toolReplyPending = false
+    if (this.toolReplyTimer) {
+      clearTimeout(this.toolReplyTimer)
+      this.toolReplyTimer = null
+    }
+    try {
+      session.sendText(TOOL_REPLY_NUDGE)
+    } catch {
+      // Sessão fechando: não há o que pedir.
+    }
+    this.deps.logger?.debug('voice', 'nudge de confirmação enviado')
+  }
+
   private fail(message: string): void {
     this.epoch += 1
     this.clearTimers()
@@ -589,7 +661,11 @@ export class VoiceController {
   private clearTimers(): void {
     if (this.silenceTimer) clearTimeout(this.silenceTimer)
     if (this.maxTimer) clearTimeout(this.maxTimer)
+    if (this.toolReplyTimer) clearTimeout(this.toolReplyTimer)
     this.silenceTimer = null
     this.maxTimer = null
+    this.toolReplyTimer = null
+    this.toolReplyPending = false
+    this.toolReplyNudged = false
   }
 }

@@ -97,6 +97,15 @@ function toolErrorMessage(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300)
 }
 
+/** Frase pt-BR pronta devolvida pelas ferramentas de ação (`message`). */
+function toolResultMessage(result: ToolCallResult): string | null {
+  if (!result.ok) return null
+  const value = result.result
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const message = (value as Record<string, unknown>).message
+  return typeof message === 'string' && message.trim().length > 0 ? message.trim() : null
+}
+
 /** Campos de resposta web que o engine pós-processa (task 10, T5/T8). */
 export interface WebToolPayload {
   sources: WebSource[]
@@ -554,6 +563,8 @@ export class GeminiEngine {
     let callIndex = 0
     let continuations = 0
     let toolCallCount = 0
+    let lastToolMessage: string | null = null
+    let lastToolOk = false
     let callContents = contents
     let webSources: WebSource[] = []
     let webNoSources = false
@@ -651,6 +662,8 @@ export class GeminiEngine {
             }
           }
           if (controller.signal.aborted) break
+          lastToolOk = callResult.ok
+          lastToolMessage = toolResultMessage(callResult)
           const payload = extractWebToolPayload(callResult)
           if (payload) {
             webSources = mergeSources(webSources, payload.sources)
@@ -702,6 +715,15 @@ export class GeminiEngine {
         finalModelText = [[...new Set(webWarnings)].join('\n'), finalModelText]
           .filter((part) => part.length > 0)
           .join('\n\n')
+      }
+      // Rede de segurança do texto: o modelo não pode encerrar em silêncio
+      // depois de executar ferramenta. Emite a frase pronta da última tool.
+      if (finalModelText.trim().length === 0 && toolCallCount > 0) {
+        const fallback = lastToolOk
+          ? (lastToolMessage ?? 'Concluí o pedido.')
+          : 'Não consegui concluir o pedido.'
+        sinks.delta(fallback)
+        finalModelText = fallback
       }
       this.history.append('user', trimmed)
       if (finalModelText.length > 0) this.history.append('model', finalModelText)
