@@ -157,8 +157,16 @@ Na task 15, `parts.body` passou a conter, além dos 9 segmentos, os grupos
 e cauda). `CaterpillarStats` ganhou `bodyBaseY`, o Y local do plano de apoio,
 para a task 22 enquadrar o avatar sem flutuação (aplicando o scale da cena).
 
+Na task 16, o rosto vive dentro de `parts.head` (`caterpillar-head-group`); o
+grupo estável `parts.face` continua vazio, como o contrato de partes exige.
+`CaterpillarBuild` ganhou `lids`, `brows`, `browLeft`, `browRight`, `jaw`,
+`mouthCorners`, `nose` e `nostrils`, e o campo legado `mouth` passou de `Mesh`
+para `Group` (o grupo da abertura). Os campos `eyeGroups`, `pupils`, `antennae`
+e `mandibles` continuam existindo; `eyeGroups[].scale.y` não é mais usado para
+piscar.
+
 Os campos legados (`segments`, `head`, `eyeGroups`, `pupils`, `antennae`,
-`mandibles`, `mouth`, `outfit`) continuam apontando para as meshes existentes.
+`mandibles`, `mouth`, `outfit`) continuam apontando para os nós existentes.
 Somente `scene.ts` e os testes conhecem `caterpillar.ts`; nenhum consumidor
 externo importa `parts/*` diretamente.
 
@@ -244,3 +252,149 @@ dobra e cauda enrolada. A captura isolada em 480x560 do harness de teste saiu
 com o topo cortado porque a área CSS do avatar ainda é 64x64 (task 22); o
 enquadramento final em 480x560 e a comparação visual com a referência ficam
 para as tasks 22 e 23. Nenhuma imagem de referência foi embutida no app.
+
+## 10. Task 16 - cabeça, rosto e olhos
+
+A cabeça e o rosto saíram de `parts/head.ts`, com a cena aplicando a pose facial
+por `facePose.ts`. O corpo continua em `parts/body.ts` e não foi reescrito. A
+referência de 1951 guiou apenas proporções e leitura; nenhuma imagem, textura ou
+modelo externo entrou no aplicativo.
+
+### 10.1 Massa craniana, bochechas e papada
+
+| Elemento   | Regra na task 16                                                    |
+| ---------- | ------------------------------------------------------------------- |
+| Crânio     | Elipsoide `caterpillar-head`, escala X 1.18, topo cortado em 0.84 R |
+| Proporção  | Largura/altura do crânio entre 1.15 e 1.30 (medido 1.28)            |
+| Topo plano | Vértices acima de 0.84 R achatados no mesmo plano                   |
+| Bochechas  | `caterpillar-cheek-left/right`, volumes caídos à frente do crânio   |
+| Papada     | `caterpillar-jowl`, abaixo do centro do queixo e à frente           |
+| Âncora     | `neck` do corpo mais o delta de `SKELETON.head` (task 15)           |
+
+As bochechas ultrapassam o plano frontal do crânio em Z, e a papada desce abaixo
+do ponto mais baixo do crânio. Isso mantém a leitura de bochechas caídas e
+papada sem depender de textura.
+
+### 10.2 Sobrancelha e testa
+
+Cada sobrancelha é um tubo sobre `CatmullRomCurve3` na cor `brow`, com um reforço
+central que engrossa o arco. Os grupos `caterpillar-brow-left/right` são expostos
+em `brows`, `browLeft` e `browRight` para a task 20 animar `browRaise`. A testa
+visível fica entre a sobrancelha (0.55 R acima do centro) e o topo plano
+(0.84 R), sem competir com a base do turbante da task 18.
+
+### 10.3 Olhos e pálpebras
+
+Cada olho tem `caterpillar-sclera`, `caterpillar-iris`, `caterpillar-pupil`,
+`caterpillar-highlight` e uma pálpebra superior própria
+(`caterpillar-eyelid`, com a casca `caterpillar-eyelid-shell`). A pálpebra é uma
+calota esférica em um pivô: girar o pivô fecha o olho sem esmagar a pupila.
+
+| Estado            | Rotação da pálpebra | Leitura                           |
+| ----------------- | ------------------- | --------------------------------- |
+| `listening` (1)   | -pi/2               | olho totalmente aberto            |
+| `idle` (0.95)     | -0.32               | calota cobre cerca de 35% da área |
+| `speaking` (0.88) | ~-0.18              | um pouco mais fechado que `idle`  |
+| `error` (0.68)    | ~0.22               | pálpebra pesada, olhar cansado    |
+| `thinking` (0.42) | ~0.74               | olhar sonolento/desviado          |
+| piscada (0)       | +pi/2               | calota cobre o olho inteiro       |
+
+`facePose.ts` converte `expression.eyeOpenness` em fechamento e aplica em
+`lids`. `eyeGroups` continua no contrato, mas seu `scale.y` não é mais tocado;
+`pupils` continua disponível para o desvio de olhar da task 20. A piscada segue
+a curva existente de `expressions.ts`, abaixo de 3 Hz, e `prefers-reduced-motion`
+continua congelando apenas o sway.
+
+### 10.4 Nariz e narinas
+
+O nariz é um elipsoide largo e achatado (`caterpillar-nose`, 1.35 x 0.55 x 0.55
+do raio local) na cor `head`, com duas narinas escuras na cor `mouth` dentro de
+`caterpillar-nostrils`. Ele fica entre a linha dos olhos e a boca.
+
+Distâncias para a task 19 calibrar a sombra, em múltiplos do raio da cabeça R:
+
+| Medida                                    | Valor aproximado |
+| ----------------------------------------- | ---------------- |
+| Frente do nariz                           | 1.051 R          |
+| Frente do lábio superior                  | 1.035 R          |
+| Nariz à frente do lábio em Z              | 0.016 R (~0.004) |
+| Base do nariz acima do topo do lábio em Y | 0.054 R (~0.013) |
+
+A folga vertical positiva é o que impede o focinho de cruzar o plano da boca. A
+task 19 deve manter a luz suave nessa faixa para não projetar sombra dura no
+lábio superior.
+
+### 10.5 Boca, lábios, língua e queixo
+
+A boca é um grupo (`caterpillar-mouth`) com lábio superior
+(`caterpillar-lip-upper`), lábio inferior (`caterpillar-lip-lower`), interior
+escuro (`caterpillar-mouth-interior`), língua (`caterpillar-tongue`) e dois
+cantos (`caterpillar-mouth-corner-left/right`). O `jaw` é o pivô que abre o
+queixo e leva o lábio inferior e a língua.
+
+| Situação           | Regra                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| Repouso            | Lábios se tocam, sem fresta, e os cantos ficam acima do centro |
+| `mouthOpen` 0      | Queixo na posição de repouso; nenhum vão entre os lábios       |
+| `mouthOpen` 1      | Queixo gira 1 rad; lábios se afastam pelo menos 0.06           |
+| `mouthWidth`       | Escala X do grupo da boca move os dois cantos                  |
+| `speaking`         | `lip.mouthOpen` articula; `lip.mouthWidth` alarga              |
+| `listening`/`idle` | Boca fechada e sorridente                                      |
+
+A cena continua consumindo `expression.eyeOpenness`, `lip.mouthOpen` e
+`lip.mouthWidth`; `expressions.ts` e a interface de `lipSync.ts` não mudaram.
+
+### 10.6 Cena e contrato
+
+`applyFacePose(caterpillar, expression, lip)` em `facePose.ts` substitui os
+laços antigos de `scene.ts`:
+
+- pálpebras recebem `lidClosureFromOpenness(expression.eyeOpenness)`;
+- antenas recebem `expression.antennaLift` e o laço tolera lista vazia;
+- boca recebe `lip.mouthOpen` e `lip.mouthWidth` no `jaw` e no grupo `mouth`.
+
+O teste `cena nao quebra com antennae vazio` cobre a lista vazia. O contrato de
+`caterpillar.test.ts` passou a aceitar 0 ou 2 antenas, com a justificativa de que
+o look novo pode escondê-las sob o turbante (task 18); a contagem de sementes,
+vértices e o teto de triângulos não mudaram. `parts-contract.test.ts` continua
+verificando todos os nós no root, agora incluindo pálpebras, sobrancelhas, jaw,
+cantos e narinas.
+
+### 10.7 Medições e checklist da task 16
+
+Medido no binário buildado, overlay em 320x360, acabamento `storybook`, com
+`?debug=1` e `?fakeVoice=1`:
+
+| Recurso    | Limite / meta | Medido na task 16 | Observação                                     |
+| ---------- | ------------- | ----------------- | ---------------------------------------------- |
+| Triângulos | 24000         | 10328             | abaixo do teto                                 |
+| Draw calls | 24 (task 14)  | 43                | rosto detalhado; acima do orçamento da task 14 |
+| FPS        | 60            | 165               | máquina de desenvolvimento                     |
+| Degradação | 0 a 3         | 0                 | `?slow=1` não foi necessário para esta medição |
+
+O teto de triângulos continua verde. O orçamento de draw calls da task 14 (24)
+foi excedido porque cada traço facial é um nó próprio para as tasks 19-20
+(pálpebras, sobrancelhas, cantos, língua, narinas). A otimização por mesclagem
+fica registrada como pendência para a task 19/23; não foi feita nesta task para
+não perder os nós que a task 20 vai animar. **Desvio aprovado pelo usuário em
+27/11/2026:** a task 16 segue com 43 draw calls documentados, e a mesclagem
+controlada fica obrigatória nas tasks 19/23.
+
+Checklist dos cinco estados, com troca por `window.absolem.avatar.setState`:
+
+| Estado      | Leitura obtida sem a task 20                                     | Pendência                     |
+| ----------- | ---------------------------------------------------------------- | ----------------------------- |
+| `idle`      | pálpebra em ~35%, boca fechada e sorridente                      | -                             |
+| `listening` | pálpebra totalmente aberta, sobrancelha neutra                   | -                             |
+| `speaking`  | boca articulando via lip-sync falso; pálpebra um pouco pesada    | -                             |
+| `thinking`  | pálpebra mais fechada, cabeça inclinada; pupilas ainda centradas | desvio de pupila: task 20     |
+| `error`     | pálpebra pesada, inclinação e cor de alerta; sobrancelha neutra  | sobrancelha franzida: task 20 |
+
+Os testes de `facePose.test.ts` confirmam cinco fechamentos distintos para os
+alvos existentes e que `pupils`/`brows` aceitam deslocamento manual, mas a
+animação real de pupila e sobrancelha é da task 20 e não foi inventada aqui. A
+captura visual dos cinco estados ficou **PENDENTE manual**: o harness Playwright
+leu as métricas e não registrou erro de console com `?fakeVoice=1`, mas
+`webContents.capturePage()` e `page.screenshot()` expiraram na janela
+transparente do overlay, então não há imagem para declarar comparação visual.
+O enquadramento em 320x360 e 480x560 continua sendo a task 22.

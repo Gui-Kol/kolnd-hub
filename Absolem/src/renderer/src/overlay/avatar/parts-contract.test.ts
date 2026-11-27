@@ -46,11 +46,16 @@ describe('contrato de partes', () => {
       const legacy: Object3D[] = [
         build.head,
         build.mouth,
+        build.jaw,
         ...build.segments,
         ...build.eyeGroups,
         ...build.pupils,
+        ...build.lids,
         ...build.antennae,
-        ...build.mandibles
+        ...build.mandibles,
+        ...build.brows,
+        ...build.mouthCorners,
+        ...build.nostrils
       ]
       if (build.outfit) legacy.push(build.outfit)
 

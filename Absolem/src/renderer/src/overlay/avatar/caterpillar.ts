@@ -126,9 +126,17 @@ export interface CaterpillarBuild {
   head: Mesh
   eyeGroups: Group[]
   pupils: Mesh[]
+  lids: Group[]
   antennae: Group[]
   mandibles: Mesh[]
-  mouth: Mesh
+  mouth: Group
+  jaw: Group
+  mouthCorners: Group[]
+  brows: Group[]
+  browLeft: Group
+  browRight: Group
+  nose: Mesh
+  nostrils: Mesh[]
   outfit: Group | null
   /** Grupos estáveis por parte; vazios até as tasks 15-18 preencherem. */
   parts: Record<string, Group>
@@ -313,9 +321,17 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     head: headPart.head,
     eyeGroups: headPart.eyeGroups,
     pupils: headPart.pupils,
+    lids: headPart.lids,
     antennae: headPart.antennae,
     mandibles: headPart.mandibles,
     mouth: headPart.mouth,
+    jaw: headPart.jaw,
+    mouthCorners: headPart.mouthCorners,
+    brows: headPart.brows,
+    browLeft: headPart.browLeft,
+    browRight: headPart.browRight,
+    nose: headPart.nose,
+    nostrils: headPart.nostrils,
     outfit: outfitPart?.group ?? null,
     parts,
     stats,

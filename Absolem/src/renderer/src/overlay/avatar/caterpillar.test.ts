@@ -80,4 +80,23 @@ describe('buildCaterpillar', () => {
       second.dispose()
     }
   })
+
+  it('contrato facial mantem olhos, palpebras, sobrancelhas, boca e mandibulas', () => {
+    const build = buildCaterpillar({ seed: 5 })
+    try {
+      expect(build.eyeGroups).toHaveLength(2)
+      expect(build.pupils).toHaveLength(2)
+      expect(build.lids).toHaveLength(2)
+      expect(build.brows).toHaveLength(2)
+      expect(build.mouthCorners).toHaveLength(2)
+      expect(build.mandibles).toHaveLength(2)
+      expect(build.mouth.name).toBe('caterpillar-mouth')
+      expect(build.jaw.name).toBe('caterpillar-jaw')
+      // Justificativa T6: no look novo as antenas podem ficar escondidas sob
+      // o turbante (task 18). O contrato aceita 0 ou 2, nunca outra quantidade.
+      expect([0, 2]).toContain(build.antennae.length)
+    } finally {
+      build.dispose()
+    }
+  })
 })

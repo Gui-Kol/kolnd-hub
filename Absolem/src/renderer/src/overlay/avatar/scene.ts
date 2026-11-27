@@ -10,6 +10,7 @@ import { buildCaterpillar } from './caterpillar'
 import type { CaterpillarBuild, CaterpillarOutfit, CaterpillarStyle } from './caterpillar'
 import { resolveCaterpillarOutfit, resolveCaterpillarStyle } from './caterpillar'
 import { createExpressionEngine } from './expressions'
+import { applyFacePose } from './facePose'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
 import { createHoloMaterial } from './holoMaterial'
 import type { AvatarLook } from './looks'
@@ -299,13 +300,7 @@ export function createAvatarScene(
       caterpillar.root.rotation.y = Math.sin(motionTime * 0.45) * 0.07 * expression.sway
       caterpillar.root.rotation.z = expression.headTilt * (reducedMotion ? 0 : 1)
       caterpillar.body.rotation.z = Math.sin(motionTime * 0.8) * 0.025 * expression.sway
-      for (let index = 0; index < caterpillar.eyeGroups.length; index += 1) {
-        caterpillar.eyeGroups[index].scale.y = Math.max(0.06, expression.eyeOpenness)
-      }
-      for (let index = 0; index < caterpillar.antennae.length; index += 1) {
-        const side = index === 0 ? 1 : -1
-        caterpillar.antennae[index].rotation.z = side * (0.18 + expression.antennaLift * 0.32)
-      }
+      applyFacePose(caterpillar, expression, lip)
 
       blendedColor.copy(primaryColor).lerp(errorColor, expression.alert)
       ;(holoMaterial.uniforms.uColor.value as Color).copy(blendedColor)
@@ -315,8 +310,6 @@ export function createAvatarScene(
       particles.setColor(particleColor)
       particles.setSpeed(expression.particleSpeed)
       particles.setOpacity(0.32 + lip.aura * 0.58)
-      caterpillar.mouth.scale.y = 0.3 + lip.mouthOpen * 1.35
-      caterpillar.mouth.scale.x = 0.55 * (0.85 + lip.mouthWidth * 0.3)
       particles.update(motionTime)
 
       renderer.render(scene, camera)
