@@ -103,12 +103,6 @@ function button(container: HTMLElement, label: string): HTMLButtonElement {
   return found as HTMLButtonElement
 }
 
-function select(container: HTMLElement, id: string): HTMLSelectElement {
-  const found = container.querySelector<HTMLSelectElement>(`#${id}`)
-  if (!found) throw new Error(`seletor ausente: ${id}`)
-  return found
-}
-
 async function settle(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -132,52 +126,20 @@ afterEach(() => {
 })
 
 describe('aba Chave e custo', () => {
-  it('mostra os catálogos separados com defaults de texto e Live', async () => {
+  it('mostra o modelo Live único e não oferece seletor alternativo', async () => {
     const { api } = makeApi({ model: 'gemini-3.8-flash', liveModel: 'gemini-3.8-live' })
     await act(async () => {
       root.render(<KeyTab api={api} />)
     })
     await settle()
 
-    expect(select(container, 'gemini-text-model').value).toBe('gemini-3.8-flash')
-    expect(select(container, 'gemini-live-model').value).toBe('gemini-3.8-live')
-    expect(
-      Array.from(select(container, 'gemini-text-model').options).map((option) => option.value)
-    ).not.toContain('gemini-3.8-live')
-    expect(
-      Array.from(select(container, 'gemini-live-model').options).map((option) => option.value)
-    ).not.toContain('gemini-3.8-flash')
+    expect(container.textContent).toContain('Gemini 3.8 Live')
+    expect(container.textContent).toContain('exclusivamente este modelo')
+    expect(container.querySelector('#gemini-text-model')).toBeNull()
+    expect(container.querySelector('#gemini-live-model')).toBeNull()
   })
 
-  it('persiste a escolha de texto e Live pelo store existente', async () => {
-    const { api, setGeminiConfig } = makeApi()
-    await act(async () => {
-      root.render(<KeyTab api={api} />)
-    })
-    await settle()
-
-    await act(async () => {
-      const text = select(container, 'gemini-text-model')
-      text.value = 'gemini-2.5-flash'
-      text.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await settle()
-    expect(setGeminiConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'gemini-2.5-flash', liveModel: 'gemini-3.8-live' })
-    )
-
-    await act(async () => {
-      const live = select(container, 'gemini-live-model')
-      live.value = 'gemini-3-flash-live'
-      live.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await settle()
-    expect(setGeminiConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'gemini-2.5-flash', liveModel: 'gemini-3-flash-live' })
-    )
-  })
-
-  it('preserva e identifica modelos customizados', async () => {
+  it('normaliza modelos antigos exibidos na configuração para o Live', async () => {
     const { api } = makeApi({
       model: 'modelo-texto-customizado',
       liveModel: 'modelo-live-customizado'
@@ -187,33 +149,9 @@ describe('aba Chave e custo', () => {
     })
     await settle()
 
-    expect(select(container, 'gemini-text-model').value).toBe('modelo-texto-customizado')
-    expect(select(container, 'gemini-text-model').options[0]?.textContent).toBe(
-      'Personalizado (modelo-texto-customizado)'
-    )
-    expect(select(container, 'gemini-live-model').value).toBe('modelo-live-customizado')
-    expect(select(container, 'gemini-live-model').options[0]?.textContent).toBe(
-      'Personalizado (modelo-live-customizado)'
-    )
-  })
-
-  it('mostra erro quando a seleção não pode ser persistida', async () => {
-    const { api, setGeminiConfig } = makeApi()
-    setGeminiConfig.mockResolvedValueOnce({ ok: false as const, error: 'falha ao salvar modelo' })
-    await act(async () => {
-      root.render(<KeyTab api={api} />)
-    })
-    await settle()
-
-    await act(async () => {
-      const text = select(container, 'gemini-text-model')
-      text.value = 'gemini-2.5-flash'
-      text.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await settle()
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'falha ao salvar modelo'
-    )
+    expect(container.textContent).toContain('Gemini 3.8 Live')
+    expect(container.querySelector('#gemini-text-model')).toBeNull()
+    expect(container.querySelector('#gemini-live-model')).toBeNull()
   })
 
   it('nunca renderiza a chave', async () => {
@@ -327,7 +265,7 @@ describe('aba Chave e custo', () => {
     await settle()
 
     expect(setGeminiConfig).toHaveBeenCalledWith({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.8-live',
       liveModel: 'gemini-3.8-live',
       temperature: 0.7,
       monthlyTokenCap: 1_000_000,
@@ -359,7 +297,7 @@ describe('aba Chave e custo', () => {
     await settle()
 
     expect(setGeminiConfig).toHaveBeenCalledWith({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.8-live',
       liveModel: 'gemini-3.8-live',
       temperature: 0.7,
       monthlyTokenCap: 2_000_000,

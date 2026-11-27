@@ -31,8 +31,8 @@ import { validateUrl } from './validateUrl'
 export interface SearchRuntimeDeps {
   /** Teto mensal da task 05 (lança `GeminiError` kind quota). */
   checkBudget: () => void
-  /** Busca grounded; devolve erro estruturado, nunca lança. */
-  search: (query: string) => Promise<WebSearchResultLike>
+  /** Busca app-side opcional; a produção usa Google Search nativo do Live. */
+  search?: (query: string) => Promise<WebSearchResultLike>
 }
 
 export interface SearchRuntime {
@@ -121,13 +121,17 @@ export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): S
         onActivity: pushIndicator,
         audit
       },
-      webSearch: {
-        isEnabled: () => getStoreSnapshot().web.enabled,
-        search: deps.search,
-        limits,
-        onActivity: pushIndicator,
-        audit
-      }
+      ...(deps.search
+        ? {
+            webSearch: {
+              isEnabled: () => getStoreSnapshot().web.enabled,
+              search: deps.search,
+              limits,
+              onActivity: pushIndicator,
+              audit
+            }
+          }
+        : {})
     })
     for (const error of result.errors) logger.error('search', `registro recusado: ${error}`)
     logger.info('search', 'registro atualizado', {

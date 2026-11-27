@@ -1,18 +1,15 @@
-# Modelos Gemini
+# Modelo Gemini do Absolem
 
-O Absolem mantém duas configurações independentes:
+O Absolem usa exclusivamente **Gemini 3.8 Live** (`gemini-3.8-live`) para
+conversa, voz, visão da tela, pesquisa web, leitura de URLs e ações.
 
-- **Texto, visão e pesquisa:** usa `gemini.model` nas chamadas de texto e
-  grounding (`generateContent`/`generateContentStream`).
-- **Live e voz:** usa `gemini.liveModel` na sessão de áudio em tempo real
-  (`ai.live.connect`, endpoint `v1beta`).
+Todas essas capacidades permanecem na sessão `ai.live.connect`. A pesquisa usa
+o Google Search nativo do Live; `fetch_url` continua passando pelas proteções
+locais de SSRF, limites, auditoria e proteção contra injeção.
 
-O modelo Live não é automaticamente compatível com chat, visão ou pesquisa.
-Por isso, escolher um modelo Live não altera o modelo de texto, e o Absolem
-não envia um modelo Live para um endpoint de texto sem suporte comprovado.
-
-`gemini-3.8-live` continua sendo o padrão da voz. Modelos customizados já
-salvos são preservados e aparecem como **Personalizado** nas configurações.
+Campos antigos como `gemini.model` e outros modelos continuam aceitos apenas
+para migração segura de configurações existentes. Eles não selecionam endpoints
+nem modelos em runtime e não aparecem como opções na interface.
 
 O controle **Ilimitado** remove somente o teto mensal interno do Absolem; não
 remove quota, rate limits ou indisponibilidade do provedor Google.

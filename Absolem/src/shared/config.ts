@@ -91,9 +91,9 @@ export interface VoiceConfig {
 }
 
 export interface GeminiConfig {
-  /** Modelo de texto (chat/visão). */
+  /** @deprecated Campo legado; o runtime usa exclusivamente o Live. */
   model: string
-  /** Modelo Live (áudio nativo) usado pela voz. */
+  /** Modelo cognitivo único usado por conversa, visão e ferramentas. */
   liveModel: string
   temperature: number
   /** Teto mensal de tokens (aprovação do gate de custo). */

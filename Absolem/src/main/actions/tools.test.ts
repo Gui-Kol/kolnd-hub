@@ -65,8 +65,6 @@ function env(overrides: Partial<ActionToolsEnv> = {}): ActionToolsEnv {
       }))
     },
     limiter: createActionLimiter(),
-    confirmForceClose: async () => false,
-    confirmPlan: async () => false,
     ...overrides
   }
 }

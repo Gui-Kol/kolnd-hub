@@ -1,8 +1,8 @@
 /**
  * Catálogo de modelos Gemini oferecidos pela configuração do Absolem.
  *
- * Os catálogos são separados por endpoint: modelos Live não são opções de
- * texto/visão/pesquisa e não devem ser enviados a `generateContent`.
+ * O catálogo é mantido por compatibilidade com configurações antigas, mas o
+ * runtime atual aceita exclusivamente o modelo Live único.
  */
 
 export interface GeminiModelOption {
@@ -11,26 +11,11 @@ export interface GeminiModelOption {
 }
 
 export const GEMINI_TEXT_MODEL_OPTIONS = [
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-  { id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen' },
-  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
-  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite' },
-  { id: 'gemini-3-flash', label: 'Gemini 3 Flash' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' }
+  { id: 'gemini-3.8-live', label: 'Gemini 3.8 Live' }
 ] as const satisfies readonly GeminiModelOption[]
 
 export const GEMINI_LIVE_MODEL_OPTIONS = [
-  { id: 'gemini-3.8-live', label: 'Gemini 3.8 Live' },
-  { id: 'gemini-3-flash-live', label: 'Gemini 3 Flash Live' },
-  {
-    id: 'gemini-2.5-flash-native-audio-dialog',
-    label: 'Gemini 2.5 Flash Native Audio Dialog'
-  },
-  {
-    id: 'gemini-3.8-live-extended-thinking',
-    label: 'Gemini 3.8 Live (raciocínio estendido)'
-  }
+  { id: 'gemini-3.8-live', label: 'Gemini 3.8 Live' }
 ] as const satisfies readonly GeminiModelOption[]
 
 export type GeminiTextModelId = (typeof GEMINI_TEXT_MODEL_OPTIONS)[number]['id']

@@ -155,6 +155,30 @@ describe('overlayWindow', () => {
     expect(() => mod.hideOverlayWindow()).not.toThrow()
   })
 
+  it('ocultação temporária da captura não notifica parada da voz', async () => {
+    const window = mod.showOverlayWindow() as unknown as FakeWindow
+    const hidden = vi.fn()
+    const { onOverlayHidden } = await import('../voice/overlayEvents')
+    onOverlayHidden(hidden)
+
+    mod.hideOverlayWindowForCapture()
+
+    expect(window.hide).toHaveBeenCalledTimes(1)
+    expect(hidden).not.toHaveBeenCalled()
+    expect(mod.isOverlayVisible()).toBe(false)
+  })
+
+  it('hide normal continua notificando a parada da voz', async () => {
+    mod.showOverlayWindow()
+    const hidden = vi.fn()
+    const { onOverlayHidden } = await import('../voice/overlayEvents')
+    onOverlayHidden(hidden)
+
+    mod.hideOverlayWindow()
+
+    expect(hidden).toHaveBeenCalledTimes(1)
+  })
+
   it('closed esquece a janela', () => {
     const window = mod.createOverlayWindow() as unknown as FakeWindow
     window.handlers.get('closed')?.()

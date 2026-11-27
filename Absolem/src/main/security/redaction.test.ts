@@ -66,15 +66,15 @@ describe('redação de logs', () => {
     expect(text).toContain('transcricao: [redigido]')
   })
 
-  it('debug mantém o texto apenas com flag explícita', () => {
-    expect(redactForLevel('debug', `api_key=${SECRET}`)).toBe(`api_key=${SECRET}`)
+  it('debug só aparece com flag explícita e continua redigido', () => {
+    expect(redactForLevel('debug', `api_key=${SECRET}`)).toBe('api_key=[redigido]')
 
     logger.debug('teste', `api_key=${SECRET}`)
     expect(existsSync(logPath)).toBe(false)
 
     process.env.ABSOLEM_LOG_LEVEL = 'debug'
     logger.debug('teste', `api_key=${SECRET}`)
-    expect(readFileSync(logPath, 'utf8')).toContain(SECRET)
+    expect(readFileSync(logPath, 'utf8')).not.toContain(SECRET)
   })
 
   it('logger em info grava sem segredo, caminho pessoal ou transcrição', () => {

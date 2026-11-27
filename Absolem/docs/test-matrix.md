@@ -74,7 +74,7 @@ lógica entra na conta automaticamente pelo `include`.
 | Engine                | unidade | `src/main/gemini/engine.test.ts`          | Sem chave devolve `auth`; não toca na rede                               |
 | Streaming             | unidade | `src/main/gemini/stream.test.ts`          | Um turno por vez, cancelamento, nenhum delta tardio                      |
 | Live                  | unidade | `src/main/gemini/live.test.ts`            | `network`, `quota`, reconexão e barge-in                                 |
-| Grounding             | unidade | `src/main/gemini/grounding.test.ts`       | Fontes, `quota`, sem chave                                               |
+| Pesquisa Live         | unidade | `src/main/gemini/live.test.ts`            | Sessão Live, fontes, ferramentas e sem chave                             |
 | Histórico de contexto | unidade | `src/main/gemini/history.test.ts`         | Janela, papéis e truncamento                                             |
 | Medidor de custo      | unidade | `src/main/gemini/usage.test.ts`           | Soma diária/mensal, 80%, 100%, retenção 62 dias                          |
 | Custo e idempotência  | unidade | `src/main/security/cost-limits.test.ts`   | 100% sem rede, aumento libera, `requestId` único, reset mensal, negativo |

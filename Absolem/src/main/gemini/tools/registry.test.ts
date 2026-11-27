@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolDefinition } from '../../../shared/tools'
 import { createDefaultToolRegistry, createInternalTools } from './internal'
+import { deduplicateTools } from './compose'
 import { createToolRegistry } from './registry'
 
 function tool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
@@ -125,5 +126,17 @@ describe('registro de ferramentas', () => {
       'echo'
     ])
     expect(createInternalTools({ includeEcho: true })).toHaveLength(2)
+  })
+
+  it('deduplica a composição Live por nome e mantém a primeira implementação', () => {
+    const actions = createDefaultToolRegistry()
+    const capture = createDefaultToolRegistry()
+    const tools = deduplicateTools([
+      ...actions.registry.listTools(),
+      ...capture.registry.listTools()
+    ])
+
+    expect(tools.map((tool) => tool.name)).toEqual(['get_current_time'])
+    expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length)
   })
 })

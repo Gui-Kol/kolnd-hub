@@ -1,7 +1,7 @@
 import type { CaptureKind, RegionSelection } from '../../shared/screen'
 import type { ChatUsagePayload, GeminiErrorKind } from '../../shared/gemini'
 import type { ChatSinks, GeminiSendOptions } from '../gemini/engine'
-import type { GeminiFunctionCall } from '../gemini/transport'
+import type { GeminiFunctionCall, GeminiFunctionResponse, GeminiImage } from '../gemini/transport'
 import type { ToolCallResult } from '../gemini/tools/router'
 import type { CaptureRequest, CaptureResult } from './controller'
 
@@ -42,6 +42,30 @@ export interface ScreenAskDeps {
     info?: (scope: string, message: unknown, ...args: unknown[]) => void
     warn?: (scope: string, message: unknown, ...args: unknown[]) => void
   }
+}
+
+export interface LiveScreenSessionHandlers {
+  onTranscript: (event: { role: 'user' | 'model'; text: string; final: boolean }) => void
+  onToolCall: (calls: GeminiFunctionCall[]) => void
+  onTurnComplete: () => void
+  onError: (error: { kind: GeminiErrorKind; message: string }) => void
+}
+
+export interface LiveScreenSession {
+  connect: () => Promise<void>
+  sendImage: (image: GeminiImage) => void
+  sendImageAndText: (image: GeminiImage, text: string) => void
+  sendText: (text: string) => void
+  sendToolResponse: (responses: GeminiFunctionResponse[]) => void
+  close: (reason?: string) => void
+}
+
+export interface LiveScreenAskDeps {
+  capture: ScreenAskDeps['capture']
+  createSession: (handlers: LiveScreenSessionHandlers) => LiveScreenSession
+  routeCall?: ScreenAskDeps['routeCall']
+  now?: () => number
+  logger?: ScreenAskDeps['logger']
 }
 
 export interface ScreenAskOutcome {
@@ -239,6 +263,146 @@ export async function askAboutScreen(
       tokens: capture.imageTokens
     },
     ...(usage ? { usage } : {}),
+    toolResults
+  }
+}
+
+/**
+ * Executa `capture:ask` diretamente numa sessão Gemini Live multimodal.
+ *
+ * Diferentemente do fluxo histórico acima, esta função nunca recebe um engine
+ * de texto: a imagem, a pergunta e eventuais respostas de ferramentas
+ * trafegam pela mesma conexão Live.
+ */
+export async function askAboutScreenLive(
+  deps: LiveScreenAskDeps,
+  request: ScreenAskRequest,
+  sinks: ChatSinks
+): Promise<ScreenAskOutcome> {
+  const question = typeof request.question === 'string' ? request.question.trim() : ''
+  if (!question) {
+    sinks.error({ kind: 'invalid', message: 'Pergunta vazia para a visão de tela.' })
+    return { asked: false, toolResults: [] }
+  }
+  if (question.length > MAX_SCREEN_QUESTION_CHARS) {
+    sinks.error({
+      kind: 'invalid',
+      message: `Pergunta longa demais (máximo ${MAX_SCREEN_QUESTION_CHARS} caracteres).`
+    })
+    return { asked: false, toolResults: [] }
+  }
+  if (isSecretRevealRequest(question)) {
+    sinks.delta(SCREEN_SECRET_REFUSAL)
+    sinks.done(emptyUsage())
+    return { asked: false, toolResults: [] }
+  }
+
+  const capture = await deps.capture({
+    kind: request.kind,
+    question,
+    requestId: request.requestId,
+    ...(request.displayId ? { displayId: request.displayId } : {}),
+    ...(request.region ? { region: request.region } : {}),
+    ...(request.proactive === true ? { proactive: true } : {})
+  })
+  if (!capture.ok) {
+    deps.logger?.warn?.('capture', 'captura recusada', {
+      code: capture.error.code,
+      message: capture.error.message
+    })
+    sinks.error({
+      kind: errorKindFor(capture.error.code),
+      message: capture.error.message
+    })
+    return { asked: false, toolResults: [] }
+  }
+
+  const text = buildScreenAskText({
+    question,
+    kind: capture.kind,
+    width: capture.image.width,
+    height: capture.image.height
+  })
+  const toolResults: ToolCallResult[] = []
+  let session: LiveScreenSession | null = null
+  let lastModelTranscript = ''
+  let completed = false
+  const finish = (): void => {
+    if (completed) return
+    completed = true
+    sinks.done(emptyUsage())
+    session?.close('turn-complete')
+  }
+
+  session = deps.createSession({
+    onTranscript: (event) => {
+      if (event.role !== 'model' || !event.text) return
+      const delta = event.text.startsWith(lastModelTranscript)
+        ? event.text.slice(lastModelTranscript.length)
+        : event.text
+      lastModelTranscript = event.text
+      if (delta) sinks.delta(delta)
+    },
+    onToolCall: (calls) => {
+      void (async () => {
+        const responses: GeminiFunctionResponse[] = []
+        for (const call of calls) {
+          let result: ToolCallResult
+          try {
+            result = deps.routeCall
+              ? await deps.routeCall(call)
+              : {
+                  ok: false,
+                  error: { kind: 'denied', message: 'Execução de ferramenta indisponível.' }
+                }
+          } catch (err) {
+            result = {
+              ok: false,
+              error: {
+                kind: 'failed',
+                message:
+                  err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300)
+              }
+            }
+          }
+          toolResults.push(result)
+          responses.push({
+            name: call.name,
+            ...(typeof call.id === 'string' && call.id.length > 0 ? { id: call.id } : {}),
+            response: result.ok
+              ? { ok: true, result: result.result ?? null }
+              : { ok: false, error: result.error }
+          })
+        }
+        if (responses.length > 0) session?.sendToolResponse(responses)
+      })()
+    },
+    onTurnComplete: finish,
+    onError: (error) => {
+      if (!completed) sinks.error(error)
+    }
+  })
+
+  try {
+    await session.connect()
+    session.sendImageAndText({ mime: capture.image.mime, data: capture.image.data }, text)
+  } catch (err) {
+    session.close('error')
+    sinks.error({
+      kind: 'unknown',
+      message: err instanceof Error ? err.message : 'Falha ao enviar a imagem ao Gemini Live.'
+    })
+    return { asked: false, toolResults }
+  }
+
+  return {
+    asked: true,
+    image: {
+      width: capture.image.width,
+      height: capture.image.height,
+      mime: capture.image.mime,
+      tokens: capture.imageTokens
+    },
     toolResults
   }
 }

@@ -168,7 +168,13 @@ export class VoiceController {
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps
     this.machine = new VoiceStateMachine({
-      onState: (change) => deps.pushState(change),
+      onState: (change) => {
+        deps.logger?.info('voice', 'estado alterado', {
+          state: change.state,
+          reason: change.reason
+        })
+        deps.pushState(change)
+      },
       onAvatar: (state) => deps.setAvatarState(state),
       onRejected: (from, to) => {
         deps.logger?.debug('voice', 'transição rejeitada', { from, to })
@@ -195,9 +201,16 @@ export class VoiceController {
   }
 
   start(source: 'ipc' | 'shortcut' = 'ipc'): VoiceStatus {
+    this.deps.logger?.info('voice', 'início solicitado', {
+      source,
+      state: this.machine.getState(),
+      consent: this.deps.hasConsent(),
+      overlay: this.deps.isOverlayVisible()
+    })
     this.deps.cancelGreeting?.()
     if (!this.deps.isOverlayVisible()) {
       if (source === 'shortcut') {
+        this.deps.logger?.warn('voice', 'atalho recebido com overlay oculto')
         this.deps.showOverlay()
         this.deps.notify('Absolem visível. Clique no avatar para falar.')
         return this.status()
@@ -209,12 +222,16 @@ export class VoiceController {
       return this.status()
     }
     if (!this.deps.hasApiKey()) {
+      this.deps.logger?.warn('voice', 'voz bloqueada: chave ausente')
       this.fail('Chave do Gemini não configurada.')
       return this.status()
     }
     try {
       this.deps.checkBudget()
     } catch (err) {
+      this.deps.logger?.warn('voice', 'voz bloqueada pelo orçamento', {
+        type: err instanceof Error ? err.name : typeof err
+      })
       this.fail(err instanceof Error ? err.message : 'Limite de custo atingido.')
       return this.status()
     }
@@ -229,6 +246,11 @@ export class VoiceController {
   }
 
   stop(reason: string = VOICE_REASONS.user): VoiceStatus {
+    this.deps.logger?.info('voice', 'parada solicitada', {
+      reason,
+      state: this.machine.getState(),
+      hadSession: this.session !== null
+    })
     this.epoch += 1
     this.clearTimers()
     this.finishMemorySession()
@@ -264,8 +286,13 @@ export class VoiceController {
   }
 
   setConsent(granted: boolean): { ok: boolean; status: VoiceStatus; error?: string } {
+    this.deps.logger?.info('voice', 'consentimento recebido', { granted })
     const result = this.deps.persistConsent(granted)
     if (!result.ok) {
+      this.deps.logger?.warn('voice', 'falha ao persistir consentimento', {
+        granted,
+        errorType: result.error ? 'storage' : 'unknown'
+      })
       return {
         ok: false,
         status: this.status(),
@@ -273,6 +300,7 @@ export class VoiceController {
       }
     }
     if (!granted) {
+      this.deps.logger?.warn('voice', 'consentimento negado')
       this.consentAsked = true
       if (this.session || this.machine.getState() !== 'off') {
         this.stop(VOICE_REASONS.consentDenied)
@@ -324,11 +352,32 @@ export class VoiceController {
   }
 
   handleAudioChunk(data: unknown): void {
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) return
-    if (data.byteLength % 2 !== 0 || data.byteLength > 65_536) return
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+      this.deps.logger?.debug('voice', 'chunk de microfone ignorado', { valid: false })
+      return
+    }
+    if (data.byteLength % 2 !== 0 || data.byteLength > 65_536) {
+      this.deps.logger?.warn('voice', 'chunk de microfone rejeitado', {
+        bytes: data.byteLength,
+        reason: data.byteLength % 2 !== 0 ? 'odd-size' : 'too-large'
+      })
+      return
+    }
     const state = this.machine.getState()
-    if (!this.session || state === 'off' || state === 'error' || state === 'connecting') return
+    if (!this.session || state === 'off' || state === 'error' || state === 'connecting') {
+      this.deps.logger?.debug('voice', 'chunk de microfone ignorado', {
+        bytes: data.byteLength,
+        state,
+        session: Boolean(this.session)
+      })
+      return
+    }
     if (pcmRms(data) >= AUDIO_SPEECH_RMS) this.armSilenceTimer()
+    this.deps.logger?.debug('voice', 'chunk de microfone aceito', {
+      bytes: data.byteLength,
+      sampleRate: 16_000,
+      state
+    })
     this.session.sendAudio(data)
   }
 
@@ -369,8 +418,13 @@ export class VoiceController {
       }
       this.consentAsked = true
       const granted = await this.deps.requestConsent()
+      this.deps.logger?.info('voice', 'diálogo de consentimento concluído', { granted })
       if (epoch !== this.epoch) return
       if (!granted || !this.deps.hasConsent()) {
+        this.deps.logger?.warn('voice', 'voz bloqueada por consentimento', {
+          granted,
+          persisted: this.deps.hasConsent()
+        })
         this.fail(MICROPHONE_DENIED_MESSAGE)
         return
       }
@@ -380,6 +434,7 @@ export class VoiceController {
     try {
       const session = this.deps.createSession(this.buildHandlers(epoch))
       this.session = session
+      this.deps.logger?.info('voice', 'sessão de voz criada')
       await session.connect()
       if (epoch !== this.epoch || this.machine.getState() !== 'connecting') {
         session.close('cancelled')
@@ -401,6 +456,10 @@ export class VoiceController {
     return {
       onAudio: (data, sampleRate) => {
         if (epoch !== this.epoch) return
+        this.deps.logger?.debug('voice', 'áudio recebido do Live', {
+          bytes: data.byteLength,
+          sampleRate
+        })
         this.noteModelSpeech()
         const state = this.machine.getState()
         if (state === 'listening') {
@@ -414,6 +473,11 @@ export class VoiceController {
       },
       onTranscript: (event) => {
         if (epoch !== this.epoch) return
+        this.deps.logger?.debug('voice', 'transcrição recebida', {
+          role: event.role,
+          final: event.final,
+          chars: typeof event.text === 'string' ? event.text.length : 0
+        })
         this.handleTranscript(event)
       },
       onToolCall: (calls) => {
@@ -422,10 +486,15 @@ export class VoiceController {
       },
       onError: (error) => {
         if (epoch !== this.epoch) return
+        this.deps.logger?.warn('voice', 'erro recebido da sessão', {
+          kind: error.kind,
+          messageType: typeof error.message
+        })
         this.fail(error.message)
       },
       onClose: (reason) => {
         if (epoch !== this.epoch) return
+        this.deps.logger?.info('voice', 'sessão de voz fechada', { reason })
         this.session = null
         this.clearTimers()
         this.finishMemorySession()
@@ -439,6 +508,7 @@ export class VoiceController {
       },
       onTurnComplete: () => {
         if (epoch !== this.epoch) return
+        this.deps.logger?.debug('voice', 'turno Live concluído')
         // Turno fechado sem fala depois de uma ferramenta: pede a confirmação
         // uma única vez, em vez de deixar o usuário no silêncio.
         if (this.toolReplyPending) this.sendToolReplyNudge()
@@ -670,7 +740,10 @@ export class VoiceController {
     } else {
       this.machine.transition('error', message)
     }
-    this.deps.logger?.warn('voice', 'voz em estado de erro', { message })
+    this.deps.logger?.warn('voice', 'voz em estado de erro', {
+      messageType: typeof message,
+      messageChars: message.length
+    })
   }
 
   private armSilenceTimer(): void {

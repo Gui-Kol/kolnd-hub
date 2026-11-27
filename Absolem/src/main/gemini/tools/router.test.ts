@@ -60,7 +60,7 @@ describe('roteador de ferramentas', () => {
     expect(audits[0]).toMatchObject({ tool: 'echo', decision: 'allow', ok: true })
   })
 
-  it('ferramenta sensível pede confirmação e executa após aceite', async () => {
+  it('ferramenta sensível em allow executa sem confirmação repetida', async () => {
     const { confirm, dangerHandler, routerOptions } = harness()
 
     const result = await routeToolCall(routerOptions, {
@@ -68,17 +68,14 @@ describe('roteador de ferramentas', () => {
       args: { target: 'janela' }
     })
 
-    expect(confirm).toHaveBeenCalledTimes(1)
-    expect(confirm.mock.calls[0]?.[0]).toMatchObject({
-      tool: { name: 'danger_test' },
-      args: { target: 'janela' }
-    })
+    expect(confirm).not.toHaveBeenCalled()
     expect(dangerHandler).toHaveBeenCalledWith({ target: 'janela' })
     expect(result).toEqual({ ok: true, result: { done: true } })
   })
 
-  it('timeout de confirmação nega e não executa', async () => {
+  it('categoria ask continua exigindo confirmação e respeita timeout', async () => {
     const { dangerHandler, audits, routerOptions } = harness({
+      permission: () => 'ask',
       confirmation: () => new Promise<boolean>(() => undefined)
     })
 

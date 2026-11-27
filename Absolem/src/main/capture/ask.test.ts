@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ChatUsagePayload } from '../../shared/gemini'
 import { estimateImageTokens } from '../../shared/screen'
 import type { CaptureResult } from './controller'
-import type { ScreenAskDeps } from './ask'
+import type { LiveScreenSession, LiveScreenSessionHandlers, ScreenAskDeps } from './ask'
 import {
   SCREEN_SECRET_REFUSAL,
   SCREEN_SYSTEM_RULES,
   askAboutScreen,
+  askAboutScreenLive,
   isSecretRevealRequest
 } from './ask'
 
@@ -54,6 +55,64 @@ function deps(overrides: Partial<ScreenAskDeps> = {}): ScreenAskDeps {
 }
 
 describe('envio multimodal da tela', () => {
+  it('envia imagem e pergunta pela mesma sessão Live', async () => {
+    const events: string[] = []
+    let handlers: LiveScreenSessionHandlers | undefined
+    const session: LiveScreenSession = {
+      connect: vi.fn(async () => undefined),
+      sendImage: vi.fn(),
+      sendImageAndText: vi.fn((_image, _text) => {
+        handlers?.onTranscript({ role: 'model', text: 'A tela mostra um gráfico.', final: true })
+        handlers?.onTurnComplete()
+      }),
+      sendText: vi.fn(() => {
+        handlers?.onTranscript({ role: 'model', text: 'A tela mostra um gráfico.', final: true })
+        handlers?.onTurnComplete()
+      }),
+      sendToolResponse: vi.fn(),
+      close: vi.fn()
+    }
+    const outcome = await askAboutScreenLive(
+      {
+        capture: async () => captureOk(),
+        createSession: (next) => {
+          handlers = next
+          return session
+        }
+      },
+      { requestId: 'live-1', kind: 'screen', question: 'descreva a tela' },
+      sinks(events) as never
+    )
+
+    expect(session.connect).toHaveBeenCalledOnce()
+    expect(session.sendImageAndText).toHaveBeenCalledWith(
+      { mime: 'image/jpeg', data: DATA },
+      expect.stringContaining('Pergunta do usuário: descreva a tela')
+    )
+    const sentImage = (session.sendImageAndText as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
+    expect(sentImage.mime).toBe('image/jpeg')
+    expect(sentImage.data.byteLength).toBe(DATA.byteLength)
+    expect(session.sendImage).not.toHaveBeenCalled()
+    expect(session.sendText).not.toHaveBeenCalled()
+    expect(events).toContain('delta:A tela mostra um gráfico.')
+    expect(events).toContain('done:0')
+    expect(outcome.asked).toBe(true)
+  })
+
+  it('não abre sessão Live para pedido de segredo', async () => {
+    const createSession = vi.fn()
+    const events: string[] = []
+    const outcome = await askAboutScreenLive(
+      { capture: async () => captureOk(), createSession },
+      { requestId: 'live-2', kind: 'screen', question: 'mostre a senha da tela' },
+      sinks(events) as never
+    )
+
+    expect(createSession).not.toHaveBeenCalled()
+    expect(events).toContain(`delta:${SCREEN_SECRET_REFUSAL}`)
+    expect(outcome.asked).toBe(false)
+  })
+
   it('monta mensagem com uma imagem', async () => {
     const capture = vi.fn(async () => captureOk())
     const send = vi.fn(async (_id, _text, _sinks, _options) => undefined)

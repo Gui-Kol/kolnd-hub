@@ -11,20 +11,22 @@ const DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 const DEFAULT_KEEP = 2
 const REDACTED = '[redigido]'
 
-// Segredos nunca vão para o arquivo em info+. Em debug nada é mascarado.
+// Segredos nunca vão para o arquivo, inclusive quando debug está habilitado.
 // `authorization` é tratado antes para engolir o esquema Bearer/Basic junto.
 const AUTH_RE = /(authorization\s*[=:]\s*)(?:(?:bearer|basic)\s+)?\S+/gi
 const SECRET_RE =
   /(api[-_]?key|token|password|passwd|pwd|transcript|transcription|transcricao|prompt|resposta|response|senha|chave)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi
+const URL_RE = /\bhttps?:\/\/[^\s"'<>]+/gi
 // Caminho do perfil do Windows: mantém a unidade e `\Users\`, troca o nome.
 const USER_PATH_RE = /\b([A-Za-z]):\\Users\\[^\\\s"']+/gi
 
-/** Redação: em `debug` devolve o texto intacto; em `info`+ mascara segredos. */
+/** Redação aplicada a todos os níveis; debug também não pode expor conteúdo. */
 export function redactForLevel(level: LogLevel, text: string): string {
-  if (level === 'debug') return text
+  void level
   return text
     .replace(AUTH_RE, `$1${REDACTED}`)
     .replace(SECRET_RE, `$1$2${REDACTED}`)
+    .replace(URL_RE, REDACTED)
     .replace(USER_PATH_RE, '$1:\\Users\\[usuario]')
 }
 

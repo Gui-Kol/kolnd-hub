@@ -199,7 +199,7 @@ export async function routeToolCall(
   }
 
   let decision: AuditDecision = 'allow'
-  if (tool.sensitive || permission !== 'allow') {
+  if (permission !== 'allow') {
     let accepted: boolean
     try {
       const confirmation = await raceTimeout(

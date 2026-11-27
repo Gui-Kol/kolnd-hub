@@ -20,11 +20,7 @@ import {
   type WebConfig
 } from '../shared/config'
 import { VOICE_DEFAULT_SHORTCUT } from '../shared/voice'
-import {
-  DEFAULT_GEMINI_LIVE_MODEL,
-  DEFAULT_GEMINI_MODEL,
-  SHUTDOWN_GEMINI_MODELS
-} from '../shared/gemini'
+import { DEFAULT_GEMINI_LIVE_MODEL } from '../shared/gemini'
 import {
   normalizeOverlayConfig,
   OVERLAY_DEFAULT_POSITION,
@@ -54,7 +50,6 @@ export { normalizeOverlayConfig }
 
 export const STORE_SCHEMA_VERSION = '1.16.0'
 
-const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
 const MAX_LANGUAGE_LENGTH = 20
 const MAX_ACCELERATOR_LENGTH = 100
@@ -89,7 +84,7 @@ export function defaultVoiceConfig(): VoiceConfig {
 
 export function defaultGeminiConfig(): GeminiConfig {
   return {
-    model: DEFAULT_GEMINI_MODEL,
+    model: DEFAULT_GEMINI_LIVE_MODEL,
     liveModel: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: 0.7,
     monthlyTokenCap: DEFAULT_MONTHLY_TOKEN_CAP,
@@ -205,17 +200,11 @@ export function normalizeVoiceConfig(input: unknown): VoiceConfig {
 
 export function normalizeGeminiConfig(input: unknown): GeminiConfig {
   const raw = asRecord(input)
-  const model =
-    typeof raw.model === 'string' && raw.model.trim()
-      ? raw.model.trim().slice(0, MAX_MODEL_LENGTH)
-      : DEFAULT_GEMINI_MODEL
-  const liveModel =
-    typeof raw.liveModel === 'string' && raw.liveModel.trim()
-      ? raw.liveModel.trim().slice(0, MAX_MODEL_LENGTH)
-      : DEFAULT_GEMINI_LIVE_MODEL
   return {
-    model,
-    liveModel,
+    // Mantidos no snapshot para compatibilidade com IPC/configs antigas, mas
+    // nenhuma entrada externa pode selecionar outro modelo em runtime.
+    model: DEFAULT_GEMINI_LIVE_MODEL,
+    liveModel: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: clampNumber(raw.temperature, 0, 2, 0.7),
     monthlyTokenCap: clampCap(raw.monthlyTokenCap),
     unlimitedUsage: raw.unlimitedUsage === true
@@ -714,20 +703,12 @@ export function migrate1110(store: StoreLike): void {
 }
 
 /**
- * 1.12.0: separa o modelo de texto (`gemini.model`) do modelo Live
- * (`gemini.liveModel`, usado pela voz). `liveModel` é preenchido com o default
- * atual quando ausente. `model` só é trocado quando aponta para um modelo
- * comprovadamente desligado (`SHUTDOWN_GEMINI_MODELS`); modelos customizados do
- * usuário são preservados. Idempotente.
+ * 1.12.0+: normaliza configurações legadas de modelos para o único modelo Live.
+ * O formato antigo continua aceito pelo schema para que a migração não quebre
+ * instalações existentes, mas valores antigos nunca chegam ao runtime.
  */
 export function migrate1120(store: StoreLike): void {
-  const raw = asRecord(store.get('gemini', defaultGeminiConfig()))
-  const currentModel = typeof raw.model === 'string' ? raw.model.trim() : ''
-  const input: Record<string, unknown> = { ...raw }
-  if ((SHUTDOWN_GEMINI_MODELS as readonly string[]).includes(currentModel)) {
-    input.model = DEFAULT_GEMINI_MODEL
-  }
-  store.set('gemini', normalizeGeminiConfig(input))
+  store.set('gemini', normalizeGeminiConfig(store.get('gemini', defaultGeminiConfig())))
 }
 
 /**

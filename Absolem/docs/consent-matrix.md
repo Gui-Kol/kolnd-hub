@@ -10,6 +10,9 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ## 1. Resumo
 
+A instalação começa liberada para ações e visão de tela. Cada categoria pode ser
+revogada na aba Permissões; a pausa global bloqueia tudo imediatamente.
+
 | Capacidade          | Default                                           | Concede em                                       | Revoga em                                           | Cliques para revogar |
 | ------------------- | ------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- | -------------------- |
 | Microfone           | Ligado (`permissions.microphone=true`)            | Aba Voz ou primeira ativação da voz              | Aba Voz, botão "Revogar consentimento de microfone" | 1                    |
@@ -68,8 +71,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 - **Default:** `files.read='allow'` e `files.write='allow'`. Salvaguardas próprias
   de planos destrutivos e auditoria continuam valendo.
-- **Concessão:** aba Permissões, seletor da categoria em "Permitir". A escrita
-  continua exigindo confirmação própria para planos destrutivos.
+- **Concessão:** já vem liberada; a aba Permissões permite revogar ou voltar para
+  confirmação. Limites, journal/undo e auditoria continuam ativos.
 - **Revogação:** seletor em "Negar" (nunca executa) ou "Perguntar" (volta a
   confirmar). Um clique.
 - **No meio da ação:** uma operação já confirmada termina; o plano de arquivos
@@ -85,9 +88,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 - **Default:** `apps.launch='allow'` e `apps.close='allow'`.
 - **Concessão:** aba Permissões, seletor da categoria em "Permitir".
 - **Revogação:** seletor em "Negar" ou "Perguntar". Um clique.
-- **No meio da ação:** abrir um app não é interrompido; fechar sem força pede
-  confirmação e forçar (`/T /F`) exige confirmação extra mesmo com `allow`. A
-  próxima chamada usa a nova decisão.
+- **No meio da ação:** abrir ou fechar um app não é interrompido; a próxima
+  chamada usa a nova decisão. Limites e catálogo continuam ativos.
 - **Registro:** `audit/actions.jsonl` com pid ou nome do app em `safeArgs`,
   nunca a linha de comando completa.
 - **Teste:** `src/main/actions/appCatalog.test.ts`,
@@ -97,7 +99,7 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 ### 2.5 Energia
 
 - **Default:** `system.power='allow'`. Desligar, reiniciar, bloquear ou suspender
-  pode executar; revise a permissão e a confirmação da ação.
+  pode executar; revogue a categoria ou pause globalmente quando necessário.
 - **Concessão:** aba Permissões, seletor em "Permitir" e confirmação explícita
   no próprio painel (2 cliques no total).
 - **Revogação:** seletor em "Negar". Um clique.

@@ -335,46 +335,6 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
     () => ctx.getMainWindow()
   )
 
-  const confirmForceClose = async (pid: number): Promise<boolean> => {
-    try {
-      const result = await dialogOptions({
-        type: 'warning',
-        title: 'Absolem - forçar encerramento',
-        message: `Forçar o encerramento do processo ${pid}?`,
-        detail:
-          'O programa não fechou em 5 s. Forçar (/T /F) descarta alterações não salvas e ' +
-          'encerra também os processos filhos.',
-        buttons: ['Cancelar', 'Forçar encerramento'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true
-      })
-      return result.response === 1
-    } catch {
-      return false
-    }
-  }
-
-  const confirmPlan = async (plan: { summary: string }): Promise<boolean> => {
-    try {
-      const detail =
-        plan.summary.length > 1_500 ? `${plan.summary.slice(0, 1_500)}...` : plan.summary
-      const result = await dialogOptions({
-        type: 'warning',
-        title: 'Absolem - organizar arquivos',
-        message: 'Confirma executar este plano?',
-        detail,
-        buttons: ['Cancelar', 'Executar plano'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true
-      })
-      return result.response === 1
-    } catch {
-      return false
-    }
-  }
-
   /**
    * Resolve a busca e abre somente o vídeo (`watch?v=...`). Reutilizado pelo
    * `open_url` quando o modelo ainda passa uma URL de resultados do YouTube.
@@ -487,9 +447,7 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
     openYoutube: openYoutubeQuery,
     system,
     uia,
-    limiter,
-    confirmForceClose,
-    confirmPlan
+    limiter
   }
 
   const registry = createToolRegistry()
@@ -550,7 +508,11 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
       if (!result.ok) return { ok: false, error: result.error.message }
       return { ok: true }
     },
-    isSensitive: (toolName) => registry.getTool(toolName)?.sensitive === true,
+    isSensitive: (toolName) => {
+      const tool = registry.getTool(toolName)
+      if (!tool || tool.sensitive !== true) return false
+      return getPermission(tool.category) !== 'allow'
+    },
     confirm: routineConfirm,
     audit: (event: RoutineAuditEvent) => {
       auditWriter.write({

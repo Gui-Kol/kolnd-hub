@@ -9,11 +9,10 @@
 /** Aviso de consumo exibido quando o mês chega a este percentual do teto. */
 export const USAGE_WARNING_PERCENT = 80
 
-/** Modelo de texto estável padrão (Gemini API, 27/11/2026). */
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash'
-
-/** Modelo Live (áudio nativo) padrão da voz (Gemini API, 27/11/2026). */
+/** Único modelo cognitivo do Absolem (Gemini Live API, 27/11/2026). */
 export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-live'
+/** @deprecated Compatibilidade de migração; não é um modelo operacional separado. */
+export const DEFAULT_GEMINI_MODEL = DEFAULT_GEMINI_LIVE_MODEL
 
 /**
  * Modelos que a documentação oficial marcou como desligados (shut down). A
@@ -109,9 +108,9 @@ export interface GeminiTestKeyOutcome {
 export interface GeminiDiagnostics {
   sdkPackage: string
   sdkVersion: string
-  /** Modelo de texto (`gemini.model`). */
+  /** Modelo cognitivo único; mantido no contrato IPC por compatibilidade. */
   model: string
-  /** Modelo da voz/Live (`gemini.liveModel`). */
+  /** @deprecated campo legado; sempre `gemini-3.8-live`. */
   liveModel: string
   promptVersion: string
   configured: boolean

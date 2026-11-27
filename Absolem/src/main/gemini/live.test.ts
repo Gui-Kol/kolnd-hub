@@ -74,6 +74,35 @@ describe('sessão Live no main', () => {
     session.close('teste')
   })
 
+  it('loga somente metadados de áudio e transcrição', async () => {
+    const entries: unknown[] = []
+    const secret = 'frase privada que não pode aparecer'
+    const transport = new FakeLiveTransport()
+    const diagnosticSession = new LiveSession({
+      transport,
+      keys: { getApiKey: () => 'chave-de-teste' },
+      usage: { checkBudget: () => undefined, record: () => ({}) },
+      model: 'gemini-live-teste',
+      handlers: { onTranscript: () => undefined },
+      logger: {
+        debug: (_scope, _message, ...args) => entries.push(args[0]),
+        info: () => undefined,
+        warn: () => undefined
+      },
+      sleep: async () => undefined
+    })
+
+    await diagnosticSession.connect()
+    diagnosticSession.sendAudio(new Uint8Array([1, 2, 3, 4]))
+    transport.last?.emit({ type: 'transcript', role: 'user', text: secret, final: true })
+
+    const serialized = JSON.stringify(entries)
+    expect(serialized).not.toContain(secret)
+    expect(serialized).toContain('"bytes":4')
+    expect(serialized).toContain(`"chars":${secret.length}`)
+    diagnosticSession.close('teste')
+  })
+
   it('erro de rede reconecta uma vez', async () => {
     const onError = vi.fn()
     const { transport, session } = setup({ onError })
@@ -142,7 +171,7 @@ describe('sessão Live no main', () => {
     session.close('teste')
   })
 
-  it('loga detalhe sanitizado quando a conexão falha', async () => {
+  it('loga tipo sanitizado quando a conexão falha', async () => {
     const warnings: Array<Record<string, unknown>> = []
     const transport = new FakeLiveTransport()
     const session = new LiveSession({
@@ -164,10 +193,8 @@ describe('sessão Live no main', () => {
 
     await expect(session.connect()).rejects.toMatchObject({ kind: 'invalid' })
 
-    expect(warnings[0]).toMatchObject({
-      kind: 'invalid',
-      detail: 'INVALID_ARGUMENT: api_key=[redigido]'
-    })
+    expect(warnings[0]).toMatchObject({ kind: 'invalid', attempt: 1, retryable: false })
+    expect(JSON.stringify(warnings)).not.toContain('segredo-nao-pode-vazar')
   })
 
   it('close é idempotente e contabiliza o áudio uma vez', async () => {

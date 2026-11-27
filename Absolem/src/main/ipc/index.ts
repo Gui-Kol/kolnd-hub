@@ -98,8 +98,7 @@ export function registerIpc(ctx: IpcContext): void {
   registerMemoryIpc(ensureMemoryRuntime(ctx).service)
   registerSearchIpc(
     ensureSearchRuntime(ctx, {
-      checkBudget: () => getUsageMeter().checkBudget(),
-      search: (query) => engine.groundedSearch(query)
+      checkBudget: () => getUsageMeter().checkBudget()
     })
   )
   ensureVoiceRuntime(ctx)

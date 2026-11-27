@@ -12,6 +12,7 @@ import type {
 } from './transport'
 import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } from './liveTransport'
 import { LIVE_AUDIO_OUTPUT_RATE } from './liveTransport'
+import type { WebSource } from '../../shared/search'
 
 /**
  * Único arquivo do main que importa `@google/genai`.
@@ -49,6 +50,17 @@ function imageToBase64(image: GeminiImage): string {
   if (typeof image.data === 'string') return image.data
   const bytes = image.data instanceof ArrayBuffer ? new Uint8Array(image.data) : image.data
   return Buffer.from(bytes).toString('base64')
+}
+
+/** Payload visual oficial de `Session.sendRealtimeInput` no Live 3.6.1. */
+export function buildLiveImageRealtimeInputPayload(
+  image: GeminiImage,
+  text: string
+): Record<string, unknown> {
+  return {
+    video: { data: imageToBase64(image), mimeType: image.mime },
+    text
+  }
 }
 
 /** Entrada crua de uma chamada (SDK/REST/Live); o `id` é repassado quando vier. */
@@ -245,6 +257,34 @@ function rateFromMimeType(mimeType: string | undefined): number {
   return Number.isFinite(rate) && rate > 0 ? rate : LIVE_AUDIO_OUTPUT_RATE
 }
 
+function toGroundingSources(metadata: unknown): WebSource[] {
+  if (!metadata || typeof metadata !== 'object') return []
+  const chunks = (metadata as { groundingChunks?: unknown }).groundingChunks
+  if (!Array.isArray(chunks)) return []
+  const seen = new Set<string>()
+  const sources: WebSource[] = []
+  for (const chunk of chunks) {
+    if (!chunk || typeof chunk !== 'object') continue
+    const web = (chunk as { web?: { uri?: unknown; title?: unknown } }).web
+    if (!web || typeof web.uri !== 'string') continue
+    try {
+      const url = new URL(web.uri)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') continue
+      url.hash = ''
+      const normalized = url.toString()
+      if (seen.has(normalized)) continue
+      seen.add(normalized)
+      sources.push({
+        url: normalized,
+        title: typeof web.title === 'string' && web.title.trim() ? web.title.trim() : url.hostname
+      })
+    } catch {
+      // Fonte inválida não atravessa o limite de confiança.
+    }
+  }
+  return sources.slice(0, 8)
+}
+
 /**
  * Opções do cliente Live. Ficam separadas para o teste provar, sem rede, que o
  * Live usa `v1beta` sem alterar o transporte de texto.
@@ -280,8 +320,9 @@ export function buildLiveSpeechConfig(
  *
  * Métodos usados do SDK 3.6.1 (confirmados no gate):
  * - `ai.live.connect({ model, config, callbacks })` -> `Session`;
- * - `Session.sendRealtimeInput({ audio: { data, mimeType } })` (PCM16 16 kHz)
- *   e `sendRealtimeInput({ text })`;
+ * - `Session.sendRealtimeInput({ audio: { data, mimeType } })` (PCM16 16 kHz),
+ *   `sendRealtimeInput({ video: { data, mimeType } })` (imagem/frame) e
+ *   `sendRealtimeInput({ text })`;
  * - `Session.sendClientContent({ turns, turnComplete })` (histórico textual na
  *   reconexão);
  * - `Session.sendRealtimeInput({ activityStart: {} })` como sinal de
@@ -329,6 +370,8 @@ export class SdkLiveTransport implements LiveTransport {
         onmessage: (message) => {
           const content = message.serverContent
           if (content) {
+            const grounding = toGroundingSources(content.groundingMetadata)
+            if (grounding.length > 0) emit({ type: 'grounding', sources: grounding })
             if (content.interrupted) emit({ type: 'interrupted' })
             if (content.turnComplete) emit({ type: 'turnComplete' })
 
@@ -402,6 +445,19 @@ export class SdkLiveTransport implements LiveTransport {
       },
       sendText: (text) => {
         session.sendRealtimeInput({ text })
+      },
+      sendImage: (image) => {
+        session.sendRealtimeInput({
+          video: {
+            data: imageToBase64(image),
+            mimeType: image.mime
+          }
+        } as never)
+      },
+      sendImageAndText: (image, text) => {
+        // Um único realtimeInput mantém a pergunta associada ao frame e evita
+        // o `inlineData` de clientContent, que não é entrada visual realtime.
+        session.sendRealtimeInput(buildLiveImageRealtimeInputPayload(image, text) as never)
       },
       sendToolResponse: (responses) => {
         session.sendToolResponse(buildToolResponsePayload(responses) as never)

@@ -4,6 +4,8 @@ import type {
   GeminiToolDeclaration,
   GeminiUsageMetadata
 } from './transport'
+import type { GeminiImage } from './transport'
+import type { WebSource } from '../../shared/search'
 
 /**
  * Contrato neutro da sessão Live.
@@ -31,6 +33,7 @@ export type LiveEvent =
   | { type: 'transcript'; role: 'user' | 'model'; text: string; final: boolean }
   | { type: 'toolCall'; calls: GeminiFunctionCall[] }
   | { type: 'usage'; usage: GeminiUsageMetadata }
+  | { type: 'grounding'; sources: WebSource[] }
   | { type: 'turnComplete' }
   | { type: 'interrupted' }
   | { type: 'error'; error: unknown }
@@ -52,6 +55,9 @@ export interface LiveConnectOptions {
 export interface LiveConnection {
   sendAudio: (pcm: Uint8Array) => void
   sendText: (text: string) => void
+  sendImage: (image: GeminiImage) => void
+  /** Envia imagem e pergunta como um único turno ordenado. */
+  sendImageAndText: (image: GeminiImage, text: string) => void
   /** Devolve o resultado das ferramentas executadas ao modelo (task 08). */
   sendToolResponse: (responses: GeminiFunctionResponse[]) => void
   /** Pede ao servidor para cortar a geração atual (barge-in/“parar”). */

@@ -1,10 +1,12 @@
-import { GeminiError, classifyError, sanitizeDetail } from './errors'
+import { GeminiError, classifyError } from './errors'
 import type {
   GeminiFunctionCall,
   GeminiFunctionResponse,
   GeminiToolDeclaration,
   GeminiUsageMetadata
 } from './transport'
+import type { GeminiImage } from './transport'
+import type { WebSource } from '../../shared/search'
 import type { LiveConnection, LiveEvent, LiveHistoryTurn, LiveTransport } from './liveTransport'
 
 /**
@@ -51,6 +53,7 @@ export interface LiveSessionHandlers {
   onClose?: (reason: string) => void
   onInterrupted?: () => void
   onTurnComplete?: () => void
+  onGrounding?: (sources: WebSource[]) => void
 }
 
 export interface LiveSessionConfig {
@@ -62,6 +65,7 @@ export interface LiveSessionConfig {
   /** Alias pedido pela task (`connect({ systemPrompt })`). */
   systemPrompt?: string
   tools?: GeminiToolDeclaration[]
+  googleSearch?: boolean
   /** Histórico textual inicial; cresce com `appendHistory`. */
   history?: LiveHistoryTurn[]
 }
@@ -124,7 +128,8 @@ export class LiveSession {
       temperature: options.temperature,
       systemInstruction: options.systemInstruction ?? options.systemPrompt,
       systemPrompt: options.systemPrompt,
-      tools: options.tools
+      tools: options.tools,
+      googleSearch: options.googleSearch
     }
     this.history = [...(options.history ?? [])]
   }
@@ -185,6 +190,11 @@ export class LiveSession {
     if (this.closed || !this.connection) return
     if (!(pcm instanceof Uint8Array) || pcm.byteLength === 0) return
     this.audioBytes += pcm.byteLength
+    this.logger?.debug('voice', 'áudio enviado ao Live', {
+      bytes: pcm.byteLength,
+      totalBytes: this.audioBytes,
+      sampleRate: 16_000
+    })
     try {
       this.connection.sendAudio(pcm)
     } catch (err) {
@@ -198,6 +208,46 @@ export class LiveSession {
     if (!trimmed) return
     try {
       this.connection.sendText(trimmed)
+    } catch (err) {
+      this.handleRuntimeError(err)
+    }
+  }
+
+  sendImage(image: GeminiImage): void {
+    if (this.closed || !this.connection) return
+    if (
+      !image ||
+      !image.mime ||
+      !(
+        image.data instanceof ArrayBuffer ||
+        image.data instanceof Uint8Array ||
+        typeof image.data === 'string'
+      )
+    )
+      return
+    try {
+      this.connection.sendImage(image)
+    } catch (err) {
+      this.handleRuntimeError(err)
+    }
+  }
+
+  sendImageAndText(image: GeminiImage, text: string): void {
+    if (this.closed || !this.connection) return
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    if (
+      !image ||
+      !image.mime ||
+      !trimmed ||
+      !(
+        image.data instanceof ArrayBuffer ||
+        image.data instanceof Uint8Array ||
+        typeof image.data === 'string'
+      )
+    )
+      return
+    try {
+      this.connection.sendImageAndText(image, trimmed)
     } catch (err) {
       this.handleRuntimeError(err)
     }
@@ -281,7 +331,6 @@ export class LiveSession {
         const retryable = this.isRetryable(lastError)
         this.logger?.warn('voice', 'falha ao conectar a sessão Live', {
           kind: lastError.kind,
-          detail: sanitizeDetail(err),
           attempt,
           retryable
         })
@@ -309,9 +358,18 @@ export class LiveSession {
     if (this.closed) return
     switch (event.type) {
       case 'audio':
+        this.logger?.debug('voice', 'áudio recebido do transporte', {
+          bytes: event.data.byteLength,
+          sampleRate: event.sampleRate
+        })
         this.handlers.onAudio?.(event.data, event.sampleRate)
         return
       case 'transcript':
+        this.logger?.debug('voice', 'transcrição recebida do transporte', {
+          role: event.role,
+          final: event.final,
+          chars: event.text.length
+        })
         this.handlers.onTranscript?.(event)
         return
       case 'toolCall':
@@ -319,6 +377,9 @@ export class LiveSession {
         return
       case 'usage':
         this.metadata = event.usage
+        return
+      case 'grounding':
+        this.handlers.onGrounding?.(event.sources)
         return
       case 'turnComplete':
         this.handlers.onTurnComplete?.()
@@ -344,7 +405,8 @@ export class LiveSession {
     const error = classifyError(err)
     this.logger?.warn('voice', 'erro na sessão Live', {
       kind: error.kind,
-      detail: sanitizeDetail(err)
+      retryable: error.retryable,
+      status: error.status
     })
     if (!this.isRetryable(error) || this.maxAttempts <= 1) {
       this.fail(error)
@@ -404,7 +466,6 @@ export class LiveSession {
         lastError = classifyError(err)
         this.logger?.warn('voice', 'reconexão da sessão Live falhou', {
           kind: lastError.kind,
-          detail: sanitizeDetail(err),
           attempt
         })
         if (!this.isRetryable(lastError)) break

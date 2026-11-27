@@ -191,14 +191,21 @@ export function showOverlayWindow(): BrowserWindow {
 
 /** Oculta sem destruir — reabrir pelo atalho fica instantâneo. */
 export function hideOverlayWindow(): void {
+  hideOverlayWindowForCapture()
+  emitOverlayHidden()
+}
+
+/**
+ * Oculta temporariamente para uma captura de tela sem emitir o evento que
+ * encerra a sessão normal de voz.
+ */
+export function hideOverlayWindowForCapture(): void {
   const window = getOverlayWindow()
   resetInteractive()
   if (window && window.isVisible()) {
     window.hide()
     logger.info('overlay', 'ocultada')
   }
-  // Privacidade: esconder o overlay fecha a captura de microfone (task 06).
-  emitOverlayHidden()
 }
 
 /** Alterna e devolve o estado resultante. */

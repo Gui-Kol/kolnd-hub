@@ -2,16 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GeminiConfig } from '../../../shared/config'
 import {
   DEFAULT_GEMINI_LIVE_MODEL,
-  DEFAULT_GEMINI_MODEL,
   USAGE_WARNING_PERCENT,
   type GeminiTestKeyOutcome
 } from '../../../shared/gemini'
-import {
-  GEMINI_LIVE_MODEL_OPTIONS,
-  GEMINI_TEXT_MODEL_OPTIONS,
-  isGeminiLiveModel,
-  isGeminiTextModel
-} from '../../../shared/gemini-models'
 import type {
   GeminiStatusResult,
   GeminiTestKeyResult,
@@ -69,21 +62,12 @@ function readGeminiConfig(value: unknown): GeminiConfig {
       ? (value as Record<string, unknown>)
       : {}
   return {
-    model: typeof raw.model === 'string' ? raw.model : DEFAULT_GEMINI_MODEL,
-    liveModel: typeof raw.liveModel === 'string' ? raw.liveModel : DEFAULT_GEMINI_LIVE_MODEL,
+    model: DEFAULT_GEMINI_LIVE_MODEL,
+    liveModel: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
     monthlyTokenCap: typeof raw.monthlyTokenCap === 'number' ? raw.monthlyTokenCap : 2_000_000,
     unlimitedUsage: raw.unlimitedUsage === true
   }
-}
-
-function modelOptionsWithCustom(
-  options: readonly { readonly id: string; readonly label: string }[],
-  current: string,
-  isKnown: (value: unknown) => boolean
-): Array<{ id: string; label: string }> {
-  if (isKnown(current)) return options.map((option) => ({ ...option }))
-  return [{ id: current, label: `Personalizado (${current})` }, ...options]
 }
 
 export function describeTestError(outcome: GeminiTestKeyOutcome): string {
@@ -255,40 +239,9 @@ export function KeyTab({ api }: KeyTabProps) {
     await reload()
   }
 
-  async function saveModel(field: 'model' | 'liveModel', value: string): Promise<void> {
-    setSaving(true)
-    setError(null)
-    const next: GeminiConfig = { ...config, [field]: value }
-    try {
-      const result = await client.setGeminiConfig(next)
-      if (!result.ok) {
-        setError(result.error)
-        return
-      }
-      setConfig(next)
-      setNotice(
-        field === 'model' ? 'Modelo de texto, visão e pesquisa salvo.' : 'Modelo Live e voz salvo.'
-      )
-      await reload()
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const usage = status?.usage
   const percent = usage?.percent ?? 0
   const capNow = usage?.cap ?? config.monthlyTokenCap
-  const textModelOptions = modelOptionsWithCustom(
-    GEMINI_TEXT_MODEL_OPTIONS,
-    config.model,
-    isGeminiTextModel
-  )
-  const liveModelOptions = modelOptionsWithCustom(
-    GEMINI_LIVE_MODEL_OPTIONS,
-    config.liveModel,
-    isGeminiLiveModel
-  )
-
   return (
     <section aria-labelledby="key-title" className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -317,54 +270,12 @@ export function KeyTab({ api }: KeyTabProps) {
 
       <section aria-labelledby="model-settings-title" className="flex flex-col gap-3">
         <h3 id="model-settings-title" className="text-sm font-semibold text-ink-primary">
-          Modelos do Gemini
+          Modelo do Gemini
         </h3>
         <div className="flex flex-col gap-1">
-          <label htmlFor="gemini-text-model" className="text-xs text-ink-secondary">
-            Modelo de texto, visão e pesquisa
-          </label>
-          <select
-            id="gemini-text-model"
-            value={config.model}
-            disabled={saving}
-            onChange={(event) => {
-              void saveModel('model', event.target.value)
-            }}
-            className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
-          >
-            {textModelOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <p className="text-sm text-ink-primary">Gemini 3.8 Live</p>
           <p className="text-xs text-ink-tertiary">
-            Usado por chat, visão e pesquisa com grounding. O modelo Live não é usado neste
-            endpoint.
-          </p>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gemini-live-model" className="text-xs text-ink-secondary">
-            Modelo Live e voz
-          </label>
-          <select
-            id="gemini-live-model"
-            value={config.liveModel}
-            disabled={saving}
-            onChange={(event) => {
-              void saveModel('liveModel', event.target.value)
-            }}
-            className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
-          >
-            {liveModelOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-ink-tertiary">
-            Usado somente pela voz no endpoint Live; não é compatível automaticamente com chat,
-            visão ou pesquisa.
+            O Absolem usa exclusivamente este modelo para conversa, visão, pesquisa e ações.
           </p>
         </div>
       </section>

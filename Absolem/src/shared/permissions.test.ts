@@ -4,6 +4,7 @@ import {
   PERMISSION_CATEGORIES,
   defaultPermissionCategories,
   effectivePermission,
+  effectiveScreenPermission,
   isActionAllowed,
   normalizePermissionsState,
   setPermissionCategory,
@@ -79,6 +80,14 @@ describe('permissões por categoria', () => {
     expect(effectivePermission(state(), 'screen')).toBe('ask')
     expect(effectivePermission(state(), 'internal')).toBe('allow')
     expect(effectivePermission(paused, 'internal')).toBe('deny')
+  })
+
+  it('visão autônoma usa allow, mas ask/off e pausa continuam barreiras', () => {
+    const current = state()
+    expect(effectiveScreenPermission(current, 'on')).toBe('allow')
+    expect(effectiveScreenPermission(current, 'ask')).toBe('ask')
+    expect(effectiveScreenPermission(current, 'off')).toBe('deny')
+    expect(effectiveScreenPermission({ ...current, paused: true }, 'on')).toBe('deny')
   })
 
   it('mudança é persistida no estado normalizado', () => {

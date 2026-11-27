@@ -2,9 +2,8 @@
  * Modelo de permissões por categoria de ação (task 08, T1).
  *
  * Cada categoria tem uma decisão (`allow`, `ask` ou `deny`) que o roteador da
- * task 05 consulta ANTES de confirmar/executar. O default é conservador:
- * apps e arquivos perguntam, pesquisa web é liberada e energia/UIA ficam
- * desligadas até o usuário habilitar explicitamente.
+ * task 05 consulta ANTES de confirmar/executar. A instalação começa liberada;
+ * cada categoria continua revogável para `ask` ou `deny` nas configurações.
  *
  * `microphone` é o consentimento da task 06 e não é uma categoria de ação:
  * continua booleano e é preservado por qualquer alteração de categorias.
@@ -124,10 +123,18 @@ export function isActionAllowed(state: PermissionsState, category: PermissionCat
 /**
  * Decisão efetiva consultada pelo roteador (pausa global vira `deny`).
  * `internal` (hora atual, echo de teste) é leitura sem efeito: não pergunta.
- * Categoria de tela mantém `ask` (o modo da task 07 decide antes).
  */
 export function effectivePermission(state: PermissionsState, category: string): PermissionDecision {
   if (state.paused) return 'deny'
   if (category === 'internal') return 'allow'
   return isPermissionCategory(category) ? state.categories[category] : 'ask'
+}
+
+/** Permissão efetiva da visão de tela, respeitando o modo e a pausa global. */
+export function effectiveScreenPermission(
+  state: PermissionsState,
+  mode: 'off' | 'ask' | 'on'
+): PermissionDecision {
+  if (state.paused || mode === 'off') return 'deny'
+  return mode === 'on' ? 'allow' : 'ask'
 }

@@ -20,7 +20,8 @@ import { MAX_FETCH_URL_CHARS } from '../../shared/search'
  * Ferramentas reais de controle do computador (task 08, T10).
  *
  * Cada entrada declara `category` (a permissão consultada pelo roteador da task
- * 05) e `sensitive` quando a confirmação é obrigatória mesmo com `allow`. Os
+ * 05) e `sensitive` como metadado de risco. Com `allow`, a categoria executa
+ * sem confirmação repetida; `ask` continua confirmando e `deny` bloqueando. Os
  * handlers só recebem argumentos já validados pelo schema e nunca aceitam
  * string de comando.
  */
@@ -45,10 +46,6 @@ export interface ActionToolsEnv {
   system: SystemActions
   uia: UiAutomation
   limiter: ActionLimiter
-  /** Confirmação extra e explícita antes de `/T /F`. */
-  confirmForceClose: (pid: number) => Promise<boolean>
-  /** Mostra o plano legível antes de executar movimentação. */
-  confirmPlan: (plan: FilePlan) => Promise<boolean>
 }
 
 function fileOpsProperty(): Record<string, unknown> {
@@ -253,8 +250,7 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
     {
       definition: {
         name: 'close_process',
-        description:
-          'Pede ao programa para fechar (sem forçar). Se não fechar em 5 s, ofereça forçar com confirmação.',
+        description: 'Pede ao programa para fechar; quando solicitado, pode forçar o encerramento.',
         parameters: {
           type: 'object',
           properties: {
@@ -280,14 +276,6 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
             .then((processes) => processes.find((process) => process.pid === pid)?.name.trim())
             .catch(() => undefined)) ?? ''
         const label = processName || `processo ${pid}`
-        if (force) {
-          const confirmed = await env.confirmForceClose(pid)
-          if (!confirmed) {
-            throw new Error(
-              `Não consegui fechar ${label}: o encerramento forçado não foi confirmado.`
-            )
-          }
-        }
         const result = await env.processes.close(pid, force)
         if (!result.ok && result.reason !== 'still-running') {
           throw friendlyError(`fechar ${label}`, new Error(result.error))
@@ -379,8 +367,7 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
     {
       definition: {
         name: 'apply_file_ops',
-        description:
-          'Executa o plano de arquivos após confirmação que mostra origem -> destino. Grava journal para desfazer.',
+        description: 'Executa o plano de arquivos e grava journal para desfazer.',
         parameters: {
           type: 'object',
           properties: { ops: fileOpsProperty() },
@@ -397,8 +384,6 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
           throw new Error('Máximo de 10 operações de arquivo por pedido.')
         }
         const plan = await env.planFileOps({ ops })
-        const confirmed = await env.confirmPlan(plan)
-        if (!confirmed) throw new Error('O plano de arquivos não foi confirmado.')
         return env.applyFileOps(plan)
       }
     },

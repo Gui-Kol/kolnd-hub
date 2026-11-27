@@ -96,7 +96,8 @@ Status: pendente (manual). Cobertura automática:
 
 Status: pendente (manual). Cobertura automática:
 `src/main/search/limits.test.ts` ("teto mensal bloqueia e vira kind quota") e
-`src/main/gemini/grounding.test.ts` ("erro de cota propaga kind quota").
+`src/main/gemini/live.test.ts` e os testes de `search/` cobrem fontes, limites,
+SSRF, injeção e execução pela sessão Live.
 
 ## 9. Fontes clicáveis e desligamento
 

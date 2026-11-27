@@ -37,9 +37,10 @@ describe('logger do main', () => {
     expect(redactForLevel('info', `api_key=${SECRET}`)).toBe('api_key=[redigido]')
   })
 
-  it('não redige em debug', () => {
+  it('também redige em debug', () => {
     const text = `api_key=${SECRET}`
-    expect(redactForLevel('debug', text)).toBe(text)
+    expect(redactForLevel('debug', text)).toBe('api_key=[redigido]')
+    expect(redactForLevel('debug', 'https://privado.example/a?token=x')).toBe('[redigido]')
   })
 
   it('rotaciona ao passar do limite', () => {

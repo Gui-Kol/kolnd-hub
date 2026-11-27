@@ -51,7 +51,7 @@ engenharia social fora do app. Contra esses adversários não há garantia na v1
 | PowerShell        | Ações de energia e sistema                          | Comando fixo, sem interpolação de texto do modelo, confirmação                                                 |
 | Banco SQLite      | Consultas da memória e importação JSON              | SQL parametrizado, validação de schema, limite de 16 MB no import                                              |
 | Logs e auditoria  | Logger, `audit/actions.jsonl`, `audit/memory.jsonl` | Redação em `info+`, auditoria sem conteúdo, rotação e retenção                                                 |
-| Rede              | Gemini, busca com grounding e `fetch_url`           | HTTPS, allowlist http/https, sem chave em URL/log, bloqueio sem teto                                           |
+| Rede              | Gemini Live Search e `fetch_url`                    | HTTPS, allowlist http/https, sem chave em URL/log, bloqueio sem teto                                           |
 | Instalador        | Instalador do Kolnd Hub (Absolem embarcado)         | Assinatura/verificação do release da Hub                                                                       |
 
 ## 4. Mitigações por ativo

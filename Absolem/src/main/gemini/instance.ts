@@ -11,6 +11,7 @@ import { SdkGeminiTransport } from './sdk'
 import { FakeTransport } from './testing/fakeTransport'
 import type { GeminiTransport } from './transport'
 import { createUsageMeter, type UsageMeter, type UsageWarning } from './usage'
+import { DEFAULT_GEMINI_LIVE_MODEL } from '../../shared/gemini'
 
 /**
  * Composição de produção do motor Gemini.
@@ -32,7 +33,8 @@ export function subscribeUsageWarning(listener: (warning: UsageWarning) => void)
 function currentConfig(): GeminiEngineConfig {
   const gemini = getStoreSnapshot().gemini
   return {
-    model: gemini.model,
+    // O campo legado `gemini.model` não seleciona mais nenhum endpoint.
+    model: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: gemini.temperature,
     monthlyTokenCap: gemini.monthlyTokenCap,
     unlimitedUsage: gemini.unlimitedUsage

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   LIVE_API_VERSION,
   buildLiveClientOptions,
+  buildLiveImageRealtimeInputPayload,
   buildLiveSpeechConfig,
   buildToolResponsePayload,
   toContents,
@@ -44,6 +45,33 @@ describe('buildLiveSpeechConfig', () => {
     expect(buildLiveSpeechConfig(undefined)).toBeUndefined()
     expect(buildLiveSpeechConfig('')).toBeUndefined()
     expect(buildLiveSpeechConfig('   ')).toBeUndefined()
+  })
+})
+
+describe('buildLiveImageRealtimeInputPayload', () => {
+  it('usa video Blob oficial, conserva mime/base64 e pergunta no mesmo input', () => {
+    const payload = buildLiveImageRealtimeInputPayload(
+      { mime: 'image/jpeg', data: new Uint8Array([0, 1, 254, 255]) },
+      'Pergunta sintética'
+    )
+    expect(payload).toEqual({
+      video: { data: 'AAH+/w==', mimeType: 'image/jpeg' },
+      text: 'Pergunta sintética'
+    })
+    const video = payload.video as { data: string; mimeType: string }
+    expect(video.mimeType).toBe('image/jpeg')
+    expect(Buffer.from(video.data, 'base64')).toHaveLength(4)
+    expect('media' in payload).toBe(false)
+    expect('inlineData' in payload).toBe(false)
+  })
+
+  it('aceita base64 já codificado sem recodificar os bytes', () => {
+    expect(
+      buildLiveImageRealtimeInputPayload({ mime: 'image/png', data: 'AQID' }, 'descreva a imagem')
+    ).toEqual({
+      video: { data: 'AQID', mimeType: 'image/png' },
+      text: 'descreva a imagem'
+    })
   })
 })
 

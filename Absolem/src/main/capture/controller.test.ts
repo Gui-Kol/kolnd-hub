@@ -66,6 +66,33 @@ describe('controlador de captura', () => {
     expect(events).toEqual(['hide', 'sleep', 'grab-oculto', 'show'])
   })
 
+  it('captura usa ocultação temporária sem encerrar o ciclo de voz', async () => {
+    const events: string[] = []
+    let visible = true
+    const controller = createCaptureController(
+      deps({
+        isOverlayVisible: () => visible,
+        hideOverlay: () => {
+          visible = false
+          events.push('hide-capture-only')
+        },
+        showOverlay: () => {
+          visible = true
+          events.push('show')
+        },
+        grab: async () => {
+          events.push(visible ? 'grab-visible' : 'grab-hidden')
+          return image()
+        }
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'voice-capture' })
+
+    expect(result.ok).toBe(true)
+    expect(events).toEqual(['hide-capture-only', 'grab-hidden', 'show'])
+  })
+
   it('erro não deixa overlay oculto', async () => {
     const events: string[] = []
     const controller = createCaptureController(

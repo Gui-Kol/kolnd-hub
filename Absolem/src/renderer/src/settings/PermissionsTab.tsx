@@ -116,7 +116,7 @@ function readPrivacy(value: unknown): { telemetry: boolean; screen: PrivacyScree
   return {
     telemetry: raw.telemetry === true,
     screen: {
-      mode: screenRaw.mode === 'on' ? 'on' : screenRaw.mode === 'ask' ? 'ask' : 'off',
+      mode: screenRaw.mode === 'off' ? 'off' : screenRaw.mode === 'ask' ? 'ask' : 'on',
       proactive: screenRaw.proactive === true,
       blocklist: normalizeBlocklist(screenRaw.blocklist)
     }
@@ -256,8 +256,9 @@ export function PermissionsTab({ api }: PermissionsTabProps) {
           Permissões
         </h2>
         <p className="text-xs text-ink-tertiary">
-          Cada categoria decide antes de a ferramenta executar. Negar nunca executa; perguntar
-          mostra a confirmação na conversa. A pausa global vence qualquer categoria.
+          Esta instalação começa com acesso liberado para as categorias abaixo. Negar revoga o
+          acesso; perguntar devolve a confirmação antes de cada uso. A pausa global vence qualquer
+          categoria e pode bloquear tudo imediatamente.
         </p>
       </header>
 
@@ -294,7 +295,9 @@ export function PermissionsTab({ api }: PermissionsTabProps) {
           Pausar todas as ações
         </label>
         <p className="text-xs text-ink-tertiary">
-          Atalho: <kbd className="rounded bg-surface-2 px-1.5 py-0.5">{ACTIONS_PAUSE_SHORTCUT}</kbd>
+          O padrão é liberar as categorias, mas ações de computador têm risco. Use esta pausa antes
+          de se ausentar. Atalho:{' '}
+          <kbd className="rounded bg-surface-2 px-1.5 py-0.5">{ACTIONS_PAUSE_SHORTCUT}</kbd>
         </p>
       </section>
 
@@ -392,7 +395,8 @@ export function PermissionsTab({ api }: PermissionsTabProps) {
         </select>
         <p className="text-xs text-ink-tertiary">
           Desligada, nenhuma captura acontece. Perguntar mostra uma confirmação por captura; ligada
-          permite a captura sob demanda sem diálogo, sempre com o indicador visível.
+          permite a captura sob demanda sem diálogo, sempre com o indicador visível. A blocklist, os
+          limites e a proteção contra conteúdo hostil continuam ativos.
         </p>
       </section>
 

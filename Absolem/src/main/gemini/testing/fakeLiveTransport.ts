@@ -1,4 +1,4 @@
-import type { GeminiFunctionResponse } from '../transport'
+import type { GeminiFunctionResponse, GeminiImage } from '../transport'
 import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } from '../liveTransport'
 
 /**
@@ -10,6 +10,7 @@ import type { LiveConnection, LiveConnectOptions, LiveEvent, LiveTransport } fro
 export class FakeLiveConnection implements LiveConnection {
   readonly audio: Uint8Array[] = []
   readonly texts: string[] = []
+  readonly images: GeminiImage[] = []
   readonly toolResponses: GeminiFunctionResponse[][] = []
   interrupts = 0
   closes = 0
@@ -21,6 +22,15 @@ export class FakeLiveConnection implements LiveConnection {
   }
 
   sendText(text: string): void {
+    this.texts.push(text)
+  }
+
+  sendImage(image: GeminiImage): void {
+    this.images.push(image)
+  }
+
+  sendImageAndText(image: GeminiImage, text: string): void {
+    this.images.push(image)
     this.texts.push(text)
   }
 

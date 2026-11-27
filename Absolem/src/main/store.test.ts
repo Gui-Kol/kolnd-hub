@@ -99,9 +99,9 @@ describe('store persistente', () => {
     ])
   })
 
-  it('defaults de modelo separam texto e voz', () => {
+  it('usa o mesmo modelo Live para todas as capacidades', () => {
     expect(storeMod.defaultGeminiConfig()).toEqual({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.8-live',
       liveModel: 'gemini-3.8-live',
       temperature: 0.7,
       monthlyTokenCap: 2_000_000,
@@ -109,7 +109,7 @@ describe('store persistente', () => {
     })
   })
 
-  it('normaliza modelos selecionados, usa defaults ausentes e preserva customizados', () => {
+  it('normaliza configurações legadas para o modelo Live único', () => {
     expect(
       storeMod.normalizeGeminiConfig({
         model: 'gemini-2.5-flash-lite',
@@ -117,8 +117,8 @@ describe('store persistente', () => {
         temperature: 0.4
       })
     ).toMatchObject({
-      model: 'gemini-2.5-flash-lite',
-      liveModel: 'gemini-3-flash-live',
+      model: 'gemini-3.8-live',
+      liveModel: 'gemini-3.8-live',
       temperature: 0.4,
       monthlyTokenCap: 2_000_000,
       unlimitedUsage: false
@@ -130,10 +130,10 @@ describe('store persistente', () => {
         liveModel: ' voz-live-customizada '
       })
     ).toMatchObject({
-      model: 'modelo-texto-customizado',
-      liveModel: 'voz-live-customizada'
+      model: 'gemini-3.8-live',
+      liveModel: 'gemini-3.8-live'
     })
-    expect(storeMod.normalizeGeminiConfig({}).model).toBe('gemini-3.8-flash')
+    expect(storeMod.normalizeGeminiConfig({}).model).toBe('gemini-3.8-live')
     expect(storeMod.normalizeGeminiConfig({}).liveModel).toBe('gemini-3.8-live')
   })
 
@@ -234,7 +234,7 @@ describe('store persistente', () => {
     storeMod.STORE_MIGRATIONS['1.4.0'](store)
 
     expect(state.data.get('gemini')).toEqual({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.8-live',
       liveModel: 'gemini-3.8-live',
       temperature: 0.3,
       monthlyTokenCap: 2_000_000,
@@ -252,7 +252,7 @@ describe('store persistente', () => {
     it('adiciona desligado por padrão e preserva valor explícito', () => {
       const store = fakeStore()
       state.data.set('gemini', {
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.8-live',
         liveModel: 'gemini-3.8-live',
         temperature: 0.7,
         monthlyTokenCap: 2_000_000
@@ -460,7 +460,7 @@ describe('store persistente', () => {
       storeMod.STORE_MIGRATIONS['1.12.0'](store)
 
       expect(state.data.get('gemini')).toEqual({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.8-live',
         liveModel: 'gemini-3.8-live',
         temperature: 0.3,
         monthlyTokenCap: 2_000_000,
@@ -475,24 +475,24 @@ describe('store persistente', () => {
       storeMod.STORE_MIGRATIONS['1.12.0'](store)
 
       expect(state.data.get('gemini')).toMatchObject({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.8-live',
         liveModel: 'gemini-3.8-live'
       })
     })
 
-    it('preserva modelo customizado e liveModel existente', () => {
+    it('preserva modelo customizado e fixa liveModel', () => {
       const store = fakeStore()
       state.data.set('gemini', {
-        model: 'meu-modelo-texto',
-        liveModel: 'meu-modelo-live',
+        model: 'gemini-3.8-live',
+        liveModel: 'gemini-3.8-live',
         temperature: 1.1
       })
 
       storeMod.STORE_MIGRATIONS['1.12.0'](store)
 
       expect(state.data.get('gemini')).toEqual({
-        model: 'meu-modelo-texto',
-        liveModel: 'meu-modelo-live',
+        model: 'gemini-3.8-live',
+        liveModel: 'gemini-3.8-live',
         temperature: 1.1,
         monthlyTokenCap: 2_000_000,
         unlimitedUsage: false

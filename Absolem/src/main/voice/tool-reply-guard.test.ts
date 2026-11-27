@@ -55,6 +55,7 @@ function setup(
   })
 ) {
   const sessions: FakeSession[] = []
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() }
   const controller = new VoiceController({
     getConfig: () => voiceConfig(),
     updateConfig: () => ({ success: true }),
@@ -77,9 +78,10 @@ function setup(
     showOverlay: () => undefined,
     notify: () => undefined,
     memoryEnabled: () => false,
-    history: { append: () => undefined }
+    history: { append: () => undefined },
+    logger
   })
-  return { controller, sessions }
+  return { controller, sessions, logger }
 }
 
 async function flushAsync(): Promise<void> {
@@ -231,6 +233,26 @@ describe('vigia de confirmação depois de ferramenta (voz)', () => {
     vi.advanceTimersByTime(TOOL_REPLY_GUARD_MS * 3)
 
     expect(session.texts).toEqual([])
+    controller.stop()
+  })
+
+  it('registra apenas metadados de captura e transcrição', async () => {
+    const { controller, sessions, logger } = setup()
+    controller.toggle()
+    await flushAsync()
+    const session = requireSession(sessions)
+    controller.handleAudioChunk(new Uint8Array([1, 2, 3, 4]))
+    const secret = 'conteúdo privado de teste'
+    session.handlers.onTranscript({
+      role: 'user',
+      text: secret,
+      final: true
+    })
+
+    const calls = JSON.stringify(logger.debug.mock.calls)
+    expect(calls).not.toContain('conteúdo privado de teste')
+    expect(calls).toContain('"bytes":4')
+    expect(calls).toContain(`"chars":${secret.length}`)
     controller.stop()
   })
 })

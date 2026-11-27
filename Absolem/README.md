@@ -61,8 +61,8 @@ Gemini e cobrado pela sua conta Google**; precos definidos pelo Google. O app **
 
 **Modelos e voz:** o texto usa **`gemini-3.8-flash`** e a voz em tempo real usa o modelo
 Live **`gemini-3.8-live`** com a voz pre-definida **Charon**. Os dois valores ficam em
-`config.json` (`gemini.model` e `gemini.liveModel`); a migracao 1.12.0 troca apenas modelos
-comprovadamente desligados e preserva modelos customizados.
+`config.json`; campos legados de modelo são normalizados para
+`gemini-3.8-live` e não selecionam outro modelo em runtime.
 
 ## Atalhos
 
@@ -87,10 +87,11 @@ pasta do Kolnd Hub (`resources/programs/Absolem`), nao de uma instalacao propria
 
 ## Privacidade e custo
 
-- **Permissões iniciais solicitadas.** Instalações novas recebem microfone (`true`), visão sob
+- **Permissões iniciais liberadas.** Instalações novas recebem microfone (`true`), visão sob
   demanda (`privacy.screen.mode='on'`) e categorias de ação (`allow`); `permissions.paused`
   começa `false`. Revise a aba Permissões: energia, arquivos e UI Automation podem ter impacto
-  real. Escolhas explícitas existentes são preservadas.
+  real. Cada categoria pode ser revogada para `ask` ou `deny`, e escolhas explícitas existentes
+  são preservadas.
 - **Elevação/UAC.** O executável solicita `requireAdministrator` no Windows e o UAC aparece a
   cada abertura. Isso amplia o impacto de ações; não há elevação silenciosa.
 - **Sem promessa de custo gratuito.** O app nao cobra; **o Gemini cobra sua conta Google**.

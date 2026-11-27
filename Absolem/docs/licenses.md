@@ -10,15 +10,15 @@ task além de `@axe-core/playwright` (dev, autorizada na T9).
 
 ## 1. Dependências de runtime
 
-| Pacote           | Versão  | Licença    | Uso no Absolem                          |
-| ---------------- | ------- | ---------- | --------------------------------------- |
-| `@google/genai`  | 3.6.1   | Apache-2.0 | SDK do Gemini (texto, grounding e Live) |
-| `better-sqlite3` | 11.10.0 | MIT        | Banco local da memória e turnos         |
-| `electron-store` | 8.2.0   | MIT        | `config.json` e migrações versionadas   |
-| `linkedom`       | 0.18.15 | ISC        | Extração de HTML sem executar script    |
-| `react`          | 18.3.1  | MIT        | UI do renderer                          |
-| `react-dom`      | 18.3.1  | MIT        | UI do renderer                          |
-| `three`          | 0.187.0 | MIT        | Avatar holográfico (WebGL)              |
+| Pacote           | Versão  | Licença    | Uso no Absolem                           |
+| ---------------- | ------- | ---------- | ---------------------------------------- |
+| `@google/genai`  | 3.6.1   | Apache-2.0 | SDK do Gemini Live e ferramentas nativas |
+| `better-sqlite3` | 11.10.0 | MIT        | Banco local da memória e turnos          |
+| `electron-store` | 8.2.0   | MIT        | `config.json` e migrações versionadas    |
+| `linkedom`       | 0.18.15 | ISC        | Extração de HTML sem executar script     |
+| `react`          | 18.3.1  | MIT        | UI do renderer                           |
+| `react-dom`      | 18.3.1  | MIT        | UI do renderer                           |
+| `three`          | 0.187.0 | MIT        | Avatar holográfico (WebGL)               |
 
 ## 2. Dependências de desenvolvimento principais
 

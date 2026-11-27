@@ -190,7 +190,7 @@ export function createGreetingController(deps: GreetingControllerDeps): Greeting
 
     try {
       created.sendText(`Diga apenas: "${greeting}". Não acrescente nada.`)
-      logger.info('voice', `saudação enviada: ${greeting}`)
+      logger.info('voice', 'saudação enviada', { chars: greeting.length })
     } catch (err) {
       logger.warn('voice', 'falha ao enviar a saudação', err)
       finish('greeting-error')

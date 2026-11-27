@@ -17,6 +17,8 @@ import { registerShutdownHook } from '../shutdown'
 import { showOverlay as showOverlayWindow } from '../overlay/controller'
 import { getActionsRuntime } from '../actions/instance'
 import { getSearchRuntime } from '../search/instance'
+import { getCaptureRuntime } from '../capture/instance'
+import { deduplicateTools } from '../gemini/tools/compose'
 import { WEB_SYSTEM_RULES } from '../search/injection'
 import { IPC } from '../../shared/ipc'
 import type { VoiceAudioPush, VoiceStateChange, VoiceTranscriptPush } from '../../shared/voice'
@@ -87,7 +89,9 @@ async function askMicrophoneConsent(ctx: IpcContext): Promise<boolean> {
   const granted = response === 0
   const persisted = setMicrophoneConsent(consentStore, granted)
   if (!persisted.ok) {
-    logger.warn('voice', `falha ao persistir o consentimento: ${persisted.error ?? 'desconhecida'}`)
+    logger.warn('voice', 'falha ao persistir o consentimento', {
+      errorType: persisted.error ? 'storage' : 'unknown'
+    })
     return false
   }
   return granted && isMicrophoneGranted(consentStore)
@@ -165,10 +169,12 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
       const search = getSearchRuntime()
-      const tools = [
+      const capture = getCaptureRuntime()
+      const tools = deduplicateTools([
         ...(getActionsRuntime()?.registry.listTools() ?? []),
-        ...(search?.listTools() ?? [])
-      ]
+        ...(search?.listTools() ?? []),
+        ...(capture?.listTools() ?? [])
+      ])
       // Sessão de voz é o "turno" para os contadores de pesquisa.
       search?.beginTurn(`voice:${Date.now()}`)
       const basePrompt = buildSystemPrompt({
@@ -201,9 +207,11 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
           description: tool.description,
           parameters: tool.parameters
         })),
+        googleSearch: snapshot.web.enabled,
         handlers,
         logger
       })
+      capture?.setLiveSession(live)
       return live
     },
     setAvatarState: (state) => applyAvatarState(state),
@@ -212,15 +220,17 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     pushTranscript: (push: VoiceTranscriptPush) => broadcast(ctx, IPC.voiceTranscript, push),
     routeToolCall: async (call) => {
       const search = getSearchRuntime()
-      if (search?.hasTool(call.name)) return search.route(call)
       const runtime = getActionsRuntime()
-      if (!runtime) {
-        return {
-          ok: false,
-          error: { kind: 'not-found', message: 'Ferramentas de ação não inicializadas.' }
-        }
+      if (runtime?.registry.getTool(call.name)) return runtime.route(call)
+      if (search?.hasTool(call.name)) return search.route(call)
+      const capture = getCaptureRuntime()
+      if (capture?.listTools().some((tool) => tool.name === call.name)) {
+        return capture.routeToolCall(call)
       }
-      return runtime.route(call)
+      return {
+        ok: false,
+        error: { kind: 'not-found', message: 'Ferramenta não encontrada.' }
+      }
     },
     isOverlayVisible: () => {
       const overlay = ctx.getOverlayWindow()
@@ -229,7 +239,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     showOverlay: () => {
       showOverlayWindow()
     },
-    notify: (message) => logger.info('voice', message),
+    notify: (message) => logger.info('voice', 'notificação de voz', { chars: message.length }),
     cancelGreeting: () => greeting.cancel(),
     memoryEnabled: () => getStoreSnapshot().memory.enabled,
     history: {
@@ -252,6 +262,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
   })
 
   registerVoiceShortcut(getStoreSnapshot().voice.shortcut ?? VOICE_DEFAULT_SHORTCUT, () => {
+    logger.info('voice', 'atalho de voz acionado')
     controller.toggle('shortcut')
   })
 
