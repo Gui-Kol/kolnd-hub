@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 describe('fallback estático do avatar', () => {
-  it('sem WebGL monta o SVG e esconde o canvas', () => {
+  it('sem Canvas2D monta o SVG e esconde o canvas', () => {
     const canvasRef = { current: null }
     act(() => {
       root.render(
@@ -65,9 +65,12 @@ describe('fallback estático do avatar', () => {
     expect(svg.style.getPropertyValue('--avatar-body')).toBe('#1f7f96')
     expect(svg.style.getPropertyValue('--avatar-belly')).toBe('#ade4ef')
     expect(svg.style.getPropertyValue('--avatar-detail')).toBe('#f06292')
-    expect(svg.querySelector('[fill="currentColor"]')).not.toBeNull()
-    expect(svg.querySelector('[fill="var(--avatar-belly, #ade4ef)"]')).not.toBeNull()
-    expect(svg.querySelector('[stroke="var(--avatar-detail, #f06292)"]')).not.toBeNull()
+    // Bola: círculo com gradiente radial e diâmetro de 46% do menor lado.
+    const ball = svg.querySelector('circle[fill^="url(#"]')
+    expect(ball).not.toBeNull()
+    expect(ball?.getAttribute('r')).toBe('23')
+    expect(svg.querySelector(`[stop-color="${COLORS.primary}"]`)).not.toBeNull()
+    expect(svg.querySelector(`circle[stroke="${COLORS.detail}"]`)).not.toBeNull()
   })
 
   it('reduced motion não adiciona animação', () => {

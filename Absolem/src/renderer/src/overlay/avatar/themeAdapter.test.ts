@@ -3,12 +3,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { describe, expect, it } from 'vitest'
 import { normalizeTheme } from '../../../../shared/theme'
-import {
-  MIN_BODY_ALPHA,
-  PARTICLE_COUNT_BY_DENSITY,
-  clampBodyAlpha,
-  toAvatarParams
-} from './themeAdapter'
+import { clampBallScale, toBallTheme } from './themeAdapter'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -16,45 +11,34 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 }
 
-describe('toAvatarParams', () => {
-  it('tema claro e escuro geram uniforms distintos', () => {
-    const light = toAvatarParams(normalizeTheme({ primaryColor: '#f8fafc' }))
-    const dark = toAvatarParams(normalizeTheme({ primaryColor: '#0b1220' }))
+describe('toBallTheme', () => {
+  it('extrai só escala e movimento reduzido', () => {
+    const params = toBallTheme(normalizeTheme({ primaryColor: '#f8fafc', scale: 1.2 }))
 
-    expect(light.primary.r).not.toBe(dark.primary.r)
-    expect(light.primary.hex).toBe('#f8fafc')
-    expect(dark.primary.hex).toBe('#0b1220')
-    // Cores em linear RGB: um hex claro fica perto de 1, o escuro perto de 0.
-    expect(light.primary.r).toBeGreaterThan(0.9)
-    expect(dark.primary.r).toBeLessThan(0.01)
+    expect(params).toEqual({ scale: 1.2, reducedMotion: false })
+    expect(Object.keys(params).sort()).toEqual(['reducedMotion', 'scale'])
   })
 
-  it('wireframe desliga o preenchimento', () => {
-    const params = toAvatarParams(normalizeTheme({ style: 'wireframe' }))
-
-    expect(params.geometry.wireframe).toBe(true)
-    expect(params.geometry.fill).toBe(false)
-    expect(params.style).toBe('wireframe')
+  it('limita a escala à faixa do schema', () => {
+    expect(toBallTheme(normalizeTheme({ scale: 0.2 })).scale).toBe(0.8)
+    expect(toBallTheme(normalizeTheme({ scale: 3 })).scale).toBe(1.5)
+    expect(clampBallScale(Number.NaN)).toBe(1)
+    expect(clampBallScale(Number.POSITIVE_INFINITY)).toBe(1)
   })
 
-  it('densidade off gera zero partículas', () => {
-    const params = toAvatarParams(normalizeTheme({ particleDensity: 'off' }))
-
-    expect(params.particles.count).toBe(0)
-    expect(params.particles.density).toBe('off')
-    expect(PARTICLE_COUNT_BY_DENSITY.high).toBeGreaterThan(PARTICLE_COUNT_BY_DENSITY.medium)
-    expect(clampBodyAlpha(0)).toBe(MIN_BODY_ALPHA)
-    expect(clampBodyAlpha(0.5)).toBe(0.5)
+  it('mantém reduced motion booleano', () => {
+    expect(toBallTheme(normalizeTheme({ reducedMotion: true })).reducedMotion).toBe(true)
+    expect(toBallTheme(normalizeTheme({ reducedMotion: 'sim' })).reducedMotion).toBe(false)
   })
 
-  it('o adaptador não lê estado', () => {
+  it('o adaptador não lê estado nem cores', () => {
     const source = stripComments(readFileSync(join(here, 'themeAdapter.ts'), 'utf8'))
 
     expect(source).not.toMatch(/AvatarState|AvatarApplyPush/)
-    expect(source).not.toMatch(/expressions|lipSync/)
+    expect(source).not.toMatch(/level|colorForState|ballVisualFrame/)
     // Assinatura de um único argumento: o estado não tem por onde entrar.
-    expect(toAvatarParams.length).toBe(1)
-    const params = toAvatarParams(normalizeTheme(undefined))
+    expect(toBallTheme.length).toBe(1)
+    const params = toBallTheme(normalizeTheme(undefined))
     expect(params).not.toHaveProperty('state')
     expect(params).not.toHaveProperty('level')
   })

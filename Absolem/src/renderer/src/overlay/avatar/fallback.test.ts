@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
-import { createParticles, resolveParticleCount } from './particles'
 
 describe('robustez do avatar', () => {
   it('sem WebGL monta fallback', () => {
@@ -37,19 +36,5 @@ describe('robustez do avatar', () => {
     expect(recreate).toHaveBeenCalledTimes(1)
     expect(onFallback).toHaveBeenCalledTimes(1)
     expect(guard.isFallback()).toBe(true)
-  })
-
-  it('reduced motion zera partículas', () => {
-    expect(resolveParticleCount(180, { reducedMotion: true })).toBe(0)
-
-    const system = createParticles({ reducedMotion: true })
-    try {
-      expect(system.count()).toBe(0)
-      expect(system.points.geometry.drawRange.count).toBe(0)
-      system.update(10)
-      expect(system.count()).toBe(0)
-    } finally {
-      system.dispose()
-    }
   })
 })
