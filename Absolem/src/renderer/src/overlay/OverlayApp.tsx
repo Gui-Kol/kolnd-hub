@@ -67,6 +67,9 @@ export function OverlayApp() {
   const [conversationKey, setConversationKey] = useState(0)
   const [transcript, setTranscript] = useState<string | null>(null)
   const voiceToggleRef = useRef<() => void>(() => undefined)
+  // Ao dispensar o cartão, o avatar aparece sob o ponteiro e o navegador
+  // dispara um `pointerenter` sintético; ignoramos até o ponteiro sair.
+  const suppressAvatarHoverRef = useRef(false)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -511,6 +514,13 @@ export function OverlayApp() {
     }
   }, [])
 
+  // Sem o cartão na tela, devolve o clique ao desktop. Se o ponteiro estiver
+  // sobre o avatar, a AvatarArea reativa no próximo `pointerenter`.
+  useEffect(() => {
+    if (configured === false && !firstRunDismissed) return
+    setInteractive(false)
+  }, [configured, firstRunDismissed])
+
   return (
     <div className="overlay-root" data-theme-preset={themePresetId} data-voice-state={voiceState}>
       {/* Clique no avatar = toggle da voz (task 06). O pointerdown também
@@ -525,8 +535,14 @@ export function OverlayApp() {
         ariaLabel={`Avatar do Absolem. ${VOICE_STATE_LABELS[voiceState]}.`}
         ariaPressed={voiceState !== 'off'}
         title={voiceReason ?? VOICE_STATE_LABELS[voiceState]}
-        onPointerEnter={() => setInteractive(true)}
-        onPointerLeave={() => setInteractive(false)}
+        onPointerEnter={() => {
+          if (suppressAvatarHoverRef.current) return
+          setInteractive(true)
+        }}
+        onPointerLeave={() => {
+          suppressAvatarHoverRef.current = false
+          setInteractive(false)
+        }}
         onPointerDown={() => voiceToggleRef.current()}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -592,7 +608,13 @@ export function OverlayApp() {
         }
       />
       {configured === false && !firstRunDismissed ? (
-        <div className="first-run-card" role="status" aria-live="polite">
+        <div
+          className="first-run-card"
+          role="status"
+          aria-live="polite"
+          onPointerEnter={() => setInteractive(true)}
+          onPointerLeave={() => setInteractive(false)}
+        >
           <p>Configure sua chave do Gemini para começar.</p>
           <p className="text-xs">
             Sem a chave, o avatar e a aparência continuam funcionando; a conversa por voz e texto
@@ -607,7 +629,14 @@ export function OverlayApp() {
             >
               Configurar agora
             </button>
-            <button type="button" onClick={() => setFirstRunDismissed(true)}>
+            <button
+              type="button"
+              onClick={() => {
+                suppressAvatarHoverRef.current = true
+                setFirstRunDismissed(true)
+                setInteractive(false)
+              }}
+            >
               Agora não
             </button>
           </div>

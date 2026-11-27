@@ -128,8 +128,8 @@ async function pollForeground(): Promise<void> {
     const foreground = await getForegroundWindow()
     if (!foreground) return
 
-    const workArea = screen.getDisplayMatching(foreground.bounds).workArea
-    const fullscreen = shouldHideForFullscreen(foreground, workArea, process.pid)
+    const monitorBounds = screen.getDisplayMatching(foreground.bounds).bounds
+    const fullscreen = shouldHideForFullscreen(foreground, monitorBounds, process.pid)
 
     if (fullscreen && !autoHidden) {
       autoHidden = true

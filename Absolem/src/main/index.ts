@@ -1,5 +1,9 @@
-// PRIMEIRO import: isola userData em smoke/teste antes de qualquer efeito
-// colateral (crashReporter, logger, electron-store).
+// PRIMEIRO import: limpa `ELECTRON_RENDERER_URL` no app empacotado antes de
+// qualquer janela ser criada (o Hub em dev exporta a URL DELE, e as janelas do
+// Absolem acabavam carregando a página do Hub).
+import './rendererEnv'
+// Isola userData em smoke/teste antes de qualquer efeito colateral
+// (crashReporter, logger, electron-store).
 import './testUserData'
 // Efeito colateral intencional: inicia o crashReporter local
 // (uploadToServer: false) e registra os handlers de crash antes da avaliação de
@@ -29,6 +33,14 @@ import {
   toggleOverlay
 } from './overlay/controller'
 import { scheduleVisualCapture } from './visual/capture'
+
+// O launcher pode nos iniciar com stdout/stderr ligados a um pipe e fechar
+// esse pipe depois (o Hub em dev faz isso ao encerrar). Sem um listener de
+// `error`, o `EPIPE: broken pipe, write` emitido pelo stream sobe como exceção
+// não capturada e derruba o processo justo durante um `logger.info`. O handler
+// vazio transforma a falha de escrita em silêncio: log em arquivo continua.
+process.stdout.on('error', () => {})
+process.stderr.on('error', () => {})
 
 // Referência viva obrigatória: o GC do Node destrói o ícone da bandeja se a
 // instância só existir em variável local.
