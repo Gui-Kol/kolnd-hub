@@ -152,6 +152,11 @@ Exemplos: `#overlay?look=holo`, `#overlay?look=storybook&debug=1`.
 | `outfit`      | `caterpillar-outfit-<roupa>` ou vazio | roupa herdada          |
 | `accessories` | `caterpillar-accessories`             | acessórios herdados    |
 
+Na task 15, `parts.body` passou a conter, além dos 9 segmentos, os grupos
+`caterpillar-belly` (placas claras) e `caterpillar-body-detail` (anéis de dobra
+e cauda). `CaterpillarStats` ganhou `bodyBaseY`, o Y local do plano de apoio,
+para a task 22 enquadrar o avatar sem flutuação (aplicando o scale da cena).
+
 Os campos legados (`segments`, `head`, `eyeGroups`, `pupils`, `antennae`,
 `mandibles`, `mouth`, `outfit`) continuam apontando para as meshes existentes.
 Somente `scene.ts` e os testes conhecem `caterpillar.ts`; nenhum consumidor
@@ -174,12 +179,12 @@ Estouro de orçamento **derruba a degradação**, não o teto: o teto é o contr
 teste (`MAX_CATERPILLAR_TRIANGLES`), e o monitor de desempenho aplica os passos
 da task 03. A degradação nível 3 usa `minimal: true`, que força 5 segmentos.
 
-O acabamento `storybook` cria um material por papel efetivamente usado. Nesta
-task o número de materiais é pequeno porque `belly`, `eyelid`, `brow`, `iris`,
+O acabamento `storybook` cria um material por papel efetivamente usado. Na
+task 15 o corpo passou a usar `body` e `belly`; `eyelid`, `brow`, `iris`,
 `highlight`, `lip`, `tongue`, `hand`, `sleeve`, `claw`, `turban`,
-`turbanStripe`, `pipe`, `hose` e `smoke` ainda não têm geometria; os grupos
-`face`, `limbs`, `turban` e `pipe` estão vazios. Isso é esperado: as tasks
-15-18 preenchem as partes.
+`turbanStripe`, `pipe`, `hose` e `smoke` continuam sem geometria; os grupos
+`face`, `limbs`, `turban` e `pipe` seguem vazios. Isso é esperado: as tasks
+16-18 preenchem as partes.
 
 ## 8. Direito autoral
 
@@ -188,3 +193,54 @@ entra no aplicativo, no repositorio ou no instalador. A imagem de referência
 fornecida pelo usuário fica apenas em `gerente/tasks/Absolem/reference/`, pasta
 ignorada pelo git, e não é usada por esta task. O personagem é uma interpretação
 local para uso pessoal do usuário, não uma cópia de arquivo de produção.
+
+## 9. Task 15 - corpo sentado
+
+A geometria do corpo saiu de `parts/body.ts`, que passou a ser a dona da curva,
+dos segmentos, dos anéis, da barriga, da cauda e da base. O compositor continua
+montando `parts.body` e `scene.ts` continua girando `caterpillar.body` no laço.
+
+### 9.1 Ancoragens
+
+`parts/skeleton.ts` é puro e depende só do raio unitário `u` (`u = 1` equivale
+ao `PartContext.radius`). A origem é `(0, 0, 0)` no centro do corpo, Y para
+cima e Z para a câmera. As 14 âncoras (`hips`, `bellyCenter`, `chest`, `neck`,
+`head`, ombros, mãos, pés e `tailTip`) ficam em múltiplos de `u`; as outras
+partes chamam `scaleSkeleton(radius)` e não repetem números mágicos.
+
+### 9.2 Proporções do corpo
+
+| Elemento       | Regra na task 15                                                  |
+| -------------- | ----------------------------------------------------------------- |
+| Curva          | S vertical: quadril, abdômen à frente, tórax atrás, pescoço       |
+| Segmentos      | 9 no normal; 5 em `minimal`; nomes `caterpillar-segment-N`        |
+| Raio           | 1,30 u no quadril, 1,45 u no abdômen, 0,75 u no pescoço           |
+| Achatamento    | 0,46 no eixo do corpo e 0,72 na profundidade (Z) no normal        |
+| Anéis de dobra | 8 no normal; 0 em `minimal`; toro com raio menor que o segmento   |
+| Barriga        | 5 placas claras (`belly`), em `caterpillar-belly`                 |
+| Cauda          | Curva curta saindo de `hips`, enrolada para dentro, ponta redonda |
+| Base           | Fundo do primeiro segmento cortado plano; `stats.bodyBaseY`       |
+
+Os anéis e a cauda são concatenados em `caterpillar-body-detail`, uma única
+malha com o material `body`. As placas da barriga usam uma `InstancedMesh`
+(`caterpillar-belly-plates`) com o material `belly`. Essa divisão mantém a
+silhueta e o orçamento de draw calls: os segmentos continuam sendo 9 meshes
+independentes, como o contrato de `caterpillar.test.ts` exige.
+
+### 9.3 Medições da task 15
+
+Medido com `?debug=1` no binário buildado, overlay em 320x360, acabamento
+`storybook` e `holo` (mesma geometria):
+
+| Recurso    | Limite | Medido na task 15 | Observação                          |
+| ---------- | ------ | ----------------- | ----------------------------------- |
+| Triângulos | 24000  | 6820              | teto do modo normal                 |
+| Draw calls | 24     | 24                | corpo 11 + cabeça 12 + partículas 1 |
+| FPS        | 60     | 165               | máquina de desenvolvimento          |
+| Degradação | 0 a 3  | 0 -> 3            | `?slow=1` aplicou os três passos    |
+
+A captura em 320x360 confirma a silhueta sentada com barriga clara, anéis de
+dobra e cauda enrolada. A captura isolada em 480x560 do harness de teste saiu
+com o topo cortado porque a área CSS do avatar ainda é 64x64 (task 22); o
+enquadramento final em 480x560 e a comparação visual com a referência ficam
+para as tasks 22 e 23. Nenhuma imagem de referência foi embutida no app.

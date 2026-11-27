@@ -1,4 +1,4 @@
-import { Group, Mesh, MeshBasicMaterial } from 'three'
+import { Group, InstancedMesh, Mesh, MeshBasicMaterial } from 'three'
 import type { Material } from 'three'
 import { normalizePalette } from './palettes'
 import { buildBodyPart } from './parts/body'
@@ -22,7 +22,7 @@ import type { PartContext } from './parts/types'
  */
 export const CATERPILLAR_MIN_SEGMENTS = 7
 export const CATERPILLAR_MAX_SEGMENTS = 9
-export const CATERPILLAR_DEFAULT_SEGMENTS = 8
+export const CATERPILLAR_DEFAULT_SEGMENTS = 9
 export const CATERPILLAR_LOW_DETAIL_SEGMENTS = 5
 export const MAX_CATERPILLAR_TRIANGLES = 24000
 
@@ -115,6 +115,8 @@ export interface CaterpillarStats {
   style: CaterpillarStyle
   outfit: CaterpillarOutfit
   accessories: CaterpillarAccessory[]
+  /** Y local do plano de apoio; a task 22 aplica o scale da cena. */
+  bodyBaseY: number
 }
 
 export interface CaterpillarBuild {
@@ -276,13 +278,15 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
   let triangles = 0
   root.traverse((object) => {
     if (object instanceof Mesh) {
-      vertices += object.geometry.attributes.position.count
-      triangles += countTriangles(
-        object.geometry as unknown as {
-          index: { count: number } | null
-          attributes: { position: { count: number } }
-        }
-      )
+      const copies = object instanceof InstancedMesh ? object.count : 1
+      vertices += object.geometry.attributes.position.count * copies
+      triangles +=
+        countTriangles(
+          object.geometry as unknown as {
+            index: { count: number } | null
+            attributes: { position: { count: number } }
+          }
+        ) * copies
     }
   })
 
@@ -292,7 +296,8 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     triangles,
     style,
     outfit,
-    accessories
+    accessories,
+    bodyBaseY: bodyPart.bodyBaseY
   }
 
   const partDisposers: Array<() => void> = [bodyPart.dispose, headPart.dispose]

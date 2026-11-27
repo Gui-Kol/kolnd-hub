@@ -19,14 +19,15 @@ describe('contrato de partes', () => {
     }
   })
 
-  it('parts.body contem todos os segmentos', () => {
+  it('parts.body contem todos os segmentos e grupos estaveis', () => {
     const build = buildCaterpillar({ seed: 7 })
     try {
       expect(build.parts.body).toBe(build.body)
-      expect(build.parts.body.children).toHaveLength(build.segments.length)
       for (const segment of build.segments) {
         expect(build.parts.body.children).toContain(segment)
       }
+      expect(build.parts.body.getObjectByName('caterpillar-belly')).not.toBeNull()
+      expect(build.parts.body.getObjectByName('caterpillar-body-detail')).not.toBeNull()
     } finally {
       build.dispose()
     }
