@@ -180,6 +180,89 @@ namespace {
     return "Unknown";
   }
 
+  /**
+   * @brief Get the short codec name used in session logs.
+   *
+   * @param video_format KLOUD_GAMES video format identifier.
+   * @return Short codec name (h264, hevc, av1, or unknown).
+   */
+  std::string_view video_codec_name(int video_format) {
+    switch (video_format) {
+      case 0:
+        return "h264";
+      case 1:
+        return "hevc";
+      case 2:
+        return "av1";
+      default:
+        return "unknown";
+    }
+  }
+
+  /**
+   * @brief Get the display name for an NVENC two-pass mode.
+   *
+   * @param two_pass Configured two-pass mode.
+   * @return Stable name used in session logs.
+   */
+  std::string_view two_pass_name(::nvenc::nvenc_two_pass two_pass) {
+    using enum ::nvenc::nvenc_two_pass;
+    switch (two_pass) {
+      case disabled:
+        return "disabled";
+      case quarter_resolution:
+        return "quarter_resolution";
+      case full_resolution:
+        return "full_resolution";
+    }
+    return "unknown";
+  }
+
+  /**
+   * @brief Get the display name for a configured NVENC split-frame mode.
+   *
+   * @param mode Configured split-frame mode.
+   * @return Stable name used in session logs.
+   */
+  std::string_view split_encode_name(::nvenc::nvenc_split_frame_encoding mode) {
+    using enum ::nvenc::nvenc_split_frame_encoding;
+    switch (mode) {
+      case disabled:
+        return "disabled";
+      case driver_decides:
+        return "driver_decides";
+      case force_enabled:
+        return "force_enabled";
+    }
+    return "unknown";
+  }
+
+  /**
+   * @brief Get the effective split-frame mode after SDK and GPU capability checks.
+   *
+   * @param init_params Encoder initialization parameters.
+   * @param video_format KLOUD_GAMES video format identifier.
+   * @param encoder_engines Number of NVENC engines reported by the GPU.
+   * @return Effective split-frame mode.
+   */
+#if NVENC_SDK_VERSION >= 1300
+  std::string_view effective_split_encode_name(const NV_ENC_INITIALIZE_PARAMS &init_params, int video_format, int encoder_engines) {
+    if (video_format <= 0 || encoder_engines <= 1) {
+      return "not_applicable";
+    }
+    switch (init_params.splitEncodeMode) {
+      case NV_ENC_SPLIT_DISABLE_MODE:
+        return "disabled";
+      case NV_ENC_SPLIT_AUTO_FORCED_MODE:
+        return "forced";
+      case NV_ENC_SPLIT_AUTO_MODE:
+        return "auto";
+      default:
+        return "unknown";
+    }
+  }
+#endif
+
 }  // namespace
 
 namespace NVENC_NAMESPACE {
@@ -558,6 +641,26 @@ namespace NVENC_NAMESPACE {
     BOOST_LOG(info) << "NvEnc: created encoder v" << NVENC_SDK_VERSION << " "
                     << video_format_name(client_config.videoFormat)
                     << quality_preset_string_from_guid(init_params.presetGUID) << extra;
+
+    // Observability: report the effective low-latency encoder configuration once per session.
+#if NVENC_SDK_VERSION >= 1300
+    const int encoder_engines = get_encoder_cap(init_params.encodeGUID, NV_ENC_CAPS_NUM_ENCODER_ENGINES);
+    const auto effective_split_encode = effective_split_encode_name(init_params, client_config.videoFormat, encoder_engines);
+#else
+    const auto effective_split_encode = "not_supported";
+#endif
+    const double minimum_fps_target = config::video.minimum_fps_target > 0.0 ? config::video.minimum_fps_target : client_config.framerate / 2.0;
+    BOOST_LOG(info) << "Encode session: encoder=nvenc"
+                    << " codec=" << video_codec_name(client_config.videoFormat)
+                    << " preset=" << quality_preset_string_from_guid(init_params.presetGUID)
+                    << " two_pass=" << two_pass_name(config.two_pass)
+                    << " split_encode=" << split_encode_name(config.split_frame_encoding)
+                    << " split_encode_effective=" << effective_split_encode
+                    << " hags_request=" << (config::video.nv_realtime_hags ? "on" : "off")
+                    << " high_power_request=" << (config::video.nv_KLOUD_GAMES_high_power_mode ? "on" : "off")
+                    << " max_b_frames=0"
+                    << " rc_buffer_size=" << enc_config.rcParams.vbvBufferSize
+                    << " minimum_fps_target=" << minimum_fps_target;
   }
 
   bool nvenc_base::create_encoder(

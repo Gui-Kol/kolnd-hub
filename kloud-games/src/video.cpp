@@ -88,6 +88,66 @@ namespace video {
     bool is_legacy_video_format(int video_format) {
       return video_format == format_mpeg2 || video_format == format_h263p;
     }
+
+    /**
+     * @brief Map a GameStream video format to the short codec name used in logs.
+     *
+     * @param video_format Requested GameStream video codec identifier.
+     * @return Short codec name (h264, hevc, av1, mpeg2, h263p).
+     */
+    std::string_view codec_name_from_format(int video_format) {
+      switch (video_format) {
+        case format_h264:
+          return "h264";
+        case format_hevc:
+          return "hevc";
+        case format_av1:
+          return "av1";
+        case format_mpeg2:
+          return "mpeg2";
+        case format_h263p:
+          return "h263p";
+        default:
+          return "unknown";
+      }
+    }
+
+    /**
+     * @brief Compute the effective minimum FPS target for a requested frame rate.
+     *
+     * Matches the value used to size the encoder's frame-wait timeout: a configured
+     * target above zero wins, otherwise half of the client framerate is used.
+     *
+     * @param framerate Client-requested framerate.
+     * @return Effective minimum FPS target.
+     */
+    double effective_minimum_fps_target(int framerate) {
+      return config::video.minimum_fps_target > 0.0 ? config::video.minimum_fps_target : framerate / 2.0;
+    }
+
+    /**
+     * @brief Log the effective AVCodec encoder and low-latency parameters once per session.
+     *
+     * The standalone NVENC backend logs the same fields from `nvenc_base`. AVCodec
+     * backends have no NVENC quality preset, two-pass or split-frame setting, so those
+     * fields are reported as `n/a` here.
+     *
+     * @param encoder Selected encoder backend.
+     * @param codec FFmpeg codec descriptor selected for the client configuration.
+     * @param config Client-requested video configuration.
+     * @param ctx Opened FFmpeg codec context.
+     */
+    void log_avcodec_encode_session(const encoder_t &encoder, const encoder_t::codec_t &codec, const config_t &config, const AVCodecContext &ctx) {
+      BOOST_LOG(info) << "Encode session: encoder="sv << encoder.name
+                      << " codec="sv << codec_name_from_format(config.videoFormat)
+                      << " ffmpeg_codec="sv << codec.name
+                      << " preset=n/a two_pass=n/a split_encode=n/a"sv
+                      << " hags_request="sv << (config::video.nv_realtime_hags ? "on"sv : "off"sv)
+                      << " high_power_request="sv << (config::video.nv_KLOUD_GAMES_high_power_mode ? "on"sv : "off"sv)
+                      << " max_b_frames="sv << ctx.max_b_frames
+                      << " rc_buffer_size="sv << ctx.rc_buffer_size
+                      << " minimum_fps_target="sv << effective_minimum_fps_target(config.framerate);
+    }
   }  // namespace
 
   /**
@@ -2497,6 +2557,9 @@ namespace video {
       // Successfully opened the codec
       break;
     }
+
+    // Observability: report the effective low-latency encoder configuration once per session.
+    log_avcodec_encode_session(encoder, video_format, config, *ctx);
 
     avcodec_frame_t frame {av_frame_alloc()};
     frame->format = ctx->pix_fmt;
