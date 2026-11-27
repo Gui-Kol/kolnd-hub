@@ -1803,6 +1803,9 @@ namespace video {
     if (!disp) {
       return;
     }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::display_created);
+    }
     display_wp = disp;
 
     constexpr auto capture_buffer_size = 12;
@@ -2068,6 +2071,13 @@ namespace video {
 
       if (result.first_packet_of_session) {
         BOOST_LOG(info) << perf::format_first_packet_line(result.capture_to_queue_ms);
+      }
+
+      auto &timeline = perf::startup_timeline();
+      if (timeline.mark_once(perf::startup_stage_e::first_packet)) {
+        if (auto line = timeline.format_line()) {
+          BOOST_LOG(info) << *line;
+        }
       }
 
       if (result.summary) {
@@ -2702,6 +2712,9 @@ namespace video {
     if (!session) {
       return;
     }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::encoder_created);
+    }
 
     // As a workaround for NVENC hangs and to generally speed up encoder reinit,
     // we will complete the encoder teardown in a separate thread if supported.
@@ -2940,6 +2953,9 @@ namespace video {
     if (!session) {
       return std::nullopt;
     }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::encoder_created);
+    }
 
     // Load the initial image to prepare for encoding
     if (session->convert(img)) {
@@ -3000,6 +3016,9 @@ namespace video {
 
     if (!disp) {
       return encode_e::capture_error;
+    }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::display_created);
     }
 
     auto img = disp->alloc_img();
@@ -3641,7 +3660,12 @@ namespace video {
   }
 
   int probe_encoders() {
-    if (!allow_encoder_probing(display_device::enumerate_devices())) {
+    const auto devices {display_device::enumerate_devices()};
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::enumerate_displays);
+    }
+
+    if (!allow_encoder_probing(devices)) {
       // Error already logged
       return -1;
     }

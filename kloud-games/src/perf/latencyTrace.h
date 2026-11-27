@@ -6,6 +6,7 @@
 
 // standard includes
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -184,6 +185,213 @@ namespace perf {
     line << std::fixed << std::setprecision(3)
          << "latency_trace first_packet capture_to_queue_ms=" << capture_to_queue_ms;
     return line.str();
+  }
+
+  /**
+   * @brief Ordered marks of the session-start timeline.
+   *
+   * The timeline starts when the launch or resume request is received and ends when the first
+   * encoded packet is enqueued. Stages are recorded from different threads (HTTP, RTSP, capture,
+   * and encoder), so the collection itself is thread safe.
+   */
+  enum class startup_stage_e : std::size_t {
+    request = 0,  ///< Launch or resume request received; the zero point of every delta.
+    configure_display_start,  ///< Entering the display configuration call.
+    configure_display_done,  ///< Display configuration call returned.
+    enumerate_displays,  ///< Display enumeration returned, before encoder probing.
+    probe_encoders_done,  ///< Encoder probing returned.
+    display_created,  ///< Capture display object created for the session.
+    encoder_created,  ///< Per-session encoder session created.
+    first_packet,  ///< First encoded packet enqueued for the network thread.
+    count  ///< Number of stages, used to size the mark array.
+  };
+
+  /**
+   * @brief Map a startup stage to the key used in the trace line.
+   *
+   * @param stage Stage to name.
+   * @return Key without the `_ms` suffix.
+   */
+  inline std::string_view startup_stage_key(startup_stage_e stage) {
+    switch (stage) {
+      case startup_stage_e::request:
+        return "request";
+      case startup_stage_e::configure_display_start:
+        return "configure_display_start";
+      case startup_stage_e::configure_display_done:
+        return "configure_display";
+      case startup_stage_e::enumerate_displays:
+        return "enumerate_displays";
+      case startup_stage_e::probe_encoders_done:
+        return "probe_encoders";
+      case startup_stage_e::display_created:
+        return "display_created";
+      case startup_stage_e::encoder_created:
+        return "encoder_created";
+      case startup_stage_e::first_packet:
+        return "first_packet";
+      case startup_stage_e::count:
+        break;
+    }
+
+    return "unknown";
+  }
+
+  /**
+   * @brief Collects the marks of one session start relative to the launch request.
+   *
+   * A timeline is only active between `begin()` and `reset()`. Marks recorded while inactive are
+   * ignored, which keeps a boot-time encoder probe from polluting the timeline of a later session.
+   * The class performs no I/O: callers decide when (and whether) to log the formatted line.
+   */
+  class startup_timeline_t {
+  public:
+    /**
+     * @brief Start a new timeline.
+     *
+     * @param request Time the launch or resume request was received.
+     */
+    void begin(clock_t::time_point request);
+
+    /**
+     * @brief Record a stage at the current steady clock time.
+     *
+     * @param stage Stage that just completed.
+     */
+    void mark(startup_stage_e stage);
+
+    /**
+     * @brief Record a stage only when it has not been recorded yet.
+     *
+     * Used for the final `first_packet` mark: the caller can then emit exactly one session-start
+     * line per `begin()` even when the allocator reuses a session key between connections.
+     *
+     * @param stage Stage that just completed.
+     * @return True when this call recorded the mark; false when inactive or already marked.
+     */
+    bool mark_once(startup_stage_e stage);
+
+    /**
+     * @brief Record a stage at an explicit time.
+     *
+     * @param stage Stage that just completed.
+     * @param at Time the stage completed.
+     */
+    void mark_at(startup_stage_e stage, clock_t::time_point at);
+
+    /**
+     * @brief Report whether a timeline is active.
+     *
+     * @return True after `begin()` until `reset()` or another `begin()`.
+     */
+    [[nodiscard]] bool active() const;
+
+    /**
+     * @brief Format every recorded mark as a single log line.
+     *
+     * Keys follow the declaration order of `startup_stage_e`; stages without a mark are omitted.
+     * The layout is `latency_trace session_start <stage>_ms=<value> ...` with three decimals.
+     *
+     * @return One line without a trailing newline, or empty when inactive or unmarked.
+     */
+    [[nodiscard]] std::optional<std::string> format_line() const;
+
+    /**
+     * @brief Drop the current timeline and every recorded mark.
+     */
+    void reset();
+
+  private:
+    /// @brief Number of mark slots, including the implicit zero-point request stage.
+    static constexpr std::size_t stage_count {static_cast<std::size_t>(startup_stage_e::count)};
+
+    mutable std::mutex mutex_;  ///< Guards the timeline fields below.
+    std::optional<clock_t::time_point> request_;  ///< Launch request time while the timeline is active.
+    std::array<std::optional<double>, stage_count> marks_;  ///< Delta in milliseconds per stage.
+  };
+
+  inline void startup_timeline_t::begin(clock_t::time_point request) {
+    std::lock_guard lock {mutex_};
+    request_ = request;
+    marks_.fill(std::nullopt);
+  }
+
+  inline void startup_timeline_t::mark(startup_stage_e stage) {
+    mark_at(stage, clock_t::now());
+  }
+
+  inline bool startup_timeline_t::mark_once(startup_stage_e stage) {
+    std::lock_guard lock {mutex_};
+    if (!request_ || stage == startup_stage_e::request || stage == startup_stage_e::count) {
+      return false;
+    }
+
+    auto &mark = marks_[static_cast<std::size_t>(stage)];
+    if (mark) {
+      return false;
+    }
+
+    mark = to_ms(clock_t::now() - *request_);
+    return true;
+  }
+
+  inline void startup_timeline_t::mark_at(startup_stage_e stage, clock_t::time_point at) {
+    std::lock_guard lock {mutex_};
+    if (!request_ || stage == startup_stage_e::request || stage == startup_stage_e::count) {
+      return;
+    }
+
+    marks_[static_cast<std::size_t>(stage)] = to_ms(at - *request_);
+  }
+
+  inline bool startup_timeline_t::active() const {
+    std::lock_guard lock {mutex_};
+    return request_.has_value();
+  }
+
+  inline std::optional<std::string> startup_timeline_t::format_line() const {
+    std::lock_guard lock {mutex_};
+    if (!request_) {
+      return std::nullopt;
+    }
+
+    std::ostringstream line;
+    line << std::fixed << std::setprecision(3) << "latency_trace session_start";
+
+    bool has_mark {false};
+    for (std::size_t index = static_cast<std::size_t>(startup_stage_e::request) + 1; index < stage_count; ++index) {
+      if (!marks_[index]) {
+        continue;
+      }
+
+      line << ' ' << startup_stage_key(static_cast<startup_stage_e>(index)) << "_ms=" << *marks_[index];
+      has_mark = true;
+    }
+
+    if (!has_mark) {
+      return std::nullopt;
+    }
+
+    return line.str();
+  }
+
+  inline void startup_timeline_t::reset() {
+    std::lock_guard lock {mutex_};
+    request_.reset();
+    marks_.fill(std::nullopt);
+  }
+
+  /**
+   * @brief Process-wide session-start timeline shared by the HTTP, video, and encoder threads.
+   *
+   * Sessions are started one at a time (the display preparation path only runs while no session is
+   * active), so a single timeline covers the request → first packet window.
+   *
+   * @return Mutable reference to the singleton timeline.
+   */
+  inline startup_timeline_t &startup_timeline() {
+    static startup_timeline_t timeline;
+    return timeline;
   }
 
   /**

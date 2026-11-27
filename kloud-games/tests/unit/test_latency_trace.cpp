@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+#include <string>
 #include <vector>
 
 // local includes
@@ -161,4 +162,107 @@ TEST(LatencyTraceFormatTests, FormatsFirstPacketLine) {
     perf::format_first_packet_line(12.3456),
     "latency_trace first_packet capture_to_queue_ms=12.346"
   );
+}
+
+TEST(LatencyTraceStartupTests, RecordsStagesRelativeToTheRequest) {
+  perf::startup_timeline_t timeline;
+  const auto request = perf::clock_t::time_point {} + 1s;
+
+  EXPECT_FALSE(timeline.active());
+  EXPECT_FALSE(timeline.format_line().has_value());
+
+  timeline.begin(request);
+  EXPECT_TRUE(timeline.active());
+
+  timeline.mark_at(perf::startup_stage_e::configure_display_start, request + 5ms);
+  timeline.mark_at(perf::startup_stage_e::configure_display_done, request + 10ms);
+  timeline.mark_at(perf::startup_stage_e::enumerate_displays, request + 12ms);
+  timeline.mark_at(perf::startup_stage_e::probe_encoders_done, request + 20ms);
+  timeline.mark_at(perf::startup_stage_e::display_created, request + 30ms);
+  timeline.mark_at(perf::startup_stage_e::encoder_created, request + 40ms);
+  timeline.mark_at(perf::startup_stage_e::first_packet, request + 50ms);
+
+  const auto line = timeline.format_line();
+  ASSERT_TRUE(line.has_value());
+  EXPECT_EQ(
+    *line,
+    "latency_trace session_start configure_display_start_ms=5.000 configure_display_ms=10.000 "
+    "enumerate_displays_ms=12.000 probe_encoders_ms=20.000 display_created_ms=30.000 "
+    "encoder_created_ms=40.000 first_packet_ms=50.000"
+  );
+}
+
+TEST(LatencyTraceStartupTests, IgnoresMarksBeforeBegin) {
+  perf::startup_timeline_t timeline;
+  const auto request = perf::clock_t::time_point {} + 1s;
+
+  timeline.mark_at(perf::startup_stage_e::first_packet, request + 5ms);
+  EXPECT_FALSE(timeline.format_line().has_value());
+
+  timeline.begin(request);
+  EXPECT_FALSE(timeline.format_line().has_value());
+  EXPECT_TRUE(timeline.active());
+}
+
+TEST(LatencyTraceStartupTests, OmitsStagesWithoutMarks) {
+  perf::startup_timeline_t timeline;
+  const auto request = perf::clock_t::time_point {} + 1s;
+
+  timeline.begin(request);
+  timeline.mark_at(perf::startup_stage_e::display_created, request + 7ms);
+
+  const auto line = timeline.format_line();
+  ASSERT_TRUE(line.has_value());
+  EXPECT_EQ(*line, "latency_trace session_start display_created_ms=7.000");
+}
+
+TEST(LatencyTraceStartupTests, BeginAndResetClearPreviousMarks) {
+  perf::startup_timeline_t timeline;
+  const auto request = perf::clock_t::time_point {} + 1s;
+
+  timeline.begin(request);
+  timeline.mark_at(perf::startup_stage_e::first_packet, request + 50ms);
+  EXPECT_TRUE(timeline.format_line().has_value());
+
+  timeline.begin(request + 1s);
+  EXPECT_FALSE(timeline.format_line().has_value());
+
+  timeline.mark_at(perf::startup_stage_e::first_packet, request + 1s + 2ms);
+  const auto line = timeline.format_line();
+  ASSERT_TRUE(line.has_value());
+  EXPECT_EQ(*line, "latency_trace session_start first_packet_ms=2.000");
+
+  timeline.reset();
+  EXPECT_FALSE(timeline.active());
+  EXPECT_FALSE(timeline.format_line().has_value());
+}
+
+TEST(LatencyTraceStartupTests, SharedTimelineKeepsActiveStateUntilReset) {
+  auto &timeline = perf::startup_timeline();
+  timeline.reset();
+  timeline.begin(perf::clock_t::time_point {} + 1s);
+
+  EXPECT_TRUE(perf::startup_timeline().active());
+
+  timeline.reset();
+  EXPECT_FALSE(perf::startup_timeline().active());
+}
+
+TEST(LatencyTraceStartupTests, MarkOnceRecordsOnlyTheFirstCall) {
+  perf::startup_timeline_t timeline;
+  const auto request = perf::clock_t::time_point {} + 1s;
+
+  EXPECT_FALSE(timeline.mark_once(perf::startup_stage_e::first_packet));
+
+  timeline.begin(request);
+  timeline.mark_at(perf::startup_stage_e::display_created, request + 5ms);
+
+  EXPECT_TRUE(timeline.mark_once(perf::startup_stage_e::first_packet));
+  const auto first_line = timeline.format_line();
+  ASSERT_TRUE(first_line.has_value());
+  EXPECT_NE(first_line->find("display_created_ms=5.000"), std::string::npos);
+  EXPECT_NE(first_line->find(" first_packet_ms="), std::string::npos);
+
+  EXPECT_FALSE(timeline.mark_once(perf::startup_stage_e::first_packet));
+  EXPECT_EQ(*first_line, *timeline.format_line());
 }
