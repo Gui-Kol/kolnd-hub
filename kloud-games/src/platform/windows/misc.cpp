@@ -107,22 +107,71 @@ namespace {
 
   std::atomic used_nt_set_timer_resolution = false;
 
-  bool nt_set_timer_resolution_max() {
+  /**
+   * @brief Request the finest timer resolution reported by the system.
+   *
+   * @param current_resolution Receives the resolution in effect after the request, in 100 ns units.
+   * @return NTSTATUS from NtQueryTimerResolution or NtSetTimerResolution.
+   */
+  NTSTATUS nt_set_timer_resolution_max(ULONG &current_resolution) {
     ULONG maximum;
     ULONG minimum;
-    if (ULONG current; !NT_SUCCESS(NtQueryTimerResolution(&minimum, &maximum, &current)) || !NT_SUCCESS(NtSetTimerResolution(maximum, TRUE, &current))) {
-      return false;
+    auto status = NtQueryTimerResolution(&minimum, &maximum, &current_resolution);
+    if (!NT_SUCCESS(status)) {
+      return status;
     }
-    return true;
+    return NtSetTimerResolution(maximum, TRUE, &current_resolution);
   }
 
-  bool nt_set_timer_resolution_min() {
+  /**
+   * @brief Restore the coarsest timer resolution reported by the system.
+   *
+   * @return NTSTATUS from NtQueryTimerResolution or NtSetTimerResolution.
+   */
+  NTSTATUS nt_set_timer_resolution_min() {
     ULONG maximum;
     ULONG minimum;
-    if (ULONG current; !NT_SUCCESS(NtQueryTimerResolution(&minimum, &maximum, &current)) || !NT_SUCCESS(NtSetTimerResolution(minimum, TRUE, &current))) {
-      return false;
+    ULONG current;
+    auto status = NtQueryTimerResolution(&minimum, &maximum, &current);
+    if (!NT_SUCCESS(status)) {
+      return status;
     }
-    return true;
+    return NtSetTimerResolution(minimum, TRUE, &current);
+  }
+
+  /**
+   * @brief Format an NTSTATUS for a log message.
+   *
+   * @param status NTSTATUS value returned by an ntdll call.
+   * @return Hexadecimal status with the conventional `0x` prefix.
+   */
+  std::string format_ntstatus(NTSTATUS status) {
+    return std::format("0x{:08X}", static_cast<unsigned long>(status));
+  }
+
+  /**
+   * @brief Describe a Win32 process priority class for the scheduling log line.
+   *
+   * @param priority_class Priority class returned by GetPriorityClass().
+   * @return Stable lowercase label, or "unknown" when the value is not recognized.
+   */
+  std::string_view priority_class_name(DWORD priority_class) {
+    switch (priority_class) {
+      case IDLE_PRIORITY_CLASS:
+        return "idle";
+      case BELOW_NORMAL_PRIORITY_CLASS:
+        return "below_normal";
+      case NORMAL_PRIORITY_CLASS:
+        return "normal";
+      case ABOVE_NORMAL_PRIORITY_CLASS:
+        return "above_normal";
+      case HIGH_PRIORITY_CLASS:
+        return "high";
+      case REALTIME_PRIORITY_CLASS:
+        return "realtime";
+      default:
+        return "unknown";
+    }
   }
 
 }  // namespace
@@ -1213,19 +1262,29 @@ namespace platf {
     });
 
     // Enable MMCSS scheduling for DWM
-    DwmEnableMMCSS(true);
+    if (auto hr = DwmEnableMMCSS(true); FAILED(hr)) {
+      BOOST_LOG(warning) << "DwmEnableMMCSS(true) failed ["sv << util::hex(hr).to_string_view() << ']';
+    }
 
     // Reduce timer period to 0.5ms
-    if (nt_set_timer_resolution_max()) {
+    ULONG timer_resolution = 0;
+    auto timer_status = nt_set_timer_resolution_max(timer_resolution);
+    if (NT_SUCCESS(timer_status)) {
       used_nt_set_timer_resolution = true;
     } else {
-      BOOST_LOG(error) << "NtSetTimerResolution() failed, falling back to timeBeginPeriod()";
-      timeBeginPeriod(1);
+      BOOST_LOG(warning) << "NtSetTimerResolution() failed ("sv << format_ntstatus(timer_status) << "), falling back to timeBeginPeriod(1)"sv;
+      auto period_status = timeBeginPeriod(1);
+      if (period_status != TIMERR_NOERROR) {
+        BOOST_LOG(warning) << "timeBeginPeriod(1) failed: "sv << period_status;
+      }
       used_nt_set_timer_resolution = false;
     }
 
     // Promote ourselves to high priority class
-    SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    if (!SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS)) {
+      auto winerr = GetLastError();
+      BOOST_LOG(warning) << "Unable to set process priority class to high: "sv << winerr;
+    }
 
     // Modify NVIDIA control panel settings again, in case they have been changed externally since KLOUD_GAMES launch
     if (nvprefs_instance.load()) {
@@ -1267,6 +1326,31 @@ namespace platf {
         }
       }
     }
+
+    // Report the scheduling state the OS actually applied, once per streaming start.
+    auto process_priority = GetPriorityClass(GetCurrentProcess());
+    if (!process_priority) {
+      auto winerr = GetLastError();
+      BOOST_LOG(warning) << "Unable to query the process priority class: "sv << winerr;
+    }
+
+    ULONG queried_minimum = 0;
+    ULONG queried_maximum = 0;
+    ULONG effective_timer_resolution = 0;
+    auto query_status = NtQueryTimerResolution(&queried_minimum, &queried_maximum, &effective_timer_resolution);
+
+    std::ostringstream scheduling_state;
+    scheduling_state << "process_priority=" << priority_class_name(process_priority)
+                     << " timer_source=" << (used_nt_set_timer_resolution ? "nt" : "timeBeginPeriod");
+    if (NT_SUCCESS(query_status)) {
+      scheduling_state << " timer_resolution_100ns=" << effective_timer_resolution
+                       << " timer_resolution_ms=" << (effective_timer_resolution / 10000.0);
+    } else {
+      scheduling_state << " timer_resolution_100ns=unknown timer_resolution_ms=unknown";
+      BOOST_LOG(warning) << "NtQueryTimerResolution() failed ("sv << format_ntstatus(query_status) << "); timer resolution unknown"sv;
+    }
+    BOOST_LOG(info) << "Streaming scheduling: "sv << scheduling_state.str();
+
     enable_mouse_keys();
   }
 
@@ -1301,20 +1385,29 @@ namespace platf {
 
   void streaming_will_stop() {
     // Demote ourselves back to normal priority class
-    SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS);
+    if (!SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS)) {
+      auto winerr = GetLastError();
+      BOOST_LOG(warning) << "Unable to restore the normal process priority class: "sv << winerr;
+    }
 
     // End our 0.5ms timer request
     if (used_nt_set_timer_resolution) {
       used_nt_set_timer_resolution = false;
-      if (!nt_set_timer_resolution_min()) {
-        BOOST_LOG(error) << "nt_set_timer_resolution_min() failed even though nt_set_timer_resolution_max() succeeded";
+      auto timer_status = nt_set_timer_resolution_min();
+      if (!NT_SUCCESS(timer_status)) {
+        BOOST_LOG(warning) << "nt_set_timer_resolution_min() failed even though nt_set_timer_resolution_max() succeeded ("sv << format_ntstatus(timer_status) << ')';
       }
     } else {
-      timeEndPeriod(1);
+      auto period_status = timeEndPeriod(1);
+      if (period_status != TIMERR_NOERROR) {
+        BOOST_LOG(warning) << "timeEndPeriod(1) failed: "sv << period_status;
+      }
     }
 
     // Disable MMCSS scheduling for DWM
-    DwmEnableMMCSS(false);
+    if (auto hr = DwmEnableMMCSS(false); FAILED(hr)) {
+      BOOST_LOG(warning) << "DwmEnableMMCSS(false) failed ["sv << util::hex(hr).to_string_view() << ']';
+    }
 
     // Closing our WLAN client handle will undo our optimizations
     if (wlan_handle != nullptr) {
