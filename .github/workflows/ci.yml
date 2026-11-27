@@ -15,6 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Guard de credenciais: roda na raiz do repositório (o job usa
+      # working-directory kolnd-hub por padrão, daí o override abaixo).
+      - name: Secret leak guard
+        working-directory: .
+        run: node scripts/check-secrets.mjs
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

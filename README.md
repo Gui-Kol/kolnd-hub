@@ -282,6 +282,14 @@ O Hub também tem um **Modo Big Picture** (estilo Steam Big Picture): clique em 
 - Por ser um `.exe` único que baixa/executa instaladores, pode ser sinalizado como falso positivo pelo Defender — para distribuição pública, assine o código (ver detalhes em `kolnd-hub/README.md`, seção "Primeira execução, UAC e antivírus").
 - **Validação em máquina limpa (VM/Sandbox) — status real: checklist preparado, execução PENDENTE.** O checklist reutilizável a cada release está em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md) (pré-requisitos da VM, passos com checkbox, cenários de falha/UAC negado, logs a observar, limitações — o bundle real do Mark LVII não está no git; CI só empacota com placeholder). A instalação de Python via winget e a instalação do MSI do Kloud Games **não foram exercitadas em ambiente limpo**; esta afirmação só pode ser removida/atualizada após uma execução registrada na VM. Os fluxos de desinstalação (botões da "Zona de perigo") também ainda não foram executados de ponta a ponta em VM — o que está documentado na seção **Desinstalação** descreve o comportamento implementado e coberto por testes, mas a desinstalação real (instalar, usar, desinstalar) aguarda validação em VM com snapshot. O roteiro dessa validação está em [`docs/RELEASE.md`](docs/RELEASE.md) (seção "Passo 2 — Teste em máquina limpa") e o checklist operacional em [`docs/FIRST-RUN-CHECKLIST.md`](docs/FIRST-RUN-CHECKLIST.md).
 
+## Credenciais e dados pessoais
+
+- **Absolem**: a chave do Gemini é cifrada no próprio PC com `safeStorage` (DPAPI) e gravada em `%APPDATA%\absolem\secrets.bin`, fora do repositório. Ela nunca vai para `config.json` nem para os logs. Não altere esse fluxo.
+- **Mark LVII**: a chave de API fica em `config/api_keys.json`, ao lado do `MarkLVII.exe` na instalação. O arquivo é ignorado pelo git e filtrado do instalador (`electron-builder.yml`).
+- **Nunca commitar segredos**: `.env*` (exceto `.env.example`), chaves de API, certificados (`*.pem`, `*.pfx`, `*.p12`), tokens, client secrets e bancos de dados de usuário (`memory.sqlite`) estão no `.gitignore` e são barrados pelo guard.
+- **Guard automatizado**: `scripts/check-secrets.mjs` (sem dependências) varre os arquivos **rastreados** pelo git — caminhos proibidos e conteúdo (chave Google `AIza…` e chave privada PEM) — e roda no CI (`.github/workflows/ci.yml`). Localmente: `node scripts/check-secrets.mjs`.
+- **Se uma chave vazar**: revogue e rotacione a chave no [Google AI Studio](https://aistudio.google.com/apikey) imediatamente. O guard impede novas inclusões, mas **não** reescreve histórico — um segredo já publicado continua acessível no passado do repositório até uma limpeza de histórico ser feita de propósito.
+
 ## Licenças
 
 | Componente     | Licença                                |
