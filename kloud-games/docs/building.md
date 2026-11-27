@@ -26,11 +26,11 @@ default; pass `-DBOOST_USE_STATIC=OFF` to use shared system libraries instead.
 
 KLOUD_GAMES's build automation uses packaged static Boost libraries with MSYS2 on Windows.
 
-#### Prebuilt Web UI
+#### Web UI
 
-KLOUD_GAMES releases publish the platform-independent Web UI as the `@lizardbyte/KLOUD_GAMES` package to npm and GitHub
-Packages. The package contains the production assets under `build/assets/web`, so the native KLOUD_GAMES build installs
-the Web UI without running Node.js or Vite.
+The Web UI is built from source as part of the native build. CMake locates `npm` and runs `npm ci` followed by
+`npm run build`; the production assets land under `<build dir>/assets/web` and are installed from there. There is no
+prebuilt frontend package in this fork, so `node` and `npm` are build requirements (see below).
 
 #### Windows
 
@@ -96,21 +96,72 @@ To create a WiX installer, you also need to install [.NET](https://dotnet.micros
 To build the frontend, install native [Node.js](https://nodejs.org/en/download) for the target architecture. The
 MSYS2 Node.js package is not supported because its shared runtime cannot load the native binding required by Rolldown.
 
+`node` and `npm` must also be visible on `PATH` **inside the MSYS2 shell**, not only in PowerShell or cmd. The
+configure step runs `find_program(NPM npm REQUIRED)` in `cmake/targets/common.cmake`; when `npm` is missing the
+configure stops with:
+
+```text
+CMake Error at cmake/targets/common.cmake:34 (find_program):
+  Could not find NPM using the following names: npm
+```
+
+Export the native Node.js directory before configuring when the MSYS2 shell does not inherit it:
+
+```bash
+export NODEJS_PATH="/c/Program Files/nodejs"
+export PATH="$NODEJS_PATH:$PATH"
+node --version && npm --version
+```
+
+`kolnd-hub/scripts/build-kloud-games.ps1` performs this export automatically from the Windows `PATH`.
+
 ### Clone
 Ensure [git](https://git-scm.com) is installed on your system, then clone the repository using the following command:
 
 ```bash
 git clone https://github.com/KLOUD_GAMESStream/KLOUD_GAMES.git --recurse-submodules
 cd KLOUD_GAMES
-mkdir build
 ```
 
-### Build
+### Build directories
+
+Build directories are prefixed with `cmake-build-` (see `AGENTS.md`) so they are easy to tell apart from source
+directories. Two profiles are kept side by side:
+
+| Profile | Directory | Purpose | `CMAKE_BUILD_TYPE` | `BUILD_DOCS` | `BUILD_TESTS` |
+|:--|:--|:--|:--|:--|:--|
+| Development | `cmake-build-windows` | local work, debug symbols, tests | `RelWithDebInfo` | `ON` | `ON` |
+| Production | `cmake-build-release` | MSI shipped inside Kolnd Hub | `Release` | `OFF` | `OFF` |
+
+The production profile is what `kolnd-hub/scripts/build-kloud-games.ps1` and
+`.github/workflows/build-kloud-games.yml` use. It does **not** produce `test_KLOUD_GAMES.exe`.
+
+#### Development profile
 
 ```bash
-cmake -B build -G Ninja -S .
-ninja -C build
+cmake -B cmake-build-windows -G Ninja -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DKLOUD_GAMES_ASSETS_DIR=assets -DBUILD_DOCS=ON -DBUILD_TESTS=ON
+ninja -C cmake-build-windows
 ```
+
+`BUILD_DOCS=ON` requires `doxygen` and `graphviz`. `BUILD_TESTS=ON` builds the test executable at
+`cmake-build-windows/tests/test_KLOUD_GAMES.exe`.
+
+#### Production profile
+
+```bash
+cmake -B cmake-build-release -G Ninja -S . -DBUILD_WERROR=OFF -DCMAKE_BUILD_TYPE=Release \
+  -DKLOUD_GAMES_ASSETS_DIR=assets -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF
+ninja -C cmake-build-release
+```
+
+| Flag | Why |
+|:--|:--|
+| `-DCMAKE_BUILD_TYPE=Release` | optimized build without debug info; the packaged binaries are stripped too |
+| `-DBUILD_DOCS=OFF` | skips doxygen/dockle; the installer does not need the generated docs |
+| `-DBUILD_TESTS=OFF` | does not build `test_KLOUD_GAMES.exe`, which is several hundred MB in the dev profile |
+| `-DBUILD_WERROR=OFF` | compiler warnings do not abort the release build |
+| `-DKLOUD_GAMES_ASSETS_DIR=assets` | output root for the generated Web UI (`assets/web`), as consumed by Vite and the install rules |
 
 > [!TIP]
 > Available build options can be found in
@@ -118,10 +169,23 @@ ninja -C build
 
 ### Package
 
+Run cpack inside the production build directory. `-C Release` selects the configuration; the profile is single-config,
+but cpack needs the explicit value to find the binaries.
+
 ```bash
-cpack -G WIX --config ./build/CPackConfig.cmake    # WiX installer (recommended)
-cpack -G NSIS --config ./build/CPackConfig.cmake   # NSIS installer
-cpack -G ZIP --config ./build/CPackConfig.cmake    # Portable archive
+cd cmake-build-release
+cpack -G WIX -C Release --config CPackConfig.cmake
+```
+
+The result is `cmake-build-release/cpack_artifacts/KLOUD_GAMES.msi` (about 53 MB). `build-kloud-games.ps1` copies it to
+`kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi`. The WiX generator strips the packaged binaries
+(`CPACK_STRIP_FILES=YES`); `dxgi-info.exe` is still the largest non-application payload at about 55 MB.
+
+Alternative generators from the same build tree:
+
+```bash
+cpack -G NSIS -C Release --config CPackConfig.cmake   # NSIS installer
+cpack -G ZIP  -C Release --config CPackConfig.cmake   # Portable archive
 ```
 
 ### Remote Build
@@ -129,5 +193,5 @@ It may be beneficial to build remotely in some cases. This will enable easier bu
 
 1. Fork the project
 2. Activate workflows
-3. Trigger the *CI* workflow manually
-4. Download the artifacts/binaries from the workflow run summary
+3. Trigger the *Build KLOUD_GAMES* workflow (`.github/workflows/build-kloud-games.yml`) manually
+4. Download the MSI from the workflow run summary
