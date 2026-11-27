@@ -1,4 +1,13 @@
-﻿import { Color, Group, MeshBasicMaterial, PerspectiveCamera, Scene, WebGLRenderer } from 'three'
+﻿import {
+  AmbientLight,
+  Color,
+  DirectionalLight,
+  Group,
+  MeshBasicMaterial,
+  PerspectiveCamera,
+  Scene,
+  WebGLRenderer
+} from 'three'
 import type { AvatarState, AvatarTheme } from '../../../../shared/avatar'
 import {
   AVATAR_ERROR_ACCENT,
@@ -16,8 +25,26 @@ import { createHoloMaterial } from './holoMaterial'
 import type { AvatarLook } from './looks'
 import { resolveAvatarLook } from './looks'
 import { createLipSync } from './lipSync'
+import { applyLookToScene, resolveToneMapping } from './lookScene'
+import { applyThemeChange } from './sceneTheme'
 import { ABSOLEM_1951_PALETTE } from './palettes'
 import { createRoleMaterialFactory } from './roleMaterials'
+import {
+  STORYBOOK_AMBIENT_INTENSITY,
+  STORYBOOK_DIRECTIONAL_INTENSITY,
+  STORYBOOK_DIRECTIONAL_POSITION,
+  createToonGradient,
+  shouldCreateStorybookLights
+} from './toonGradient'
+import type { ToonGradient } from './toonGradient'
+import {
+  DEFAULT_OUTLINE_STRENGTH,
+  OUTLINE_PART_GROUPS,
+  addOutlines,
+  clampOutlineStrength,
+  removeOutlines
+} from './outline'
+import type { OutlineHandle } from './outline'
 import { createParticles, PARTICLE_MAX } from './particles'
 import { createPerfMonitor } from './perf'
 import type { DegradationStep } from './perf'
@@ -65,6 +92,8 @@ export interface AvatarSceneOptions {
   particleScale?: number
   /** Preview: `pixelRatio` fixo em 1. */
   pixelRatioCap?: number
+  /** Contorno (task 19): força 0..1; 0 desliga; default 0.7. Sem campo de tema. */
+  outlineStrength?: number
   /** Força a degradação automática (flag `?slow=1`). */
   slow?: boolean
   debug?: boolean
@@ -80,6 +109,10 @@ export interface AvatarHandle {
   setTheme: (theme: AvatarTheme) => void
   /** Task 04: aplica o tema completo sem reiniciar renderer/câmera/loop. */
   applyTheme: (theme: ThemeConfig) => void
+  /** Task 19: ajusta a força do contorno; 0 desliga; reconstrói contorno. */
+  setOutlineStrength: (strength: number) => void
+  /** Task 19: troca de acabamento ao vivo sem recriar renderer/câmera/loop. */
+  setLook: (look: AvatarLook | string) => void
   setVisible: (visible: boolean) => void
   setReducedMotion: (reduced: boolean) => void
   resize: () => void
@@ -111,6 +144,8 @@ function fallbackHandle(
     setLevel: () => {},
     setTheme: () => {},
     applyTheme: () => {},
+    setOutlineStrength: () => {},
+    setLook: () => {},
     setVisible: () => {},
     setReducedMotion: () => {},
     resize: () => {},
@@ -163,6 +198,14 @@ export function createAvatarScene(
   let currentOutfit = resolveCaterpillarOutfit(options.outfit ?? params.outfit)
   const particleScale = Math.max(0, options.particleScale ?? 1)
   let reducedMotion = options.reducedMotion === true || params.reducedMotion
+  // Contorno (task 19): força fixa 0.7 por default; 0 desliga. Sem novo campo
+  // de tema (task 21 expõe). Só no acabamento ilustrado.
+  let outlineStrength = clampOutlineStrength(options.outlineStrength ?? DEFAULT_OUTLINE_STRENGTH)
+  let outlines: OutlineHandle[] = []
+  // Nível de degradação 2 remove contorno de partes pequenas (task 19, T5).
+  let smallOutlinesRemoved = false
+  // Nível de degradação 3 remove todo o contorno (task 19, T5).
+  let outlinesRemoved = false
   root.scale.setScalar(0.92 * params.scale)
 
   const holoMaterial = createHoloMaterial({
@@ -176,14 +219,31 @@ export function createAvatarScene(
     transparent: true,
     opacity: 0.92
   })
-  const look = resolveAvatarLook(options.look)
+  let look: AvatarLook = resolveAvatarLook(options.look)
+  // Rampa toon de 4 níveis (task 19): `DataTexture` nativo, sem asset; dona é a cena.
+  const toonGradient: ToonGradient = createToonGradient()
   let roleMaterials = createRoleMaterialFactory({
     look,
     palette: ABSOLEM_1951_PALETTE,
     holo: holoMaterial,
-    dark: darkMaterial
+    dark: darkMaterial,
+    gradientMap: toonGradient.texture
   })
   let materialFor = roleMaterials.materialFor
+
+  // Luzes só no acabamento ilustrado (task 19): ambiente + direcional,
+  // esquerda/cima/frente, sem sombras. No `holo` nenhuma luz é adicionada.
+  const ambientLight = new AmbientLight(0xffffff, STORYBOOK_AMBIENT_INTENSITY)
+  const directionalLight = new DirectionalLight(0xffffff, STORYBOOK_DIRECTIONAL_INTENSITY)
+  directionalLight.position.set(
+    STORYBOOK_DIRECTIONAL_POSITION[0],
+    STORYBOOK_DIRECTIONAL_POSITION[1],
+    STORYBOOK_DIRECTIONAL_POSITION[2]
+  )
+  directionalLight.castShadow = false
+  const storybookLights = new Group()
+  storybookLights.name = 'caterpillar-storybook-lights'
+  storybookLights.add(ambientLight, directionalLight)
 
   let caterpillar: CaterpillarBuild = buildCaterpillar({
     style: currentStyle,
@@ -193,7 +253,12 @@ export function createAvatarScene(
     material: materialFor
   })
   root.add(caterpillar.root)
+  if (shouldCreateStorybookLights(look)) scene.add(storybookLights)
+  // Tone mapping só no acabamento ilustrado; `holo` permanece `NoToneMapping`.
+  renderer.toneMapping = resolveToneMapping(look)
   caterpillar.smoke.setReducedMotion(reducedMotion)
+  caterpillar.root.updateWorldMatrix(true, true)
+  applyOutlines({ includeSmall: true })
 
   const particles: ParticleSystem = createParticles({
     // Capacidade máxima: a troca de densidade do tema só muda o draw range,
@@ -246,7 +311,8 @@ export function createAvatarScene(
       look,
       palette: ABSOLEM_1951_PALETTE,
       holo: holoMaterial,
-      dark: darkMaterial
+      dark: darkMaterial,
+      gradientMap: toonGradient.texture
     })
     materialFor = roleMaterials.materialFor
 
@@ -258,6 +324,8 @@ export function createAvatarScene(
       material: materialFor,
       ...(minimal ? { minimal: true } : {})
     })
+    // Contorno removido antes de liberar a malha antiga; nunca vaza.
+    clearOutlines()
     root.remove(caterpillar.root)
     caterpillar.dispose()
     caterpillar = next
@@ -265,6 +333,41 @@ export function createAvatarScene(
     // A baforada não é essencial: no modo mínimo ela não é desenhada, mesmo
     // que `prefers-reduced-motion` esteja desligado.
     caterpillar.smoke.setReducedMotion(reducedMotion || minimal)
+    applyOutlines({ includeSmall: !smallOutlinesRemoved })
+  }
+
+  /** Remove e libera todos os contornos atuais. */
+  function clearOutlines(): void {
+    for (const handle of outlines) handle.dispose()
+    outlines = []
+    // `removeOutlines` garante limpeza de filhos órfãos (idempotente).
+    removeOutlines(root)
+  }
+
+  /** Atualiza cores dos materiais existentes sem recriar a malha. */
+  function syncMaterialColors(): void {
+    roleMaterials.setPalette(ABSOLEM_1951_PALETTE)
+    darkMaterial.color.set(params.shadow.hex)
+    ;(holoMaterial.uniforms.uColor.value as Color).set(params.primary.hex)
+  }
+
+  /** Aplica contorno só nos grupos de silhueta, conforme acabamento e força. */
+  function applyOutlines(opts: { includeSmall: boolean }): void {
+    clearOutlines()
+    if (look !== 'storybook' || outlineStrength <= 0 || outlinesRemoved) return
+    for (const partName of OUTLINE_PART_GROUPS) {
+      const group = caterpillar.parts[partName]
+      if (!group) continue
+      group.updateWorldMatrix(true, true)
+      const created = addOutlines(group, { outlineStrength })
+      for (const handle of created) {
+        if (!opts.includeSmall && handle.small) {
+          handle.dispose()
+          continue
+        }
+        outlines.push(handle)
+      }
+    }
   }
 
   function applyDegradation(level: number, step: DegradationStep): void {
@@ -273,8 +376,16 @@ export function createAvatarScene(
       resize()
     } else if (level === 2) {
       particles.setCount(Math.round(particles.count() / 2))
+      // Nível 2: remove contorno de partes pequenas.
+      smallOutlinesRemoved = true
+      applyOutlines({ includeSmall: false })
     } else if (level === 3) {
       holoMaterial.uniforms.uNoise.value = 0
+      // Nível 3: remove todo o contorno.
+      outlinesRemoved = true
+      clearOutlines()
+      // Nível 3: reduz a luz direcional para ambiente apenas.
+      directionalLight.removeFromParent()
       rebuildCaterpillar(true)
     }
     // Uma linha por nível: o monitor garante que cada passo é aplicado/logado
@@ -415,9 +526,9 @@ export function createAvatarScene(
     },
     applyTheme(theme: ThemeConfig): void {
       const next = toAvatarParams(theme)
-      const styleChanged = next.style !== currentStyle
-      const outfitChanged = next.outfit !== currentOutfit
-      const accessoriesChanged = next.accessories.join('|') !== params.accessories.join('|')
+      const prevStyle = currentStyle
+      const prevOutfit = currentOutfit
+      const prevAccessories = [...params.accessories]
 
       currentStyle = next.style
       currentOutfit = next.outfit
@@ -434,7 +545,40 @@ export function createAvatarScene(
       particles.setCount(Math.round(next.particles.count * particleScale))
       caterpillar.smoke.setReducedMotion(reducedMotion)
 
-      if (styleChanged || outfitChanged || accessoriesChanged) rebuildCaterpillar()
+      // Só a cor não reconstrói a malha; estilo/roupa/acessórios reconstroem.
+      applyThemeChange(
+        { style: prevStyle, outfit: prevOutfit, accessories: prevAccessories },
+        { style: next.style, outfit: next.outfit, accessories: next.accessories },
+        {
+          rebuildCaterpillar: () => rebuildCaterpillar(),
+          rebuildOutline: () => applyOutlines({ includeSmall: !smallOutlinesRemoved }),
+          syncMaterialColors: () => syncMaterialColors(),
+          outlineStrength
+        }
+      )
+    },
+    setOutlineStrength(strength: number): void {
+      const next = clampOutlineStrength(strength)
+      const wasEnabled = outlineStrength > 0
+      const willBeEnabled = next > 0
+      outlineStrength = next
+      // Só recria contorno quando a presença muda ou a força muda; malha intacta.
+      if (wasEnabled !== willBeEnabled || willBeEnabled)
+        applyOutlines({ includeSmall: !smallOutlinesRemoved })
+      else clearOutlines()
+    },
+    setLook(nextLook: AvatarLook | string): void {
+      const next = resolveAvatarLook(nextLook)
+      if (next === look) return
+      // Sem recriar renderer/câmera/loop nem `holoMaterial`.
+      applyLookToScene(next, {
+        scene,
+        renderer,
+        lights: storybookLights,
+        holoMaterial
+      })
+      look = next
+      rebuildCaterpillar()
     },
     setVisible(visible: boolean): void {
       overlayVisible = visible
@@ -460,6 +604,8 @@ export function createAvatarScene(
       canvas.removeEventListener('webglcontextrestored', onContextRestored)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('resize', onWindowResize)
+      // Contorno liberado antes da malha; idempotente.
+      clearOutlines()
       root.remove(caterpillar.root)
       root.remove(particles.points)
       caterpillar.dispose()
@@ -467,6 +613,12 @@ export function createAvatarScene(
       roleMaterials.dispose()
       holoMaterial.dispose()
       darkMaterial.dispose()
+      // Luzes do acabamento ilustrado (task 19): removidas e liberadas.
+      scene.remove(storybookLights)
+      ambientLight.dispose()
+      directionalLight.dispose()
+      // Rampa toon (task 19): liberada uma vez; idempotente.
+      toonGradient.dispose()
       renderer.dispose()
       resetMetrics()
     },

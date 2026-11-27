@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEGRADATION_STEPS, createPerfMonitor } from './perf'
+import { DEGRADATION_STEPS, createPerfMonitor, degradationEffectsForLevel } from './perf'
 
 describe('degradação de desempenho', () => {
   it('frame lento dispara primeiro passo', () => {
@@ -40,5 +40,31 @@ describe('degradação de desempenho', () => {
     // A degradação nunca volta atrás.
     for (let index = 0; index < 500; index += 1) perf.reportFrame(5)
     expect(perf.getLevel()).toBe(3)
+  })
+
+  it('nível 2 remove contorno de partes pequenas', () => {
+    expect(degradationEffectsForLevel(2).removeSmallOutlines).toBe(true)
+    expect(DEGRADATION_STEPS[1].removeSmallOutlines).toBe(true)
+    expect(degradationEffectsForLevel(1).removeSmallOutlines).toBe(false)
+  })
+
+  it('degradação nível 3 remove contorno e luz direcional', () => {
+    const effects = degradationEffectsForLevel(3)
+    expect(effects.removeOutlines).toBe(true)
+    expect(effects.directionalToAmbientOnly).toBe(true)
+    expect(effects.minimalBody).toBe(true)
+    expect(effects.noNoise).toBe(true)
+
+    expect(DEGRADATION_STEPS[2].removeOutlines).toBe(true)
+    expect(DEGRADATION_STEPS[2].directionalToAmbientOnly).toBe(true)
+
+    // O callback no nível 3 entrega o passo com os flags da task 19.
+    const onDegrade = vi.fn()
+    const perf = createPerfMonitor({ onDegrade })
+    for (let index = 0; index < 800; index += 1) perf.reportFrame(30)
+    expect(perf.getLevel()).toBe(3)
+    const level3Call = onDegrade.mock.calls.find((call) => call[0] === 3)
+    expect(level3Call?.[1].removeOutlines).toBe(true)
+    expect(level3Call?.[1].directionalToAmbientOnly).toBe(true)
   })
 })

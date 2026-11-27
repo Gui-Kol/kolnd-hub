@@ -616,3 +616,177 @@ A comparação visual com a referência e qualquer captura lado a lado continuam
 **PENDENTES manuais** nas tasks 22 e 23. O harness leu as métricas do HUD, mas a
 janela transparente do overlay continua sem `page.screenshot()` confiável; este
 documento não declara semelhança visual.
+
+## 13. Task 19 - materiais toon, iluminação e contorno
+
+Acabamento ilustrado sem geometria nova: mudanças só de material, luz e
+contorno. Nenhuma sombra projetada, SSAO, bloom, post-processing, HDRI ou
+textura de pele. `castShadow = false`. `palettes.ts`, `ThemeConfig`, `store` e
+UI não mudam; `outlineStrength` usa default fixo 0.7 (a task 21 expõe; sem novo
+campo de tema). `MAX_CATERPILLAR_TRIANGLES = 24000` respeitado; nenhuma
+geometria nova é criada pela cena (o contorno clona a geometria do próprio
+mesh).
+
+### 13.1 Tabela de materiais por papel
+
+Módulo `src/renderer/src/overlay/avatar/roleMaterials.ts`. Um material por
+papel em cache; mesma instância para o mesmo papel; `dispose` idempotente; só
+os materiais criados pela fábrica são liberados (`holoMaterial`, `darkMaterial`
+e a rampa da cena não).
+
+No acabamento `storybook` (`look = storybook`):
+
+| Grupo                                                                                                          | Material                                                                                              |
+| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Papéis orgânicos: `body`, `belly`, `head`, `hand`, `sleeve`, `turban`, `turbanStripe`, `lip`, `brow`, `eyelid` | `MeshToonMaterial({ color, gradientMap })`, rampa toon 4 níveis, `NormalBlending`, `depthWrite: true` |
+| `pupil`, `mouth`                                                                                               | `MeshBasicMaterial` escuro, não recebe luz                                                            |
+| `pipe`, `hose`                                                                                                 | `MeshPhongMaterial`, `shininess` alto (96, > 40), `specular` claro, leitura metálica                  |
+| `highlight`                                                                                                    | `MeshBasicMaterial`, não recebe luz                                                                   |
+| Demais papéis (`sclera`, `iris`, `tongue`, `antenna`, `mandible`, `claw`, `smoke`, `outfit`, `accessory`, ...) | `MeshBasicMaterial` opaco da paleta                                                                   |
+
+`MeshToonMaterial` sem `gradientMap` não vale: cai em lambertiano e apaga o
+estilo. A cor vem da paleta `ABSOLEM_1951_PALETTE` (não alterada).
+
+No acabamento `holo`, nada muda: material de holograma compartilhado para
+tudo, exceto `pupil`/`mouth` no material escuro; nenhuma luz; contorno
+removido.
+
+### 13.2 Rampa toon de 4 níveis
+
+`src/renderer/src/overlay/avatar/toonGradient.ts`, `createToonGradient()`:
+
+- `DataTexture` nativo do three, 4x1 pixels, formato `RGBAFormat`, tipo
+  `UnsignedByteType`, sem asset externo;
+- 4 níveis em escala de cinza (tons `64`, `128`, `192`, `255`, alfa 255), do
+  mais sombreado ao totalmente iluminado;
+- `magFilter = minFilter = NearestFilter`; `generateMipmaps = false`;
+  `needsUpdate = true` (no three r187, `needsUpdate` é setter que incrementa
+  `version`);
+- `gradientMap` para `MeshToonMaterial`; `dispose()` libera a textura, é
+  idempotente; a cena é dona e a libera no `dispose`.
+
+Fps em idle abaixo de 45 na máquina de referência reduziria a rampa para 3
+níveis antes de cortar partes; não foi necessário (ver 13.9).
+
+### 13.3 Iluminação
+
+Só no look `storybook`; no `holo` nenhuma luz é adicionada (comportamento da
+task 18). Decisão pura testável `shouldCreateStorybookLights(look)`.
+
+| Luz                | Tipo               | Intensidade | Posição / direção                              | Sombra                            |
+| ------------------ | ------------------ | ----------- | ---------------------------------------------- | --------------------------------- |
+| `AmbientLight`     | `AmbientLight`     | 0.65        | -                                              | `false`                           |
+| `DirectionalLight` | `DirectionalLight` | 1.0         | esquerda, acima e à frente: `(-1.2, 1.6, 1.8)` | `castShadow = false`, sem sombras |
+
+Sem recriar renderer/câmera/loop. `dispose` remove as luzes e chama `dispose`.
+
+### 13.4 Contorno (outline)
+
+`src/renderer/src/overlay/avatar/outline.ts`, `createOutline(mesh, options)`.
+Só no look `storybook`. Não recria renderer/câmera/loop; não anima contorno;
+não mescla malhas.
+
+- Clona a geometria do mesh; cria filho `Mesh` com
+  `MeshBasicMaterial({ color, side: BackSide, depthWrite: true })`, material
+  limpo (`depthWrite:false` herdado do holograma não vaza; `depthTest` ligado);
+- escala uniforme do filho em 1.03-1.05 no eixo normal; filho acompanha
+  transformações do pai; `renderOrder` um a menos; `frustumCulled` herdado;
+- `outlineStrength` (default 0.7; 0 desliga; força >0 ajusta a escala dentro
+  de 1.03-1.05); nome `caterpillar-outline`;
+- `dispose()` remove o filho, libera a geometria clonada e o material;
+  idempotente; `addOutlines` / `removeOutlines`; `clearOutlines` na cena.
+
+Aplica somente nos grupos de silhueta `parts.body`, `parts.head`, `parts.limbs`,
+`parts.turban`. NUNCA em: listras finas (`turbanStripe`, `caterpillar-turban-wrap-*`),
+pálpebras (`eyelid`), pupilas (`pupil`), olhos (`sclera`, `iris`), nariz
+(`nose`, narinas), boca/lábios (`mouth`, `lip`, `tongue`, `jaw`, `mouthCorner`),
+detalhes finos do nó do turbante (`knot-fold`, `knot-highlight`), pingente
+(`tassel`), baforada (`smoke`), `pipe`, `hose`, `highlight`, `mouth`. Dentro de
+`parts.head`, `parts.body`, `parts.limbs`, `parts.turban`, nós excluídos por
+nome/`userData.materialRole` não recebem contorno. `parts.pipe`, `parts.face`,
+`parts.outfit`, `parts.accessories` não recebem contorno.
+
+### 13.5 Regra `holo` intacto vs `storybook`
+
+`holoMaterial.ts` não é alterado; `holoMaterial.test.ts` não é editado e fica
+verde. `?look=holo` idêntico à task 18:
+
+- `AdditiveBlending`, `depthWrite: false`, `uNoise`, scanlines, `DoubleSide`,
+  `depthTest`, `transparent`, `uTime`, `uColor`, `uIntensity`, `uScanlineSpeed`,
+  `uFresnelPower`, shader inalterado; `computeHoloAlpha` intocado;
+- `holo` sem luz, sem contorno; material escuro para `pupil`/`mouth`;
+- `?look=holo` preserva presença de turbante/cachimbo (o look troca material,
+  não presença).
+
+`?look=storybook` (default) lê como personagem ilustrado. Troca de acabamento
+ao vivo por `setLook` (`storybook <-> holo`) sem recriar renderer, câmera ou
+loop e sem recriar `holoMaterial`; `applyLookToScene`. Ao trocar para `holo`,
+luzes e contorno são removidos.
+
+### 13.6 Tone mapping
+
+`renderer.toneMapping`: `ACESFilmicToneMapping` só no look `storybook`;
+`NoToneMapping` no `holo` (e restaurado ao trocar). Decisão pura
+`resolveToneMapping(look)`. Sem mudança global de color space; `holo` nunca é
+afetado. Sem `toneMapping` customizado fora disso.
+
+### 13.7 Troca de tema sem recriar malha (T6)
+
+`applyTheme` (troca de paleta/acabamento) não recria renderer/câmera/loop.
+
+- Só a cor muda: atualiza cores dos materiais existentes (`setPalette` +
+  `syncMaterialColors`; `holoMaterial.uColor`, `darkMaterial.color`) sem
+  recriar a malha (`rebuildCaterpillar` não é chamado);
+- reconstrói a malha quando mudam estilo, roupa ou acessórios;
+- mudar a presença de contorno (`outlineStrength` 0 <-> >0; `setOutlineStrength`)
+  reconstrói só o contorno, não a malha. Lógica pura em `sceneTheme.ts`
+  (`applyThemeChange`); `smokeStrength` não é tocada aqui (task 20).
+
+### 13.8 Degradação (T5)
+
+`perf.ts`, três passos monotônicos; `applyDegradation`. Custo do contorno:
+dobra os draw calls das partes com silhueta (um filho `caterpillar-outline`
+por mesh), sem nova geometria procedural (clones só para o contorno).
+
+| Nível | Ações (além das herdadas)                                                                                                               |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `pixelRatio` fixo em 1                                                                                                                  |
+| 2     | metade das partículas + remove contorno de partes pequenas (`removeSmallOutlines`)                                                      |
+| 3     | 5 segmentos + sem ruído + remove todo o contorno + reduz direcional para ambiente apenas (`removeOutlines`, `directionalToAmbientOnly`) |
+
+`degradationEffectsForLevel(level)`. No nível 3, `directionalLight` é removida;
+`AmbientLight` permanece. Não afeta `holo`.
+
+### 13.9 Medição honesta (T5)
+
+Baseline da task 18 (commit `46979c81`, máquina de desenvolvimento, overlay
+320x360, `?debug=1`, seed padrão): 80 draw calls / 15.056 triângulos / 165 fps.
+Orçamento histórico de 24 draw calls NÃO está cumprido (já excedido nas tasks
+16/17/18); mesclagem/otimização de draw calls fica para tasks 19/23 mas esta
+task não adiciona geometria e não declara 24 cumprido.
+`MAX_CATERPILLAR_TRIANGLES = 24000` respeitado para `caterpillar.stats`.
+
+Medição analítica (Node, `buildCaterpillar({ seed: 1 })`, sem GPU, reproduzível;
+conta `isMesh` + `index/position`; +1 `Points` da baforada; partículas de
+energia não contadas aqui; baseline real usa `renderer.info`):
+
+| Cenário (só lagarta)                          | Draw calls (meshes) | Triângulos |
+| --------------------------------------------- | ------------------- | ---------- |
+| Baseline sem contorno (tarefa 18 equivalente) | ~82 + 1 Points      | ~14.736    |
+| Com contorno `storybook` (outlineStrength .7) | ~135 + 1 Points     | ~24.488    |
+| Nível 3 (sem contorno, `minimal`)             | reduz               | reduz      |
+
+A camada extra de contorno aproximadamente dobra as draw calls das partes com
+silhueta; número exato final vem de `renderer.info` com `?debug=1`.
+
+Pendência manual honesta: medição real com `?debug=1` no binário buildado na
+máquina de referência (Windows 11, 4 núcleos, 16 GB, GPU integrada),
+antes/depois (baseline task 18 80/15.056/165), 60 s em idle com overlay
+visível, fps idle >= 45 (ou redução da rampa para 3 níveis), captura visual
+(`?look=storybook` ilustrado: corpo azul, barriga clara, mãos rosas, turbante
+listrado, cachimbo dourado, contorno uniforme sem vazamento pelos olhos;
+`?look=holo` idêntico à task 18; contorno em 320x360 sem engrossar em 480x560;
+troca de look ao vivo) e checklist manual da task ficam como pendência de
+máquina/humano; não há captura confiável neste ambiente (janela transparente
+sem `page.screenshot()`, GPU real indisponível) e nenhum número de fps foi
+inventado. `smokeStrength` continua para a task 20.

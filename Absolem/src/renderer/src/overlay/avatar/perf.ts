@@ -18,13 +18,54 @@ export interface DegradationStep {
   level: number
   action: 'pixel-ratio' | 'half-particles' | 'low-detail'
   detail: string
+  /** Nível 2: remove contorno de partes pequenas (task 19). */
+  removeSmallOutlines?: boolean
+  /** Nível 3: remove todo o contorno (task 19). */
+  removeOutlines?: boolean
+  /** Nível 3: remove a luz direcional; só ambiente (task 19). */
+  directionalToAmbientOnly?: boolean
 }
 
 export const DEGRADATION_STEPS: readonly DegradationStep[] = [
   { level: 1, action: 'pixel-ratio', detail: 'pixelRatio fixo em 1' },
-  { level: 2, action: 'half-particles', detail: 'metade das partículas' },
-  { level: 3, action: 'low-detail', detail: '5 segmentos e sem ruído' }
+  {
+    level: 2,
+    action: 'half-particles',
+    detail: 'metade das partículas + sem contorno de partes pequenas',
+    removeSmallOutlines: true
+  },
+  {
+    level: 3,
+    action: 'low-detail',
+    detail: '5 segmentos + sem ruído + sem contorno + só ambiente',
+    removeOutlines: true,
+    directionalToAmbientOnly: true
+  }
 ] as const
+
+/** Efeitos de degradação por nível (puro, testável). */
+export interface DegradationEffects {
+  pixelRatioCap1: boolean
+  halfParticles: boolean
+  minimalBody: boolean
+  noNoise: boolean
+  removeSmallOutlines: boolean
+  removeOutlines: boolean
+  directionalToAmbientOnly: boolean
+}
+
+export function degradationEffectsForLevel(level: number): DegradationEffects {
+  const normalized = Math.min(MAX_DEGRADATION_LEVEL, Math.max(0, Math.floor(level)))
+  return {
+    pixelRatioCap1: normalized >= 1,
+    halfParticles: normalized >= 2,
+    minimalBody: normalized >= 3,
+    noNoise: normalized >= 3,
+    removeSmallOutlines: normalized >= 2,
+    removeOutlines: normalized >= 3,
+    directionalToAmbientOnly: normalized >= 3
+  }
+}
 
 export interface PerfMonitorOptions {
   slowFrameMs?: number

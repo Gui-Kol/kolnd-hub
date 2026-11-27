@@ -1,4 +1,4 @@
-import { MeshBasicMaterial, NormalBlending } from 'three'
+import { MeshBasicMaterial, MeshPhongMaterial, MeshToonMaterial, NormalBlending } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { CaterpillarMaterialRole } from './caterpillar'
 import { createRoleMaterialFactory } from './roleMaterials'
@@ -61,6 +61,103 @@ describe('createRoleMaterialFactory', () => {
     expect(bellyDispose).toHaveBeenCalledTimes(1)
     expect(holoDispose).not.toHaveBeenCalled()
     expect(darkDispose).not.toHaveBeenCalled()
+  })
+
+  it('storybook devolve MeshToonMaterial para body', () => {
+    const factory = createRoleMaterialFactory({
+      look: 'storybook',
+      holo: holoFixture(),
+      dark: darkFixture()
+    })
+
+    const body = factory.materialFor('body')
+    expect(body).toBeInstanceOf(MeshToonMaterial)
+    // MeshToonMaterial sem gradientMap cai em lambertiano e não vale.
+    expect((body as MeshToonMaterial).gradientMap).not.toBeNull()
+
+    // Papéis orgânicos também são toon com rampa.
+    for (const role of [
+      'belly',
+      'head',
+      'hand',
+      'sleeve',
+      'turban',
+      'turbanStripe',
+      'lip',
+      'brow',
+      'eyelid'
+    ] as const) {
+      const material = factory.materialFor(role)
+      expect(material).toBeInstanceOf(MeshToonMaterial)
+      expect((material as MeshToonMaterial).gradientMap).not.toBeNull()
+    }
+
+    // pupil/mouth não recebem luz; highlight é basic.
+    expect(factory.materialFor('pupil')).toBeInstanceOf(MeshBasicMaterial)
+    expect(factory.materialFor('mouth')).toBeInstanceOf(MeshBasicMaterial)
+    expect(factory.materialFor('pupil')).not.toBeInstanceOf(MeshToonMaterial)
+
+    factory.dispose()
+  })
+
+  it('pipe é Phong com shininess > 40', () => {
+    const factory = createRoleMaterialFactory({
+      look: 'storybook',
+      holo: holoFixture(),
+      dark: darkFixture()
+    })
+
+    for (const role of ['pipe', 'hose'] as const) {
+      const material = factory.materialFor(role)
+      expect(material).toBeInstanceOf(MeshPhongMaterial)
+      expect((material as MeshPhongMaterial).shininess).toBeGreaterThan(40)
+      const specular = (material as MeshPhongMaterial).specular
+      // specular claro (leitura metálica).
+      expect(specular.r + specular.g + specular.b).toBeGreaterThan(1.5)
+    }
+
+    factory.dispose()
+  })
+
+  it('highlight é Basic', () => {
+    const factory = createRoleMaterialFactory({
+      look: 'storybook',
+      holo: holoFixture(),
+      dark: darkFixture()
+    })
+
+    const highlight = factory.materialFor('highlight')
+    expect(highlight).toBeInstanceOf(MeshBasicMaterial)
+    expect(highlight).not.toBeInstanceOf(MeshToonMaterial)
+    expect(highlight).not.toBeInstanceOf(MeshPhongMaterial)
+
+    factory.dispose()
+  })
+
+  it('o cache devolve a mesma instância para o mesmo papel', () => {
+    const factory = createRoleMaterialFactory({
+      look: 'storybook',
+      holo: holoFixture(),
+      dark: darkFixture()
+    })
+
+    const first = factory.materialFor('body')
+    expect(factory.materialFor('body')).toBe(first)
+    expect(factory.materialFor('pipe')).toBe(factory.materialFor('pipe'))
+
+    factory.dispose()
+  })
+
+  it('holo continua devolvendo o holoMaterial compartilhado', () => {
+    const holo = holoFixture()
+    const factory = createRoleMaterialFactory({ look: 'holo', holo, dark: darkFixture() })
+
+    expect(factory.materialFor('body')).toBe(holo)
+    expect(factory.materialFor('belly')).toBe(holo)
+    expect(factory.materialFor('pipe')).toBe(holo)
+    expect(factory.materialFor('highlight')).toBe(holo)
+    expect(factory.materialFor('pupil')).not.toBe(holo)
+    expect(factory.materialFor('mouth')).not.toBe(holo)
   })
 
   it('papeis desconhecidos caem no material de corpo', () => {
