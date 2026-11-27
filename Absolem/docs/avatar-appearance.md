@@ -170,6 +170,10 @@ Os campos legados (`segments`, `head`, `eyeGroups`, `pupils`, `antennae`,
 Somente `scene.ts` e os testes conhecem `caterpillar.ts`; nenhum consumidor
 externo importa `parts/*` diretamente.
 
+Na task 18, `turban` e `pipe` deixaram de nascer vazios: a calota, as faixas, o
+nó e o pingente vivem em `caterpillar-turban`; a mangueira, a piteira e a
+baforada vivem em `caterpillar-pipe`. `face` permanece reservado e vazio.
+
 ## 7. Orçamento
 
 O teto de triângulos do personagem subiu de 12000 para **24000** porque o corpo
@@ -512,3 +516,103 @@ Configurações, porque a janela transparente do overlay continua expirando no
 
 O enquadramento final em 320x360, a comparação lado a lado com a referência e a
 otimização de draw calls continuam nas tasks 22, 23 e 19.
+
+## 12. Task 18 - turbante e cachimbo
+
+O turbante saiu de `parts/turban.ts` e o cachimbo de `parts/pipe.ts`. O gate de
+produto foi respondido pelo usuário em 27/11/2026: a mangueira, a piteira e a
+baforada **entram** no personagem; a base do narguilé, o cogumelo, as cortinas e
+o cenário continuam fora. Nenhuma imagem, textura, modelo externo ou
+dependência nova entrou no aplicativo. A referência de 1951 guiou só a leitura
+do pano enrolado, do nó e da mangueira.
+
+### 12.1 Turbante
+
+| Elemento     | Regra na task 18                                                     |
+| ------------ | -------------------------------------------------------------------- |
+| Calota       | Esfera parcial achatada, `caterpillar-turban-cap`, material `turban` |
+| Raio         | 1,26 R da cabeça, acima da meia-largura do crânio e abaixo de 1,35 R |
+| Inclinação   | 12 graus para a direita (`rotation.z` negativa)                      |
+| Assentamento | Base desce 0,06 R sobre o topo plano; sem fresta                     |
+| Faixas       | 5 arcos parciais de toro em `caterpillar-turban-wraps`               |
+| Listras      | Alternância `turban` / `turbanStripe`, espessura mínima 0,03 R       |
+| Nó           | 2 lóbulos achatados + dobra + ponto de luz, à direita da testa       |
+| Pingente     | `caterpillar-turban-tassel`, 2 esferas, filho do nó                  |
+| Antenas      | Continuam no contrato, mas ficam invisíveis sob o pano               |
+
+A calota usa `thetaLength` maior que meia esfera para envolver a borda do topo
+plano da task 16. As faixas são toros com arco parcial e rotações diferentes;
+não há anéis inteiros flutuando ao redor da cabeça. Os cinco arcos ficam acima
+da linha dos olhos e as listras mais finas têm o dobro do tubo acima de 0,03 R,
+o que mantém a leitura em 320x360. O nó fica acima da sobrancelha esquerda e à
+direita dela, então nunca cobre o arco.
+
+Em `minimal` (degradação nível 3), as faixas somem e restam calota, nó e
+pingente. As antenas são escondidas pelo próprio turbante em todos os
+acabamentos; `antenna_glow` continua posicionando o brilho herdado.
+
+### 12.2 Mangueira, piteira e baforada
+
+| Elemento  | Regra na task 18                                                     |
+| --------- | -------------------------------------------------------------------- |
+| Curva     | `CatmullRomCurve3` com 6 pontos, tensão 0,42                         |
+| Tubo      | `TubeGeometry` 40 x 6, raio 0,05 R, material `hose`                  |
+| Piteira   | Cilindro escuro em `pipe`, ponta a menos de 0,08 do canto direito    |
+| Cabeça    | Nenhum ponto da curva entra no bounding box do crânio ou do turbante |
+| Baforada  | `Points` com 16 motes, cor `smoke`, opacidade 0,3                    |
+| Força     | `setStrength(0..1)`, padrão discreto de 0,45                         |
+| Acessível | `setReducedMotion(true)` deixa o draw range em 0                     |
+| Descarte  | `dispose` idempotente da mangueira, piteira e baforada               |
+
+A mangueira sai da âncora `handRight`, sobe em laço solto à frente do rosto e
+termina no bocal perto da boca. A piteira é a única mesh `pipe` do conjunto; não
+existe base de narguilé, água, fumaça de fundo ou cenário. A baforada é um
+sistema pequeno e separado das partículas de energia, exposto em
+`CaterpillarBuild.smoke` e dentro de `parts.pipe` como
+`caterpillar-pipe-smoke`. A cena só aplica movimento reduzido nesta task; a
+animação da força e do tempo fica para a task 20.
+
+### 12.3 Contrato e cena
+
+- `CaterpillarBuild` ganhou `turbanTassel` (o pingente que a task 20 move pelo
+  canal `antennaLift`) e `smoke` (a API da baforada).
+- `parts.turban` e `parts.pipe` agora têm filhos; `parts.face` continua vazio.
+- `rebuildCaterpillar` reconstrói turbante e cachimbo junto com o resto. O
+  `dispose` do compositor libera as duas partes e a baforada uma única vez.
+- `?look=holo` mantém turbante e cachimbo visíveis: o look troca o material,
+  não a presença. As medições abaixo são idênticas nos dois acabamentos.
+- `?look=storybook` e `?look=holo` abriram sem erro no binário buildado; o HUD
+  `?debug=1` leu as métricas reais.
+
+### 12.4 Medições da task 18
+
+Medido no binário buildado, overlay em 320x360, `?debug=1`, seed padrão, com a
+janela visível (a sonda de tela cheia do ambiente de teste oculta o overlay
+depois de alguns segundos; a leitura foi feita antes disso):
+
+| Recurso    | Limite / meta | Task 17 | Task 18 | Observação                               |
+| ---------- | ------------- | ------- | ------- | ---------------------------------------- |
+| Triângulos | 24000         | 12608   | 15056   | +2448; abaixo do teto                    |
+| Draw calls | 24 (task 14)  | 69      | 80      | +11; orçamento segue excedido            |
+| FPS        | 60            | 165     | 165     | máquina de desenvolvimento               |
+| Reduzido   | -             | -       | 0 motes | `setReducedMotion(true)` zera a baforada |
+
+O saldo de draw calls é +15 malhas novas (12 do turbante, 2 do cachimbo e 1 da
+baforada) menos 4 malhas de antena que deixaram de ser desenhadas: 69 - 4 + 15 = 80. O teto de triângulos continua verde. O orçamento de draw calls **não** foi
+cumprido; a mesclagem controlada das tasks 19/23 continua obrigatória e agora
+inclui calota, faixas, nó, pingente, mangueira, piteira e baforada. Nenhuma
+declaração de orçamento cumprido.
+
+### 12.5 Checklist manual da task 18
+
+- turbante cobre o topo sem fresta, inclinado para a direita;
+- cinco faixas com listras largas legíveis em 320x360;
+- nó visível acima da testa, à direita, com pingente;
+- mangueira na mão direita, piteira perto do canto direito da boca;
+- baforada discreta, sem base de narguilé ou cenário;
+- `?look=holo` e `?look=storybook` com a mesma presença de turbante/cachimbo.
+
+A comparação visual com a referência e qualquer captura lado a lado continuam
+**PENDENTES manuais** nas tasks 22 e 23. O harness leu as métricas do HUD, mas a
+janela transparente do overlay continua sem `page.screenshot()` confiável; este
+documento não declara semelhança visual.

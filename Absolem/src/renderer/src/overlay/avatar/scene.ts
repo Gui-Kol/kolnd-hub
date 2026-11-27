@@ -193,6 +193,7 @@ export function createAvatarScene(
     material: materialFor
   })
   root.add(caterpillar.root)
+  caterpillar.smoke.setReducedMotion(reducedMotion)
 
   const particles: ParticleSystem = createParticles({
     // Capacidade máxima: a troca de densidade do tema só muda o draw range,
@@ -261,6 +262,9 @@ export function createAvatarScene(
     caterpillar.dispose()
     caterpillar = next
     root.add(caterpillar.root)
+    // A baforada não é essencial: no modo mínimo ela não é desenhada, mesmo
+    // que `prefers-reduced-motion` esteja desligado.
+    caterpillar.smoke.setReducedMotion(reducedMotion || minimal)
   }
 
   function applyDegradation(level: number, step: DegradationStep): void {
@@ -428,6 +432,7 @@ export function createAvatarScene(
       reducedMotion = next.reducedMotion
       particles.setReducedMotion(reducedMotion)
       particles.setCount(Math.round(next.particles.count * particleScale))
+      caterpillar.smoke.setReducedMotion(reducedMotion)
 
       if (styleChanged || outfitChanged || accessoriesChanged) rebuildCaterpillar()
     },
@@ -438,6 +443,7 @@ export function createAvatarScene(
     setReducedMotion(reduced: boolean): void {
       reducedMotion = reduced
       particles.setReducedMotion(reduced)
+      caterpillar.smoke.setReducedMotion(reduced)
       if (!reduced && perf.getLevel() >= 2) {
         particles.setCount(Math.round(particles.count() / 2))
       }

@@ -65,12 +65,18 @@ describe('contrato de partes', () => {
         expect(nodes.has(node)).toBe(true)
       }
 
-      // Na task 17 `limbs` deixou de nascer vazio: mãos, braços, punhos e pés
-      // vivem nele. Face, turbante e cachimbo continuam reservados.
+      expect(nodes.has(build.turbanTassel)).toBe(true)
+      expect(build.turbanTassel.parent?.name).toBe('caterpillar-turban-knot')
+      expect(nodes.has(build.smoke.points)).toBe(true)
+      expect(build.parts.pipe.getObjectByName('caterpillar-pipe-smoke')).toBe(build.smoke.points)
+
+      // Task 17: `limbs` tem mãos, braços, punhos e pés. Task 18: `turban`
+      // tem calota, faixas, nó e pingente; `pipe` tem mangueira e piteira.
+      // `face` segue reservado e vazio.
       expect(build.parts.limbs.children.length).toBeGreaterThan(0)
-      for (const name of ['face', 'turban', 'pipe'] as const) {
-        expect(build.parts[name].children).toHaveLength(0)
-      }
+      expect(build.parts.turban.children.length).toBeGreaterThan(0)
+      expect(build.parts.pipe.children.length).toBeGreaterThan(0)
+      expect(build.parts.face.children).toHaveLength(0)
     } finally {
       build.dispose()
     }

@@ -6,6 +6,9 @@ import { buildHeadPart } from './parts/head'
 import { buildLimbsPart } from './parts/limbs'
 import { buildOutfitPart } from './parts/outfit'
 import { buildAccessoriesPart } from './parts/accessories'
+import { buildTurbanPart } from './parts/turban'
+import { buildPipePart } from './parts/pipe'
+import type { PipeSmoke } from './parts/pipe'
 import type { PartContext } from './parts/types'
 
 /**
@@ -138,11 +141,15 @@ export interface CaterpillarBuild {
   browRight: Group
   nose: Mesh
   nostrils: Mesh[]
+  /** Pingente do turbante; a task 20 o move pelo canal `antennaLift`. */
+  turbanTassel: Group
   /** Grupos das mãos e dos pés, expostos para a task 20 animar os membros. */
   hands: Group[]
   feet: Group[]
   outfit: Group | null
-  /** Grupos estáveis por parte; `face`, `turban` e `pipe` seguem reservados. */
+  /** Baforada do cachimbo; a task 20 controla força e tempo. */
+  smoke: PipeSmoke
+  /** Grupos estáveis por parte; só `face` segue reservado nesta task. */
   parts: Record<string, Group>
   stats: CaterpillarStats
   /** Libera geometrias (e materiais, se foram criados aqui). */
@@ -251,6 +258,8 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
 
   const bodyPart = buildBodyPart(partContext)
   const headPart = buildHeadPart({ ...partContext, neck: bodyPart.neck })
+  const turbanPart = buildTurbanPart({ ...partContext, head: headPart })
+  const pipePart = buildPipePart({ ...partContext, head: headPart, turban: turbanPart })
   const limbsPart = buildLimbsPart({ ...partContext, bodyBaseY: bodyPart.bodyBaseY })
   const outfitPart =
     outfit === 'none' ? null : buildOutfitPart(outfit, { ...partContext, head: headPart.head })
@@ -275,8 +284,8 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     head: headPart.group,
     face: partGroup('caterpillar-face'),
     limbs: limbsPart.group,
-    turban: partGroup('caterpillar-turban'),
-    pipe: partGroup('caterpillar-pipe'),
+    turban: turbanPart.group,
+    pipe: pipePart.group,
     outfit: outfitGroup,
     accessories: accessoriesPart.group
   }
@@ -313,7 +322,13 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     bodyBaseY: bodyPart.bodyBaseY
   }
 
-  const partDisposers: Array<() => void> = [bodyPart.dispose, headPart.dispose, limbsPart.dispose]
+  const partDisposers: Array<() => void> = [
+    bodyPart.dispose,
+    headPart.dispose,
+    turbanPart.dispose,
+    pipePart.dispose,
+    limbsPart.dispose
+  ]
   if (outfitPart) partDisposers.push(outfitPart.dispose)
   partDisposers.push(accessoriesPart.dispose)
 
@@ -337,9 +352,11 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     browRight: headPart.browRight,
     nose: headPart.nose,
     nostrils: headPart.nostrils,
+    turbanTassel: turbanPart.tassel,
     hands: limbsPart.hands,
     feet: limbsPart.feet,
     outfit: outfitPart?.group ?? null,
+    smoke: pipePart.smoke,
     parts,
     stats,
     dispose(): void {
