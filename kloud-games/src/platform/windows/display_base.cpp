@@ -1023,24 +1023,62 @@ namespace platf::dxgi {
 
 namespace platf {
   /**
-   * Pick a display adapter and capture method.
-   * @param hwdevice_type enables possible use of hardware encoder
+   * @brief Pick a display adapter and capture method.
+   *
+   * Keeps the historical attempt order: Desktop Duplication (`ddx`) first and Windows Graphics
+   * Capture (`wgc`) second when the `capture` setting is empty. The selected backend and the
+   * candidates skipped on the way are logged once per capture initialization at info level; this
+   * is observability only and does not alter which backend is tried or accepted.
+   *
+   * @param hwdevice_type Enables possible use of hardware encoder; selects VRAM or RAM frames.
+   * @param display_name Monitor device name to capture.
+   * @param config Client-requested video configuration.
+   * @return Capture backend ready to produce frames, or nullptr when every candidate failed.
    */
   std::shared_ptr<display_t> display(mem_type_e hwdevice_type, const std::string &display_name, const video::config_t &config) {
+    // Observability: describe the requested setting and each skipped candidate so a single info
+    // line explains the choice. Existing init() paths already log their own HRESULT at error level.
+    const std::string capture_setting = config::video.capture.empty() ? "auto" : config::video.capture;
+    const char *memory_type = hwdevice_type == mem_type_e::dxgi   ? "vram" :
+                              hwdevice_type == mem_type_e::system ? "ram" :
+                                                                    "unsupported";
+    std::string skipped;
+    auto note_skipped = [&skipped](const char *reason) {
+      if (!skipped.empty()) {
+        skipped += "; ";
+      }
+      skipped += reason;
+    };
+    auto log_selected = [&](const char *backend) {
+      if (skipped.empty()) {
+        BOOST_LOG(info) << "Capture backend selected ["sv << backend << ' ' << memory_type << "] (capture="sv << capture_setting << ", first candidate succeeded)"sv;
+      } else {
+        BOOST_LOG(info) << "Capture backend selected ["sv << backend << ' ' << memory_type << "] (capture="sv << capture_setting << ", skipped: "sv << skipped << ')';
+      }
+    };
+
     if (config::video.capture == "ddx" || config::video.capture.empty()) {
       if (hwdevice_type == mem_type_e::dxgi) {
         auto disp = std::make_shared<dxgi::display_ddup_vram_t>();
 
         if (!disp->init(config, display_name)) {
+          log_selected("ddx");
           return disp;
         }
+        note_skipped("ddx vram init failed");
       } else if (hwdevice_type == mem_type_e::system) {
         auto disp = std::make_shared<dxgi::display_ddup_ram_t>();
 
         if (!disp->init(config, display_name)) {
+          log_selected("ddx");
           return disp;
         }
+        note_skipped("ddx ram init failed");
+      } else {
+        note_skipped("ddx does not support this memory type");
       }
+    } else {
+      note_skipped("ddx disabled by capture setting");
     }
 
     if (config::video.capture == "wgc" || config::video.capture.empty()) {
@@ -1048,18 +1086,27 @@ namespace platf {
         auto disp = std::make_shared<dxgi::display_wgc_vram_t>();
 
         if (!disp->init(config, display_name)) {
+          log_selected("wgc");
           return disp;
         }
+        note_skipped("wgc vram init failed");
       } else if (hwdevice_type == mem_type_e::system) {
         auto disp = std::make_shared<dxgi::display_wgc_ram_t>();
 
         if (!disp->init(config, display_name)) {
+          log_selected("wgc");
           return disp;
         }
+        note_skipped("wgc ram init failed");
+      } else {
+        note_skipped("wgc does not support this memory type");
       }
+    } else {
+      note_skipped("wgc disabled by capture setting");
     }
 
     // ddx and wgc failed
+    BOOST_LOG(info) << "Capture backend selected [none] (capture="sv << capture_setting << ", skipped: "sv << skipped << ')';
     return nullptr;
   }
 
