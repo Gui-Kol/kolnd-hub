@@ -31,7 +31,12 @@ vi.mock('electron-store', () => ({
 }))
 
 vi.mock('./logger', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: state.logError }
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: state.logError
+  }
 }))
 
 interface FakeStore {
@@ -77,7 +82,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.13.0')
+    expect(options.projectVersion).toBe('1.14.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -92,7 +97,8 @@ describe('store persistente', () => {
       '1.10.0',
       '1.11.0',
       '1.12.0',
-      '1.13.0'
+      '1.13.0',
+      '1.14.0'
     ])
   })
 
@@ -106,7 +112,11 @@ describe('store persistente', () => {
   })
 
   it('valor inválido é normalizado sem perder os válidos', () => {
-    state.data.set('theme', { primaryColor: '#123456', style: 'inexistente', scale: 9 })
+    state.data.set('theme', {
+      primaryColor: '#123456',
+      style: 'inexistente',
+      scale: 9
+    })
     state.data.set('overlay', {
       visible: true,
       position: 'top-right',
@@ -116,7 +126,11 @@ describe('store persistente', () => {
       shortcut: 'invalido',
       hideOnFullscreen: 'sim'
     })
-    state.data.set('voice', { enabled: true, inputDeviceId: 42, outputVolume: 9 })
+    state.data.set('voice', {
+      enabled: true,
+      inputDeviceId: 42,
+      outputVolume: 9
+    })
 
     const snapshot = storeMod.getStoreSnapshot()
 
@@ -149,15 +163,25 @@ describe('store persistente', () => {
 
   it('migração 1.1.0 preserva dados da 1.0.0, 1.2.0 converte e 1.3.0 migra o tema', () => {
     state.data.set('theme', { mode: 'light', accent: '#abcdef' })
-    state.data.set('overlay', { enabled: true, position: 'top-left', scale: 1.5 })
+    state.data.set('overlay', {
+      enabled: true,
+      position: 'top-left',
+      scale: 1.5
+    })
     const store = fakeStore()
 
     storeMod.STORE_MIGRATIONS['1.0.0'](store)
-    expect(state.data.get('theme')).toEqual({ mode: 'light', accent: '#abcdef' })
+    expect(state.data.get('theme')).toEqual({
+      mode: 'light',
+      accent: '#abcdef'
+    })
 
     storeMod.STORE_MIGRATIONS['1.1.0'](store)
 
-    expect(state.data.get('theme')).toEqual({ mode: 'light', accent: '#abcdef' })
+    expect(state.data.get('theme')).toEqual({
+      mode: 'light',
+      accent: '#abcdef'
+    })
     expect(state.data.get('overlay')).toEqual({
       enabled: true,
       position: 'top-left',
@@ -212,7 +236,9 @@ describe('store persistente', () => {
 
     // Idempotente.
     storeMod.STORE_MIGRATIONS['1.4.0'](store)
-    expect(state.data.get('gemini')).toMatchObject({ monthlyTokenCap: 2_000_000 })
+    expect(state.data.get('gemini')).toMatchObject({
+      monthlyTokenCap: 2_000_000
+    })
   })
 
   it('1.6.0 migra screenCapture e preserva telemetry', () => {
@@ -238,7 +264,10 @@ describe('store persistente', () => {
     })
 
     // Idempotente sobre o formato novo.
-    state.data.set('privacy', { telemetry: true, screen: { mode: 'ask', proactive: true } })
+    state.data.set('privacy', {
+      telemetry: true,
+      screen: { mode: 'ask', proactive: true }
+    })
     storeMod.STORE_MIGRATIONS['1.6.0'](store)
     expect(state.data.get('privacy')).toMatchObject({
       telemetry: true,
@@ -298,15 +327,21 @@ describe('store persistente', () => {
     expect(state.data.get('memory')).toEqual({
       enabled: true,
       autoExtract: true,
-      lastConsolidationAt: null
+      lastConsolidationAt: null,
+      note: ''
     })
 
-    state.data.set('memory', { enabled: false, autoExtract: false, lastConsolidationAt: 123 })
+    state.data.set('memory', {
+      enabled: false,
+      autoExtract: false,
+      lastConsolidationAt: 123
+    })
     storeMod.STORE_MIGRATIONS['1.8.0'](store)
     expect(state.data.get('memory')).toEqual({
       enabled: false,
       autoExtract: false,
-      lastConsolidationAt: 123
+      lastConsolidationAt: 123,
+      note: ''
     })
   })
 
@@ -347,7 +382,10 @@ describe('store persistente', () => {
 
       storeMod.STORE_MIGRATIONS['1.11.0'](store)
 
-      const theme = state.data.get('theme') as { version: number; look: string }
+      const theme = state.data.get('theme') as {
+        version: number
+        look: string
+      }
       expect(theme.version).toBe(2)
       expect(theme.look).toBe('storybook')
     })
@@ -370,7 +408,11 @@ describe('store persistente', () => {
 
     it('look ausente vira storybook', () => {
       const store = fakeStore()
-      state.data.set('theme', { ...v1Classic, presetId: 'neon', look: undefined })
+      state.data.set('theme', {
+        ...v1Classic,
+        presetId: 'neon',
+        look: undefined
+      })
 
       storeMod.STORE_MIGRATIONS['1.11.0'](store)
 
@@ -493,6 +535,48 @@ describe('store persistente', () => {
       const once = state.data.get('overlay')
       storeMod.STORE_MIGRATIONS['1.13.0'](store)
       expect(state.data.get('overlay')).toEqual(once)
+    })
+  })
+
+  describe('1.14.0 - memória em texto', () => {
+    it('adiciona note vazio preservando a configuração existente', () => {
+      const store = fakeStore()
+      state.data.set('memory', {
+        enabled: false,
+        autoExtract: false,
+        lastConsolidationAt: 456
+      })
+
+      storeMod.STORE_MIGRATIONS['1.14.0'](store)
+
+      expect(state.data.get('memory')).toEqual({
+        enabled: false,
+        autoExtract: false,
+        lastConsolidationAt: 456,
+        note: ''
+      })
+    })
+
+    it('preserva a nota existente, corta no limite e é idempotente', () => {
+      const store = fakeStore()
+      state.data.set('memory', {
+        enabled: true,
+        autoExtract: true,
+        lastConsolidationAt: null,
+        note: 'Sempre me chame de Gui.'
+      })
+
+      storeMod.STORE_MIGRATIONS['1.14.0'](store)
+      const once = state.data.get('memory')
+      expect(once).toMatchObject({ note: 'Sempre me chame de Gui.' })
+
+      state.data.set('memory', { note: 'x'.repeat(20_000) })
+      storeMod.STORE_MIGRATIONS['1.14.0'](store)
+      const capped = state.data.get('memory') as { note: string }
+      expect(capped.note).toHaveLength(16_000)
+
+      storeMod.STORE_MIGRATIONS['1.14.0'](store)
+      expect(state.data.get('memory')).toEqual(capped)
     })
   })
 

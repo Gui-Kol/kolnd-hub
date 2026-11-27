@@ -28,6 +28,11 @@ export interface GeminiImage {
 /** Resultado de uma ferramenta devolvido ao modelo (task 08, T10b). */
 export interface GeminiFunctionResponse {
   name: string
+  /**
+   * `id` da chamada correspondente. O Live exige o `id` devolvido pelo
+   * `toolCall`; quando a chamada não trouxer `id`, o campo fica ausente.
+   */
+  id?: string
   response: Record<string, unknown>
 }
 
@@ -72,6 +77,8 @@ export interface GeminiRequest {
 export interface GeminiFunctionCall {
   name: string
   args: Record<string, unknown>
+  /** `id` da chamada no provedor; deve voltar na `functionResponse`. */
+  id?: string
 }
 
 /** Contagem de tokens devolvida pelo provedor, quando existir. */

@@ -1,30 +1,48 @@
 /**
- * Aviso interno de "overlay escondido".
+ * Avisos internos de visibilidade do overlay.
  *
  * O controlador do overlay não importa o módulo de voz (evita ciclo); ele só
- * emite este evento e o controlador de voz assina. Esconder o overlay precisa
- * fechar a sessão e o microfone (gate de privacidade).
+ * emite estes eventos e o controlador de voz assina. Esconder o overlay precisa
+ * fechar a sessão e o microfone (gate de privacidade); exibir dispara a
+ * saudação curta por horário.
  */
 
-const listeners = new Set<() => void>()
+const hiddenListeners = new Set<() => void>()
+const shownListeners = new Set<() => void>()
 
-export function onOverlayHidden(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
-export function emitOverlayHidden(): void {
+function notify(listeners: Set<() => void>): void {
   for (const listener of listeners) {
     try {
       listener()
     } catch {
-      // Um assinante com falha não impede os demais nem o hide.
+      // Um assinante com falha não impede os demais nem a transição.
     }
   }
 }
 
+export function onOverlayHidden(listener: () => void): () => void {
+  hiddenListeners.add(listener)
+  return () => {
+    hiddenListeners.delete(listener)
+  }
+}
+
+export function emitOverlayHidden(): void {
+  notify(hiddenListeners)
+}
+
+export function onOverlayShown(listener: () => void): () => void {
+  shownListeners.add(listener)
+  return () => {
+    shownListeners.delete(listener)
+  }
+}
+
+export function emitOverlayShown(): void {
+  notify(shownListeners)
+}
+
 export function resetOverlayHiddenListenersForTests(): void {
-  listeners.clear()
+  hiddenListeners.clear()
+  shownListeners.clear()
 }

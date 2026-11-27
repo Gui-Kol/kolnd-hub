@@ -15,6 +15,7 @@ import {
   type DiagnosticsExportDeps
 } from '../../shared/diagnostics'
 import type { GeminiDiagnostics, GeminiErrorSummary, GeminiStatusInfo } from '../../shared/gemini'
+import { resolveHubVersion } from '../../shared/version'
 import { GEMINI_SDK_PACKAGE, GEMINI_SDK_VERSION } from '../gemini/sdk'
 
 /**
@@ -127,7 +128,9 @@ export function registerDiagnosticsIpc(
     try {
       const appInfo = options.getAppInfo?.() ?? {
         name: 'Absolem',
-        version: '0.0.0',
+        // Sem a versão da Hub no ambiente, o diagnóstico fica sem versão —
+        // nunca inventa um valor (o Absolem não tem versão própria).
+        version: resolveHubVersion(process.env, ''),
         platform: process.platform
       }
       const runtime = options.getRuntimeVersions?.() ?? {

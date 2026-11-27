@@ -1,6 +1,6 @@
 # Matriz de consentimentos e revogação
 
-Documento da task 13 (T2). Lista cada capacidade, o default conservador, como o
+Documento da task 13 (T2). Lista cada capacidade, o default aplicado, como o
 usuário concede, onde revoga, o efeito de revogar no meio de uma ação e o que
 fica registrado. A regra de interface é: toda revogação fica a no máximo dois
 cliques a partir da aba correspondente em Configurações.
@@ -12,14 +12,14 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 | Capacidade          | Default                                           | Concede em                                       | Revoga em                                           | Cliques para revogar |
 | ------------------- | ------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- | -------------------- |
-| Microfone           | Negado (`permissions.microphone=false`)           | Aba Voz ou primeira ativação da voz              | Aba Voz, botão "Revogar consentimento de microfone" | 1                    |
-| Tela                | Desligada (`privacy.screen.mode='off'`)           | Aba Permissões, seletor "Visão de tela"          | Mesmo seletor em "Desligada"                        | 1                    |
-| Leitura de arquivos | Perguntar (`files.read='ask'`)                    | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
-| Escrita de arquivos | Perguntar (`files.write='ask'`)                   | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
-| Abrir programas     | Perguntar (`apps.launch='ask'`)                   | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
-| Fechar programas    | Perguntar (`apps.close='ask'`)                    | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
-| Energia             | Negada (`system.power='deny'`)                    | Aba Permissões, "Permitir" + confirmação         | Seletor em "Negar"                                  | 1                    |
-| UIA                 | Negada (`uia.control='deny'`)                     | Aba Permissões, "Permitir" + confirmação         | Seletor em "Negar"                                  | 1                    |
+| Microfone           | Ligado (`permissions.microphone=true`)            | Aba Voz ou primeira ativação da voz              | Aba Voz, botão "Revogar consentimento de microfone" | 1                    |
+| Tela                | Sob demanda (`privacy.screen.mode='on'`)          | Aba Permissões, seletor "Visão de tela"          | Mesmo seletor em "Desligada"                        | 1                    |
+| Leitura de arquivos | Liberada (`files.read='allow'`)                   | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
+| Escrita de arquivos | Liberada (`files.write='allow'`)                  | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
+| Abrir programas     | Liberada (`apps.launch='allow'`)                  | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
+| Fechar programas    | Liberada (`apps.close='allow'`)                   | Aba Permissões, seletor da categoria             | Seletor em "Negar" ou "Perguntar"                   | 1                    |
+| Energia             | Liberada (`system.power='allow'`)                 | Aba Permissões, seletor da categoria             | Seletor em "Negar"                                  | 1                    |
+| UIA                 | Liberada (`uia.control='allow'`)                  | Aba Permissões, seletor da categoria             | Seletor em "Negar"                                  | 1                    |
 | Pesquisa web        | Ligada (`web.enabled=true`, `web.search='allow'`) | Aba Permissões, checkbox "Permitir pesquisa..."  | Desmarcar o checkbox ou negar a categoria           | 1                    |
 | Memória             | Ligada (`memory.enabled=true`)                    | Aba Memória, checkbox "Memória ligada"           | Desmarcar "Memória ligada"                          | 1                    |
 | Chave Gemini        | Ausente                                           | Aba Chave e custo, salvar chave                  | Aba Chave e custo, "Remover chave" + confirmar      | 2                    |
@@ -29,8 +29,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.1 Microfone
 
-- **Default:** `permissions.microphone=false`. Nenhuma sessão de áudio abre sem
-  consentimento; o app continua utilizável por texto.
+- **Default:** `permissions.microphone=true`. A sessão ainda só abre por ação explícita
+  do usuário e o gate nativo de mídia permanece ativo.
 - **Concessão:** o primeiro clique no avatar com a voz desligada abre um diálogo
   nativo com o padrão "Agora não". A aba Voz também tem o botão "Permitir
   microfone", que grava o consentimento sem abrir áudio.
@@ -47,8 +47,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.2 Tela
 
-- **Default:** `privacy.screen.mode='off'`. `capture:ask` e `capture:region`
-  recusam antes de listar fontes ou capturar qualquer pixel.
+- **Default:** `privacy.screen.mode='on'` sob demanda; `proactive=false`. Blocklist,
+  limites e indicador continuam valendo para toda captura.
 - **Concessão:** aba Permissões, seção "Visão de tela", seletor com "Perguntar a
   cada captura" ou "Ligada para o modo sob demanda". "Perguntar" ainda exige
   confirmação nativa por captura.
@@ -65,8 +65,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.3 Leitura e escrita de arquivos
 
-- **Default:** `files.read='ask'` e `files.write='ask'`. Toda operação abre
-  confirmação com caminho e motivo.
+- **Default:** `files.read='allow'` e `files.write='allow'`. Salvaguardas próprias
+  de planos destrutivos e auditoria continuam valendo.
 - **Concessão:** aba Permissões, seletor da categoria em "Permitir". A escrita
   continua exigindo confirmação própria para planos destrutivos.
 - **Revogação:** seletor em "Negar" (nunca executa) ou "Perguntar" (volta a
@@ -81,7 +81,7 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.4 Abrir e fechar programas
 
-- **Default:** `apps.launch='ask'` e `apps.close='ask'`.
+- **Default:** `apps.launch='allow'` e `apps.close='allow'`.
 - **Concessão:** aba Permissões, seletor da categoria em "Permitir".
 - **Revogação:** seletor em "Negar" ou "Perguntar". Um clique.
 - **No meio da ação:** abrir um app não é interrompido; fechar sem força pede
@@ -95,8 +95,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.5 Energia
 
-- **Default:** `system.power='deny'`. Desligar, reiniciar, bloquear ou suspender
-  nunca executa por padrão.
+- **Default:** `system.power='allow'`. Desligar, reiniciar, bloquear ou suspender
+  pode executar; revise a permissão e a confirmação da ação.
 - **Concessão:** aba Permissões, seletor em "Permitir" e confirmação explícita
   no próprio painel (2 cliques no total).
 - **Revogação:** seletor em "Negar". Um clique.
@@ -110,8 +110,8 @@ na própria aba. "2 cliques" inclui uma confirmação obrigatória.
 
 ### 2.6 UIA (controle de janelas e interface)
 
-- **Default:** `uia.control='deny'`. Nenhum clique, digitação ou leitura de
-  árvore de acessibilidade acontece.
+- **Default:** `uia.control='allow'`. Clique, digitação e leitura de árvore de
+  acessibilidade podem acontecer; revise a permissão antes de usar.
 - **Concessão:** aba Permissões, seletor em "Permitir" e confirmação explícita
   no painel (2 cliques no total).
 - **Revogação:** seletor em "Negar". Um clique.
@@ -203,5 +203,5 @@ capacidades acima com APIs falsas e confirma, para cada uma:
 3. o caminho usado tem no máximo dois cliques.
 
 A parte manual (app real, com microfone, tela e memória em uso) fica registrada
-no `docs/RELEASE-CHECKLIST.md` como pendência quando não houver ambiente humano
+como pendência no `docs/test-matrix.md` quando não houver ambiente humano
 para executá-la.

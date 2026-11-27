@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   destroyed: false,
   layout: {} as Record<string, unknown>,
   shortcut: { registered: true, accelerator: 'Control+Alt+A' },
+  registerAccepted: true,
+  lastRegisterInput: undefined as string | undefined,
   sent: [] as Array<{ channel: string; payload: unknown }>,
   config: {} as Record<string, unknown>,
   onTrigger: undefined as (() => void) | undefined,
@@ -64,7 +66,8 @@ vi.mock('../overlay/shortcut', () => ({
     accelerator: string,
     onTrigger: () => void
   ): { registered: boolean; accelerator: string } => {
-    state.shortcut = { registered: true, accelerator }
+    state.lastRegisterInput = accelerator
+    if (state.registerAccepted) state.shortcut = { registered: true, accelerator }
     state.onTrigger = onTrigger
     return state.shortcut
   },
@@ -153,7 +156,7 @@ function makeConfig(): AbsolemConfig {
     ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
     usage: { days: {}, warnedMonths: [] },
     chat: { turns: [] },
-    memory: { enabled: true, autoExtract: true, lastConsolidationAt: null },
+    memory: { enabled: true, autoExtract: true, lastConsolidationAt: null, note: '' },
     web: { enabled: true },
     routines: []
   }
@@ -181,6 +184,8 @@ beforeEach(async () => {
   state.destroyed = false
   state.layout = {}
   state.shortcut = { registered: true, accelerator: 'Control+Alt+A' }
+  state.registerAccepted = true
+  state.lastRegisterInput = undefined
   state.sent = []
   state.config = makeConfig() as unknown as Record<string, unknown>
   state.onTrigger = undefined
@@ -220,5 +225,55 @@ describe('IPC do overlay', () => {
       channel: IPC.overlayStatusChanged,
       payload: expect.objectContaining({ visible: true })
     })
+  })
+
+  it('set-shortcut aplica e persiste o atalho normalizado', () => {
+    const result = handlerFor(IPC.overlaySetShortcut)(undefined, { shortcut: 'ctrl+shift+k' })
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: { shortcut: { registered: true, accelerator: 'Control+Shift+K' } }
+    })
+    expect(state.lastRegisterInput).toBe('Control+Shift+K')
+    expect(state.config.overlay).toMatchObject({ shortcut: 'Control+Shift+K' })
+    expect(state.sent).toContainEqual({
+      channel: IPC.overlayStatusChanged,
+      payload: expect.objectContaining({
+        shortcut: { registered: true, accelerator: 'Control+Shift+K' }
+      })
+    })
+  })
+
+  it('set-shortcut inválido não persiste', () => {
+    const result = handlerFor(IPC.overlaySetShortcut)(undefined, { shortcut: 'K' })
+
+    expect(result).toMatchObject({ ok: false })
+    expect(state.config.overlay).toMatchObject({ shortcut: 'Control+Alt+A' })
+  })
+
+  it('set-shortcut em conflito mantém o anterior', () => {
+    state.registerAccepted = false
+    const result = handlerFor(IPC.overlaySetShortcut)(undefined, {
+      shortcut: 'Control+Shift+K'
+    })
+
+    expect(result).toMatchObject({ ok: false })
+    expect(state.config.overlay).toMatchObject({ shortcut: 'Control+Alt+A' })
+  })
+
+  it('emite shown só na transição oculto → visível', async () => {
+    const events = await import('../voice/overlayEvents')
+    const shown = vi.fn()
+    events.onOverlayShown(shown)
+
+    handlerFor(IPC.overlayShow)(undefined, undefined)
+    expect(shown).toHaveBeenCalledTimes(1)
+
+    handlerFor(IPC.overlayShow)(undefined, undefined)
+    expect(shown).toHaveBeenCalledTimes(1)
+
+    handlerFor(IPC.overlayHide)(undefined, undefined)
+    handlerFor(IPC.overlayShow)(undefined, undefined)
+    expect(shown).toHaveBeenCalledTimes(2)
   })
 })

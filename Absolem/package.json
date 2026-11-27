@@ -1,7 +1,7 @@
 {
   "name": "absolem",
-  "version": "0.1.0",
-  "description": "Absolem - Assistente de IA para Windows. Agente de IA presente na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini.",
+  "version": "0.0.0",
+  "description": "Absolem - Assistente de IA para Windows. Agente de IA presente na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini. Distribuído e atualizado junto com o Kolnd Hub (sem versão/release próprios).",
   "main": "./out/main/index.js",
   "author": "Kolnd",
   "license": "MIT",
@@ -18,7 +18,6 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "electron-vite build && electron-builder --win",
     "package:dir": "electron-builder --dir",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",

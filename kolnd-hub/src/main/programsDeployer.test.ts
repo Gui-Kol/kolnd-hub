@@ -4,7 +4,8 @@ import { join } from 'path'
 const fsMock = vi.hoisted(() => ({
   existsSync: vi.fn(),
   mkdirSync: vi.fn(),
-  cpSync: vi.fn()
+  cpSync: vi.fn(),
+  statSync: vi.fn()
 }))
 
 const state = vi.hoisted(() => ({ packaged: false }))
@@ -22,7 +23,8 @@ const loggerMock = vi.hoisted(() => ({
 vi.mock('fs', () => ({
   existsSync: fsMock.existsSync,
   mkdirSync: fsMock.mkdirSync,
-  cpSync: fsMock.cpSync
+  cpSync: fsMock.cpSync,
+  statSync: fsMock.statSync
 }))
 vi.mock('electron', () => ({
   app: {
@@ -44,12 +46,20 @@ const PROJECT = 'C:\\projeto'
 const PROGRAMS_DIR = join(PROJECT, 'resources', 'programs')
 const MARK_DIR = join(PROGRAMS_DIR, 'MarkLVII')
 
-/** Controla o fs simulado: quais caminhos existem. */
-function setupFs(options: { files?: string[]; dirs?: string[] } = {}): void {
+/** Controla o fs simulado: quais caminhos existem e seus mtimes. */
+function setupFs(
+  options: { files?: string[]; dirs?: string[]; mtimes?: Record<string, number> } = {}
+): void {
   const files = new Set(options.files ?? [])
   const dirs = new Set(options.dirs ?? [])
+  const mtimes = options.mtimes ?? {}
 
   fsMock.existsSync.mockImplementation((path: string) => files.has(path) || dirs.has(path))
+  fsMock.statSync.mockImplementation((path: string) => {
+    const mtimeMs = mtimes[path]
+    if (mtimeMs === undefined) throw new Error(`ENOENT: ${path}`)
+    return { mtimeMs }
+  })
 }
 
 beforeAll(() => {
@@ -69,6 +79,9 @@ beforeEach(() => {
   fsMock.existsSync.mockReset().mockReturnValue(false)
   fsMock.mkdirSync.mockReset()
   fsMock.cpSync.mockReset()
+  fsMock.statSync.mockReset().mockImplementation(() => {
+    throw new Error('ENOENT')
+  })
   kloudMock.findKloudGamesExe.mockReset().mockReturnValue(null)
   kloudMock.getKloudGamesDir.mockReset().mockReturnValue('C:\\fake\\kloud-games')
   loggerMock.info.mockReset()
@@ -197,6 +210,81 @@ describe('deployPrograms — Absolem', () => {
     expect(fsMock.cpSync).toHaveBeenCalledWith(sourceDir, ABSOLEM_DIR, { recursive: true })
     expect(absolem.installed).toBe(true)
     expect(absolem.path).toBe(ABSOLEM_DIR)
+  })
+
+  it('dev: recopia quando o build local é mais novo que o bundle', async () => {
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    const sourceExe = join(sourceDir, 'Absolem.exe')
+    const targetExe = join(ABSOLEM_DIR, 'Absolem.exe')
+    setupFs({
+      files: [sourceExe, targetExe],
+      mtimes: { [sourceExe]: 2_000, [targetExe]: 1_000 }
+    })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).toHaveBeenCalledWith(sourceDir, ABSOLEM_DIR, { recursive: true })
+    expect(absolem.installed).toBe(true)
+    expect(absolem.path).toBe(ABSOLEM_DIR)
+  })
+
+  it('dev: bundle mais novo que o build local não é recopiado', async () => {
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    const sourceExe = join(sourceDir, 'Absolem.exe')
+    const targetExe = join(ABSOLEM_DIR, 'Absolem.exe')
+    setupFs({
+      files: [sourceExe, targetExe],
+      mtimes: { [sourceExe]: 1_000, [targetExe]: 2_000 }
+    })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).not.toHaveBeenCalled()
+    expect(absolem.installed).toBe(true)
+    expect(absolem.path).toBe(ABSOLEM_DIR)
+  })
+
+  it('dev: bundle existente sem build local é aceito como está', async () => {
+    const targetExe = join(ABSOLEM_DIR, 'Absolem.exe')
+    setupFs({ files: [targetExe] })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).not.toHaveBeenCalled()
+    expect(absolem.installed).toBe(true)
+  })
+
+  it('dev: falha no statSync não derruba o deploy (trata como não mais novo)', async () => {
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    const sourceExe = join(sourceDir, 'Absolem.exe')
+    const targetExe = join(ABSOLEM_DIR, 'Absolem.exe')
+    setupFs({ files: [sourceExe, targetExe] })
+    fsMock.statSync.mockImplementation(() => {
+      throw new Error('EPERM')
+    })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).not.toHaveBeenCalled()
+    expect(absolem.installed).toBe(true)
+  })
+
+  it('empacotado: nunca recopia nem consulta mtime (instalador substitui)', async () => {
+    state.packaged = true
+    const targetDir = join('C:\\fake\\resources', 'programs', 'Absolem')
+    const targetExe = join(targetDir, 'Absolem.exe')
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    const sourceExe = join(sourceDir, 'Absolem.exe')
+    setupFs({
+      files: [targetExe, sourceExe],
+      mtimes: { [sourceExe]: 2_000, [targetExe]: 1_000 }
+    })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).not.toHaveBeenCalled()
+    expect(fsMock.statSync).not.toHaveBeenCalled()
+    expect(absolem).toEqual({
+      id: 'absolem',
+      name: 'Absolem',
+      installed: true,
+      path: targetDir
+    })
   })
 
   it('dev: falha de cópia vira resultado de erro', async () => {

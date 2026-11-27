@@ -1,4 +1,6 @@
-# electron-builder final (task 12, T2). Instalador NSIS por usuário, sem assinatura.
+# electron-builder final (task 32). Sem instalador/release próprios: o Absolem é
+# embarcado no Kolnd Hub (resources/programs/Absolem) como build win-unpacked e
+# atualizado junto com a Hub.
 appId: com.kolnd.absolem
 productName: Absolem
 
@@ -14,6 +16,12 @@ files:
   - '!src/**'
   - '!tests'
   - '!tests/**'
+  - '!coverage'
+  - '!coverage/**'
+  - '!test-results'
+  - '!test-results/**'
+  - '!playwright-report'
+  - '!playwright-report/**'
   - '!docs'
   - '!docs/**'
   - '!scripts'
@@ -44,28 +52,13 @@ asarUnpack:
 npmRebuild: true
 
 win:
-  # Ícone do app e do instalador (lagarta holográfica própria; ver resources/CREDITS.md).
+  # Ícone do app (lagarta holográfica própria; ver resources/CREDITS.md).
+  # Sem target de instalador: o artefato usado é `dist/win-unpacked`, copiado
+  # para o bundle da Hub por `kolnd-hub/scripts/build-absolem.ps1`.
   icon: resources/icon.ico
-  # Nome estável do artefato; a versão vem de Absolem/package.json (fonte única).
-  artifactName: Absolem Setup ${version}.exe
-  target:
-    - nsis
+  # O Absolem precisa operar com a conta elevada e solicita UAC em cada
+  # abertura; não há elevação silenciosa nem script externo.
+  requestedExecutionLevel: requireAdministrator
 
-nsis:
-  # Instalador guiado (não one-click), sem escolher pasta (per-user padrão).
-  oneClick: false
-  # Instalação por usuário em %LOCALAPPDATA%\Programs\Absolem, sem Administrador.
-  perMachine: false
-  allowToChangeInstallationDirectory: false
-  # Sem atalho na Área de Trabalho; atalho no Menu Iniciar.
-  createDesktopShortcut: false
-  createStartMenuShortcut: true
-  # Desinstalar PRESERVA %APPDATA%\absolem (memória, config, logs, chave cifrada).
-  # Nunca apaga dados do usuário; limpeza manual documentada no README.
-  deleteAppDataOnUninstall: false
-  installerIcon: resources/icon.ico
-  uninstallerIcon: resources/icon.ico
-
-# Assinatura de código NÃO configurada na v1 (task 12, T10). Sem certificado,
-# sem publish. SmartScreen pode avisar; SHA-256 publicado.
-# Para assinar no futuro, ver Absolem/docs/SIGNING.md. Nada de segredo no git.
+# Assinatura de código não configurada: não há executável/instalador próprio a
+# assinar. O binário entregue ao usuário é o do Kolnd Hub.

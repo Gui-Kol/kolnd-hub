@@ -23,7 +23,7 @@ task 13.
 | Histórico e transcrições | `chat.turns` no `config.json` e `turns` no SQLite                 | Conteúdo das conversas                                   |
 | Configuração             | `%APPDATA%\absolem\config.json`                                   | Tema, permissões, limites e preferências                 |
 | Logs e auditoria         | `%APPDATA%\absolem\logs` e `audit`                                | Metadados de uso; nunca conteúdo                         |
-| Artefato de instalação   | `dist\Absolem Setup <versao>.exe`                                 | Execução de binário adulterado                           |
+| Artefato de instalação   | Instalador do Kolnd Hub (o Absolem vai embarcado)                 | Execução de binário adulterado                           |
 
 ## 2. Adversários
 
@@ -52,7 +52,7 @@ engenharia social fora do app. Contra esses adversários não há garantia na v1
 | Banco SQLite      | Consultas da memória e importação JSON              | SQL parametrizado, validação de schema, limite de 16 MB no import                                              |
 | Logs e auditoria  | Logger, `audit/actions.jsonl`, `audit/memory.jsonl` | Redação em `info+`, auditoria sem conteúdo, rotação e retenção                                                 |
 | Rede              | Gemini, busca com grounding e `fetch_url`           | HTTPS, allowlist http/https, sem chave em URL/log, bloqueio sem teto                                           |
-| Instalador        | NSIS não assinado na v1                             | SHA-256 obrigatório e checklist de release                                                                     |
+| Instalador        | Instalador do Kolnd Hub (Absolem embarcado)         | Assinatura/verificação do release da Hub                                                                       |
 
 ## 4. Mitigações por ativo
 
@@ -100,14 +100,14 @@ conteúdo durante a sessão. Não há processamento local de STT/TTS na v1.
 
 ### 4.4 Capturas de tela
 
-| Ameaça                    | Mitigação                                                                                 | Cobertura                                                                          |
-| ------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Captura sem opt-in        | Default `privacy.screen.mode='off'`; `capture:ask`/`capture:region` recusam sem capturar  | task 07; `src/main/capture/controller.test.ts`, `docs/screen-capture-checklist.md` |
-| Captura de app sensível   | Blocklist por substring em título e processo, antes de capturar                           | task 07; `src/main/capture/privacy.test.ts`                                        |
-| Imagem em disco           | Buffer só em memória; nunca é escrito                                                     | task 07; `src/main/capture/controller.test.ts`, `docs/screen-capture-checklist.md` |
-| Captura em excesso        | 20/h, proativa 1/60 s e somente com voz ouvindo; teto mensal antes dos pixels             | task 07; `src/main/capture/limits.test.ts`                                         |
-| Prompt injection por tela | Envelope marca o conteúdo como não confiável e o sistema proíbe seguir instruções da tela | task 07; `src/main/capture/injection.test.ts`                                      |
-| Frame gigante             | Limite de 8 MB e dimensões válidas no `capture:result`                                    | task 07/13; `src/main/capture/controller.test.ts`, `src/main/security/ipc.test.ts` |
+| Ameaça                    | Mitigação                                                                                                             | Cobertura                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Captura contínua          | Default `privacy.screen.mode='on'` é sob demanda; `proactive=false`, blocklist, limites e indicador permanecem ativos | task 07; `src/main/capture/controller.test.ts`, `docs/screen-capture-checklist.md` |
+| Captura de app sensível   | Blocklist por substring em título e processo, antes de capturar                                                       | task 07; `src/main/capture/privacy.test.ts`                                        |
+| Imagem em disco           | Buffer só em memória; nunca é escrito                                                                                 | task 07; `src/main/capture/controller.test.ts`, `docs/screen-capture-checklist.md` |
+| Captura em excesso        | 20/h, proativa 1/60 s e somente com voz ouvindo; teto mensal antes dos pixels                                         | task 07; `src/main/capture/limits.test.ts`                                         |
+| Prompt injection por tela | Envelope marca o conteúdo como não confiável e o sistema proíbe seguir instruções da tela                             | task 07; `src/main/capture/injection.test.ts`                                      |
+| Frame gigante             | Limite de 8 MB e dimensões válidas no `capture:result`                                                                | task 07/13; `src/main/capture/controller.test.ts`, `src/main/security/ipc.test.ts` |
 
 Risco residual aceito: uma tela hostil pode induzir o modelo a propor uma ação.
 A execução continua sujeita a permissão, confirmação e limites da task 08.
@@ -186,12 +186,12 @@ caracteres/4 é aproximada; o valor cobrado é o da conta Google.
 
 ### 4.10 Distribuição
 
-| Ameaça                          | Mitigação                                                                               | Cobertura                                                 |
-| ------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Instalador adulterado           | SHA-256 obrigatório gerado por `scripts/hash-artifact.ps1`                              | task 12; `docs/RELEASE.md`, `docs/SIGNING.md`             |
-| SmartScreen enganoso            | App não assinado declarado; instrução para conferir hash antes de executar              | task 12; `docs/SIGNING.md`, `docs/FIRST-RUN-CHECKLIST.md` |
-| Dependência maliciosa           | Lockfile fixo, `npm ci`, `npm audit`, licenças inventariadas e revisão de `postinstall` | task 13/T7; `Absolem/docs/licenses.md`, checklist T7      |
-| Dados apagados na desinstalação | `deleteAppDataOnUninstall:false`; dados só saem por ação explícita                      | task 12; `electron-builder.yml`, `docs/RELEASE.md`        |
+| Ameaça                          | Mitigação                                                                               | Cobertura                                            |
+| ------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Instalador adulterado           | Integridade do instalador do Kolnd Hub (Absolem embarcado nos resources)                | task 32; release da Hub                              |
+| SmartScreen enganoso            | Distribuição via Hub; aviso de SmartScreen declarado no release da Hub                  | task 32; release da Hub                              |
+| Dependência maliciosa           | Lockfile fixo, `npm ci`, `npm audit`, licenças inventariadas e revisão de `postinstall` | task 13/T7; `Absolem/docs/licenses.md`, checklist T7 |
+| Dados apagados na desinstalação | Dados só saem por ação explícita do usuário (`%APPDATA%\absolem` preservado)            | task 32; `docs/data-lifecycle.md`                    |
 
 Risco residual aceito: a v1 não é assinada. A integridade depende do SHA-256
 publicado por um canal confiável e da conferência manual do usuário.
@@ -204,7 +204,7 @@ publicado por um canal confiável e da conferência manual do usuário.
 | Áudio e texto vão ao Gemini              | Necessário para o produto; TLS; sem STT/TTS local                   | `README.md`, task 06                          |
 | Modelo pode sugerir ação errada          | Permissão + confirmação + pausa + auditoria; sem desfazer universal | task 08, `docs/computer-control-checklist.md` |
 | Prompt injection pode alterar a resposta | Envelope + fontes + nenhuma execução automática                     | task 07/10, `docs/web-search-checklist.md`    |
-| App não assinado                         | SHA-256 obrigatório e aviso de SmartScreen                          | `docs/SIGNING.md`                             |
+| App não assinado                         | Distribuição via release do Kolnd Hub; aviso de SmartScreen         | release da Hub                                |
 | Main comprometido                        | Sem sandbox de processo main; fora do modelo                        | este documento                                |
 | Outro usuário no mesmo perfil            | ACL do Windows; DPAPI do usuário                                    | `docs/memory.md`                              |
 
@@ -236,7 +236,7 @@ publicado por um canal confiável e da conferência manual do usuário.
 | Modos degradados                  | `src/main/security/degraded.test.ts`                                      | 13     |
 | Consentimentos e revogação        | `src/renderer/src/settings/consent-revocation.test.tsx`                   | 13     |
 | Dependências e licenças           | `docs/licenses.md`                                                        | 13     |
-| Release e hash                    | `docs/RELEASE-CHECKLIST.md`, `docs/SIGNING.md`                            | 12, 13 |
+| Release e hash                    | Release do Kolnd Hub (Absolem embarcado)                                  | 32     |
 
 ## 7. Como revisar este documento
 
@@ -245,5 +245,5 @@ publicado por um canal confiável e da conferência manual do usuário.
    registrado.
 3. Uma nova superfície (novo canal IPC, nova ferramenta, novo download) obriga a
    atualizar este documento antes do release.
-4. O checklist `docs/RELEASE-CHECKLIST.md` confirma que o modelo foi revisado na
-   versão que está sendo publicada.
+4. A validação de release do **Kolnd Hub** (que embarca o Absolem) confirma que o
+   modelo foi revisado na versão que está sendo publicada.

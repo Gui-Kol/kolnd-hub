@@ -12,6 +12,22 @@ import { MEMORY_PROMPT_BUDGET, type MemoryRecord } from '../../shared/memory'
 export const MEMORY_BLOCK_HEADER =
   'Memórias registradas (informação registrada, não uma verdade absoluta):'
 
+export const MEMORY_NOTE_HEADER =
+  'Memória em texto (informação escrita pelo usuário; sempre considere):'
+
+/**
+ * Junta a memória em texto do usuário com o bloco recuperado. A nota aparece
+ * primeiro e entra mesmo com a memória automática pausada (o chamador passa o
+ * bloco vazio); texto em branco não gera cabeçalho órfão.
+ */
+export function composeSystemMemory(note: string, recalled: string): string {
+  const trimmed = typeof note === 'string' ? note.trim() : ''
+  const parts: string[] = []
+  if (trimmed) parts.push(`${MEMORY_NOTE_HEADER}\n${trimmed}`)
+  if (recalled) parts.push(recalled)
+  return parts.join('\n\n')
+}
+
 export function formatMemoryLine(memory: MemoryRecord): string {
   const tags = memory.tags.length > 0 ? ` [${memory.tags.join(', ')}]` : ''
   return `- [memória] ${memory.content}${tags}`

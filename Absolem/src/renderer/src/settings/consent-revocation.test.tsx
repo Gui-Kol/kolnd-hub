@@ -122,7 +122,10 @@ describe('consentimentos e revogação', () => {
           hideOnFullscreen: true
         }
       })),
-      setOverlayConfig: vi.fn(async () => ({ ok: true as const })),
+      setOverlayShortcut: vi.fn(async () => ({
+        ok: false as const,
+        error: 'não usado neste teste'
+      })),
       status: vi.fn(async () => ({
         ok: true as const,
         status: {
@@ -365,7 +368,8 @@ describe('consentimentos e revogação', () => {
     expect(storeSet).toHaveBeenLastCalledWith('memory', {
       enabled: false,
       autoExtract: true,
-      lastConsolidationAt: null
+      lastConsolidationAt: null,
+      note: ''
     })
   })
 

@@ -23,7 +23,12 @@ import type { VoiceAudioPush, VoiceStateChange, VoiceTranscriptPush } from '../.
 import { VOICE_DEFAULT_SHORTCUT, LIVE_VOICE_NAME } from '../../shared/voice'
 import { isMicrophoneGranted, setMicrophoneConsent } from './consent'
 import { VoiceController } from './controller'
-import { onOverlayHidden } from './overlayEvents'
+import {
+  createGreetingController,
+  GREETING_SYSTEM_INSTRUCTION,
+  shouldSkipGreeting
+} from './greeting'
+import { onOverlayHidden, onOverlayShown } from './overlayEvents'
 import { registerVoiceShortcut } from './shortcut'
 
 /**
@@ -105,19 +110,57 @@ let runtime: VoiceRuntime | null = null
 
 export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
   const chatHistory = createChatHistory({ store: getPersistentStore() })
+  const hasApiKey = (): boolean => {
+    try {
+      return getApiKey() !== null
+    } catch {
+      return false
+    }
+  }
+  const pushAudio = (push: VoiceAudioPush): void => broadcast(ctx, IPC.voiceAudio, push)
+
+  // Saudação curta por horário: mesma voz/modelo Live, sem microfone. O áudio
+  // sai pelo mesmo `voice:audio` que o overlay já reproduz.
+  const greeting = createGreetingController({
+    createSession: (handlers) => {
+      const snapshot = getStoreSnapshot()
+      return new LiveSession({
+        transport: new SdkLiveTransport(),
+        keys: { getApiKey },
+        usage: getUsageMeter(),
+        model: snapshot.gemini.liveModel,
+        voiceName: LIVE_VOICE_NAME,
+        temperature: snapshot.gemini.temperature,
+        systemInstruction: GREETING_SYSTEM_INSTRUCTION,
+        handlers: {
+          onAudio: handlers.onAudio,
+          onError: handlers.onError,
+          onClose: handlers.onClose,
+          onTurnComplete: handlers.onTurnComplete
+        },
+        logger,
+        // Saudação é descartável: uma tentativa, sem reconexão em rede ruim.
+        maxAttempts: 1
+      })
+    },
+    hasApiKey,
+    checkBudget: () => getUsageMeter().checkBudget(),
+    pushAudio,
+    logger,
+    isEnabled: () => {
+      if (shouldSkipGreeting()) return false
+      const overlay = ctx.getOverlayWindow()
+      return Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible())
+    }
+  })
+
   const controller = new VoiceController({
     getConfig: () => getStoreSnapshot().voice,
     updateConfig: (patch) => setStoreValue('voice', { ...getStoreSnapshot().voice, ...patch }),
     hasConsent: () => isMicrophoneGranted(consentStore),
     persistConsent: (granted) => setMicrophoneConsent(consentStore, granted),
     requestConsent: () => askMicrophoneConsent(ctx),
-    hasApiKey: () => {
-      try {
-        return getApiKey() !== null
-      } catch {
-        return false
-      }
-    },
+    hasApiKey,
     checkBudget: () => getUsageMeter().checkBudget(),
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
@@ -165,7 +208,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     },
     setAvatarState: (state) => applyAvatarState(state),
     pushState: (change: VoiceStateChange) => broadcast(ctx, IPC.voiceState, change),
-    pushAudio: (push: VoiceAudioPush) => broadcast(ctx, IPC.voiceAudio, push),
+    pushAudio,
     pushTranscript: (push: VoiceTranscriptPush) => broadcast(ctx, IPC.voiceTranscript, push),
     routeToolCall: async (call) => {
       const search = getSearchRuntime()
@@ -187,6 +230,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
       showOverlayWindow()
     },
     notify: (message) => logger.info('voice', message),
+    cancelGreeting: () => greeting.cancel(),
     memoryEnabled: () => getStoreSnapshot().memory.enabled,
     history: {
       append: (role, text, interrupted = false) => {
@@ -211,8 +255,15 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     controller.toggle('shortcut')
   })
 
-  onOverlayHidden(() => controller.notifyOverlayHidden())
-  registerShutdownHook('voice', () => controller.shutdown())
+  onOverlayShown(() => greeting.speak())
+  onOverlayHidden(() => {
+    greeting.cancel()
+    controller.notifyOverlayHidden()
+  })
+  registerShutdownHook('voice', () => {
+    greeting.cancel()
+    controller.shutdown()
+  })
 
   return { controller }
 }

@@ -88,6 +88,8 @@ export interface VoiceControllerDeps {
   isOverlayVisible: () => boolean
   showOverlay: () => void
   notify: (message: string) => void
+  /** Cancela a saudação em andamento (qualquer início de voz a interrompe). */
+  cancelGreeting?: () => void
   /** Memória (task 09) desligada por padrão: transcrição não vai ao disco. */
   memoryEnabled: () => boolean
   history: VoiceHistoryLike
@@ -111,6 +113,20 @@ interface TranscriptBuffer {
 
 function emptyBuffer(): TranscriptBuffer {
   return { text: '', final: false, closed: false, persisted: false }
+}
+
+/**
+ * Frase pronta devolvida por ferramentas de ação (`result.message`). Só entra
+ * no histórico sintético depois de uma execução ok e fica limitada a 200 chars.
+ */
+function toolResultMessage(result: ToolCallResult): string | undefined {
+  if (!result.ok) return undefined
+  const value = result.result
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const message = (value as Record<string, unknown>).message
+  if (typeof message !== 'string') return undefined
+  const trimmed = message.trim()
+  return trimmed ? trimmed.slice(0, 200) : undefined
 }
 
 function normalizeDeviceId(value: unknown): string | null | undefined {
@@ -179,9 +195,14 @@ export class VoiceController {
   }
 
   start(source: 'ipc' | 'shortcut' = 'ipc'): VoiceStatus {
-    if (source === 'shortcut' && !this.deps.isOverlayVisible()) {
-      this.deps.showOverlay()
-      this.deps.notify('Absolem visível. Clique no avatar para falar.')
+    this.deps.cancelGreeting?.()
+    if (!this.deps.isOverlayVisible()) {
+      if (source === 'shortcut') {
+        this.deps.showOverlay()
+        this.deps.notify('Absolem visível. Clique no avatar para falar.')
+        return this.status()
+      }
+      this.fail('Absolem está desativado. Ative o overlay para falar.')
       return this.status()
     }
     if (this.machine.getState() !== 'off' && this.machine.getState() !== 'error') {
@@ -445,6 +466,7 @@ export class VoiceController {
     this.cancelToolReplyGuard()
 
     const responses: GeminiFunctionResponse[] = []
+    const syntheticMessages: string[] = []
     for (const call of calls) {
       if (epoch !== this.epoch) return
       let result: ToolCallResult
@@ -457,15 +479,33 @@ export class VoiceController {
       if (epoch !== this.epoch) return
       responses.push({
         name: call.name,
+        ...(typeof call.id === 'string' && call.id.length > 0 ? { id: call.id } : {}),
         response: result.ok
           ? { ok: true, result: result.result ?? null }
           : { ok: false, error: result.error }
       })
+      const message = toolResultMessage(result)
+      if (message) syntheticMessages.push(message)
     }
     if (epoch !== this.epoch || responses.length === 0) return
     const session = this.session
     if (!session) return
     session.sendToolResponse?.(responses)
+    this.deps.logger?.info('voice', 'tool response enviado', {
+      tools: responses.map((response) => response.name),
+      ids: responses
+        .map((response) => response.id)
+        .filter((id): id is string => typeof id === 'string')
+    })
+    // Rede de segurança: se a sessão cair e reconectar, o modelo continua
+    // sabendo o que foi executado, mesmo sem o resultado da ferramenta.
+    for (const message of syntheticMessages) {
+      try {
+        session.appendHistory('model', message)
+      } catch {
+        // Sessão fechando: o histórico em memória não é crítico aqui.
+      }
+    }
     // A confirmação falada é obrigatória: se o modelo não falar e o turno
     // terminar (ou 6 s passarem), um único nudge pede a frase de resultado.
     this.armToolReplyGuard()

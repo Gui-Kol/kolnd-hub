@@ -33,20 +33,19 @@ lógica entra na conta automaticamente pelo `include`.
 
 ### 2.1 Fundação e ciclo de vida
 
-| Módulo             | Tipo    | Arquivo                           | Critério                                                       |
-| ------------------ | ------- | --------------------------------- | -------------------------------------------------------------- |
-| Logger e rotação   | unidade | `src/main/logger.test.ts`         | Redação em `info`, rotação 5 MB x 2, falha de disco não lança  |
-| Store e migrações  | unidade | `src/main/store.test.ts`          | Defaults, normalização, migrações 1.1 a 1.10, store em memória |
-| Segredos           | unidade | `src/main/secrets.test.ts`        | Sem `safeStorage`, gravação recusada; chave nunca volta        |
-| Autostart          | unidade | `src/main/autostart.test.ts`      | Suporte, falha e alternância por usuário                       |
-| Primeira execução  | unidade | `src/main/firstRun.test.ts`       | Flag idempotente                                               |
-| Navegação          | unidade | `src/main/navigation.test.ts`     | Produção nega; dev só a origem do HMR                          |
-| Instância única    | unidade | `src/main/singleInstance.test.ts` | Segunda instância foca sem bootstrap                           |
-| Encerramento       | unidade | `src/main/shutdown.test.ts`       | Gancho que lança não impede os demais                          |
-| Crash local        | unidade | `src/main/crashReporting.test.ts` | `uploadToServer:false`, diretório local                        |
-| Atualização manual | unidade | `src/main/updates.test.ts`        | Só abre release https; nada baixa                              |
-| Tema I/O           | unidade | `src/main/theme-io.test.ts`       | Export/import válido, cancelado e inválido                     |
-| Janela principal   | unidade | `src/main/lifecycle.test.ts`      | X oculta, quit fecha, session-end marca saída                  |
+| Módulo            | Tipo    | Arquivo                           | Critério                                                       |
+| ----------------- | ------- | --------------------------------- | -------------------------------------------------------------- |
+| Logger e rotação  | unidade | `src/main/logger.test.ts`         | Redação em `info`, rotação 5 MB x 2, falha de disco não lança  |
+| Store e migrações | unidade | `src/main/store.test.ts`          | Defaults, normalização, migrações 1.1 a 1.10, store em memória |
+| Segredos          | unidade | `src/main/secrets.test.ts`        | Sem `safeStorage`, gravação recusada; chave nunca volta        |
+| Autostart         | unidade | `src/main/autostart.test.ts`      | Suporte, falha e alternância por usuário                       |
+| Primeira execução | unidade | `src/main/firstRun.test.ts`       | Flag idempotente                                               |
+| Navegação         | unidade | `src/main/navigation.test.ts`     | Produção nega; dev só a origem do HMR                          |
+| Instância única   | unidade | `src/main/singleInstance.test.ts` | Segunda instância foca sem bootstrap                           |
+| Encerramento      | unidade | `src/main/shutdown.test.ts`       | Gancho que lança não impede os demais                          |
+| Crash local       | unidade | `src/main/crashReporting.test.ts` | `uploadToServer:false`, diretório local                        |
+| Tema I/O          | unidade | `src/main/theme-io.test.ts`       | Export/import válido, cancelado e inválido                     |
+| Janela principal  | unidade | `src/main/lifecycle.test.ts`      | X oculta, quit fecha, session-end marca saída                  |
 
 ### 2.2 IPC e segurança
 
@@ -225,16 +224,16 @@ lógica entra na conta automaticamente pelo `include`.
 
 ## 4. E2E e manual
 
-| Fluxo                                       | Tipo   | Arquivo/checklist             | Critério                                                                       |
-| ------------------------------------------- | ------ | ----------------------------- | ------------------------------------------------------------------------------ |
-| Configurações, tema, dispositivo, overlay   | e2e    | `tests/e2e/settings.spec.ts`  | App buildado, userData temporário, transporte fake, janela oculta sem encerrar |
-| Acessibilidade automática                   | e2e    | `tests/e2e/a11y.spec.ts`      | Axe nas abas e overlay expandido sem violação crítica/séria                    |
-| Primeira execução com chave real            | manual | `docs/FIRST-RUN-CHECKLIST.md` | Chave salva, testada, voz e barge-in                                           |
-| Modos degradados (rede, dispositivo, banco) | manual | `docs/RELEASE-CHECKLIST.md`   | Recuperação sem tela branca; ver T12                                           |
-| Ciclo de vida (apagar tudo e reiniciar)     | manual | `docs/RELEASE-CHECKLIST.md`   | Tela vazia após reinício                                                       |
-| Desempenho idle/fps/memória                 | manual | `docs/perf-budget.md`         | Medição na máquina de referência                                               |
-| Narrador do Windows e teclado               | manual | `docs/a11y-audit.md`          | Navegação completa sem armadilha                                               |
-| Instalação/desinstalação em VM limpa        | manual | `docs/RELEASE-CHECKLIST.md`   | NSIS, hash, dados preservados                                                  |
+| Fluxo                                       | Tipo   | Arquivo/checklist            | Critério                                                                       |
+| ------------------------------------------- | ------ | ---------------------------- | ------------------------------------------------------------------------------ |
+| Configurações, tema, dispositivo, overlay   | e2e    | `tests/e2e/settings.spec.ts` | App buildado, userData temporário, transporte fake, janela oculta sem encerrar |
+| Acessibilidade automática                   | e2e    | `tests/e2e/a11y.spec.ts`     | Axe nas abas e overlay expandido sem violação crítica/séria                    |
+| Primeira execução com chave real            | manual | `README.md`                  | Chave salva, testada, voz e barge-in                                           |
+| Modos degradados (rede, dispositivo, banco) | manual | `docs/data-lifecycle.md`     | Recuperação sem tela branca                                                    |
+| Ciclo de vida (apagar tudo e reiniciar)     | manual | `docs/data-lifecycle.md`     | Tela vazia após reinício                                                       |
+| Desempenho idle/fps/memória                 | manual | `docs/perf-budget.md`        | Medição na máquina de referência                                               |
+| Narrador do Windows e teclado               | manual | `docs/a11y-audit.md`         | Navegação completa sem armadilha                                               |
+| Atualização com a Hub                       | manual | (Kolnd Hub)                  | Reinstalar/atualizar a Hub traz o Absolem novo; `%APPDATA%\absolem` preservado |
 
 ## 5. Como manter
 

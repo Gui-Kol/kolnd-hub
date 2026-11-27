@@ -19,6 +19,7 @@ import { ensureVoiceRuntime, getVoiceController } from '../voice/instance'
 import { app } from 'electron'
 import { ensureCaptureRuntime } from '../capture/instance'
 import { ensureActionsRuntime } from '../actions/instance'
+import { resolveHubVersion } from '../../shared/version'
 
 export type { IpcContext } from './lifecycle'
 
@@ -40,7 +41,7 @@ export function registerIpc(ctx: IpcContext): void {
   registerDiagnosticsIpc(engine, {
     getAppInfo: () => ({
       name: app.getName(),
-      version: app.getVersion(),
+      version: resolveHubVersion(process.env, app.getVersion()),
       platform: process.platform
     }),
     getRuntimeVersions: () => ({

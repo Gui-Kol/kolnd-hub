@@ -2,6 +2,7 @@ import { app, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { isSettingsTab } from '../../shared/config'
 import { IPC, APP_FOLDER_TARGETS } from '../../shared/ipc'
+import { resolveHubVersion } from '../../shared/version'
 import type {
   AppFolderTarget,
   AppInfoResult,
@@ -11,7 +12,6 @@ import type {
   SimpleResult
 } from '../../shared/ipc'
 import { getAutostart, setAutostart } from '../autostart'
-import { openReleasesPage } from '../updates'
 import { showMainWindow } from '../lifecycle'
 import { shutdownApp } from './lifecycle'
 import type { IpcContext } from './lifecycle'
@@ -47,7 +47,8 @@ export function registerAppIpc(ctx: IpcContext): void {
         ok: true,
         info: {
           name: app.getName(),
-          version: app.getVersion(),
+          // Versão do produto = versão da Hub, injetada no launch (task 32).
+          version: resolveHubVersion(process.env, app.getVersion()),
           platform: process.platform,
           electron: process.versions.electron ?? '',
           chromium: process.versions.chrome ?? '',
@@ -124,19 +125,6 @@ export function registerAppIpc(ctx: IpcContext): void {
     } catch (err) {
       return failure(
         `Não foi possível abrir a pasta: ${err instanceof Error ? err.message : String(err)}`
-      )
-    }
-  })
-
-  ipcMain.handle(IPC.appOpenUpdates, async (_event, payload: unknown): Promise<SimpleResult> => {
-    if (!isVoidPayload(payload)) {
-      return failure(`Payload inválido para ${IPC.appOpenUpdates}: ${describe(payload)}`)
-    }
-    try {
-      return await openReleasesPage()
-    } catch (err) {
-      return failure(
-        `Falha ao abrir a página de atualizações: ${err instanceof Error ? err.message : String(err)}`
       )
     }
   })

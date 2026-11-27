@@ -8,6 +8,7 @@ import {
   setOverlayInputModeFromRequest,
   setOverlayInteractiveFromRequest,
   setOverlayLayoutFromRequest,
+  setOverlayShortcutFromRequest,
   showOverlay,
   toggleOverlay
 } from '../overlay/controller'
@@ -85,6 +86,15 @@ export function registerOverlayIpc(ctx?: IpcContext): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return failure(`Falha em ${IPC.overlaySetInteractive}: ${message}`)
+    }
+  })
+
+  ipcMain.handle(IPC.overlaySetShortcut, (_event, payload: unknown): OverlayStatusResult => {
+    try {
+      return setOverlayShortcutFromRequest(payload)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return failure(`Falha em ${IPC.overlaySetShortcut}: ${message}`)
     }
   })
 

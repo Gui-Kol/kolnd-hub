@@ -25,7 +25,7 @@ task além de `@axe-core/playwright` (dev, autorizada na T9).
 | Pacote                      | Versão      | Licença    | Uso                                       |
 | --------------------------- | ----------- | ---------- | ----------------------------------------- |
 | `electron`                  | 28.3.3      | MIT        | Runtime desktop                           |
-| `electron-builder`          | 24.13.3     | MIT        | NSIS e `win-unpacked`                     |
+| `electron-builder`          | 24.13.3     | MIT        | Build `win-unpacked` do Absolem           |
 | `electron-vite`             | 2.3.0       | MIT        | Build main/preload/renderer               |
 | `@playwright/test`          | 1.65.1      | Apache-2.0 | E2E do app empacotado                     |
 | `@axe-core/playwright`      | 4.14.1 (T9) | MPL-2.0    | Auditoria de acessibilidade no Playwright |

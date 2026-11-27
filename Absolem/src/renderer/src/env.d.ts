@@ -1,4 +1,4 @@
 /// <reference types="vite/client" />
 
-// Injetado por electron.vite.config.ts a partir de Absolem/package.json.
-declare const __APP_VERSION__: string
+// A versão exibida vem do main (`getAppInfo`, alimentado pela Hub) — não há
+// mais constante de versão injetada no renderer.

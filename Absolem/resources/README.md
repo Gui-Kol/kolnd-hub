@@ -6,8 +6,8 @@ explicitamente por `extraResources`.
 
 ## Conteudo
 
-- `icon.ico` - icone do app e do instalador NSIS (`win.icon`, `nsis.installerIcon`,
-  `nsis.uninstallerIcon`). Entradas 256, 128, 64, 48, 32, 16.
+- `icon.ico` - icone do app (`win.icon`; o Absolem nao tem instalador proprio — o
+  binario e embarcado no Kolnd Hub). Entradas 256, 128, 64, 48, 32, 16.
 - `icon.png` - 512x512, opcional (futuro Linux).
 - `tray-icon.png` - icone da bandeja 32x32. Chega ao pacote como
   `<resources>/tray-icon.png` via `extraResources`; o main le com

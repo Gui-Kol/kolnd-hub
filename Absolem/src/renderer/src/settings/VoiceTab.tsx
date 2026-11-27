@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import type { OverlayConfig, VoiceConfig } from '../../../shared/config'
-import type { SimpleResult, StoreGetResult, VoiceStatusResult } from '../../../shared/ipc'
+import type {
+  OverlayStatusResult,
+  SimpleResult,
+  StoreGetResult,
+  VoiceStatusResult
+} from '../../../shared/ipc'
 import { isOverlayPosition } from '../../../shared/overlay'
 import type { VoiceSetDeviceRequest, VoiceStatus } from '../../../shared/voice'
 import { VOICE_DEFAULT_SHORTCUT } from '../../../shared/voice'
@@ -27,7 +32,7 @@ export interface VoiceTabApi {
   getVoiceConfig: () => Promise<StoreGetResult>
   setVoiceConfig: (config: VoiceConfig) => Promise<SimpleResult>
   getOverlayConfig: () => Promise<StoreGetResult>
-  setOverlayConfig: (config: OverlayConfig) => Promise<SimpleResult>
+  setOverlayShortcut: (shortcut: string) => Promise<OverlayStatusResult>
   status: () => Promise<VoiceStatusResult>
   setDevice: (request: VoiceSetDeviceRequest) => Promise<VoiceStatusResult>
   setConsent: (granted: boolean) => Promise<VoiceStatusResult>
@@ -131,7 +136,7 @@ function defaultApi(): VoiceTabApi {
     getVoiceConfig: () => window.absolem.storeGet('voice'),
     setVoiceConfig: (config) => window.absolem.storeSet('voice', config),
     getOverlayConfig: () => window.absolem.storeGet('overlay'),
-    setOverlayConfig: (config) => window.absolem.storeSet('overlay', config),
+    setOverlayShortcut: (shortcut) => window.absolem.overlaySetShortcut(shortcut),
     status: () => window.absolem.voice.status(),
     setDevice: (request) => window.absolem.voice.setDevice(request),
     setConsent: (granted) => window.absolem.voice.setConsent(granted),
@@ -436,18 +441,21 @@ export function VoiceTab({ api }: VoiceTabProps) {
                 event.preventDefault()
                 const accelerator = acceleratorFromEvent(event)
                 if (!accelerator) return
-                const next = { ...overlay, shortcut: accelerator }
-                setOverlay(next)
-                void client.setOverlayConfig(next).then((result) => {
-                  if (!result.ok) setError(result.error)
-                  else setNotice('Atalho do overlay salvo. Aplicado pela task 02.')
+                void client.setOverlayShortcut(accelerator).then((result) => {
+                  if (!result.ok) {
+                    setError(result.error)
+                    return
+                  }
+                  setError(null)
+                  setOverlay({ ...overlay, shortcut: result.status.shortcut.accelerator })
+                  setNotice('Atalho do overlay aplicado imediatamente.')
                 })
               }}
               className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
               aria-describedby="voice-overlay-shortcut-hint"
             />
             <p id="voice-overlay-shortcut-hint" className="text-xs text-ink-tertiary">
-              Mesmo atalho global do overlay (aplicado ao reiniciar o app).
+              Mesmo atalho global do overlay; aplicado imediatamente.
             </p>
           </div>
         </div>

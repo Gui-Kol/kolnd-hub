@@ -32,6 +32,7 @@ function makeApi(all: MemoryRecord[]): {
   list: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
   remove: ReturnType<typeof vi.fn>
+  storeSet: ReturnType<typeof vi.fn>
 } {
   const list = vi.fn(async (request?: { query?: string; kind?: string }) => {
     const query = request?.query?.toLocaleLowerCase('pt-BR') ?? ''
@@ -54,6 +55,7 @@ function makeApi(all: MemoryRecord[]): {
     memory: { ...memory(request.id, 'atualizado') }
   }))
   const remove = vi.fn(async () => ({ ok: true as const, removed: true }))
+  const storeSet = vi.fn(async () => ({ ok: true as const }))
 
   const api: MemoryPanelApi = {
     list,
@@ -81,11 +83,11 @@ function makeApi(all: MemoryRecord[]): {
     storeGet: vi.fn(async () => ({
       ok: true as const,
       key: 'memory' as const,
-      value: { enabled: true, autoExtract: true, lastConsolidationAt: null }
+      value: { enabled: true, autoExtract: true, lastConsolidationAt: null, note: '' }
     })),
-    storeSet: vi.fn(async () => ({ ok: true as const }))
+    storeSet
   }
-  return { api, list, update, remove }
+  return { api, list, update, remove, storeSet }
 }
 
 function button(container: HTMLElement, label: string): HTMLButtonElement {
@@ -211,7 +213,57 @@ describe('tela de memória', () => {
 
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'café' }))
     expect(container.querySelectorAll('[data-memory-item]')).toHaveLength(1)
-    expect(container.textContent).toContain('Gosta de café')
-    expect(container.textContent).not.toContain('Tem dois gatos')
+    const visibleItems = Array.from(container.querySelectorAll('[data-memory-item]'))
+      .map((element) => element.textContent ?? '')
+      .join(' ')
+    expect(visibleItems).toContain('Gosta de café')
+    expect(visibleItems).not.toContain('Tem dois gatos')
+  })
+
+  it('memória em texto é editável e salva no store', async () => {
+    const { api, storeSet } = makeApi([memory('1', 'Gosta de café')])
+
+    await act(async () => {
+      root.render(<MemoryPanel api={api} />)
+    })
+    await settle()
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('#memory-note')
+    if (!textarea) throw new Error('memória em texto ausente')
+    await act(async () => {
+      setValue(textarea, 'Sempre me chame de Gui.')
+    })
+    await act(async () => {
+      button(container, 'Salvar memória em texto').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
+    })
+    await settle()
+
+    expect(storeSet).toHaveBeenCalledWith(
+      'memory',
+      expect.objectContaining({ note: 'Sempre me chame de Gui.' })
+    )
+    expect(container.textContent).toContain('O Absolem lê no início de cada sessão')
+  })
+
+  it('tudo em texto mostra todas as memórias salvas', async () => {
+    const { api } = makeApi([
+      memory('1', 'Gosta de café'),
+      memory('2', 'Trabalha na Kolnd', 'profile')
+    ])
+
+    await act(async () => {
+      root.render(<MemoryPanel api={api} />)
+    })
+    await settle()
+
+    const all = container.querySelector('[data-memory-all-text]')
+    if (!all) throw new Error('visão tudo em texto ausente')
+    expect(container.textContent).toContain('Tudo em texto')
+    expect(all.textContent).toContain('Memórias registradas (2):')
+    expect(all.textContent).toContain('Gosta de café')
+    expect(all.textContent).toContain('Trabalha na Kolnd')
+    expect(container.textContent).toContain('Mostrar tudo em texto (2 memória(s))')
   })
 })

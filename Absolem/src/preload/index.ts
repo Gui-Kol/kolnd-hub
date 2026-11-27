@@ -46,7 +46,6 @@ const absolem: AbsolemApi = {
   getAutostart: () => ipcRenderer.invoke(IPC.appGetAutostart),
   setAutostart: (enabled: boolean) => ipcRenderer.invoke(IPC.appSetAutostart, { enabled }),
   openFolder: (target) => ipcRenderer.invoke(IPC.appOpenFolder, { target }),
-  openUpdates: () => ipcRenderer.invoke(IPC.appOpenUpdates),
 
   overlayShow: () => ipcRenderer.invoke(IPC.overlayShow),
   overlayHide: () => ipcRenderer.invoke(IPC.overlayHide),
@@ -57,6 +56,8 @@ const absolem: AbsolemApi = {
   overlaySetInteractive: (interactive: boolean) =>
     ipcRenderer.invoke(IPC.overlaySetInteractive, { interactive }),
   overlaySetInputMode: (active: boolean) => ipcRenderer.invoke(IPC.overlaySetInputMode, { active }),
+  overlaySetShortcut: (shortcut: string) =>
+    ipcRenderer.invoke(IPC.overlaySetShortcut, { shortcut }),
   onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => {
     const handler = (_event: unknown, status: OverlayStatus) => listener(status)
     ipcRenderer.on(IPC.overlayStatusChanged, handler)

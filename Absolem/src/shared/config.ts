@@ -161,6 +161,11 @@ export interface MemoryConfig {
   autoExtract: boolean
   /** Epoch ms da última consolidação concluída. */
   lastConsolidationAt: number | null
+  /**
+   * Texto livre editável na aba Memória. Sempre entra no prompt de sistema,
+   * mesmo com a memória automática pausada.
+   */
+  note: string
 }
 
 /**

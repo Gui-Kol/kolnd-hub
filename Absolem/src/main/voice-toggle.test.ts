@@ -57,6 +57,7 @@ function setup(overrides: { overlayVisible?: boolean; hasKey?: boolean } = {}) {
   const avatarStates: string[] = []
   const notify = vi.fn()
   const showOverlay = vi.fn()
+  const cancelGreeting = vi.fn()
   let config = voiceConfig()
   let consent = true
 
@@ -86,6 +87,7 @@ function setup(overrides: { overlayVisible?: boolean; hasKey?: boolean } = {}) {
     isOverlayVisible: () => overrides.overlayVisible !== false,
     showOverlay,
     notify,
+    cancelGreeting,
     memoryEnabled: () => false,
     history: { append: vi.fn() }
   })
@@ -97,6 +99,7 @@ function setup(overrides: { overlayVisible?: boolean; hasKey?: boolean } = {}) {
     avatarStates,
     notify,
     showOverlay,
+    cancelGreeting,
     getConfig: () => config
   }
 }
@@ -149,6 +152,27 @@ describe('toggle da voz', () => {
     expect(sessions).toHaveLength(0)
     expect(showOverlay).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith('Absolem visível. Clique no avatar para falar.')
+  })
+
+  it('overlay oculto rejeita start por IPC sem criar sessão', async () => {
+    const { controller, sessions, showOverlay } = setup({ overlayVisible: false })
+
+    const result = controller.start('ipc')
+    await flushAsync()
+
+    expect(result.state).toBe('error')
+    expect(result.reason).toBe('Absolem está desativado. Ative o overlay para falar.')
+    expect(result.sessionActive).toBe(false)
+    expect(sessions).toHaveLength(0)
+    expect(showOverlay).not.toHaveBeenCalled()
+  })
+
+  it('start cancela a saudação em andamento', async () => {
+    const { controller, cancelGreeting } = setup()
+
+    controller.start('ipc')
+
+    expect(cancelGreeting).toHaveBeenCalledTimes(1)
   })
 
   it('interrupt para a resposta sem encerrar a sessão', async () => {

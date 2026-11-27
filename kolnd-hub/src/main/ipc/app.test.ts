@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   stopKloudGamesElevated: vi.fn(),
   isAnyUninstallInProgress: vi.fn(() => false),
   shutdownHub: vi.fn(),
-  logWarn: vi.fn()
+  logWarn: vi.fn(),
+  getVersion: vi.fn(() => '1.2.2')
 }))
 
 vi.mock('electron', () => ({
@@ -20,7 +21,7 @@ vi.mock('electron', () => ({
     }
   },
   shell: { openPath: mocks.openPath },
-  app: { getPath: mocks.getPath }
+  app: { getPath: mocks.getPath, getVersion: mocks.getVersion }
 }))
 vi.mock('fs', () => ({ mkdirSync: mocks.mkdirSync }))
 vi.mock('../processKiller', () => ({ killProcessesForCommand: mocks.killProcessesForCommand }))
@@ -101,12 +102,27 @@ describe('app:launch', () => {
     })
   })
 
-  it('useShell=false é preservado (sem env extra para o Mark LVII)', async () => {
+  it('useShell=false é preservado e a versão da Hub vai no env do Absolem', async () => {
     processManager.launch.mockResolvedValue({ success: true })
-    await call('app:launch', 'mark-lvi', 'MarkLVII.exe', 'C:\\mark', false)
-    expect(processManager.launch).toHaveBeenCalledWith('mark-lvi', 'MarkLVII.exe', 'C:\\mark', {
-      shell: false
+    await call('app:launch', 'absolem', 'Absolem.exe', 'C:\\absolem', false)
+    expect(processManager.launch).toHaveBeenCalledWith('absolem', 'Absolem.exe', 'C:\\absolem', {
+      shell: false,
+      env: { ABSOLEM_HUB_VERSION: '1.2.2' }
     })
+  })
+
+  it('outros apps não recebem env extra (só o Absolem usa a versão da Hub)', async () => {
+    processManager.launch.mockResolvedValue({ success: true })
+    await call('app:launch', 'kloud-games', 'KLOUD_GAMES.exe', 'C:\\games', false)
+    expect(processManager.launch).toHaveBeenCalledWith(
+      'kloud-games',
+      'KLOUD_GAMES.exe',
+      'C:\\games',
+      {
+        shell: false
+      }
+    )
+    expect(mocks.getVersion).not.toHaveBeenCalled()
   })
 })
 

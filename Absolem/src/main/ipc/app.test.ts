@@ -3,6 +3,7 @@ import pkg from '../../../package.json'
 import type { AbsolemConfig } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
 import { defaultTheme } from '../../shared/theme'
+import { resolveHubVersion } from '../../shared/version'
 import type { IpcContext } from './lifecycle'
 
 type Handler = (event: unknown, payload: unknown) => unknown
@@ -78,7 +79,7 @@ const defaultConfig: AbsolemConfig = {
   ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
   usage: { days: {}, warnedMonths: [] },
   chat: { turns: [] },
-  memory: { enabled: true, autoExtract: true, lastConsolidationAt: null },
+  memory: { enabled: true, autoExtract: true, lastConsolidationAt: null, note: '' },
   web: { enabled: true },
   routines: []
 }
@@ -118,7 +119,7 @@ describe('IPC base do app', () => {
       ok: true,
       info: {
         name: 'Absolem',
-        version: pkg.version,
+        version: resolveHubVersion(process.env, pkg.version),
         platform: process.platform,
         electron: process.versions.electron ?? '',
         chromium: process.versions.chrome ?? '',
@@ -126,6 +127,50 @@ describe('IPC base do app', () => {
       }
     })
   })
+
+  it('app:get-info usa a versão da Hub injetada no ambiente', () => {
+    const previous = process.env.ABSOLEM_HUB_VERSION
+    process.env.ABSOLEM_HUB_VERSION = '1.2.2'
+    try {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toMatchObject({ ok: true, info: { version: '1.2.2' } })
+    } finally {
+      if (previous === undefined) delete process.env.ABSOLEM_HUB_VERSION
+      else process.env.ABSOLEM_HUB_VERSION = previous
+    }
+  })
+
+  it('app:get-info ignora valor inválido e usa o fallback do Electron', () => {
+    const previous = process.env.ABSOLEM_HUB_VERSION
+    process.env.ABSOLEM_HUB_VERSION = 'não-é-versão'
+    try {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toMatchObject({ ok: true, info: { version: pkg.version } })
+    } finally {
+      if (previous === undefined) delete process.env.ABSOLEM_HUB_VERSION
+      else process.env.ABSOLEM_HUB_VERSION = previous
+    }
+  })
+
+  // Prova T6: roda só quando o ambiente traz a versão da Hub (como no launch
+  // real). `ABSOLEM_HUB_VERSION=1.2.2 npx vitest run src/main/ipc/app.test.ts`
+  it.runIf(process.env.ABSOLEM_HUB_VERSION === '1.2.2')(
+    'T6: app:get-info devolve a versão 1.2.2 injetada pela Hub no processo',
+    () => {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toEqual({
+        ok: true,
+        info: {
+          name: 'Absolem',
+          version: '1.2.2',
+          platform: process.platform,
+          electron: process.versions.electron ?? '',
+          chromium: process.versions.chrome ?? '',
+          node: process.versions.node ?? ''
+        }
+      })
+    }
+  )
 
   it('payload inválido não lança e devolve ok false', () => {
     const getInfo = handlerFor(IPC.appGetInfo)

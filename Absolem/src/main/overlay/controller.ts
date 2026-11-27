@@ -3,7 +3,11 @@ import type { BrowserWindow } from 'electron'
 import type { OverlayConfig, OverlayLayout } from '../../shared/config'
 import { IPC } from '../../shared/ipc'
 import type { OverlayStatus, OverlayStatusResult, SimpleResult } from '../../shared/ipc'
-import { isOverlayPosition, normalizeOverlayLayout } from '../../shared/overlay'
+import {
+  isOverlayPosition,
+  normalizeAccelerator,
+  normalizeOverlayLayout
+} from '../../shared/overlay'
 import {
   OVERLAY_HEIGHT_MAX,
   OVERLAY_HEIGHT_MIN,
@@ -28,6 +32,7 @@ import {
   showOverlayWindow
 } from './overlayWindow'
 import { getShortcutStatus, registerOverlayShortcut } from './shortcut'
+import { emitOverlayShown } from '../voice/overlayEvents'
 
 /**
  * Controlador do overlay: visibilidade, persistência, atalho global, push de
@@ -151,12 +156,16 @@ async function pollForeground(): Promise<void> {
 }
 
 function applyVisible(next: boolean, persist: boolean): OverlayStatus {
+  const wasVisible = isOverlayVisible()
   // Texto/foco nunca sobrevivem a esconder/mostrar o overlay.
   deactivateOverlayInputMode()
   if (next) {
     autoHidden = false
     showOverlayWindow()
     startFullscreenWatch()
+    // Só a transição oculto → visível dispara a saudação; reaplicar o layout
+    // ou já estar visível não fala de novo.
+    if (!wasVisible) emitOverlayShown()
   } else {
     autoHidden = false
     hideOverlayWindow()
@@ -234,6 +243,35 @@ export function setOverlayInteractiveFromRequest(input: unknown): OverlayStatusR
 
   setInteractive(input.interactive)
   logger.info('overlay', `interativo: ${input.interactive ? 'sim' : 'não'}`)
+  return { ok: true, status: broadcastStatus() }
+}
+
+/**
+ * `overlay:set-shortcut`: aplica o atalho na hora (re-registra o global) e só
+ * persiste quando o SO aceitou. Em conflito devolve erro e preserva o anterior:
+ * `registerOverlayShortcut` re-registra o atalho que já funcionava.
+ */
+export function setOverlayShortcutFromRequest(input: unknown): OverlayStatusResult {
+  if (!isPlainRecord(input) || typeof input.shortcut !== 'string') {
+    return { ok: false, error: 'Payload inválido para overlay:set-shortcut.' }
+  }
+  const normalized = normalizeAccelerator(input.shortcut)
+  if (!normalized) {
+    return { ok: false, error: 'Atalho inválido: use ao menos um modificador e uma tecla.' }
+  }
+
+  const status = registerOverlayShortcut(normalized, () => {
+    toggleOverlay()
+  })
+  if (!status.registered || status.accelerator !== normalized) {
+    return {
+      ok: false,
+      error: 'Atalho em uso por outro aplicativo. O atalho anterior foi mantido.'
+    }
+  }
+
+  persistOverlay({ shortcut: normalized })
+  logger.info('overlay', `atalho atualizado: ${normalized}`)
   return { ok: true, status: broadcastStatus() }
 }
 

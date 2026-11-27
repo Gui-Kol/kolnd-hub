@@ -89,8 +89,9 @@ validados:
    perceptível.
 3. **50 ciclos pelo menu da bandeja em uma sessão de desktop real** (o teste
    automatizado usou o mesmo IPC, mas não o clique humano).
-4. **Instalação limpa em VM sem Node** com o NSIS e abertura em primeiro uso
-   real; isso também está no checklist de release.
+4. **Instalação limpa em VM sem Node** com o instalador do Kolnd Hub (que traz o
+   Absolem embarcado) e abertura em primeiro uso real; isso também está na
+   validação de release da Hub.
 
 Esses itens exigem chave, microfone e ferramenta de temperatura; não há número
 inventado neste documento. Quando executados, atualizar a tabela com data,

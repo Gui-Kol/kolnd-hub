@@ -33,7 +33,11 @@ export function registerAppIpc(ctx: IpcContext): void {
       }
 
       return processManager.launch(trimmedId, trimmedCommand, trimmedCwd, {
-        shell: useShell !== false
+        shell: useShell !== false,
+        // O Absolem não tem versão própria: a Hub informa a versão do produto no
+        // launch e o Absolem a exibe na aba Sobre/diagnóstico. O processManager
+        // já mescla `process.env`, então só a variável nova precisa ir aqui.
+        ...(trimmedId === 'absolem' ? { env: { ABSOLEM_HUB_VERSION: app.getVersion() } } : {})
       })
     }
   )

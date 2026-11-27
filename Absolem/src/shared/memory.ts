@@ -22,6 +22,8 @@ export const MEMORY_KIND_LABELS: Record<MemoryKind, string> = {
 
 /** Conteúdo máximo de uma memória (caracteres). */
 export const MEMORY_CONTENT_MAX = 400
+/** Memória em texto livre (Configurações → Memória), sempre enviada ao prompt. */
+export const MEMORY_NOTE_MAX = 16_000
 export const MEMORY_TAGS_MAX = 8
 export const MEMORY_TAG_MAX = 30
 /** Confiança mínima para a extração automática gravar um candidato. */

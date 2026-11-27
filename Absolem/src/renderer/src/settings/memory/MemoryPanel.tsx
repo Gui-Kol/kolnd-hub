@@ -17,6 +17,7 @@ import type { MemoryConfig, StoreKey } from '../../../../shared/config'
 import {
   MEMORY_KINDS,
   MEMORY_KIND_LABELS,
+  MEMORY_NOTE_MAX,
   MEMORY_REMOVE_ALL_CONFIRM,
   type MemoryArchiveRecord,
   type MemoryKind,
@@ -96,8 +97,23 @@ function readConfig(value: unknown): MemoryConfig | null {
     lastConsolidationAt:
       typeof record.lastConsolidationAt === 'number' && Number.isFinite(record.lastConsolidationAt)
         ? record.lastConsolidationAt
-        : null
+        : null,
+    note: typeof record.note === 'string' ? record.note.slice(0, MEMORY_NOTE_MAX) : ''
   }
+}
+
+/** Lê todas as memórias ativas em páginas (a lista da UI é filtrada). */
+async function loadAllMemories(client: MemoryPanelApi): Promise<MemoryRecord[]> {
+  const out: MemoryRecord[] = []
+  let offset = 0
+  for (let page = 0; page < 20; page += 1) {
+    const result = await client.list({ sort: 'date', limit: 500, offset })
+    if (!result.ok) return out
+    out.push(...result.memories)
+    if (!result.hasMore || result.memories.length === 0) break
+    offset += result.memories.length
+  }
+  return out
 }
 
 function formatDate(value: number | null): string {
@@ -125,14 +141,17 @@ function formatBytes(bytes: number): string {
 export function MemoryPanel({ api }: MemoryPanelProps) {
   const client = useMemo(() => api ?? defaultApi(), [api])
   const [memories, setMemories] = useState<MemoryRecord[]>([])
+  const [allMemories, setAllMemories] = useState<MemoryRecord[]>([])
   const [archived, setArchived] = useState<MemoryArchiveRecord[]>([])
   const [maintenance, setMaintenance] = useState<MemoryMaintenanceEntry[]>([])
   const [stats, setStats] = useState<MemoryStats | null>(null)
   const [config, setConfig] = useState<MemoryConfig>({
     enabled: true,
     autoExtract: true,
-    lastConsolidationAt: null
+    lastConsolidationAt: null,
+    note: ''
   })
+  const [noteDraft, setNoteDraft] = useState('')
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<KindFilter>('all')
   const [sort, setSort] = useState<MemorySort>('date')
@@ -158,7 +177,10 @@ export function MemoryPanel({ api }: MemoryPanelProps) {
       .then((result) => {
         if (cancelled || !result.ok) return
         const parsed = readConfig(result.value)
-        if (parsed) setConfig(parsed)
+        if (parsed) {
+          setConfig(parsed)
+          setNoteDraft(parsed.note)
+        }
       })
       .catch(() => undefined)
     return () => {
@@ -174,14 +196,15 @@ export function MemoryPanel({ api }: MemoryPanelProps) {
       ...(query.trim() ? { query: query.trim() } : {}),
       ...(kind === 'all' ? {} : { kind })
     }
-    void Promise.all([client.list(request), client.stats()])
-      .then(([listResult, statsResult]) => {
+    void Promise.all([loadAllMemories(client), client.stats(), client.list(request)])
+      .then(([allResult, statsResult, listResult]) => {
         if (cancelled) return
         if (!listResult.ok) {
           setError(listResult.error)
           return
         }
         setMemories(listResult.memories)
+        setAllMemories(allResult)
         setArchived(listResult.archived)
         setMaintenance(listResult.maintenance)
         setStats(statsResult.ok ? statsResult.stats : null)
@@ -212,6 +235,19 @@ export function MemoryPanel({ api }: MemoryPanelProps) {
       return
     }
     setNotice(patch.enabled === false ? 'Memória pausada. Nada foi apagado.' : 'Preferência salva.')
+  }
+
+  async function saveNote(): Promise<void> {
+    const note = noteDraft.slice(0, MEMORY_NOTE_MAX)
+    const next = { ...config, note }
+    setConfig(next)
+    const result = await client.storeSet('memory', next)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setError(null)
+    setNotice('Memória em texto salva. O Absolem lê no início de cada sessão.')
   }
 
   function startEdit(memory: MemoryRecord): void {
@@ -316,6 +352,27 @@ export function MemoryPanel({ api }: MemoryPanelProps) {
     [memories]
   )
 
+  /**
+   * Visão somente leitura do que está salvo: a memória em texto (já salva) e
+   * todas as memórias ativas, sem os filtros da lista.
+   */
+  const allText = useMemo(() => {
+    const lines: string[] = []
+    const note = config.note.trim()
+    if (note) lines.push('Memória em texto:', note, '')
+    if (allMemories.length === 0) {
+      lines.push('Nenhuma memória registrada.')
+    } else {
+      lines.push(`Memórias registradas (${allMemories.length}):`)
+      for (const memory of allMemories) {
+        const tags = memory.tags.length > 0 ? ` [${memory.tags.join(', ')}]` : ''
+        const pinned = memory.pinned ? ' (fixada)' : ''
+        lines.push(`- [${MEMORY_KIND_LABELS[memory.kind]}] ${memory.content}${tags}${pinned}`)
+      }
+    }
+    return lines.join('\n')
+  }, [config.note, allMemories])
+
   return (
     <section aria-labelledby="memory-title" className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -375,6 +432,60 @@ export function MemoryPanel({ api }: MemoryPanelProps) {
           {notice}
         </p>
       ) : null}
+
+      <section aria-labelledby="memory-note-title" className="flex flex-col gap-3">
+        <h3 id="memory-note-title" className="text-sm font-semibold text-ink-primary">
+          Memória em texto
+        </h3>
+        <p className="text-xs text-ink-tertiary">
+          Texto livre que o Absolem lê no início de cada sessão, mesmo com a memória automática
+          pausada. Use para o que você quer garantir que ele saiba sempre.
+        </p>
+        <textarea
+          id="memory-note"
+          value={noteDraft}
+          maxLength={MEMORY_NOTE_MAX}
+          onChange={(event) => setNoteDraft(event.target.value)}
+          aria-labelledby="memory-note-title"
+          aria-describedby="memory-note-hint"
+          className="min-h-[120px] rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void saveNote()
+            }}
+            className="rounded bg-accent px-3 py-1 text-xs font-medium text-surface-base"
+          >
+            Salvar memória em texto
+          </button>
+          <span id="memory-note-hint" className="text-xs text-ink-tertiary">
+            {noteDraft.length}/{MEMORY_NOTE_MAX} caracteres
+          </span>
+        </div>
+      </section>
+
+      <section aria-labelledby="memory-all-title" className="flex flex-col gap-2">
+        <h3 id="memory-all-title" className="text-sm font-semibold text-ink-primary">
+          Tudo em texto
+        </h3>
+        <p className="text-xs text-ink-tertiary">
+          Visão somente leitura de tudo o que está salvo: a memória em texto acima e todas as
+          memórias registradas.
+        </p>
+        <details className="rounded border border-surface-2 px-3 py-2">
+          <summary className="cursor-pointer text-xs text-ink-secondary">
+            Mostrar tudo em texto ({allMemories.length} memória(s))
+          </summary>
+          <pre
+            data-memory-all-text
+            className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-ink-secondary"
+          >
+            {allText}
+          </pre>
+        </details>
+      </section>
 
       <section aria-labelledby="memory-stats-title" className="flex flex-col gap-2">
         <h3 id="memory-stats-title" className="text-sm font-semibold text-ink-primary">

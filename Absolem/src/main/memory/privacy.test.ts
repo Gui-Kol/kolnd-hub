@@ -51,7 +51,12 @@ describe('privacidade da memória', () => {
     const { repo, cleanup } = setup()
     const dir = auditDir()
     try {
-      const store = configStore({ enabled: true, autoExtract: true, lastConsolidationAt: null })
+      const store = configStore({
+        enabled: true,
+        autoExtract: true,
+        lastConsolidationAt: null,
+        note: ''
+      })
       const audit = createMemoryAuditWriter({ dir })
       repo.insert({ kind: 'fact', content: 'Fato que deve sobreviver à pausa' })
 

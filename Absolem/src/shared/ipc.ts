@@ -70,7 +70,6 @@ export const IPC = {
   appGetAutostart: 'app:get-autostart',
   appSetAutostart: 'app:set-autostart',
   appOpenFolder: 'app:open-folder',
-  appOpenUpdates: 'app:open-updates',
   overlayShow: 'overlay:show',
   overlayHide: 'overlay:hide',
   overlayToggle: 'overlay:toggle',
@@ -78,6 +77,7 @@ export const IPC = {
   overlaySetLayout: 'overlay:set-layout',
   overlaySetInteractive: 'overlay:set-interactive',
   overlaySetInputMode: 'overlay:set-input-mode',
+  overlaySetShortcut: 'overlay:set-shortcut',
   overlayStatusChanged: 'overlay:status-changed',
   avatarSetState: 'avatar:set-state',
   avatarSetLevel: 'avatar:set-level',
@@ -233,6 +233,11 @@ export interface OverlaySetLayoutRequest {
 
 export interface OverlaySetInteractiveRequest {
   interactive: boolean
+}
+
+/** `overlay:set-shortcut`: aplica e persiste o atalho global imediatamente. */
+export interface OverlaySetShortcutRequest {
+  shortcut: string
 }
 
 export interface StoreGetRequest {
@@ -524,7 +529,6 @@ export interface IpcContract {
   [IPC.appGetAutostart]: { request: undefined; response: AutostartGetResult }
   [IPC.appSetAutostart]: { request: AutostartSetRequest; response: SimpleResult }
   [IPC.appOpenFolder]: { request: AppOpenFolderRequest; response: SimpleResult }
-  [IPC.appOpenUpdates]: { request: undefined; response: SimpleResult }
   [IPC.overlayShow]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayHide]: { request: undefined; response: OverlayStatusResult }
   [IPC.overlayToggle]: { request: undefined; response: OverlayStatusResult }
@@ -537,6 +541,10 @@ export interface IpcContract {
   [IPC.overlaySetInputMode]: {
     request: OverlaySetInputModeRequest
     response: SimpleResult
+  }
+  [IPC.overlaySetShortcut]: {
+    request: OverlaySetShortcutRequest
+    response: OverlayStatusResult
   }
   [IPC.overlayStatusChanged]: { request: undefined; response: OverlayStatus }
   [IPC.avatarSetState]: { request: AvatarSetStateRequest; response: SimpleResult }
@@ -621,8 +629,6 @@ export interface AbsolemApi {
   setAutostart: (enabled: boolean) => Promise<SimpleResult>
   /** Abre uma pasta do app (enum fechado; nunca caminho livre). */
   openFolder: (target: AppFolderTarget) => Promise<SimpleResult>
-  /** Abre a pagina de releases (https, shell.openExternal; nada baixado). Updater manual v1. */
-  openUpdates: () => Promise<SimpleResult>
   overlayShow: () => Promise<OverlayStatusResult>
   overlayHide: () => Promise<OverlayStatusResult>
   overlayToggle: () => Promise<OverlayStatusResult>
@@ -631,6 +637,8 @@ export interface AbsolemApi {
   overlaySetInteractive: (interactive: boolean) => Promise<OverlayStatusResult>
   /** Foco temporário no overlay para o campo de texto (30 s ou Esc). */
   overlaySetInputMode: (active: boolean) => Promise<SimpleResult>
+  /** Aplica e persiste o atalho global do overlay na hora. */
+  overlaySetShortcut: (shortcut: string) => Promise<OverlayStatusResult>
   onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => () => void
   avatar: {
     setState: (state: AvatarState) => Promise<SimpleResult>

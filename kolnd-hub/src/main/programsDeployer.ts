@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, cpSync } from 'fs'
+import { existsSync, mkdirSync, cpSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { app } from 'electron'
 import { findKloudGamesExe, getKloudGamesDir } from './kloudGames'
@@ -109,27 +109,50 @@ function deployKloudGames(): ProgramDeployResult {
 }
 
 /**
+ * `source` é mais novo que `target`? Usado só no dev para saber se o build
+ * local do Absolem avançou depois da última cópia para o bundle. Falha de
+ * leitura nunca dispara cópia (trata como "não mais novo").
+ */
+function isSourceNewer(source: string, target: string): boolean {
+  try {
+    return statSync(source).mtimeMs > statSync(target).mtimeMs
+  } catch {
+    return false
+  }
+}
+
+/**
  * Verifica/copia o build do Absolem para resources/programs/Absolem.
  *
  * O Absolem é distribuído como o build Electron pronto (win-unpacked), sem
  * instalador próprio: roda direto de dentro da pasta do Hub e some junto com
- * ela na desinstalação. Os dados do app ficam em %APPDATA%\absolem.
+ * ela na desinstalação. Os dados do app ficam em %APPDATA%\absolem. Ele não tem
+ * versão/release próprios — é atualizado junto com a Hub.
  */
 function deployAbsolem(): ProgramDeployResult {
   const targetDir = join(getProgramsDir(), 'Absolem')
   const targetExe = join(targetDir, 'Absolem.exe')
+  const isDev = !app?.isPackaged
+  const sourceDir = join(getHubBaseDir(), '..', 'Absolem', 'dist', 'win-unpacked')
+  const sourceExe = join(sourceDir, 'Absolem.exe')
 
   if (existsSync(targetExe)) {
-    return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+    // Em produção o instalador do Hub substitui os resources inteiros, então o
+    // que está no bundle é sempre o mais novo. Em dev o bundle copiado pode
+    // ficar para trás: recopia quando o build local for mais recente.
+    const stale = isDev && existsSync(sourceExe) && isSourceNewer(sourceExe, targetExe)
+    if (!stale) {
+      return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+    }
+    logger.info(
+      'programsDeployer',
+      `DEV: build do Absolem em ${sourceDir} é mais novo que o bundle — recopiando`
+    )
   }
 
-  // Mesmo racional do Mark LVII: em dev copia do build local; em produção só
-  // aceita o que veio nos resources embutidos no instalador.
-  const isDev = !app?.isPackaged
+  // Em dev copia do build local; em produção só aceita o que veio nos
+  // resources embutidos no instalador.
   if (isDev) {
-    const sourceDir = join(getHubBaseDir(), '..', 'Absolem', 'dist', 'win-unpacked')
-    const sourceExe = join(sourceDir, 'Absolem.exe')
-
     if (existsSync(sourceExe)) {
       try {
         logger.info(

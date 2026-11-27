@@ -118,6 +118,9 @@ export function createOverlayWindow(): BrowserWindow {
     title: 'Absolem',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // A saudação chega sem clique do usuário; sem esta política o Chromium
+      // suspende o áudio até o primeiro gesto na janela.
+      autoplayPolicy: 'no-user-gesture-required',
       ...SECURE_WEB_PREFERENCES
     }
   })

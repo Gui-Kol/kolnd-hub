@@ -7,9 +7,10 @@ inferior esquerdo. Conversa por **voz em tempo real** (Gemini Live) com **barge-
 **memoria de longo prazo** local e opcionais de **visao de tela**, **controle do computador**
 e **pesquisa na internet com fontes**, sempre sob permissao explicita.
 
-App **independente** no monorepo (`Absolem/`), sem dependencia do Kolnd Hub. **Roda
-exclusivamente no Windows.** UI em **pt-BR**. Sem telemetria, sem analytics, sem auto-update
-silencioso.
+Distribuído junto com o **Kolnd Hub** (`kolnd-hub/resources/programs/Absolem`): o Absolem
+**não tem versão, instalador, release ou updater próprios** — ele é atualizado quando a Hub é
+instalada/atualizada. **Roda exclusivamente no Windows.** UI em **pt-BR**. Sem telemetria,
+sem analytics, sem auto-update.
 
 ## Requisitos
 
@@ -22,33 +23,29 @@ silencioso.
   **prebuild** para a ABI do Electron 28 (`postinstall-sqlite.cjs` + `electron-builder
 install-app-deps`, `npmRebuild: true`). Nenhuma dependencia nova.
 
-## Instalacao
+## Instalacao (via Kolnd Hub)
 
-1. Confira o **SHA-256** antes de instalar (app nao assinado na v1; ver abaixo e
-   `docs/SIGNING.md`):
-   ```powershell
-   Get-FileHash -Algorithm SHA256 ".\Absolem Setup <versao>.exe"
-   ```
-   Compare com `Absolem Setup <versao>.exe.sha256` (formato `<hash>  <arquivo>`, minusculas).
-   **Divergiu? Nao instale.**
-2. Execute `Absolem Setup <versao>.exe`. Pode aparecer **SmartScreen** ("aplicativo nao
-   reconhecido") porque **nao e assinado**; se o hash acima confere, escolha "Mais informacoes"
-   -> "Executar assim mesmo". Nao ha reputacao de assinatura.
-3. **Instalador NSIS guiado** (nao one-click). **Por usuario** (`perMachine: false`), **sem
-   Administrador**; destino `%LOCALAPPDATA%\Programs\Absolem`. A pasta **nao** pode ser
-   alterada. **Sem atalho na Area de Trabalho; atalho no Menu Iniciar.**
-4. `appId` `com.kolnd.absolem`; `app.setAppUserModelId('com.kolnd.absolem')`. Instancia unica:
-   reabrir foca o app.
+O Absolem **nao tem instalador proprio**. Ele e embarcado na pasta do **Kolnd Hub**
+(`resources/programs/Absolem`) e inicia pelo card **Absolem** na Hub.
+
+1. Instale/atualize o **Kolnd Hub** pelo instalador oficial. O Absolem vai junto: nao ha
+   `.exe` separado, hash proprio nem release propria do Absolem.
+2. Abra o Absolem pela Hub. O app roda direto da pasta da Hub; desinstalar a Hub remove o
+   programa (os dados em `%APPDATA%\absolem` ficam).
+3. Identidade: `appId` `com.kolnd.absolem`; `app.setAppUserModelId('com.kolnd.absolem')`.
+   Instancia unica: reabrir foca o app.
+4. A versao exibida em **Configuracoes > Sobre** e a **versao do Kolnd Hub** — o Absolem
+   nao tem versao propria. Fora da Hub, o fallback e o placeholder mecanico `0.0.0`.
 
 ## Primeira configuracao
 
-Na primeira execucao o app abre **Configuracoes > Chave e custo**. Passo a passo em
-`docs/FIRST-RUN-CHECKLIST.md`. Resumo:
+Na primeira execucao o app abre **Configuracoes > Chave e custo**. Resumo:
 
 1. Crie a chave no Google AI Studio (`https://aistudio.google.com/apikey`) com sua conta Google.
 2. Cole em **Chave do Gemini** e salve. **Testar conexao** e minimo e contabilizado.
 3. Conceda **microfone**; abra o overlay e fale. Ouca a primeira resposta; barge-in ativo.
-4. Revise **Permissoes**: minimo; visao de tela opt-in; acao destrutiva com confirmacao; pausa.
+4. Revise **Permissoes**: instalações novas começam com microfone, visão sob demanda e
+   categorias de ação liberados; ajuste ou pause conforme seu risco.
 5. Confira **Memoria vazia**. Nada e importado.
 
 **Chave Gemini:** cifrada pelo Windows com **`safeStorage` (DPAPI)**, em
@@ -78,8 +75,8 @@ comprovadamente desligados e preserva modelos customizados.
 
 ## Onde ficam os dados
 
-`userData` = `%APPDATA%\absolem` (nome do pacote `absolem`; verificado). App instalado em
-`%LOCALAPPDATA%\Programs\Absolem`.
+`userData` = `%APPDATA%\absolem` (nome do pacote `absolem`; verificado). O programa roda da
+pasta do Kolnd Hub (`resources/programs/Absolem`), nao de uma instalacao propria.
 
 - `%APPDATA%\absolem\config.json` - configuracoes (electron-store).
 - `%APPDATA%\absolem\memory.sqlite` - **memoria SQLite local** (+ FTS5). **O banco NAO e cifrado.**
@@ -90,20 +87,24 @@ comprovadamente desligados e preserva modelos customizados.
 
 ## Privacidade e custo
 
-- **Privacidade por padrao.** Microfone/tela/arquivos/processos com consentimento; sem
-  telemetria/analytics/upload remoto. Visao de tela opt-in; acoes com confirmacao + log.
+- **Permissões iniciais solicitadas.** Instalações novas recebem microfone (`true`), visão sob
+  demanda (`privacy.screen.mode='on'`) e categorias de ação (`allow`); `permissions.paused`
+  começa `false`. Revise a aba Permissões: energia, arquivos e UI Automation podem ter impacto
+  real. Escolhas explícitas existentes são preservadas.
+- **Elevação/UAC.** O executável solicita `requireAdministrator` no Windows e o UAC aparece a
+  cada abertura. Isso amplia o impacto de ações; não há elevação silenciosa.
 - **Sem promessa de custo gratuito.** O app nao cobra; **o Gemini cobra sua conta Google**.
   Medicao local em tokens; teto configuravel. Remover a chave desliga conversa sem apagar o
   resto. **Nada ao Gemini antes da chave.**
 
 ## Desinstalar
 
-**Configuracoes > Aplicativos > Absolem > Desinstalar** (per-user, sem admin; ou pelo Menu
-Iniciar). **App fechado** antes (app aberto pode pedir para fechar; desinstalar com app aberto
-nao e recomendado). NSIS `deleteAppDataOnUninstall: false`. **Sem opcao que apague dados.**
+Desinstale/atualize pelo **Kolnd Hub** (Configuracoes > Aplicativos ou instalador da Hub).
+O Absolem nao tem entrada propria em "Aplicativos". Feche o Absolem antes (pela bandeja,
+**Sair**).
 
-- **Removido:** `%LOCALAPPDATA%\Programs\Absolem` inteiro (app, `app.asar`, recursos,
-  `better_sqlite3.node`, icones da bandeja, atalhos). Entrada de **autostart** removida.
+- **Removido:** a pasta do programa dentro da Hub (`resources/programs/Absolem`) e os
+  atalhos/entrada de autostart do Absolem. Nao ha dados do programa fora da pasta da Hub.
 - **Preservado:** `%APPDATA%\absolem` inteiro - **memoria** (`memory.sqlite`), `config.json`,
   `secrets.bin`, logs, `Crashpad`. **Nada de dados do usuario e apagado sem acao explicita.**
 - **Limpeza manual (irreversivel):** feche, desinstale e **apague voce mesmo**
@@ -111,11 +112,11 @@ nao e recomendado). NSIS `deleteAppDataOnUninstall: false`. **Sem opcao que apag
 
 ## Limitacoes conhecidas (v1)
 
-- **Nao assinado** + **SmartScreen**; conferir **SHA-256**. Ver `docs/SIGNING.md`.
-- **Atualizacao manual** (nao auto-update silencioso; sem `electron-updater`). Botao
-  **Verificar atualizacoes** abre a pagina de releases no navegador (`https`, nada baixado).
-  Atualizar = instalar o novo `.exe` por cima (NSIS per-user); `%APPDATA%\absolem` preservado.
-  Ver `docs/RELEASE.md`.
+- **Atualizado junto com o Kolnd Hub:** sem instalador, release ou updater proprios. A versao
+  exibida em **Configuracoes > Sobre** e a da Hub; reinstalar/atualizar a Hub traz o Absolem
+  novo e preserva `%APPDATA%\absolem`.
+- **Sem assinatura/reputacao propria:** o binario entregue ao usuario e o do release da Hub.
+- **UAC:** cada abertura do executável pode exibir o aviso do Windows por exigir administrador.
 - **Tela cheia exclusiva:** overlay pode ficar oculto; atalhos/indicadores podem nao aparecer.
 - **Banco local nao cifrado** (`memory.sqlite`); so a chave Gemini e cifrada (`safeStorage`).
 - Sem wake word na v1; sem temas claros; sem marketplace; sem multiplas conversas; sem
@@ -129,21 +130,24 @@ nao e recomendado). NSIS `deleteAppDataOnUninstall: false`. **Sem opcao que apag
   gerada por codigo** (`node scripts/generate-icons.cjs`, Node builtins, sem asset de
   terceiros). `tray-icon.png` -> `<resources>/tray-icon.png` no pacote. `app.setAppUserModelId(
 'com.kolnd.absolem')`.
-- **`dist/`** - saida do electron-builder (`directories.output=dist`, gitignored). `npm run
-package` -> `dist/Absolem Setup <versao>.exe`. `dist/win-unpacked/Absolem.exe` (`package:dir`).
-  `scripts/hash-artifact.ps1` gera `.exe.sha256` + `dist/release-notes.md`.
-- NSIS per-user; sem assinatura; `artifactName: Absolem Setup ${version}.exe`; versao unica
-  `package.json.version` (`__APP_VERSION__`, `app.getVersion()`, teste `src/shared/
-version.test.ts`). `appId com.kolnd.absolem`; `productName Absolem`.
-- SHA-256 verificar (acima). Hash **conferido** contra `Get-FileHash`. Ver `docs/RELEASE.md`.
+- **`dist/`** - saida do electron-builder (`directories.output=dist`, gitignored).
+  `npm run package:dir` -> `dist/win-unpacked/Absolem.exe`. **Nao ha instalador proprio nem
+  nome de artefato versionado:** a Hub copia `win-unpacked` para
+  `kolnd-hub/resources/programs/Absolem` (`kolnd-hub/scripts/build-absolem.ps1`,
+  `robocopy /MIR`).
+- Versao unica do produto = **versao do Kolnd Hub** (variavel `ABSOLEM_HUB_VERSION` no
+  launch). `package.json.version` e apenas o placeholder `0.0.0` exigido pelo Electron.
+- `appId com.kolnd.absolem`; `productName Absolem`; `electron-builder.yml` só empacota
+  `win-unpacked` (sem `target` de instalador), com `requestedExecutionLevel:
+requireAdministrator`.
 - `resources` excluidos do app.asar exceto `extraResources`; `src`/`tests`/`docs`/configs fora;
   `LICENSE` (MIT) acompanha. `asar:true`; `asarUnpack` `**/node_modules/better-sqlite3/**` +
   `**/*.node` (`better_sqlite3.node` fora do asar). `npmRebuild:true`.
 
 ## Comandos (desenvolvimento e build)
 
-Requisitos do build: **Node.js >= 22**, **Windows x64**, `npm >= 10`; `npm ci`. `npm run
-package`/`electron-builder --win` produzem o NSIS; `electron-vite build`. Nada de nova dep.
+Requisitos do build: **Node.js >= 22**, **Windows x64**, `npm >= 10`; `npm ci`. O build usado
+pela Hub e `electron-vite build` + `electron-builder --dir` (`win-unpacked`). Nada de nova dep.
 
 ```powershell
 cd Absolem
@@ -158,18 +162,13 @@ npm run verify       # typecheck + lint + format:check + test
 npm run verify:build # verify + build
 npm run test:e2e     # build + Playwright (duas vezes no release)
 
-# Empacotamento (NSIS por usuario)
-npm run package          # electron-vite build && electron-builder --win
+# Empacotamento (sem instalador: apenas win-unpacked para o bundle da Hub)
 npm run package:dir      # electron-builder --dir -> dist/win-unpacked
 npx electron-builder --dir
 npx electron-builder install-app-deps   # rebuild nativo better-sqlite3 (Electron ABI)
 
 # Icones por codigo (sem asset de terceiros)
 node scripts/generate-icons.cjs
-
-# SHA-256 + release-notes.md (PowerShell)
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts\hash-artifact.ps1 -Path "dist\Absolem Setup <versao>.exe"
 ```
 
 Gate nativo: `better_sqlite3.node` em `dist/win-unpacked/resources/app.asar.unpacked/...` fora
@@ -178,10 +177,10 @@ do `app.asar`; se `better-sqlite3` nao carregar no app empacotado, pare. Smoke o
 
 ## Docs
 
-- `docs/FIRST-RUN-CHECKLIST.md` - checklist executavel de primeira execucao + registro T8.
-- `docs/RELEASE.md` - release, hash SHA-256, **updater manual v1**, atualizacao/desinstalacao.
-- `docs/SIGNING.md` - **nao assinado v1**, SmartScreen, SHA-256, futuro OV/EV + timestamp.
-- `docs/` de capacidades (memoria, permissoes, voz, pesquisa, tela...) e `resources/CREDITS.md`.
+- `docs/` de capacidades (memoria, permissoes, voz, pesquisa, tela, ameacas, desempenho...),
+  `docs/test-matrix.md` e `resources/CREDITS.md`.
+- Distribuicao, release e atualizacao do Absolem sao as do **Kolnd Hub** (nao ha docs de
+  release proprios do Absolem).
 
 ## Licenca
 

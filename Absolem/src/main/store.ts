@@ -34,6 +34,7 @@ import { defaultTheme, normalizeTheme } from '../shared/theme'
 import { normalizePrivacyScreenConfig } from '../shared/screen'
 import { defaultPermissionCategories, normalizePermissionsState } from '../shared/permissions'
 import { normalizeRoutines } from '../shared/routines'
+import { MEMORY_NOTE_MAX } from '../shared/memory'
 import { DEFAULT_MONTHLY_TOKEN_CAP, clampCap } from './gemini/usage'
 import { defaultChatState, normalizeChatState } from './gemini/history'
 import { defaultUsageState, normalizeUsageState } from './gemini/usage'
@@ -46,12 +47,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.13.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.14.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.13.0'
+export const STORE_SCHEMA_VERSION = '1.14.0'
 
 const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
@@ -133,7 +134,12 @@ export function defaultUiConfig(): UiConfig {
 }
 
 export function defaultMemoryConfig(): MemoryConfig {
-  return { enabled: true, autoExtract: true, lastConsolidationAt: null }
+  return {
+    enabled: true,
+    autoExtract: true,
+    lastConsolidationAt: null,
+    note: ''
+  }
 }
 
 export function defaultWebConfig(): WebConfig {
@@ -267,7 +273,8 @@ export function normalizeMemoryConfig(input: unknown): MemoryConfig {
   return {
     enabled: raw.enabled !== false,
     autoExtract: raw.autoExtract !== false,
-    lastConsolidationAt
+    lastConsolidationAt,
+    note: typeof raw.note === 'string' ? raw.note.slice(0, MEMORY_NOTE_MAX) : ''
   }
 }
 
@@ -506,7 +513,8 @@ const schema: Store.Schema<AbsolemConfig> = {
     properties: {
       enabled: { type: 'boolean' },
       autoExtract: { type: 'boolean' },
-      lastConsolidationAt: { type: ['number', 'null'] }
+      lastConsolidationAt: { type: ['number', 'null'] },
+      note: { type: 'string' }
     },
     additionalProperties: false
   },
@@ -734,6 +742,14 @@ export function migrate1130(store: StoreLike): void {
   store.set('overlay', normalizeOverlayConfig({ ...raw, hideOnFullscreen: false }))
 }
 
+/**
+ * 1.14.0: memória em texto (task 30). Aditiva: preenche `note` vazio quando
+ * ausente e preserva o restante da configuração. Idempotente.
+ */
+export function migrate1140(store: StoreLike): void {
+  store.set('memory', normalizeMemoryConfig(store.get('memory', defaultMemoryConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -748,7 +764,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.10.0': migrate1100,
   '1.11.0': migrate1110,
   '1.12.0': migrate1120,
-  '1.13.0': migrate1130
+  '1.13.0': migrate1130,
+  '1.14.0': migrate1140
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */
@@ -777,7 +794,9 @@ export interface CreatedStore {
  * mas a tipagem da v8 o remove de `Options` (o `conf` usa a versão do app).
  * A interseção mantém a versão do schema explícita sem `any`.
  */
-type AbsolemStoreOptions = Store.Options<AbsolemConfig> & { projectVersion: string }
+type AbsolemStoreOptions = Store.Options<AbsolemConfig> & {
+  projectVersion: string
+}
 
 /**
  * Abre o config.json. Falha vira store em memória e log `store`; o app nunca

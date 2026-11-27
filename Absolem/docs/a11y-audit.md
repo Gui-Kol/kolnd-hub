@@ -72,7 +72,7 @@ sem declarar validados:
 5. Conferir contraste com o tema personalizado do usuário (o token de texto é
    fixo; a cor do avatar é do tema e tem aviso próprio de 3:1).
 
-Esses passos estão no `docs/RELEASE-CHECKLIST.md`. A ausência do ambiente não
+Esses passos estão no `docs/test-matrix.md`. A ausência do ambiente não
 bloqueia o código, mas bloqueia declarar a acessibilidade manual como aprovada.
 
 ## 5. Como repetir

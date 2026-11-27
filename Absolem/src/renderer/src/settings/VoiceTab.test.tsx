@@ -41,11 +41,23 @@ function makeApi(config = voiceConfig()): {
   setDevice: ReturnType<typeof vi.fn>
   setVoiceConfig: ReturnType<typeof vi.fn>
   setConsent: ReturnType<typeof vi.fn>
+  setOverlayShortcut: ReturnType<typeof vi.fn>
   probeMicrophone: ReturnType<typeof vi.fn>
 } {
   const setDevice = vi.fn(async () => ({ ok: true as const, status: voiceStatus() }))
   const setVoiceConfig = vi.fn(async () => ({ ok: true as const }))
   const setConsent = vi.fn(async () => ({ ok: true as const, status: voiceStatus() }))
+  const setOverlayShortcut = vi.fn(async (shortcut: string) => ({
+    ok: true as const,
+    status: {
+      visible: true,
+      interactive: false,
+      autoHidden: false,
+      layout: { position: 'bottom-left' as const, offsetX: 0, offsetY: 0, width: 320, height: 360 },
+      shortcut: { registered: true, accelerator: shortcut },
+      hideOnFullscreen: false
+    }
+  }))
   const probeMicrophone = vi.fn(async (onLevel: (level: number) => void) => {
     onLevel(0.5)
   })
@@ -70,7 +82,7 @@ function makeApi(config = voiceConfig()): {
         hideOnFullscreen: true
       }
     })),
-    setOverlayConfig: vi.fn(async () => ({ ok: true as const })),
+    setOverlayShortcut,
     status: vi.fn(async () => ({ ok: true as const, status: voiceStatus() })),
     setDevice,
     setConsent,
@@ -80,7 +92,7 @@ function makeApi(config = voiceConfig()): {
     ]),
     probeMicrophone
   }
-  return { api, setDevice, setVoiceConfig, setConsent, probeMicrophone }
+  return { api, setDevice, setVoiceConfig, setConsent, setOverlayShortcut, probeMicrophone }
 }
 
 function setValue(
@@ -192,5 +204,26 @@ describe('aba Voz', () => {
     expect(container.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('0.5')
     expect('gemini' in api).toBe(false)
     expect('chat' in api).toBe(false)
+  })
+
+  it('atalho do overlay aplica pelo canal dedicado', async () => {
+    const { api, setOverlayShortcut } = makeApi()
+    await act(async () => {
+      root.render(<VoiceTab api={api} />)
+    })
+    await settle()
+
+    const input = container.querySelector<HTMLInputElement>('#voice-overlay-shortcut')
+    if (!input) throw new Error('campo do atalho do overlay ausente')
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'K', ctrlKey: true, shiftKey: true, bubbles: true })
+      )
+    })
+    await settle()
+
+    expect(setOverlayShortcut).toHaveBeenCalledWith('Control+Shift+K')
+    expect(input.value).toBe('Control+Shift+K')
+    expect(container.textContent).toContain('aplicado imediatamente')
   })
 })

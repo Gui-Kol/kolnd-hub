@@ -18,6 +18,7 @@ import { consolidate, needsConsolidation } from './consolidate'
 import { openMemoryDatabase, type MemoryDatabase } from './db'
 import { runExtraction, type ExtractionGenerator } from './extract'
 import { createMemoryIO, type MemoryIODialog, type MemoryIOFs } from './exportImport'
+import { composeSystemMemory } from './format'
 import { createMemoryAuditWriter, removeAllAndVacuum, type MemoryAuditWriter } from './privacy'
 import { recall } from './retrieve'
 import {
@@ -277,12 +278,14 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
   }
 
   function getBlock(query: string): string {
-    if (!memoryEnabled()) return ''
+    const note = getStoreSnapshot().memory.note
+    if (!memoryEnabled()) return composeSystemMemory(note, '')
     try {
-      return recall(repo, query, { budgetChars: MEMORY_PROMPT_BUDGET }).text
+      const recalled = recall(repo, query, { budgetChars: MEMORY_PROMPT_BUDGET }).text
+      return composeSystemMemory(note, recalled)
     } catch (error) {
       logger.warn('memory', 'falha ao recuperar memórias', error)
-      return ''
+      return composeSystemMemory(note, '')
     }
   }
 
@@ -346,9 +349,11 @@ export function getMemoryRuntime(): MemoryRuntime | null {
   return runtime
 }
 
-/** Bloco de memória para o prompt de sistema (vazio quando pausada/indisponível). */
+/** Bloco de memória para o prompt de sistema (nota sempre, automática se ativa). */
 export function getMemoryBlock(query: string): string {
-  return runtime?.getBlock(query) ?? ''
+  if (runtime) return runtime.getBlock(query)
+  // Banco indisponível: a memória em texto do usuário continua valendo.
+  return composeSystemMemory(getStoreSnapshot().memory.note, '')
 }
 
 /** Hook de teste/smoke: substitui a instância compartilhada. */
