@@ -31,6 +31,7 @@ const TIME_TOOL: ToolDefinition = {
 
 class FakeSession implements VoiceSessionLike {
   readonly toolResponses: GeminiFunctionResponse[][] = []
+  readonly history: Array<{ role: 'user' | 'model'; text: string }> = []
   connect = vi.fn(async () => undefined)
 
   constructor(readonly handlers: VoiceSessionHandlers) {}
@@ -39,7 +40,10 @@ class FakeSession implements VoiceSessionLike {
   sendText(): void {}
   interrupt(): void {}
   close(): void {}
-  appendHistory(): void {}
+
+  appendHistory(role: 'user' | 'model', text: string): void {
+    this.history.push({ role, text })
+  }
 
   sendToolResponse(responses: GeminiFunctionResponse[]): void {
     this.toolResponses.push(responses)
@@ -110,12 +114,13 @@ describe('ferramentas na voz (T10b)', () => {
     controller.toggle()
     await flushAsync()
 
-    sessions[0]?.handlers.onToolCall([{ name: 'get_current_time', args: {} }])
+    sessions[0]?.handlers.onToolCall([{ id: 'call-voice-1', name: 'get_current_time', args: {} }])
     await flushAsync()
 
     expect(handler).toHaveBeenCalledTimes(1)
     expect(sessions[0]?.toolResponses[0]).toEqual([
       {
+        id: 'call-voice-1',
         name: 'get_current_time',
         response: { ok: true, result: { iso: '2026-11-26T12:00:00.000Z' } }
       }
@@ -150,7 +155,57 @@ describe('ferramentas na voz (T10b)', () => {
       ok: false,
       error: { kind: 'denied' }
     })
+    expect('id' in sessions[0]!.toolResponses[0]![0]!).toBe(false)
     // Falha de ferramenta não fecha a sessão.
     expect(controller.getState()).toBe('listening')
+  })
+
+  it('registra no histórico do Live a mensagem de cada resultado ok', async () => {
+    const { controller, sessions } = setup(async () => ({
+      ok: true,
+      result: { message: 'Abri o site que você pediu.' }
+    }))
+    controller.toggle()
+    await flushAsync()
+
+    sessions[0]?.handlers.onToolCall([
+      { id: 'call-a', name: 'get_current_time', args: {} },
+      { id: 'call-b', name: 'get_current_time', args: {} }
+    ])
+    await flushAsync()
+
+    expect(sessions[0]?.history).toEqual([
+      { role: 'model', text: 'Abri o site que você pediu.' },
+      { role: 'model', text: 'Abri o site que você pediu.' }
+    ])
+  })
+
+  it('não registra histórico sintético quando o resultado não tem message', async () => {
+    const { controller, sessions } = setup(async () => ({
+      ok: true,
+      result: { iso: '2026-11-26T12:00:00.000Z' }
+    }))
+    controller.toggle()
+    await flushAsync()
+
+    sessions[0]?.handlers.onToolCall([{ id: 'call-sem-msg', name: 'get_current_time', args: {} }])
+    await flushAsync()
+
+    expect(sessions[0]?.history).toEqual([])
+  })
+
+  it('limita a mensagem do histórico a 200 caracteres', async () => {
+    const longMessage = 'a'.repeat(250)
+    const { controller, sessions } = setup(async () => ({
+      ok: true,
+      result: { message: longMessage }
+    }))
+    controller.toggle()
+    await flushAsync()
+
+    sessions[0]?.handlers.onToolCall([{ id: 'call-longa', name: 'get_current_time', args: {} }])
+    await flushAsync()
+
+    expect(sessions[0]?.history).toEqual([{ role: 'model', text: 'a'.repeat(200) }])
   })
 })

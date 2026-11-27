@@ -1,6 +1,7 @@
 import type {
   GeminiContent,
   GeminiFunctionCall,
+  GeminiFunctionResponse,
   GeminiGenerateResult,
   GeminiGroundingChunk,
   GeminiImage,
@@ -50,7 +51,15 @@ function imageToBase64(image: GeminiImage): string {
   return Buffer.from(bytes).toString('base64')
 }
 
-function toContents(contents: GeminiContent[]): Array<Record<string, unknown>> {
+/** Entrada crua de uma chamada (SDK/REST/Live); o `id` é repassado quando vier. */
+type RawFunctionCall = { name?: string; args?: Record<string, unknown>; id?: string }
+
+/** O `id` só entra no payload quando existir de fato (nunca `id: undefined`). */
+function withCallId(id: string | undefined): { id?: string } {
+  return typeof id === 'string' && id.length > 0 ? { id } : {}
+}
+
+export function toContents(contents: GeminiContent[]): Array<Record<string, unknown>> {
   return contents.map((content) => {
     const parts: Array<Record<string, unknown>> = []
     if (content.text) parts.push({ text: content.text })
@@ -58,10 +67,18 @@ function toContents(contents: GeminiContent[]): Array<Record<string, unknown>> {
       parts.push({ inlineData: { mimeType: image.mime, data: imageToBase64(image) } })
     }
     for (const call of content.functionCalls ?? []) {
-      parts.push({ functionCall: { name: call.name, args: call.args } })
+      parts.push({
+        functionCall: { name: call.name, args: call.args, ...withCallId(call.id) }
+      })
     }
     for (const response of content.functionResponses ?? []) {
-      parts.push({ functionResponse: { name: response.name, response: response.response } })
+      parts.push({
+        functionResponse: {
+          name: response.name,
+          response: response.response,
+          ...withCallId(response.id)
+        }
+      })
     }
     if (parts.length === 0) parts.push({ text: '' })
     return {
@@ -87,15 +104,33 @@ function toUsage(
     : usage
 }
 
-function toFunctionCalls(
-  calls: Array<{ name?: string; args?: Record<string, unknown> }> | undefined
+export function toFunctionCalls(
+  calls: RawFunctionCall[] | undefined
 ): GeminiFunctionCall[] | undefined {
   if (!calls || calls.length === 0) return undefined
   return calls
-    .filter((call): call is { name: string; args?: Record<string, unknown> } =>
+    .filter((call): call is RawFunctionCall & { name: string } =>
       Boolean(call && typeof call.name === 'string' && call.name.length > 0)
     )
-    .map((call) => ({ name: call.name, args: call.args ?? {} }))
+    .map((call) => ({ name: call.name, args: call.args ?? {}, ...withCallId(call.id) }))
+}
+
+/**
+ * Payload exato de `session.sendToolResponse` da Live API.
+ *
+ * O servidor exige o `id` devolvido no `toolCall` correspondente; chamadas sem
+ * `id` continuam válidas e o campo fica ausente do objeto.
+ */
+export function buildToolResponsePayload(responses: GeminiFunctionResponse[]): {
+  functionResponses: Array<Record<string, unknown>>
+} {
+  return {
+    functionResponses: responses.map((response) => ({
+      name: response.name,
+      response: response.response,
+      ...withCallId(response.id)
+    }))
+  }
 }
 
 /** `groundingMetadata.groundingChunks[].web.{uri,title}` (SDK 3.6.1). */
@@ -325,10 +360,14 @@ export class SdkLiveTransport implements LiveTransport {
           if (message.toolCall?.functionCalls) {
             const calls = message.toolCall.functionCalls
               .filter(
-                (call): call is { name: string; args?: Record<string, unknown> } =>
+                (call): call is RawFunctionCall & { name: string } =>
                   typeof call.name === 'string' && call.name.length > 0
               )
-              .map((call) => ({ name: call.name, args: call.args ?? {} }))
+              .map((call) => ({
+                name: call.name,
+                args: call.args ?? {},
+                ...withCallId(call.id)
+              }))
             if (calls.length > 0) emit({ type: 'toolCall', calls })
           }
 
@@ -365,12 +404,7 @@ export class SdkLiveTransport implements LiveTransport {
         session.sendRealtimeInput({ text })
       },
       sendToolResponse: (responses) => {
-        session.sendToolResponse({
-          functionResponses: responses.map((response) => ({
-            name: response.name,
-            response: response.response
-          }))
-        } as never)
+        session.sendToolResponse(buildToolResponsePayload(responses) as never)
       },
       interrupt: () => {
         // Atividade de usuário interrompe a resposta por padrão

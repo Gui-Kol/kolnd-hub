@@ -678,7 +678,11 @@ export class GeminiEngine {
               webBufferStart = modelText.length
             }
           }
-          responses.push({ name: call.name, response: functionResponsePayload(callResult) })
+          responses.push({
+            name: call.name,
+            ...(typeof call.id === 'string' && call.id.length > 0 ? { id: call.id } : {}),
+            response: functionResponsePayload(callResult)
+          })
         }
         if (controller.signal.aborted) {
           throw new GeminiError('cancelled', 'Chamada cancelada.')

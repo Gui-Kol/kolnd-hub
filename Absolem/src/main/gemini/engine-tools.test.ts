@@ -95,7 +95,9 @@ describe('GeminiEngine: loop de ferramentas (T10b)', () => {
         streamStepsByAttempt: [
           [
             {
-              functionCalls: [{ name: 'get_current_time', args: { timezone: 'UTC' } }],
+              functionCalls: [
+                { id: 'call-text-1', name: 'get_current_time', args: { timezone: 'UTC' } }
+              ],
               usage: { input: 10, output: 2 }
             }
           ],
@@ -117,10 +119,37 @@ describe('GeminiEngine: loop de ferramentas (T10b)', () => {
     expect(transport.requests[0]?.tools?.map((tool) => tool.name)).toEqual(['get_current_time'])
     const lastContent = transport.requests[1]?.contents.at(-1)
     expect(lastContent?.functionResponses?.[0]).toMatchObject({
+      id: 'call-text-1',
       name: 'get_current_time',
       response: { ok: true, result: { iso: '2026-11-26T12:00:00.000Z' } }
     })
+    // O turno `model` continua carregando o id da chamada pedida pelo modelo.
+    const modelTurn = transport.requests[1]?.contents.at(-2)
+    expect(modelTurn?.functionCalls?.[0]?.id).toBe('call-text-1')
     expect(usage.snapshot().month).toBe(20)
+  })
+
+  it('sem id na chamada, a functionResponse não inventa o campo', async () => {
+    const { engine, transport } = makeHarness({
+      scenario: {
+        streamStepsByAttempt: [
+          [{ functionCalls: [{ name: 'get_current_time', args: {} }] }],
+          [{ text: 'Agora são 12h.' }]
+        ]
+      }
+    })
+    const collector = collectSinks()
+
+    await engine.send('req-sem-id', 'que horas são?', collector.sinks)
+
+    const response = transport.requests[1]?.contents.at(-1)?.functionResponses?.[0]
+    expect(response).toMatchObject({
+      name: 'get_current_time',
+      response: { ok: true, result: { iso: '2026-11-26T12:00:00.000Z' } }
+    })
+    expect('id' in response!).toBe(false)
+    const modelCall = transport.requests[1]?.contents.at(-2)?.functionCalls?.[0]
+    expect('id' in modelCall!).toBe(false)
   })
 
   it('deny não executa a ferramenta e o modelo recebe erro estruturado', async () => {
