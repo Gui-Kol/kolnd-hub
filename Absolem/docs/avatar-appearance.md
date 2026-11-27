@@ -1,9 +1,11 @@
-# Aparência do avatar - fundação do look de 1951
+# Aparência do avatar - versão final do sub-plano de 1951
 
-Documento da task 14. Registra a infraestrutura de aparência criada antes das
-tasks 15-23: papéis de material, paleta nomeada, dois acabamentos, grupos de
-parte e orçamento de malha. A comparação visual com a referência do usuário é a
-task 23; este documento não declara semelhança.
+Documento consolidado das tasks 14-23. Registra a infraestrutura de aparência,
+as decisões de anatomia e materiais, o enquadramento, as flags de QA, a
+comparação com a referência do usuário, o checklist funcional e a medição de
+performance. As capturas e a tabela de comparação foram produzidas na task 23;
+as seções 9-16 preservam o histórico das tasks 15-22. A comparação anterior
+dizia que dependia da task 23; esta é a versão final, sem seções provisórias.
 
 ## 1. Escopo
 
@@ -1197,3 +1199,163 @@ Pendências manuais honestas:
 A janela transparente do overlay continua sem `page.screenshot()` confiável e
 a GPU real pode não estar disponível neste ambiente; por isso nenhuma captura
 foi declarada e nenhum fps novo foi afirmado.
+
+## 17. Task 23 - validação visual, referência e performance
+
+Esta seção fecha o sub-plano. As capturas abaixo foram geradas pelo harness
+`scripts/visual/capture-avatar.cjs`, que usa `webContents.capturePage()` sem
+Playwright e sem dependência nova. O diretório é local e temporário, fora do
+repositório; nenhum PNG é versionado. A referência
+`gerente/tasks/Absolem/reference/lagarta-1951.png` (1856x2304) foi apenas
+consultada, nunca copiada para o app.
+
+### 17.1 Capturas geradas
+
+Execução de 27/11/2026 no diretório
+`C:\Users\TiffoDi\AppData\Local\Temp\absolem-visual\run-2026-11-27T07-22-51-126Z`.
+Todas as imagens têm variância de pixels maior que zero e alfa opaco; a
+dimensão em pixels é 1,5 vez o tamanho em DIP por causa do fator de escala do
+Windows, mas o nome do arquivo registra o frame pedido.
+
+| Estado      | 320x360                                              | 480x560                                               |
+| ----------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `idle`      | `...\storybook-idle-320x360.png` (50.589 bytes)      | `...\storybook-idle-480x560.png` (115.419 bytes)      |
+| `listening` | `...\storybook-listening-320x360.png` (50.499 bytes) | `...\storybook-listening-480x560.png` (114.954 bytes) |
+| `speaking`  | `...\storybook-speaking-320x360.png` (32.691 bytes)  | `...\storybook-speaking-480x560.png` (115.349 bytes)  |
+| `thinking`  | `...\storybook-thinking-320x360.png` (51.468 bytes)  | `...\storybook-thinking-480x560.png` (117.071 bytes)  |
+| `error`     | `...\storybook-error-320x360.png` (51.970 bytes)     | `...\storybook-error-480x560.png` (119.373 bytes)     |
+
+O caminho completo de cada arquivo é o diretório acima mais o nome da coluna.
+Os 10 PNGs passaram na validação do script: tamanho maior que zero, variância
+de 4.961 a 5.068 e pelo menos 687 cores distintas. A execução terminou com
+`10/10 PNGs validos`, exit code 0.
+
+Capturas auxiliares de scale e fallback, também fora do repositório:
+
+| Evidência                          | Caminho local                                                                                                | Resultado                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| Scale 0.8, idle, 320x360           | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-visual\run-2026-11-27T07-49-00-823Z\storybook-idle-320x360.png` | Personagem inteiro, sem corte |
+| Scale 1.5, idle, 320x360           | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-visual\run-2026-11-27T07-49-15-716Z\storybook-idle-320x360.png` | Personagem inteiro, sem corte |
+| Fake voice, nivel baixo, 480x540   | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-probe\run-1795765450385\speaking-level-low.png`                 | Boca fechada                  |
+| Fake voice, nivel alto, 480x540    | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-probe\run-1795765450385\speaking-level-high.png`                | Boca aberta                   |
+| Fallback forçado (getContext nulo) | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-probe\click-1795765781673\probe.json`                           | SVG presente, canvas oculto   |
+
+### 17.2 Comparação com a referência
+
+Notas de 0 a 3: 0 = ausente, 1 = presente mas com desvio claro, 2 = presente e
+legível com desvio menor, 3 = equivalente à referência na leitura visual. A
+avaliação usa as capturas de 480x560 de `idle`, `speaking`, `thinking` e `error`
+e a referência de 1951. Nenhum item foi corrigido nesta task.
+
+| #   | Item                    | Nota | Justificativa e desvio                                                                                                          | Task dona |
+| --- | ----------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 1   | Silhueta sentada        | 1    | O corpo lê como pilha vertical de segmentos; há cauda curta e quatro pés, mas falta a massa sentada/curvada da referência.      | 15        |
+| 2   | Proporção cabeça/corpo  | 2    | Cabeça com bochechas largas ocupa cerca de 1/3 da altura visível; o tronco é mais alongado que a referência.                    | 16        |
+| 3   | Segmentação e dobras    | 2    | Sete a oito segmentos com anéis escuros e placas claras; a leitura é de discos empilhados, não de dobras orgânicas.             | 15        |
+| 4   | Barriga clara           | 1    | As placas claras são ovais e separadas por segmento; a referência tem uma faixa creme contínua do tórax à base.                 | 15        |
+| 5   | Olhos e pálpebra pesada | 1    | Íris e pupila são legíveis, mas em `idle` o olho está redondo e aberto; a pálpebra pesada só aparece em `thinking`.             | 16, 20    |
+| 6   | Sobrancelha e nariz     | 1    | A sobrancelha se perde no contorno escuro e o nariz não tem narinas legíveis; a referência tem arco e nariz grandes.            | 16        |
+| 7   | Boca e sorriso          | 2    | O sorriso existe com cantos acima e, em `speaking`, abre com interior vermelho; a referência é mais discreta.                   | 16, 20    |
+| 8   | Turbante e listras      | 1    | Há calota roxa, uma faixa dourada e nó, mas o conjunto lê como boné; as cinco faixas alternadas da referência não são legíveis. | 18        |
+| 9   | Mãos e garras           | 1    | As extremidades rosadas são pequenas e as garras não são legíveis; a referência tem mãos grandes com dedos e garras claras.     | 17        |
+| 10  | Cachimbo/mangueira      | 1    | A mangueira preta contorna o corpo até a mão direita, mas piteira e fornilho dourados não são legíveis.                         | 18        |
+
+Resultado: média 1,3. Sete itens ficaram abaixo de 2 (1, 4, 5, 6, 8, 9 e 10) e
+estão registrados como desvio para as tasks 15-18/20; esta task não alterou
+geometria, material, animação, tema, câmera ou fallback para "melhorar" a nota.
+
+### 17.3 Checklist funcional
+
+Executado em 27/11/2026 na máquina de desenvolvimento: Windows 11 Pro, AMD
+Ryzen 7 5700X (8 núcleos/16 threads), 24 GB de RAM, placa MS-7C95, Electron
+28.3.3, build de produção em `out/` (não empacotado). O harness usa userData
+temporário e não grava no perfil real.
+
+| Item                                                  | Método / evidência                                                                                                                                                                                                                                                                         | Resultado                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| Cinco estados distinguíveis sem legenda               | Capturas 17.1: `idle` olho aberto/sorriso fechado; `listening` olho arregalado; `speaking` boca aberta; `thinking` pálpebra caída e inclinação; `error` inclinação e aura vermelha.                                                                                                        | Aprovado                                       |
+| Clique no personagem ativa/desativa a voz             | Sonda Playwright `click-1795765781673\probe.json`: `off` -> `error` ao segundo `pointerdown`; sem chave o estado `error` volta a tentar, então a desativação não foi observada na UI. `src/main/voice-toggle.test.ts` cobre `off -> connecting` e `speaking -> off` com sessão fake.       | Parcial; pendência manual com chave            |
+| `?fakeVoice=1` move a boca                            | Rota com `fakeVoice=1` e níveis 0,05/0,95 no harness; diff de 1.737 de 29.540 pixels (5,88%) na região da boca; imagens `speaking-level-low/high.png`.                                                                                                                                     | Aprovado                                       |
+| Piscada a cada 4-7 s                                  | Constantes `BLINK_MIN_INTERVAL_SECONDS = 4` e `BLINK_MAX_INTERVAL_SECONDS = 7` em `expressions.ts`; `expressions-blink.test.ts` prova fechamento de 160 ms e ausência de piscada em `speaking`.                                                                                            | Aprovado por teste; não medido em vídeo        |
+| `thinking` desvia o olhar                             | Captura `storybook-thinking-480x560.png` mostra pálpebra caída e inclinação, mas o desvio lateral das pupilas não é legível. `expressionMapping.test.ts` cobre `lookAside`.                                                                                                                | Parcial; pendência visual da task 20           |
+| `error` não recolore o corpo                          | Média do corpo em `idle` [58, 96, 137] e em `error` [50, 87, 130]; diferença máxima de 8, sem troca de cor. `error` muda aura/partículas e inclinação.                                                                                                                                     | Aprovado                                       |
+| Baforada para durante a fala                          | `restMotion.test.ts`: `smokeStrengthForState('speaking', ...) = 0`; capturas `speaking` não mostram baforada.                                                                                                                                                                              | Aprovado                                       |
+| `prefers-reduced-motion` sem sway/respiração/baforada | `restMotion.test.ts` zera `restSway`, `bodySway`, `headMicroTilt`, `breatheAmount` e `smokeStrength` com `reducedMotion = true`.                                                                                                                                                           | Aprovado por teste; não capturado com emulação |
+| Fallback SVG com `--disable-gpu`                      | `--disable-gpu` e `--disable-gpu --disable-3d-apis --disable-webgl` mantiveram WebGL (SwiftShader), então o fallback não apareceu por flag. Forçando `getContext` WebGL a `null` antes do reload, a classe `overlay-avatar--fallback` e o SVG apareceram e o canvas ficou `display: none`. | Parcial; pendência em máquina sem WebGL        |
+| Escala 0.8 e 1.5 sem corte                            | Capturas de 17.1 com `ABSOLEM_VISUAL_SCALE=0.8` e `1.5` mostram o personagem inteiro; `framing-projection.test.ts` projeta os oito cantos dentro de NDC 0,94 nas duas escalas.                                                                                                             | Aprovado                                       |
+
+Falhas e parciais acima viram pendência da task dona (06/20 para clique e
+olhar; 22 para o fallback em ambiente sem WebGL; 16/17/18 para os desvios de
+comparação). Nenhuma foi corrigida por improviso nesta task.
+
+### 17.4 Performance
+
+Medição com `scripts/perf/measure-absolem.ps1` (PowerShell puro), app buildado
+em `out/`, userData temporário, overlay 320x360 (480x540 pixels por causa da
+escala do Windows), 60 amostras de 1 s após 12 s de aquecimento. Carga do
+sistema amostrada por `Win32_Processor.LoadPercentage`: 0,00% média e 0,00%
+máxima nas três execuções; a máquina estava ociosa e não houve repetição por
+carga. A meta de memória é avaliada na soma main + renderer do overlay, como a
+task pede; o total da árvore inclui GPU/utility e aparece como referência.
+
+| Cenário         | CSV local                                                             | CPU (1 núcleo) | CPU da máquina | Main WS   | Renderer WS | Main+renderer | Total árvore | FPS | Draws | Triângulos | Degradação |
+| --------------- | --------------------------------------------------------------------- | -------------- | -------------- | --------- | ----------- | ------------- | ------------ | --- | ----- | ---------- | ---------- |
+| A oculto 60 s   | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-perf\A-oculto-60s.csv`   | 0,18%          | 0,01%          | 85,29 MB  | 0,00 MB     | 85,29 MB      | 240,39 MB    | -   | -     | -          | -          |
+| B idle 60 s     | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-perf\B-idle-60s.csv`     | 40,43%         | 2,53%          | 100,26 MB | 113,53 MB   | 213,79 MB     | 472,86 MB    | 165 | 129   | 24.456     | 0          |
+| C speaking 60 s | `C:\Users\TiffoDi\AppData\Local\Temp\absolem-perf\C-speaking-60s.csv` | 47,07%         | 2,94%          | 100,13 MB | 117,53 MB   | 217,66 MB     | 475,92 MB    | 165 | 129   | 24.456     | 0          |
+
+Leitura contra o README §8.3:
+
+| Critério                        | Meta                               | Medido                       | Situação     |
+| ------------------------------- | ---------------------------------- | ---------------------------- | ------------ |
+| CPU com overlay oculto          | < 1%                               | 0,01% da máquina             | Cumprido     |
+| CPU com overlay visível em idle | < 2%                               | 2,53% da máquina (B)         | Não cumprido |
+| CPU em speaking                 | < 2% (mesma referência de visível) | 2,94% da máquina (C)         | Não cumprido |
+| FPS em idle e speaking          | >= 45                              | 165 fps em B e C             | Cumprido     |
+| Memória main + renderer         | < 350 MB                           | 213,79 MB (B), 217,66 MB (C) | Cumprido     |
+| Draw calls                      | 24                                 | 129                          | Não cumprido |
+
+`getMetrics()` final nas duas execuções visíveis: `fps 165`, `frameMs 6,1`,
+`drawCalls 129`, `triangles 24456`, `degradation 0`. A degradação não entrou em
+ação porque ela é dirigida por queda de fps (o fps ficou em 165), não por CPU
+alta; portanto não há "passo" de degradação para mostrar nesta medição. O
+desvio de CPU precisa de uma decisão de produto/otimização fora desta task.
+
+Baselines honestos: task 18 registrou 80 draw calls / 15.056 triângulos / 165
+fps; a task 20 registrou 129 / 24.456 / 165. O valor atual é 129 / 24.456 / 165,
+igual à task 20 e acima do orçamento de 24 draw calls. Esta task **não** fez
+mesclagem nem otimização e **não** declara o orçamento cumprido; a mesclagem
+continua como pendência (task 19/23 no plano original). A task 19 estimou cerca
+de 135 meshes/24.488 triângulos no `storybook`; a leitura real de `?debug=1`
+fechou em 129/24.456.
+
+### 17.5 Fechamento do sub-plano
+
+Fontes finais já registradas neste documento:
+
+| Tema                | Seção final | Conteúdo                                                            |
+| ------------------- | ----------- | ------------------------------------------------------------------- |
+| Papéis de material  | 2           | 24 papéis fechados em `CATERPILLAR_MATERIAL_ROLES`                  |
+| Duas paletas        | 3           | `ABSOLEM_1951_PALETTE` no `storybook`; três cores do tema no `holo` |
+| Materiais           | 13.1        | Toon 4 níveis, Phong no cachimbo, Basic nos papéis sem luz          |
+| Enquadramento       | 16.2, 16.3  | Bounds uma vez no build, margem 8%, FOV 42, yaw 15 graus            |
+| Flags de QA         | 5, 16.5     | `look`, `state`, `debug`, `slow`, `fakeVoice`; só em DEV            |
+| Performance         | 17.4        | A/B/C com CPU, memória, fps, draw calls, triângulos e degradação    |
+| Comparação          | 17.2        | 10 itens, média 1,3, desvios com task dona                          |
+| Checklist funcional | 17.3        | 10 itens, com as parciais e pendências explícitas                   |
+
+O que ficou fora do sub-plano, por decisão do README §11.1: cenário (cogumelo,
+cortinas, fundo estampado), base do narguilé e animações extras de corpo
+(caminhada, gestos amplos, coreografia). A mangueira e a piteira entraram por
+aprovação do usuário na task 18; a base do narguilé continua fora.
+
+O que depende de aprovação do usuário antes de qualquer nova task:
+
+- aceitar ou abrir follow-up para os sete desvios de comparação abaixo de 2
+  (silhueta, barriga, pálpebra, sobrancelha/nariz, turbante, mãos/garras e
+  cachimbo);
+- decidir se a mesclagem de draw calls e a redução de CPU entram numa task de
+  otimização (hoje 129 draws e 2,53%-2,94% de CPU visível contra meta de 24 e
+  2%);
+- validar o clique de voz e o fallback em uma máquina com chave Gemini e sem
+  WebGL real, casos que este ambiente não permitiu observar por completo.

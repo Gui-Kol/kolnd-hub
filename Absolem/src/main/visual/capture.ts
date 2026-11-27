@@ -41,6 +41,7 @@ import type { AvatarState } from '../../shared/avatar'
  * - `ABSOLEM_VISUAL_SIZES` (lista `WxH`; default: 320x360,480x560)
  * - `ABSOLEM_VISUAL_LOOK` (`storybook` ou `holo`; default: storybook)
  * - `ABSOLEM_VISUAL_FAKE_VOICE=1` (acrescenta `fakeVoice=1` à rota)
+ * - `ABSOLEM_VISUAL_SCALE` (escala do tema aplicada antes da captura; QA)
  * - `ABSOLEM_VISUAL_HOLD_MS` (mantém o app aberto após as capturas; usado pela
  *   medição de CPU/memória da task 23)
  */
@@ -221,6 +222,8 @@ export function scheduleVisualCapture(ctx: IpcContext, onDone: () => void): void
   const sizes = parseVisualSizes(process.env.ABSOLEM_VISUAL_SIZES)
   const look = parseVisualLook(process.env.ABSOLEM_VISUAL_LOOK)
   const fakeVoice = process.env.ABSOLEM_VISUAL_FAKE_VOICE === '1'
+  const scaleInput = Number.parseFloat(process.env.ABSOLEM_VISUAL_SCALE ?? '')
+  const scale = Number.isFinite(scaleInput) && scaleInput > 0 ? scaleInput : null
   // No build de produção as flags do renderer estão desligadas (DEV=false). O
   // harness usa os mesmos canais de IPC do produto para aplicar estado/nível;
   // a rota com as flags continua sendo montada para o modo dev.
@@ -245,13 +248,17 @@ export function scheduleVisualCapture(ctx: IpcContext, onDone: () => void): void
         mkdirSync(dir, { recursive: true })
 
         // Mesmo caminho da bandeja: o overlay nasce e aparece como no produto.
-        showOverlay()
+        // `persist = false` evita gravar visibilidade/layout no config real.
+        showOverlay(false)
         const window = getOverlayWindow()
         if (!window) throw new Error('overlay indisponível para a captura')
         await waitForLoad(window)
 
         // Acabamento pedido (o push de tema é o mesmo caminho da aba Aparência).
-        const themeResult = setThemeFromRequest(ctx, { theme: { look }, persist: false })
+        const themeResult = setThemeFromRequest(ctx, {
+          theme: scale === null ? { look } : { look, scale },
+          persist: false
+        })
         if (!themeResult.ok) throw new Error(themeResult.error ?? 'tema recusado')
 
         if (driveFakeVoice) {
@@ -278,10 +285,13 @@ export function scheduleVisualCapture(ctx: IpcContext, onDone: () => void): void
         await captureFrame(window, false)
 
         for (const size of sizes) {
-          const layout = setOverlayLayoutFromRequest({
-            width: size.width,
-            height: size.height
-          })
+          const layout = setOverlayLayoutFromRequest(
+            {
+              width: size.width,
+              height: size.height
+            },
+            { persist: false }
+          )
           if (!layout.ok) throw new Error(layout.error ?? 'layout recusado')
           await delay(250)
 

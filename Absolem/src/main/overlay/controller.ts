@@ -167,8 +167,8 @@ function applyVisible(next: boolean, persist: boolean): OverlayStatus {
 }
 
 /** Mostra o overlay (não rouba foco: a janela usa `showInactive`). */
-export function showOverlay(): OverlayStatus {
-  return applyVisible(true, true)
+export function showOverlay(persist = true): OverlayStatus {
+  return applyVisible(true, persist)
 }
 
 /** Oculta por ação do usuário (atalho, bandeja ou IPC). */
@@ -187,7 +187,10 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 const LAYOUT_KEYS = ['position', 'offsetX', 'offsetY', 'width', 'height'] as const
 
 /** Valida e aplica um patch de layout; persiste o resultado normalizado. */
-export function setOverlayLayoutFromRequest(input: unknown): OverlayStatusResult {
+export function setOverlayLayoutFromRequest(
+  input: unknown,
+  options: { persist?: boolean } = {}
+): OverlayStatusResult {
   if (!isPlainRecord(input)) {
     return { ok: false, error: 'Payload inválido para overlay:set-layout.' }
   }
@@ -218,7 +221,7 @@ export function setOverlayLayoutFromRequest(input: unknown): OverlayStatusResult
 
   const merged: OverlayLayout = normalizeOverlayLayout({ ...getOverlayLayout(), ...input })
   const applied = setOverlayLayout(merged)
-  persistOverlay(applied)
+  if (options.persist !== false) persistOverlay(applied)
   return { ok: true, status: broadcastStatus() }
 }
 

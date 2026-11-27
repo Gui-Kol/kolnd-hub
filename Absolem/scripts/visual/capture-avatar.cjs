@@ -25,6 +25,7 @@
  *   --sizes <lista>     default: 320x360,480x560
  *   --look <look>       default: storybook
  *   --fake-voice        acrescenta fakeVoice=1 a rota
+ *   --scale <n>         escala do tema (0.8, 1.5) antes da captura
  *   --hold-ms <ms>      mantem o app aberto depois das capturas (perf)
  *   --timeout-ms <ms>   teto total da execucao (default: 180000)
  */
@@ -289,6 +290,8 @@ async function main() {
   const look =
     typeof options.look === 'string' ? options.look : process.env.ABSOLEM_VISUAL_LOOK || 'storybook'
   const fakeVoice = options['fake-voice'] === true || process.env.ABSOLEM_VISUAL_FAKE_VOICE === '1'
+  const scale =
+    typeof options.scale === 'string' ? options.scale : process.env.ABSOLEM_VISUAL_SCALE || ''
   const holdMs =
     Number.parseInt(options['hold-ms'] ?? process.env.ABSOLEM_VISUAL_HOLD_MS ?? '0', 10) || 0
   const timeoutMs = Math.max(
@@ -306,6 +309,7 @@ async function main() {
     ABSOLEM_TEST_TRANSPORT: 'fake'
   }
   if (fakeVoice) env.ABSOLEM_VISUAL_FAKE_VOICE = '1'
+  if (scale) env.ABSOLEM_VISUAL_SCALE = String(scale)
   if (holdMs > 0) env.ABSOLEM_VISUAL_HOLD_MS = String(holdMs)
 
   if (!fs.existsSync(ELECTRON_BIN)) {
