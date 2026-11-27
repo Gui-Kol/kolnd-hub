@@ -349,13 +349,29 @@ namespace platf::audio {
   };
 
   /**
+   * @brief Parameters observed while WASAPI negotiates one capture stream.
+   *
+   * @note Filled by @ref make_audio_client and consumed only by the one-time startup log in
+   *       `mic_wasapi_t::init()`; it never feeds back into the capture path.
+   */
+  struct capture_negotiation_t {
+    DWORD device_rate = 0;  ///< Mixer sample rate reported by `GetMixFormat`, in hertz.
+    WORD device_channels = 0;  ///< Mixer channel count reported by `GetMixFormat`.
+    WORD device_bits = 0;  ///< Mixer container size reported by `GetMixFormat`, in bits.
+    DWORD stream_rate = 0;  ///< Sample rate of the client format passed to `Initialize`, in hertz.
+    WORD stream_channels = 0;  ///< Channel count of the client format passed to `Initialize`.
+    DWORD stream_flags = 0;  ///< `AUDCLNT_STREAMFLAGS_*` combination passed to `Initialize`.
+  };
+
+  /**
    * @brief Create audio client.
    *
    * @param device D3D, audio, or platform device used by the operation.
    * @param format Pixel, audio, or protocol format being converted.
+   * @param negotiation Output record with the mixer and stream parameters observed during setup.
    * @return Constructed audio client object.
    */
-  audio_client_t make_audio_client(device_t &device, const format_t &format) {
+  audio_client_t make_audio_client(device_t &device, const format_t &format, capture_negotiation_t &negotiation) {
     audio_client_t audio_client;
     auto status = device->Activate(
       IID_IAudioClient,
@@ -390,12 +406,23 @@ namespace platf::audio {
       BOOST_LOG(info) << "Audio mixer format is "sv << mixer_waveformat->wBitsPerSample << "-bit, "sv
                       << mixer_waveformat->nSamplesPerSec << " Hz, "sv
                       << ((mixer_waveformat->nSamplesPerSec != 48000) ? "will be resampled to 48000 by Windows"sv : "no resampling needed"sv);
+
+      negotiation.device_rate = mixer_waveformat->nSamplesPerSec;
+      negotiation.device_channels = mixer_waveformat->nChannels;
+      negotiation.device_bits = mixer_waveformat->wBitsPerSample;
     }
+
+    negotiation.stream_rate = capture_waveformat.Format.nSamplesPerSec;
+    negotiation.stream_channels = capture_waveformat.Format.nChannels;
+
+    const DWORD stream_flags =
+      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+      AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;  // Enable automatic resampling to 48 KHz
+    negotiation.stream_flags = stream_flags;
 
     status = audio_client->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
-        AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,  // Enable automatic resampling to 48 KHz
+      stream_flags,
       0,
       0,
       (LPWAVEFORMATEX) &capture_waveformat,
@@ -643,6 +670,8 @@ namespace platf::audio {
         return -1;
       }
 
+      capture_negotiation_t negotiation;
+
       for (const auto &format : formats) {
         if (format.channel_count != channels_out) {
           BOOST_LOG(debug) << "Skipping audio format ["sv << format.name << "] with channel count ["sv
@@ -651,7 +680,7 @@ namespace platf::audio {
         }
 
         BOOST_LOG(debug) << "Trying audio format ["sv << format.name << ']';
-        audio_client = make_audio_client(device, format);
+        audio_client = make_audio_client(device, format, negotiation);
 
         if (audio_client) {
           BOOST_LOG(debug) << "Found audio format ["sv << format.name << ']';
@@ -710,6 +739,20 @@ namespace platf::audio {
 
         return -1;
       }
+
+      BOOST_LOG(info) << "Audio capture: mode="sv
+                      << ((negotiation.stream_flags & AUDCLNT_STREAMFLAGS_LOOPBACK) ? "shared loopback"sv : "shared"sv)
+                      << " device_format=" << negotiation.device_bits << "-bit "sv
+                      << negotiation.device_rate << " Hz "sv << negotiation.device_channels << " ch"sv
+                      << " stream_rate=" << negotiation.stream_rate << " Hz "sv << negotiation.stream_channels << " ch"sv
+                      << " resample=" << ((negotiation.device_rate != negotiation.stream_rate) ? "yes"sv : "no"sv)
+                      << " autoconvert=" << ((negotiation.stream_flags & AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) ? "yes"sv : "no"sv)
+                      << " src_quality=" << ((negotiation.stream_flags & AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY) ? "default"sv : "none"sv)
+                      << " period_default_100ns=" << default_latency
+                      << " period_default_ms=" << std::format("{:.3f}", default_latency / 10000.0)
+                      << " frames_per_buffer=" << frames
+                      << " buffer_ms=" << std::format("{:.3f}", frames * 1000.0 / negotiation.stream_rate)
+                      << " wait_timeout_ms=" << default_latency_ms;
 
       return 0;
     }
