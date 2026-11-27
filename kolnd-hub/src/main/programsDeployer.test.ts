@@ -162,6 +162,56 @@ describe('deployPrograms — Kloud Games', () => {
   })
 })
 
+describe('deployPrograms — Absolem', () => {
+  const ABSOLEM_DIR = join(PROGRAMS_DIR, 'Absolem')
+
+  it('empacotado: exe embutido em resources/programs/Absolem já existe', async () => {
+    state.packaged = true
+    const targetDir = join('C:\\fake\\resources', 'programs', 'Absolem')
+    setupFs({ files: [join(targetDir, 'Absolem.exe')] })
+
+    const [, , absolem] = await deployPrograms()
+    expect(absolem).toEqual({
+      id: 'absolem',
+      name: 'Absolem',
+      installed: true,
+      path: targetDir
+    })
+  })
+
+  it('empacotado sem o exe: falha explicando que o instalador deve embutir', async () => {
+    state.packaged = true
+    setupFs({})
+
+    const [, , absolem] = await deployPrograms()
+    expect(absolem.installed).toBe(false)
+    expect(absolem.error).toContain('Executável não encontrado')
+    expect(absolem.error).toContain('resources/programs/Absolem')
+  })
+
+  it('dev: copia do build local quando o exe alvo não existe', async () => {
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    setupFs({ files: [join(sourceDir, 'Absolem.exe')] })
+
+    const [, , absolem] = await deployPrograms()
+    expect(fsMock.cpSync).toHaveBeenCalledWith(sourceDir, ABSOLEM_DIR, { recursive: true })
+    expect(absolem.installed).toBe(true)
+    expect(absolem.path).toBe(ABSOLEM_DIR)
+  })
+
+  it('dev: falha de cópia vira resultado de erro', async () => {
+    const sourceDir = join(PROJECT, '..', 'Absolem', 'dist', 'win-unpacked')
+    setupFs({ files: [join(sourceDir, 'Absolem.exe')] })
+    fsMock.cpSync.mockImplementation(() => {
+      throw new Error('sem espaço')
+    })
+
+    const [, , absolem] = await deployPrograms()
+    expect(absolem.installed).toBe(false)
+    expect(absolem.error).toBe('Falha ao copiar Absolem: sem espaço')
+  })
+})
+
 describe('formatDeployReport', () => {
   it('lista OK/FALHOU com caminho e erro quando presentes', () => {
     const report = formatDeployReport([

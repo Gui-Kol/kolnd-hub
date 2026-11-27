@@ -109,7 +109,7 @@ Na primeira abertura, o app detecta a ausência do marcador `first-run-complete.
 1. **Verificação de dependências** — Python e pip;
 2. **Python** — instala silenciosamente via `winget` (`--silent --accept-package-agreements`), apenas se necessário;
 3. **Kloud Games** — instala o MSI embutido em `resources/programs/kloud-games/KLOUD_GAMES.msi` via UAC (assistente visível: `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs` — não usa `/quiet`). Falha aqui **não bloqueia** o uso do Hub;
-4. **Programas** — verifica a implantação do Mark LVII e do Kloud Games;
+4. **Programas** — verifica a implantação do Mark LVII, do Kloud Games e do Absolem;
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Nas próximas aberturas o app vai direto para o dashboard. A flag fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
@@ -125,6 +125,7 @@ O instalador único (`Kolnd Hub Setup <versão>.exe`) embute os programas que o 
 | Programa           | Origem                         | Status                                                                                                                                            |
 | ------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Mark LVII (JARVIS) | `Mark-LVII/` (PyInstaller)     | ✅ Embutido no instalador em `resources/programs/MarkLVII`                                                                                        |
+| Absolem            | `Absolem/` (Electron)          | ✅ Embutido no instalador em `resources/programs/Absolem` (build `win-unpacked`, roda da pasta; dados em `%APPDATA%\absolem`)                     |
 | Kloud Games        | `kloud-games/` (CMake + MSYS2) | ✅ Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`, ~53 MB), instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` |
 
 Na raiz do repositório, `build-installer.bat` faz tudo em um comando: compila o Kloud Games e gera o MSI (`scripts/build-kloud-games.ps1`), depois empacota o Hub (`npm run package`) e, ao final, gera `dist/SHA256SUMS.txt` (passo best-effort — falha do hash não quebra o build). Para o passo a passo:
@@ -136,15 +137,18 @@ powershell -ExecutionPolicy Bypass -File scripts\build-kloud-games.ps1
 # 2) reconstruir o Mark LVII (opcional, PyInstaller)
 powershell -ExecutionPolicy Bypass -File scripts\build-mark-lvii.ps1
 
-# 3) gerar o instalador
+# 3) reconstruir o Absolem (opcional, Electron; -SkipBuild reaproveita o dist\win-unpacked)
+powershell -ExecutionPolicy Bypass -File scripts\build-absolem.ps1
+
+# 4) gerar o instalador
 npm run package
 ```
 
-Ou tudo de uma vez (Mark LVII + Kloud Games + instalador):
+Ou tudo de uma vez (Mark LVII + Kloud Games + Absolem + instalador):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
-# opções: -SkipMarkLVII, -SkipKloudGames, -SkipPackage
+# opções: -SkipMarkLVII, -SkipKloudGames, -SkipAbsolem, -SkipPackage
 ```
 
 Depois de rodar a build de um programa, rode `npm run package` de novo para que o instalador pegue a versão nova.
@@ -155,6 +159,8 @@ Depois de rodar a build de um programa, rode `npm run package` de novo para que 
 e `memory/` são excluídos do pacote (veja o `filter` em `extraResources` no `electron-builder.yml`).
 
 > ⚠️ **Dados do Mark LVII e desinstalador**: o `MarkLVII.exe` empacotado grava a chave de API e a memória **na pasta do executável** (`<instalação>/resources/programs/MarkLVII/`). Ao desinstalar o Kolnd Hub (botão **"Desinstalar Kolnd Hub"** nas Configurações → zona de perigo, ou pelo aplicativo Configurações do Windows), o NSIS remove **o diretório da instalação inteiro** — inclusive esses dados. O botão **"Fazer backup dos meus dados"** copia apenas `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` e **não** cobre os dados ao lado do `MarkLVII.exe`. Copie manualmente `<instalação>\resources\programs\MarkLVII\config` e `<instalação>\resources\programs\MarkLVII\memory` antes de desinstalar. O backup não é automático.
+
+> **Dados do Absolem**: o app grava os dados em `%APPDATA%\absolem` (fora da instalação). Desinstalar o Kolnd Hub remove o programa em `resources\programs\Absolem`, mas **preserva** esses dados.
 
 ## Verificar integridade
 
@@ -275,6 +281,7 @@ O **NSIS não mudou**: `deleteAppDataOnUninstall: false` no `electron-builder.ym
 | Programa           | Comando padrão                                 | Observação                                                                                                           |
 | ------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Mark LVII (JARVIS) | `MarkLVII.exe`                                 | Embutido no instalador em `resources/programs/MarkLVII` (PyInstaller)                                                |
+| Absolem            | `Absolem.exe`                                  | Embutido no instalador em `resources/programs/Absolem` (build Electron; dados em `%APPDATA%\absolem`)                |
 | Kloud Games        | `"%ProgramFiles%\KLOUD_GAMES\KLOUD_GAMES.exe"` | Embutido como MSI; instalado na primeira execução em `C:\Program Files\KLOUD_GAMES` (serviço + firewall + autostart) |
 
 ## Estrutura

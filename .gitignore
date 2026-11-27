@@ -58,6 +58,7 @@ desktop.ini
 Mark-LVII/config/api_keys.json
 kolnd-hub-userdata-backups/
 resources/programs/MarkLVII/
+resources/programs/Absolem/
 
 # Gerente agent working files (task tracking, not for commit)
 gerente/tasks/

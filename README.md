@@ -8,6 +8,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | `kolnd-hub/`               | O aplicativo Hub em si (dashboard, biblioteca de jogos, Meu PC, Big Picture, configurações, bandeja, primeira execução)                                                                                      | Electron 28 + electron-vite + React 18 + TypeScript + Tailwind CSS |
 | `Mark-LVII/`               | **Mark LVII (JARVIS)** — assistente pessoal de voz com IA em tempo real (avatar holográfico, lip-sync, controle do PC, wake word, 50+ idiomas)                                                               | Python + PyQt6, empacotado com PyInstaller                         |
+| `Absolem/`                 | **Absolem** — assistente de IA na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini                                                                                         | Electron 28 + electron-vite + React 18 + TypeScript                |
 | `kloud-games/`             | **Kloud Games** — servidor self-hosted de streaming de jogos para Moonlight (fork do Sunshine, da LizardByte)                                                                                                | C++ / CMake / MSYS2 (UCRT64), gerado como MSI via WiX              |
 | `build-installer.bat`      | Build completo em um único comando: compila o Kloud Games → MSI, depois empacota o Hub → `.exe`                                                                                                              | CMD + PowerShell                                                   |
 | `.github/workflows/ci.yml` | CI: `npm ci` → typecheck → lint → format:check → testes (Vitest) → build → empacotamento NSIS em `windows-latest` (com placeholders dos recursos não commitados) + geração do `SHA256SUMS.txt` (informativo) | GitHub Actions                                                     |
@@ -27,6 +28,7 @@ Central de controle do ecossistema Kolnd — um aplicativo desktop para **inicia
 | Programa                                                                | Como é distribuído                                                            | Instalação                                                                                                                                                           |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Mark LVII (JARVIS)**                                                  | Embutido no instalador do Hub em `resources/programs/MarkLVII/` (PyInstaller) | Automática na primeira execução do Hub                                                                                                                               |
+| **Absolem**                                                             | Embutido no instalador do Hub em `resources/programs/Absolem/` (build Electron) | Automática na primeira execução do Hub; roda direto da pasta e grava os dados em `%APPDATA%\absolem`                                                                  |
 | **Kloud Games**                                                         | Embutido como MSI (`resources/programs/kloud-games/KLOUD_GAMES.msi`)          | Instalado na primeira execução via UAC (assistente visível do `msiexec /i … /norestart`, elevado com `Start-Process -Verb RunAs`), em `C:\Program Files\KLOUD_GAMES` |
 | **IntelliJ, PyCharm, VS Code, Docker, Insomnia, OpenCode, Antigravity** | Atalhos configuráveis pelo usuário (não são instalados pelo Hub)              | Configurados em **Configurações** do app                                                                                                                             |
 
@@ -54,7 +56,7 @@ Durante a primeira execução o app mostra uma tela de progresso com as etapas:
 1. **Verificação de dependências** — Python e pip;
 2. **Python** — instala via winget se faltar;
 3. **Kloud Games** — instala o MSI embutido (falha não bloqueia o uso do Hub);
-4. **Programas** — verifica a implantação do Mark LVII e do Kloud Games;
+4. **Programas** — verifica a implantação do Mark LVII, do Kloud Games e do Absolem;
 5. **Finalização** — salva os comandos/diretórios padrão e grava o marcador de primeira execução.
 
 Na segunda abertura o app vai direto para o dashboard. O marcador fica em `%APPDATA%\kolnd-hub\first-run-complete.flag`.
@@ -106,24 +108,25 @@ Em **Configurações**, no fim da página, existe a zona **"Zona de perigo"** co
 
 - Pede para digitar `Kolnd Hub` antes de confirmar. Em `npm run dev` o botão fica desabilitado — só funciona no app instalado.
 - O **Mark LVII** (assistente) fica dentro da pasta do Hub em `resources/programs/MarkLVII` e **vai junto** com a desinstalação.
+- O **Absolem** também fica dentro da pasta do Hub em `resources/programs/Absolem` e sai com ela; os dados dele em `%APPDATA%\absolem` são **preservados**.
 
 ### O que acontece com seus dados
 
 Em **qualquer** desinstalação (pelo botão do Hub ou pelo Windows), o padrão é:
 
 - **Preservado — `%APPDATA%\kolnd-hub` inteiro**: `config.json` (electron-store), a flag de primeira execução (`first-run-complete.flag`), `logs\` (`kolnd-hub.log` e `kloud-games-uninstall.log`), `kloud-games.paths.json` e `game-icons\`. Nada disso é apagado pelo desinstalador NSIS (`deleteAppDataOnUninstall: false`), a menos que você escolha a opção irreversível no botão do Hub.
-- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`, onde o `MarkLVII.exe` grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`)**. Esses dados são **perdidos** na desinstalação — o NSIS não tem como preservá-los.
+- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`, onde o `MarkLVII.exe` grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`), e `resources\programs\Absolem\`** (o programa em si; os dados do Absolem ficam em `%APPDATA%\absolem` e **não** são tocados). Os dados do Mark LVII são **perdidos** na desinstalação — o NSIS não tem como preservá-los.
 
 Ao desinstalar o Hub pelo botão, você escolhe uma das duas opções:
 
 - **"Manter meus dados e configurações (recomendado)"** — padrão; o que está em `%APPDATA%\kolnd-hub` fica intacto (config, biblioteca, logs, ícones e flag de primeira execução);
 - **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `game-icons\` e qualquer outra coisa que estiver lá). Não há como desfazer.
 
-Resumindo em uma linha: **`%APPDATA%\kolnd-hub` é preservado; o diretório de instalação é removido** — inclusive os dados que o Mark LVII grava ao lado do `MarkLVII.exe`.
+Resumindo em uma linha: **`%APPDATA%\kolnd-hub` é preservado; o diretório de instalação é removido** — inclusive os dados que o Mark LVII grava ao lado do `MarkLVII.exe`. Os dados do Absolem ficam em `%APPDATA%\absolem`, fora do diretório de instalação, e **sobrevivem** à desinstalação.
 
 Duas regras importantes:
 
-- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** e **não** inclui os dados gravados ao lado do `MarkLVII.exe`; copie manualmente `resources\programs\MarkLVII\config` e `...\memory` se quiser guardar a chave e a memória.
+- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** e **não** inclui os dados gravados ao lado do `MarkLVII.exe`; copie manualmente `resources\programs\MarkLVII\config` e `...\memory` se quiser guardar a chave e a memória. Os dados do Absolem em `%APPDATA%\absolem` também não entram nesse backup, mas continuam no disco depois da desinstalação.
 - Nada fora de `%APPDATA%\kolnd-hub` é apagado pelo Hub. O que remove a instalação do Kloud Games e a pasta do Hub são os desinstaladores oficiais (MSI e NSIS).
 
 Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`, em `config.json`) também fica em `%APPDATA%\kolnd-hub` — ela sobrevive à desinstalação se você mantiver os dados; quem decide apagá-la é a opção de apagar tudo.

@@ -15,6 +15,19 @@ export const apps: AppConfig[] = [
     tags: ['IA', 'Voz', 'Assistente']
   },
   {
+    id: 'absolem',
+    name: 'Absolem',
+    description:
+      'Assistente de IA na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini.',
+    icon: '🐛',
+    color: '#38BDF8',
+    gradient: 'from-sky-500 to-cyan-500',
+    command: 'Absolem.exe',
+    cwd: 'resources/programs/Absolem',
+    category: 'ai',
+    tags: ['IA', 'Voz', 'Avatar']
+  },
+  {
     id: 'kloud-games',
     name: 'Kloud Games',
     description:

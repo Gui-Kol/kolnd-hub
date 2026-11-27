@@ -344,7 +344,9 @@ export function UninstallHubModal({
             O Mark LVII (assistente) será removido junto com a pasta do Kolnd Hub — inclusive a
             chave de API e a memória, que ficam em{' '}
             <span className="font-mono">resources\programs\MarkLVII</span> dentro da instalação.
-            Faça o backup abaixo se quiser guardá-las.
+            Faça o backup abaixo se quiser guardá-las. O Absolem também é removido com a pasta do
+            Hub (<span className="font-mono">resources\programs\Absolem</span>), mas os dados dele
+            em <span className="font-mono">%APPDATA%\absolem</span> são preservados.
           </p>
 
           {gateBlocked && (

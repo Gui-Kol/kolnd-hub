@@ -613,7 +613,7 @@ export function Dashboard({
                 {group.label}
               </h3>
               <span className="tnum rounded-pill border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] text-ink-tertiary">
-                {group.apps.length + (group.category === 'ai' ? 1 : 0)}
+                {group.apps.length}
               </span>
               <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
             </div>

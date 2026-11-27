@@ -108,9 +108,63 @@ function deployKloudGames(): ProgramDeployResult {
   }
 }
 
+/**
+ * Verifica/copia o build do Absolem para resources/programs/Absolem.
+ *
+ * O Absolem é distribuído como o build Electron pronto (win-unpacked), sem
+ * instalador próprio: roda direto de dentro da pasta do Hub e some junto com
+ * ela na desinstalação. Os dados do app ficam em %APPDATA%\absolem.
+ */
+function deployAbsolem(): ProgramDeployResult {
+  const targetDir = join(getProgramsDir(), 'Absolem')
+  const targetExe = join(targetDir, 'Absolem.exe')
+
+  if (existsSync(targetExe)) {
+    return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+  }
+
+  // Mesmo racional do Mark LVII: em dev copia do build local; em produção só
+  // aceita o que veio nos resources embutidos no instalador.
+  const isDev = !app?.isPackaged
+  if (isDev) {
+    const sourceDir = join(getHubBaseDir(), '..', 'Absolem', 'dist', 'win-unpacked')
+    const sourceExe = join(sourceDir, 'Absolem.exe')
+
+    if (existsSync(sourceExe)) {
+      try {
+        logger.info(
+          'programsDeployer',
+          `DEV fallback: copiando Absolem de ${sourceDir} para ${targetDir} (não ocorre em produção)`
+        )
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true })
+        }
+        cpSync(sourceDir, targetDir, { recursive: true })
+        return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          id: 'absolem',
+          name: 'Absolem',
+          installed: false,
+          error: `Falha ao copiar Absolem: ${message}`
+        }
+      }
+    }
+  }
+
+  return {
+    id: 'absolem',
+    name: 'Absolem',
+    installed: false,
+    error: `Executável não encontrado em ${targetExe}. Em produção, o instalador deve embutir este programa em resources/programs/Absolem.`
+  }
+}
+
 /** Verifica/implanta todos os programas do ecossistema. */
 export async function deployPrograms(): Promise<ProgramDeployResult[]> {
-  return [deployMarkLvii(), deployKloudGames()]
+  // Absolem por último para preservar a ordem/índices históricos usados nos testes.
+  return [deployMarkLvii(), deployKloudGames(), deployAbsolem()]
 }
 
 /** Gera um relatório em texto do resultado da implantação. */

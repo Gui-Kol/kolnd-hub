@@ -145,6 +145,22 @@ describe('mergeAppConfigs', () => {
     expect(merged.find((a) => a.id === 'mark-lvi')?.persistLogs).toBe(true)
     expect(merged.find((a) => a.id === 'kloud-games')?.persistLogs).toBeUndefined()
   })
+
+  it('config antiga (só Mark LVII e Kloud Games) ganha o Absolem no merge', () => {
+    const merged = mergeAppConfigs([app({ id: 'mark-lvi' }), app({ id: 'kloud-games' })])
+    const absolem = merged.find((a) => a.id === 'absolem')
+    expect(absolem).toBeDefined()
+    expect(absolem?.name).toBe('Absolem')
+    expect(absolem?.category).toBe('ai')
+    expect(absolem?.command).toBe('Absolem.exe')
+    expect(absolem?.cwd).toBe('resources/programs/Absolem')
+  })
+
+  it('default do Absolem é ferramenta de IA apontando para o build embutido', () => {
+    const absolem = defaultApps.find((a) => a.id === 'absolem')
+    expect(absolem?.category).toBe('ai')
+    expect(absolem?.command).toBe('Absolem.exe')
+  })
 })
 
 describe('parseStartupImportance', () => {

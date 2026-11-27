@@ -285,8 +285,9 @@ As etapas (`firstRunInstaller.ts`, em ordem, todas canceladas/logadas via evento
 
 ```
 check ─► python ─► kloud-games ─► programs ─► finalize
-verificar   winget      MSI embutido   Mark LVII        marca o
-python/pip  --silent    via UAC        e Kloud Games   flag e pronto
+verificar   winget      MSI embutido   Mark LVII,       marca o
+python/pip  --silent    via UAC        Kloud Games      flag e pronto
+                                       e Absolem
 ```
 
 1. **check** — `dependencyChecker.ts` verifica Python e pip (spawnSync `--version`).
@@ -297,7 +298,8 @@ python/pip  --silent    via UAC        e Kloud Games   flag e pronto
    `Start-Process -Verb RunAs`. **Falha aqui não bloqueia o Hub** — o MSI segue
    disponível para instalação manual.
 4. **programs** — `programsDeployer.ts` verifica/implanta o Mark LVII (bundle em
-   `resources/programs/MarkLVII`) e o Kloud Games.
+   `resources/programs/MarkLVII`), o Kloud Games e o Absolem (build Electron em
+   `resources/programs/Absolem`).
 5. **finalize** — grava o flag (`markFirstRunComplete`).
 
 Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para o dashboard.
