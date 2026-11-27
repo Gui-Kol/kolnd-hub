@@ -68,180 +68,77 @@ LizardByte has the full documentation hosted on [Read the Docs](https://docs.liz
     <caption id="gamepad_emulation">Gamepad Emulation</caption>
     <tr>
         <th>Feature</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
-        <td colspan="5" align="center">
+        <td colspan="2" align="center">
         What type of gamepads can be emulated on the host.<br>
         Clients may support other gamepads.
         </td>
     </tr>
     <tr>
         <td>Generic</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>DualShock / DS4 (PlayStation 4)</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>DualSense / DS5 (PlayStation 5)</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Nintendo Switch Pro</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox 360</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox One</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox Series</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
 </table>
 
 > [!NOTE]
-> <sup>1</sup> Missing motion, touchpad input, battery state, RGB LEDs, adaptive triggers, and raw HID output reports.
-> <sup>2</sup> Requires the separately installed and licensed Virtual HID Broker.
-> <sup>3</sup> All profiles are available through the separately installed and licensed Virtual HID Broker. Xbox 360 and DualShock 4 can also use ViGEmBus.
+> <sup>1</sup> All profiles are available through the separately installed and licensed Virtual HID Broker. Xbox 360 and DualShock 4 can also use ViGEmBus.
 
 <table>
     <caption id="encoding_api">Encoding API</caption>
     <tr>
         <th>Encoding API</th>
         <th>GPU Vendor</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
         <td>AMF</td>
         <td>AMD</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>Media Foundation</td>
         <td>Qualcomm</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>NVENC</td>
         <td>NVIDIA</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>QuickSync</td>
         <td>Intel</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
-    </tr>
-    <tr>
-        <td rowspan="3">VAAPI</td>
-        <td>AMD</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NVIDIA</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td rowspan="2">Video Toolbox</td>
-        <td>Apple</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td rowspan="3">Vulkan Video</td>
-        <td>AMD</td>
-        <td>🟡</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>🟡</td>
-        <td>🟡</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NVIDIA</td>
-        <td>➖</td>
-        <td>🟡</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
     <tr>
         <td>Software</td>
         <td>Any</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>✅</td>
         <td>✅</td>
     </tr>
 </table>
@@ -250,87 +147,23 @@ LizardByte has the full documentation hosted on [Read the Docs](https://docs.liz
     <caption id="screen_capture">Screen Capture</caption>
     <tr>
         <th>Capture Method</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
         <td>DXGI Desktop Duplication</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
-    </tr>
-    <tr>
-        <td>KMS/DRM</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NvFBC (X11 only)</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>ScreenCaptureKit</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Wayland (wlroots)</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
     <tr>
         <td>Windows.Graphics.Capture</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>🟡</td>
     </tr>
     <tr>
         <td>&nbsp;&nbsp;↳ Portable</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>&nbsp;&nbsp;↳ Service</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>❌</td>
-    </tr>
-    <tr>
-        <td>X11</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>XDG Desktop Portal</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>KWin Screencast</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
 </table>
 

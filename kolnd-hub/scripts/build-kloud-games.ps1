@@ -13,7 +13,8 @@
 #   7. Verificacao de autenticidade do MSI (informativa - nao bloqueia o build)
 #
 # Re-runnable: everything is idempotent; incremental builds reuse the
-# cmake-build-windows directory.
+# cmake-build-release directory (Release profile: no debug info, no docs, no tests).
+# The development build (cmake-build-windows, RelWithDebInfo + tests) is never touched.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File kolnd-hub\scripts\build-kloud-games.ps1
@@ -34,7 +35,7 @@ $HubRoot   = Split-Path -Parent $PSScriptRoot            # kolnd-hub/
 $RepoRoot  = Split-Path -Parent $HubRoot                 # Kolnd Hub/
 $KGRoot    = Join-Path $RepoRoot 'kloud-games'
 $BundleDir = Join-Path $HubRoot 'resources\programs\kloud-games'
-$BuildDir  = Join-Path $KGRoot 'cmake-build-windows'
+$BuildDir  = Join-Path $KGRoot 'cmake-build-release'
 $PatchDir  = Join-Path $PSScriptRoot 'patches'
 $Msys2     = 'C:\msys64'
 $MsysShell = Join-Path $Msys2 'msys2_shell.cmd'
@@ -225,21 +226,28 @@ if (-not $SkipDeps) {
 }
 
 # ---------------------------------------------------------------
-# 5. Configure (wipe build dir if it was configured with another toolchain)
+# 5. Configure (production profile; wipe build dir if it was configured
+#    with another toolchain or another profile)
 # ---------------------------------------------------------------
-Step 'Configurando o build (cmake/gcc)...'
+Step 'Configurando o build de release (cmake/gcc)...'
 $cache = Join-Path $BuildDir 'CMakeCache.txt'
 if (Test-Path $cache) {
     $cacheContent = Get-Content $cache -Raw
-    if ($cacheContent -notmatch 'g\+\+\.exe') {
-        Write-Host '    cmake-build-windows veio de outro toolchain - apagando para reconfigurar...'
+    $wrongToolchain = $cacheContent -notmatch 'g\+\+\.exe'
+    $wrongProfile = (
+        ($cacheContent -notmatch '(?m)^CMAKE_BUILD_TYPE:STRING=Release\r?$') -or
+        ($cacheContent -notmatch '(?m)^BUILD_DOCS:BOOL=OFF\r?$') -or
+        ($cacheContent -notmatch '(?m)^BUILD_TESTS:BOOL=OFF\r?$')
+    )
+    if ($wrongToolchain -or $wrongProfile) {
+        Write-Host '    cmake-build-release veio de outro toolchain/perfil - apagando para reconfigurar...'
         Remove-Item $BuildDir -Recurse -Force
     }
 }
 
 $kgRootCyg = $KGRoot -replace '\\', '/'
 if ($kgRootCyg -match '^([A-Za-z]):') { $kgRootCyg = '/' + $matches[1].ToLower() + $kgRootCyg.Substring(2) }
-$buildCyg = "$kgRootCyg/cmake-build-windows"
+$buildCyg = "$kgRootCyg/cmake-build-release"
 $nodeCyg = $env:NODEJS_PATH -replace '\\', '/'
 if ($nodeCyg -match '^([A-Za-z]):') { $nodeCyg = '/' + $matches[1].ToLower() + $nodeCyg.Substring(2) }
 
@@ -248,10 +256,14 @@ $shContent = @"
 set -e
 export NODEJS_PATH='$nodeCyg'
 export PATH="`$NODEJS_PATH:`$PATH"
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    echo "ERRO: node/npm nao encontrados no PATH dentro do MSYS2 (configure exige find_program(NPM npm REQUIRED))." >&2
+    exit 1
+fi
 export CC=gcc
 export CXX=g++
 mkdir -p '$buildCyg'
-cmake -B '$buildCyg' -G Ninja -S '$kgRootCyg' -DBUILD_WERROR=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKLOUD_GAMES_ASSETS_DIR=assets -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+cmake -B '$buildCyg' -G Ninja -S '$kgRootCyg' -DBUILD_WERROR=OFF -DCMAKE_BUILD_TYPE=Release -DKLOUD_GAMES_ASSETS_DIR=assets -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 ninja -C '$buildCyg'
 "@
 $shPath = Join-Path $env:TEMP 'kolnd-build-kloud-games.sh'
@@ -275,14 +287,14 @@ $cpackSh = @"
 set -e
 cd '$buildCyg'
 cmake .
-cpack -G WIX --config CPackConfig.cmake
+cpack -G WIX -C Release --config CPackConfig.cmake
 "@
 $cpackPath = Join-Path $env:TEMP 'kolnd-cpack-kloud-games.sh'
 [System.IO.File]::WriteAllText($cpackPath, $cpackSh, (New-Object System.Text.UTF8Encoding($false)))
 $cpackCyg = $cpackPath -replace '\\', '/'
 if ($cpackCyg -match '^([A-Za-z]):') { $cpackCyg = '/' + $matches[1].ToLower() + $cpackCyg.Substring(2) }
 & $MsysShell -defterm -here -no-start -ucrt64 -c "bash '$cpackCyg'"
-if ($LASTEXITCODE -ne 0) { throw 'cpack (WiX) falhou. Veja cmake-build-windows/cpack_artifacts/_CPack_Packages/win64/WIX/wix.log' }
+if ($LASTEXITCODE -ne 0) { throw 'cpack (WiX) falhou. Veja cmake-build-release/cpack_artifacts/_CPack_Packages/win64/WIX/wix.log' }
 
 $msi = Join-Path $BuildDir 'cpack_artifacts\KLOUD_GAMES.msi'
 if (-not (Test-Path $msi)) { throw "MSI nao gerado: $msi" }

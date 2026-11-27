@@ -223,9 +223,7 @@ jobs:
             -DKLOUD_GAMES_PUBLISHER_NAME="LizardByte" \
             -DKLOUD_GAMES_PUBLISHER_WEBSITE="https://app.lizardbyte.dev" \
             -DKLOUD_GAMES_PUBLISHER_ISSUE_URL="https://app.lizardbyte.dev/support"
-          echo "::add-matcher::.github/matchers/gcc.json"
           ninja -C build
-          echo "::remove-matcher owner=gcc::"
 
       - name: Check Windows linkage
         shell: msys2 {0}
