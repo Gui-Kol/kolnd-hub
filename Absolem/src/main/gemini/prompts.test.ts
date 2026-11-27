@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { buildHubOverview } from '../knowledge/hubKnowledge'
 import { PROMPT_VERSION, buildSystemPrompt } from './prompts'
 
 describe('prompt de sistema', () => {
-  it('versão 1.5.0', () => {
-    expect(PROMPT_VERSION).toBe('1.5.0')
-    expect(buildSystemPrompt()).toContain('promptVersion: 1.5.0')
+  it('versão 1.6.0', () => {
+    expect(PROMPT_VERSION).toBe('1.6.0')
+    expect(buildSystemPrompt()).toContain('promptVersion: 1.6.0')
   })
 
   it('responde sempre em português do Brasil, salvo pedido explícito', () => {
@@ -55,5 +56,18 @@ describe('prompt de sistema', () => {
 
     expect(prompt).toContain('- open_url [web.search]')
     expect(prompt).toContain('- open_youtube [web.search]')
+  })
+
+  it('inclui o bloco compacto do Kolnd Hub e a regra do hub_help', () => {
+    const prompt = buildSystemPrompt()
+
+    expect(prompt).toContain(buildHubOverview())
+    expect(prompt).toContain('hub_help')
+    expect(prompt).toContain('nomes exatos das telas')
+    expect(prompt).toContain('não está documentado')
+    expect(prompt).toContain('Não abra telas')
+    expect(prompt).toContain('pedido e confirmação')
+    expect(prompt).toContain('%APPDATA%\\kolnd-hub')
+    expect(prompt).toContain('%APPDATA%\\absolem')
   })
 })

@@ -25,6 +25,7 @@ import {
   type ConfirmationDialogOptions
 } from '../gemini/tools/confirmation'
 import { createInternalTools, type ToolHandler } from '../gemini/tools/internal'
+import { createHubKnowledgeTool } from '../knowledge/hubTool'
 import type { GeminiFunctionCall } from '../gemini/transport'
 import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
@@ -493,9 +494,13 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
 
   const registry = createToolRegistry()
   const handlers = new Map<string, ToolHandler>()
-  // Ferramenta interna da task 05 (hora atual): leitura sem efeito, útil para
-  // provar o loop modelo → ferramenta → modelo sem tocar no computador.
-  for (const entry of createInternalTools({ now: () => new Date() })) {
+  // Ferramentas internas da task 05 (hora atual) e da task 35 (base do Kolnd
+  // Hub): leitura sem efeito, útil para provar o loop modelo → ferramenta →
+  // modelo sem tocar no computador.
+  for (const entry of [
+    ...createInternalTools({ now: () => new Date() }),
+    createHubKnowledgeTool({ env: process.env })
+  ]) {
     const registered = registry.registerTool(entry.definition)
     if (registered.ok) handlers.set(entry.definition.name, entry.handler)
   }
