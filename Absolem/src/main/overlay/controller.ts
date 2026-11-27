@@ -294,13 +294,19 @@ function viewWindowFocus(window: BrowserWindow): void {
  * aplica o layout persistido, registra o atalho, observa monitores, instala o
  * gancho de encerramento e reexibe se a preferência mandar.
  */
-export function initializeOverlay(ctx: IpcContext): void {
+export function initializeOverlay(
+  ctx: IpcContext,
+  options: { hideOnFullscreen?: boolean } = {}
+): void {
   if (initialized) return
   initialized = true
 
   context = ctx
   const config = ctx.getStoreSnapshot().overlay
-  hideOnFullscreen = config.hideOnFullscreen
+  // O harness visual (task 23) desliga o auto-hide para a tela cheia do
+  // ambiente de teste não interromper a captura. Em produção o option não é
+  // passado e a preferência persistida continua mandando.
+  hideOnFullscreen = options.hideOnFullscreen ?? config.hideOnFullscreen
   setOverlayLayout(config)
 
   registerOverlayShortcut(config.shortcut, () => {

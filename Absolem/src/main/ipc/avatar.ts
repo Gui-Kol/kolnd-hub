@@ -103,6 +103,12 @@ export function applyAvatarState(next: AvatarState): void {
   send({ state })
 }
 
+/** Atualiza o nível do avatar a partir do main (harness visual da task 23). */
+export function applyAvatarLevel(next: number): void {
+  level = clampAvatarLevel(next)
+  send({ level })
+}
+
 /** Hook exclusivo de teste: solta a janela e volta ao estado inicial. */
 export function resetAvatarIpcForTests(): void {
   unbind()

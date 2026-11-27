@@ -28,6 +28,7 @@ import {
   showOverlay,
   toggleOverlay
 } from './overlay/controller'
+import { scheduleVisualCapture } from './visual/capture'
 
 // Referência viva obrigatória: o GC do Node destrói o ícone da bandeja se a
 // instância só existir em variável local.
@@ -421,7 +422,12 @@ app.whenReady().then(() => {
   getActionsRuntime()?.setNotifier(showTrayBalloon)
 
   // screen/globalShortcut exigem app pronto: o controlador só nasce aqui.
-  initializeOverlay(ctx)
+  // No harness visual o auto-hide por tela cheia é desligado: o ambiente de
+  // captura pode ter uma janela fullscreen e esconderia o overlay no meio.
+  initializeOverlay(
+    ctx,
+    process.env.ABSOLEM_VISUAL_DIR && !app.isPackaged ? { hideOnFullscreen: false } : {}
+  )
 
   if (isFirstRun()) {
     logger.info('lifecycle', 'firstRun: true')
@@ -440,6 +446,9 @@ app.whenReady().then(() => {
 
   scheduleSmoke()
   scheduleMemorySmoke()
+  // Evidência visual (task 23): só existe com ABSOLEM_VISUAL_DIR e fora do
+  // empacotado. Reaproveita o mesmo showOverlay da bandeja.
+  scheduleVisualCapture(ctx, requestQuit)
 })
 
 if (gotSingleInstanceLock) {
