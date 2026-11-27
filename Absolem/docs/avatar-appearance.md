@@ -141,16 +141,16 @@ Exemplos: `#overlay?look=holo`, `#overlay?look=storybook&debug=1`.
 
 `CaterpillarBuild.parts` expõe grupos estáveis com prefixo `caterpillar-`:
 
-| Chave         | Grupo nesta task                      | Conteúdo futuro        |
-| ------------- | ------------------------------------- | ---------------------- |
-| `body`        | `caterpillar-body`                    | corpo e barriga        |
-| `head`        | `caterpillar-head-group`              | cabeça e rosto         |
-| `face`        | `caterpillar-face` (vazio)            | olhos, boca, expressão |
-| `limbs`       | `caterpillar-limbs` (vazio)           | braços, mãos e pés     |
-| `turban`      | `caterpillar-turban` (vazio)          | turbante e listras     |
-| `pipe`        | `caterpillar-pipe` (vazio)            | cachimbo e mangueira   |
-| `outfit`      | `caterpillar-outfit-<roupa>` ou vazio | roupa herdada          |
-| `accessories` | `caterpillar-accessories`             | acessórios herdados    |
+| Chave         | Grupo nesta task                      | Conteúdo futuro            |
+| ------------- | ------------------------------------- | -------------------------- |
+| `body`        | `caterpillar-body`                    | corpo e barriga            |
+| `head`        | `caterpillar-head-group`              | cabeça e rosto             |
+| `face`        | `caterpillar-face` (vazio)            | olhos, boca, expressão     |
+| `limbs`       | `caterpillar-limbs`                   | braços, mãos, punhos e pés |
+| `turban`      | `caterpillar-turban` (vazio)          | turbante e listras         |
+| `pipe`        | `caterpillar-pipe` (vazio)            | cachimbo e mangueira       |
+| `outfit`      | `caterpillar-outfit-<roupa>` ou vazio | roupa herdada              |
+| `accessories` | `caterpillar-accessories`             | acessórios herdados        |
 
 Na task 15, `parts.body` passou a conter, além dos 9 segmentos, os grupos
 `caterpillar-belly` (placas claras) e `caterpillar-body-detail` (anéis de dobra
@@ -398,3 +398,117 @@ leu as métricas e não registrou erro de console com `?fakeVoice=1`, mas
 `webContents.capturePage()` e `page.screenshot()` expiraram na janela
 transparente do overlay, então não há imagem para declarar comparação visual.
 O enquadramento em 320x360 e 480x560 continua sendo a task 22.
+
+## 11. Task 17 - braços, mãos e pés
+
+Os membros saíram de `parts/limbs.ts`. O compositor continua montando um grupo
+estável por parte; `parts.limbs` deixou de nascer vazio e passou a conter duas
+mãos, dois braços, dois punhos e quatro pés. Nenhum membro é animado nesta task:
+os grupos ficam prontos para a task 20. Nenhuma imagem, textura ou modelo externo
+entrou no aplicativo; a referência de 1951 guiou só proporções e pose.
+
+### 11.1 Mãos
+
+| Elemento  | Regra na task 17                                                         |
+| --------- | ------------------------------------------------------------------------ |
+| Unidade   | `h = 0,22 R`; a palma tem cerca de 2,5 `h` de largura                    |
+| Palma     | Esfera achatada em Z, material `hand`, nó `caterpillar-hand`             |
+| Dedos     | 3 cápsulas (`CapsuleGeometry`, 4/5) com material `hand`                  |
+| Garras    | 3 cones na ponta dos dedos, material `claw`                              |
+| Aperto    | Esquerda 0,16 rad (aberta); direita 1,02 rad (levemente fechada)         |
+| `minimal` | 2 dedos por mão e nenhuma garra                                          |
+| Nomes     | `caterpillar-hand-left/right`, `-finger-N`, `-finger-N-shaft`, `-claw-N` |
+
+Cada mão é um `Group` próprio (`hands: Group[]` em `CaterpillarBuild`) com o
+pivô no punho. A direita fica na altura da boca para receber o cachimbo da task
+18; a esquerda fica aberta, com a palma de frente e os dedos caídos sobre a
+barriga.
+
+### 11.2 Braços e punhos
+
+| Elemento | Regra na task 17                                              |
+| -------- | ------------------------------------------------------------- |
+| Curva    | `CatmullRomCurve3` de `shoulder*` até `hand*`, tensão 0,45    |
+| Tubo     | Malha manual com quadro de Frenet, 16 anéis por 6 radiais     |
+| Raio     | Decrescente de 0,16 R no ombro para 0,085 R no punho          |
+| Material | Braço em `hand`; punho `TorusGeometry` fino em `sleeve`       |
+| Nomes    | `caterpillar-arm-left/right` e `caterpillar-wrist-left/right` |
+| Esquerdo | Desce pela lateral e termina sobre a barriga                  |
+| Direito  | Sobe pela lateral do rosto e termina acima da linha do ombro  |
+
+O tubo não usa `TubeGeometry` porque ele só aceita raio constante; a geração
+manual evita `BufferGeometryUtils` e qualquer addon novo. O primeiro ponto da
+curva fica dentro do tronco, como um encaixe de ombro, e a curva sai para a
+lateral antes de descer ou subir. O teste de folga amostra a curva e exige que
+o centro do braço fique fora dos elipsoides do corpo inflados pelo raio do tubo
+mais 0,02.
+
+As âncoras de `skeleton.ts` foram ajustadas: `handLeft = (-1,05, -1,35, 1,92)`
+e `handRight = (1,45, 2,50, 1,55)`, ainda em múltiplos do raio. As duas mantêm
+`z > bellyCenter.z`, como o teste de esqueleto exige.
+
+### 11.3 Pés
+
+| Elemento   | Regra na task 17                                                    |
+| ---------- | ------------------------------------------------------------------- |
+| Quantidade | 4: dois traseiros e dois dianteiros                                 |
+| Sapato     | Esfera achatada, escala (1; 0,6; 1,5), raio 0,22 R, material `hand` |
+| Ponta      | Arco de toro enrolado (`claw`) na frente do sapato                  |
+| Apoio      | Fundo do sapato em `stats.bodyBaseY`, tolerância 0,02               |
+| Largura    | Caixa de cada pé dentro da caixa do primeiro segmento (quadril)     |
+| Nomes      | `caterpillar-foot-back-left/right` e `-front-left/right`            |
+| `minimal`  | Sem a garra enrolada; o sapato permanece                            |
+
+A altura do grupo é `bodyBaseY + 0,6 * raio do pé`, então a sola coincide com a
+linha de apoio do corpo. Os pés usam X e Z das âncoras `foot*`; o Y da âncora
+não é usado para não duplicar a conta da base.
+
+### 11.4 Contrato, degradação e descarte
+
+- `CaterpillarBuild` ganhou `hands: Group[]` e `feet: Group[]`; `parts.limbs`
+  contém os quatro grupos de pé e as duas mãos.
+- `parts-contract.test.ts` passou a exigir `parts.limbs` com filhos e a aceitar
+  `face`, `turban` e `pipe` ainda vazios. Os campos legados continuam válidos.
+- `createPartDispose` libera as geometrias dos membros uma única vez; o
+  `dispose` do compositor é idempotente e o rebuild troca a instância de
+  `parts.limbs`.
+- `minimal` reduz a 2 dedos por mão e remove as garras das mãos e dos pés.
+- A cena não mudou: nenhum gesto, rotação ou `facePose` novo. A task 20 pode
+  animar `hands`, `feet` e os grupos de dedos sem tocar no compositor.
+
+### 11.5 Medições da task 17
+
+Medido no binário buildado, com a cena real em WebGL, canvas 640x720, acabamento
+`storybook`, seed padrão e `?debug=1`:
+
+| Recurso    | Limite / meta | Medido na task 17 | Observação                                      |
+| ---------- | ------------- | ----------------- | ----------------------------------------------- |
+| Triângulos | 24000         | 12608             | abaixo do teto                                  |
+| Draw calls | 24 (task 14)  | 69                | 26 membros + 43 herdados da task 16             |
+| FPS        | 60            | 165               | máquina de desenvolvimento                      |
+| Degradação | 0 a 3         | 0                 | `minimal` mediu 53 draw calls e 9376 triângulos |
+
+O teto de triângulos continua verde. O orçamento de draw calls **não** foi
+cumprido: a task 16 já tinha 43 e os membros acrescentaram 26 (14 de mãos, 2
+braços, 2 punhos e 8 de pés). Cada dedo, garra e sapato é um nó próprio para a
+task 20 e para os nomes pedidos na task 17. A mesclagem por mão/grupo continua
+obrigatória nas tasks 19/23, junto com a otimização já aprovada para o rosto.
+**Desvio aprovado pelo usuário em 27/11/2026:** a task 17 segue com 69 draw
+calls documentados, e a mesclagem controlada permanece obrigatória nas tasks
+19/23. Não há declaração de orçamento cumprido.
+
+### 11.6 Checklist manual da task 17
+
+A captura foi feita em 480x560 pelo harness Playwright na janela opaca de
+Configurações, porque a janela transparente do overlay continua expirando no
+`page.screenshot()` (mesma limitação registrada na task 16). A imagem confirma:
+
+- mãos rosadas com garras claras; a direita erguida perto da boca e a esquerda
+  aberta sobre a barriga;
+- quatro pés rosados apoiados na base, dois traseiros e dois dianteiros;
+- braços saindo pela lateral, sem atravessar o tronco;
+- nenhuma dependência nova, nenhum asset externo e nenhuma imagem de referência
+  embutida.
+
+O enquadramento final em 320x360, a comparação lado a lado com a referência e a
+otimização de draw calls continuam nas tasks 22, 23 e 19.

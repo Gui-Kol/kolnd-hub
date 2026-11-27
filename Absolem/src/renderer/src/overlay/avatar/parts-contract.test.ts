@@ -55,7 +55,9 @@ describe('contrato de partes', () => {
         ...build.mandibles,
         ...build.brows,
         ...build.mouthCorners,
-        ...build.nostrils
+        ...build.nostrils,
+        ...build.hands,
+        ...build.feet
       ]
       if (build.outfit) legacy.push(build.outfit)
 
@@ -63,7 +65,10 @@ describe('contrato de partes', () => {
         expect(nodes.has(node)).toBe(true)
       }
 
-      for (const name of ['face', 'limbs', 'turban', 'pipe'] as const) {
+      // Na task 17 `limbs` deixou de nascer vazio: mãos, braços, punhos e pés
+      // vivem nele. Face, turbante e cachimbo continuam reservados.
+      expect(build.parts.limbs.children.length).toBeGreaterThan(0)
+      for (const name of ['face', 'turban', 'pipe'] as const) {
         expect(build.parts[name].children).toHaveLength(0)
       }
     } finally {

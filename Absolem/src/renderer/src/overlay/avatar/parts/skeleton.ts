@@ -24,8 +24,10 @@ export const SKELETON = {
   shoulderLeft: new Vector3(-0.95, 1.55, 0.08),
   shoulderRight: new Vector3(0.95, 1.55, 0.08),
   head: new Vector3(0.45, 3.6, -0.28),
-  handLeft: new Vector3(-1.15, -0.25, 1.25),
-  handRight: new Vector3(1.15, -0.25, 1.25),
+  // Mão esquerda aberta sobre a barriga; direita erguida perto da boca para
+  // receber o cachimbo da task 18. Ambas ficam à frente do abdômen.
+  handLeft: new Vector3(-1.05, -1.35, 1.92),
+  handRight: new Vector3(1.45, 2.5, 1.55),
   footBackLeft: new Vector3(-1.05, -4.0, 0.35),
   footBackRight: new Vector3(1.05, -4.0, 0.35),
   footFrontLeft: new Vector3(-0.5, -4.0, 1.1),
