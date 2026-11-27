@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GeminiConfig } from '../../../shared/config'
 import type { GeminiTestKeyOutcome } from '../../../shared/gemini'
-import { KeyTab, type KeyTabApi } from './KeyTab'
+import { KeyTab, decreaseMonthlyCap, type KeyTabApi } from './KeyTab'
 
 const reactGlobal = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 reactGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -16,6 +16,8 @@ function makeApi(
     configured?: boolean
     percent?: number
     testOutcome?: GeminiTestKeyOutcome
+    cap?: number
+    monthlyTokenCap?: number
   } = {}
 ): {
   api: KeyTabApi
@@ -25,6 +27,8 @@ function makeApi(
   setGeminiConfig: ReturnType<typeof vi.fn>
 } {
   const configured = options.configured ?? true
+  const cap = options.cap ?? 100
+  const monthlyTokenCap = options.monthlyTokenCap ?? 2_000_000
   const setKey = vi.fn(async () => ({ ok: true as const }))
   const clearKey = vi.fn(async () => ({ ok: true as const }))
   const testKey = vi.fn(async () => ({
@@ -50,7 +54,7 @@ function makeApi(
         usage: {
           today: 0,
           month: 80,
-          cap: 100,
+          cap,
           percent: options.percent ?? 80
         }
       }
@@ -64,7 +68,7 @@ function makeApi(
       value: {
         model: 'gemini-2.0-flash',
         temperature: 0.7,
-        monthlyTokenCap: 2_000_000
+        monthlyTokenCap
       } satisfies GeminiConfig
     })),
     setGeminiConfig
@@ -205,5 +209,50 @@ describe('aba Chave e custo', () => {
     await settle()
 
     expect(clearKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('diminuir teto salva metade e mostra aviso', async () => {
+    const { api, setGeminiConfig } = makeApi({ cap: 2_000_000, monthlyTokenCap: 2_000_000 })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      button(container, 'Diminuir teto').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+
+    expect(setGeminiConfig).toHaveBeenCalledWith({
+      model: 'gemini-2.0-flash',
+      temperature: 0.7,
+      monthlyTokenCap: 1_000_000
+    })
+    expect(container.textContent).toContain('Teto mensal reduzido para 1.000.000 tokens.')
+  })
+
+  it('diminuir teto fica desabilitado no piso', async () => {
+    const { api } = makeApi({ cap: 100_000, monthlyTokenCap: 100_000 })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    expect(button(container, 'Diminuir teto').disabled).toBe(true)
+  })
+})
+
+describe('decreaseMonthlyCap', () => {
+  it('divide pela metade', () => {
+    expect(decreaseMonthlyCap(2_000_000)).toBe(1_000_000)
+  })
+
+  it('respeita o piso', () => {
+    expect(decreaseMonthlyCap(150_000)).toBe(100_000)
+    expect(decreaseMonthlyCap(100_000)).toBe(100_000)
+  })
+
+  it('valor não finito cai no piso', () => {
+    expect(decreaseMonthlyCap(Number.NaN)).toBe(100_000)
   })
 })

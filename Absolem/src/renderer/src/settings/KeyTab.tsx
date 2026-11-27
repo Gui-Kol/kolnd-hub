@@ -40,6 +40,18 @@ function defaultApi(): KeyTabApi {
   }
 }
 
+/** Piso do teto mensal ao reduzir pela interface (tokens). */
+export const MIN_MONTHLY_TOKEN_CAP = 100_000
+
+/**
+ * Próximo teto ao diminuir: metade do atual arredondada para baixo, nunca
+ * abaixo do piso. Valor não finito cai no piso.
+ */
+export function decreaseMonthlyCap(current: number, min: number = MIN_MONTHLY_TOKEN_CAP): number {
+  if (!Number.isFinite(current)) return min
+  return Math.max(min, Math.floor(current / 2))
+}
+
 function readGeminiConfig(value: unknown): GeminiConfig {
   const raw =
     value && typeof value === 'object' && !Array.isArray(value)
@@ -186,8 +198,23 @@ export function KeyTab({ api }: KeyTabProps) {
     await reload()
   }
 
+  async function decreaseCap(): Promise<void> {
+    const current = status?.usage.cap ?? config.monthlyTokenCap
+    const nextCap = decreaseMonthlyCap(current)
+    const next: GeminiConfig = { ...config, monthlyTokenCap: nextCap }
+    const result = await client.setGeminiConfig(next)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setConfig(next)
+    setNotice(`Teto mensal reduzido para ${nextCap.toLocaleString('pt-BR')} tokens.`)
+    await reload()
+  }
+
   const usage = status?.usage
   const percent = usage?.percent ?? 0
+  const capNow = usage?.cap ?? config.monthlyTokenCap
 
   return (
     <section aria-labelledby="key-title" className="flex flex-col gap-6">
@@ -361,15 +388,27 @@ export function KeyTab({ api }: KeyTabProps) {
             evitar o bloqueio em 100%.
           </p>
         ) : null}
-        <button
-          type="button"
-          onClick={() => {
-            void increaseCap()
-          }}
-          className="self-start rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
-        >
-          Aumentar teto
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void increaseCap()
+            }}
+            className="self-start rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary"
+          >
+            Aumentar teto
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void decreaseCap()
+            }}
+            disabled={capNow <= MIN_MONTHLY_TOKEN_CAP}
+            className="self-start rounded border border-surface-2 px-3 py-1.5 text-xs text-ink-secondary hover:border-accent hover:text-ink-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Diminuir teto
+          </button>
+        </div>
       </section>
     </section>
   )
