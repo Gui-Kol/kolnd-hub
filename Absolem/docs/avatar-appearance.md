@@ -790,3 +790,129 @@ troca de look ao vivo) e checklist manual da task ficam como pendência de
 máquina/humano; não há captura confiável neste ambiente (janela transparente
 sem `page.screenshot()`, GPU real indisponível) e nenhum número de fps foi
 inventado. `smokeStrength` continua para a task 20.
+
+## 14. Task 20 - expressões, repouso e lip-sync
+
+Escopo de comportamento de animação: canais de expressão, pálpebra, sobrancelha,
+olhar, sorriso, respiração, baforada e lip-sync com mandíbula e lábios. Nenhuma
+geometria, partícula, textura ou dependência nova. `AvatarState`, canais de voz,
+`holoMaterial`, `ThemeConfig`, `store`, IPC, UI, presets e `palettes.ts` não
+mudaram. `expressions.test.ts` e `lipSync.test.ts` continuam com o mesmo
+conteúdo e verdes.
+
+### 14.1 Canais de expressão
+
+`ExpressionTargets` em `expressions.ts` manteve os nove canais antigos
+(`eyeOpenness`, `antennaLift`, `headTilt`, `mouthOpen`, `particleSpeed`, `pulse`,
+`sway`, `alert`, `aura`) e ganhou sete:
+
+| Canal           | Faixa | Uso nesta task                                      |
+| --------------- | ----- | --------------------------------------------------- |
+| `lidDroop`      | 0..1  | peso da pálpebra superior somado à piscada          |
+| `browRaise`     | 0..1  | elevação da sobrancelha em atenção                  |
+| `browFurrow`    | 0..1  | franzido da sobrancelha em erro                     |
+| `smile`         | 0..1  | canto da boca para cima, visível com a boca fechada |
+| `breathe`       | 0..1  | amplitude da respiração (ritmo de 0.25 Hz na cena)  |
+| `lookAside`     | -1..1 | desvio lateral das pupilas                          |
+| `smokeStrength` | 0..1  | força da baforada do cachimbo                       |
+
+Os cinco alvos ficaram assim (números exatos em `EXPRESSION_TARGETS`):
+
+| Estado      | Leitura principal                                           |
+| ----------- | ----------------------------------------------------------- |
+| `idle`      | sonolento: `lidDroop` 0.6, `smile` 0.5, `breathe` 0.5       |
+| `listening` | atento: `lidDroop` 0, `browRaise` 0.4, `lookAside` 0        |
+| `speaking`  | articulando: `lidDroop` 0.3, `smile` 0.6, `smokeStrength` 0 |
+| `thinking`  | desviado: `lidDroop` 0.75, `lookAside` 0.7, `browRaise` 0.2 |
+| `error`     | franzido: `browFurrow` 1, `smile` 0, `lidDroop` 0.2         |
+
+`antennaLift` continua existindo e agora move o pingente do turbante
+(`turbanTassel`); as antenas seguem no contrato, escondidas sob o pano. O canal
+`alert` continua apenas no contorno/aura e na cor de alerta do shader, nunca na
+cor do corpo.
+
+### 14.2 Pálpebra calculada no motor
+
+O motor continua com interpolação exponencial (`1 - exp(-step/tau)`), teto de
+delta de 50 ms e piscada de 4-7 s fora de `speaking`. A novidade é a leitura
+final `ExpressionFrame.lidClosure`, calculada uma única vez no motor:
+
+```
+droopKeep = 1 - lidDroop * LID_DROOP_OPEN_FACTOR   (fator 0.6)
+lidClosure = 1 - eyeOpenness * blink * droopKeep     (limitado a 0..1)
+```
+
+Em `idle` converge para cerca de 0.42 de cobertura; em `listening` fica em 0; a
+piscada leva a 1 no meio dos 160 ms. A cena não multiplica `blink`,
+`eyeOpenness` e `lidDroop` de novo.
+
+### 14.3 Mapeamento para os nós
+
+`expressionMapping.ts` é puro (sem import de three) e escreve valores absolutos
+a partir de uma pose base capturada no build/rebuild. As constantes principais:
+
+| Nó                       | Regra aplicada                                            |
+| ------------------------ | --------------------------------------------------------- |
+| `lids[i]`                | rotação aberta + `lidClosure` x curso calibrado (pi)      |
+| `brows[i]`               | `position.y` + `browRaise`; `rotation.z` oposta em furrow |
+| `pupils[i]`              | `position.x/z` + `lookAside`                              |
+| `jaw`                    | `rotation.x` = `mouthOpen` x 1 rad                        |
+| `mouthCorners[i]`        | `position.y` + `smile`                                    |
+| `mouth`                  | `scale.x` de 0.9 a 1.2 conforme `mouthWidth`              |
+| `upperLip`               | `scale.y` reduzido com `mouthWidth` (achatamento)         |
+| `parts.body`             | escala uniforme `1 + breathe * 0.012`                     |
+| `turbanTassel`           | `rotation.z` deslocada por `antennaLift`                  |
+| `caterpillar.root.scale` | intocado (a escala continua sendo do tema)                |
+
+O curso da pálpebra usa a calibração da task 16 (`EYELID_OPEN_ROTATION` a
+`EYELID_CLOSED_ROTATION`, pi radianos) em vez do valor literal `1.1` citado no
+plano: a calota é um pivô com repouso em `-pi/2`, e trocar o curso quebraria a
+leitura e os testes de `facePose`. A posição base fica guardada em arrays
+recapturados no rebuild; aplicar o mesmo frame duas vezes devolve o mesmo
+resultado. Canais sem nó (listas vazias ou `null`) são ignorados sem erro.
+
+### 14.4 Lip-sync e repouso
+
+`mouthOpen` abre a mandíbula (o `jaw` leva o lábio inferior e a língua) e separa
+os lábios; `mouthWidth` alarga a boca e achata o lábio superior; `smile` mantém
+o canto levantado com a boca fechada. Em `listening` a amplitude continua indo
+para a aura e não move a boca. Em `speaking` a baforada vai a 0 imediatamente.
+
+`restMotion.ts` concentra o repouso puro: sway lateral de 0.03, corpo com sway
+secundário menor, micro-movimento de cabeça, respiração a 0.25 Hz e baforada
+0.25 em `idle` / 0.6 em `thinking` / 0 em `speaking`. `reducedMotion` zera sway,
+respiração, micro-movimento e baforada, mas a piscada e a troca de estado
+continuam (o motor de expressões não consulta `reducedMotion`).
+
+O caminho de frame reutiliza o rig, a base e o objeto de canais criados no
+build; `applyExpressionFrame` escreve direto nos `Vector3` dos nós. O motor
+continua devolvendo um objeto `ExpressionFrame` por `update` (contrato herdado),
+mas a cena não cria vetores, arrays nem nós por frame.
+
+### 14.5 Testes e medição honesta
+
+Testes novos:
+
+| Arquivo                       | Cobertura                                                 |
+| ----------------------------- | --------------------------------------------------------- |
+| `expressions-targets.test.ts` | faixas dos canais, assinatura dos cinco estados, droop    |
+| `expressions-blink.test.ts`   | cobertura em idle, piscada em 160 ms, speaking sem piscar |
+| `expressionMapping.test.ts`   | idempotência, canal sem nó, jaw, listening, smoke         |
+| `restMotion.test.ts`          | reduced motion, fala sem baforada, 0.25 Hz, reuso de nós  |
+
+`expressions.test.ts`, `lipSync.test.ts`, `facePose.test.ts`,
+`parts-contract.test.ts` e `holoMaterial.test.ts` continuam verdes sem edição.
+
+Baseline honesta: task 18 mediu 80 draw calls / 15.056 triângulos / 165 fps no
+overlay 320x360; a task 19 acrescentou o contorno e registrou medição analítica
+de cerca de 135 meshes / 24.488 triângulos no `storybook`, com a leitura real de
+`?debug=1` ainda pendente. Esta task não adiciona geometria nem partículas e
+**não** declara o orçamento de 24 draw calls cumprido; a mesclagem continua
+sendo task 23. Nenhum fps novo foi medido nesta máquina.
+
+Pendência manual honesta da task 20: rodar a matriz dos cinco estados com
+`?look=storybook&fakeVoice=1`, registrar uma captura por estado, conferir que
+`error` muda contorno/aura e não a cor do corpo, ler `getMetrics()` com
+`?debug=1` e medir fps em idle e speaking >= 45 na máquina de referência. A
+janela transparente do overlay continua sem captura confiável neste ambiente,
+então não há imagem nem número de fps inventado.

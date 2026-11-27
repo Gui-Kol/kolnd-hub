@@ -19,7 +19,8 @@ import { buildCaterpillar } from './caterpillar'
 import type { CaterpillarBuild, CaterpillarOutfit, CaterpillarStyle } from './caterpillar'
 import { resolveCaterpillarOutfit, resolveCaterpillarStyle } from './caterpillar'
 import { createExpressionEngine } from './expressions'
-import { applyFacePose } from './facePose'
+import { applyExpressionFrame, createExpressionBase } from './expressionMapping'
+import type { ExpressionBasePose, ExpressionChannels, ExpressionRig } from './expressionMapping'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
 import { createHoloMaterial } from './holoMaterial'
 import type { AvatarLook } from './looks'
@@ -45,7 +46,15 @@ import {
   removeOutlines
 } from './outline'
 import type { OutlineHandle } from './outline'
+import { EYELID_OPEN_ROTATION } from './parts/head'
 import { createParticles, PARTICLE_MAX } from './particles'
+import {
+  bodySway,
+  breatheAmount,
+  headMicroTilt,
+  restSway,
+  smokeStrengthForState
+} from './restMotion'
 import { createPerfMonitor } from './perf'
 import type { DegradationStep } from './perf'
 import type { ParticleSystem } from './particles'
@@ -260,6 +269,22 @@ export function createAvatarScene(
   caterpillar.root.updateWorldMatrix(true, true)
   applyOutlines({ includeSmall: true })
 
+  // Pose base do rosto capturada uma vez por build; o laço escreve valores
+  // absolutos a partir dela, sem acumular deslocamento frame a frame.
+  let expressionRig = captureExpressionRig(caterpillar)
+  let expressionBase = captureExpressionBase(expressionRig)
+  const expressionChannels: ExpressionChannels = {
+    lidClosure: 0,
+    browRaise: 0,
+    browFurrow: 0,
+    lookAside: 0,
+    mouthOpen: 0,
+    mouthWidth: 0.5,
+    smile: 0,
+    breathe: 0,
+    antennaLift: 0
+  }
+
   const particles: ParticleSystem = createParticles({
     // Capacidade máxima: a troca de densidade do tema só muda o draw range,
     // sem realocar buffers nem recriar a cena.
@@ -296,6 +321,29 @@ export function createAvatarScene(
   let pixelRatioCap = Math.min(options.pixelRatioCap ?? window.devicePixelRatio ?? 1, 2)
   let slowTimer: ReturnType<typeof setInterval> | null = null
 
+  /** Referências mutáveis dos nós animados; listas vazias são aceitas. */
+  function captureExpressionRig(build: CaterpillarBuild): ExpressionRig {
+    return {
+      lids: build.lids,
+      brows: build.brows,
+      pupils: build.pupils,
+      mouthCorners: build.mouthCorners,
+      jaw: build.jaw,
+      mouth: build.mouth,
+      upperLip: build.mouth.getObjectByName('caterpillar-lip-upper') ?? null,
+      body: build.body,
+      turbanTassel: build.turbanTassel
+    }
+  }
+
+  function captureExpressionBase(rig: ExpressionRig): ExpressionBasePose {
+    const base = createExpressionBase(rig)
+    // A pálpebra nasce na rotação de repouso; o mapa parte da pose aberta e
+    // soma o curso até a fechada.
+    for (const lid of base.lids) lid.rotation.x = EYELID_OPEN_ROTATION
+    return base
+  }
+
   /**
    * Reconstrução parcial: só a malha da lagarta (estilo/roupa/acessórios). O
    * renderer, a câmera, os materiais, as partículas e o loop continuam os
@@ -330,6 +378,9 @@ export function createAvatarScene(
     caterpillar.dispose()
     caterpillar = next
     root.add(caterpillar.root)
+    // A pose base é recapturada no rebuild; nenhuma posição antiga vaza.
+    expressionRig = captureExpressionRig(caterpillar)
+    expressionBase = captureExpressionBase(expressionRig)
     // A baforada não é essencial: no modo mínimo ela não é desenhada, mesmo
     // que `prefers-reduced-motion` esteja desligado.
     caterpillar.smoke.setReducedMotion(reducedMotion || minimal)
@@ -412,10 +463,28 @@ export function createAvatarScene(
 
       // As expressões só se movem quando há tempo de animação; `reducedMotion`
       // congela o sway sem impedir a troca de estado.
-      caterpillar.root.rotation.y = Math.sin(motionTime * 0.45) * 0.07 * expression.sway
-      caterpillar.root.rotation.z = expression.headTilt * (reducedMotion ? 0 : 1)
-      caterpillar.body.rotation.z = Math.sin(motionTime * 0.8) * 0.025 * expression.sway
-      applyFacePose(caterpillar, expression, lip)
+      caterpillar.root.rotation.y = restSway(motionTime, expression.sway, reducedMotion)
+      caterpillar.root.rotation.z =
+        expression.headTilt * (reducedMotion ? 0 : 1) + headMicroTilt(motionTime, reducedMotion)
+      caterpillar.body.rotation.z = bodySway(motionTime, expression.sway, reducedMotion)
+
+      expressionChannels.lidClosure = expression.lidClosure
+      expressionChannels.browRaise = expression.browRaise
+      expressionChannels.browFurrow = expression.browFurrow
+      expressionChannels.lookAside = expression.lookAside
+      expressionChannels.mouthOpen = lip.mouthOpen
+      expressionChannels.mouthWidth = lip.mouthWidth
+      expressionChannels.smile = expression.smile
+      expressionChannels.breathe = breatheAmount(expression.breathe, motionTime, reducedMotion)
+      expressionChannels.antennaLift = expression.antennaLift
+      applyExpressionFrame(expressionRig, expressionBase, expressionChannels)
+
+      // A fala interrompe a baforada; em repouso ela sobe devagar e em
+      // `thinking` fica mais forte, como na referência.
+      caterpillar.smoke.setStrength(
+        smokeStrengthForState(state, expression.smokeStrength, reducedMotion)
+      )
+      caterpillar.smoke.update(motionTime)
 
       blendedColor.copy(primaryColor).lerp(errorColor, expression.alert)
       ;(holoMaterial.uniforms.uColor.value as Color).copy(blendedColor)

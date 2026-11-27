@@ -21,11 +21,31 @@ export interface ExpressionTargets {
   sway: number
   alert: number
   aura: number
+  /** 0..1: peso da pálpebra superior somado à piscada. */
+  lidDroop: number
+  /** 0..1: elevação da sobrancelha (atenção). */
+  browRaise: number
+  /** 0..1: franzido da sobrancelha (erro). */
+  browFurrow: number
+  /** 0..1: canto da boca para cima em repouso e ao falar. */
+  smile: number
+  /** 0..1: amplitude da respiração (o ritmo de 0.25 Hz fica na cena). */
+  breathe: number
+  /** -1..1: desvio lateral das pupilas (negativo para a esquerda). */
+  lookAside: number
+  /** 0..1: força da baforada do cachimbo. */
+  smokeStrength: number
 }
 
 export interface ExpressionFrame extends ExpressionTargets {
   /** 1 = olho aberto, 0 = fechado pela piscada. */
   blink: number
+  /**
+   * Leitura final da pálpebra (0 = aberta, 1 = cobrindo o olho). Combina a
+   * piscada, a abertura do estado e `lidDroop` numa única conta do motor, para
+   * que a cena não multiplique os três fatores de novo.
+   */
+  lidClosure: number
   /** Tempo acumulado do motor (segundos), útil para pulso/partículas. */
   time: number
 }
@@ -36,6 +56,12 @@ export const ERROR_RETURN_SECONDS = 2.5
 export const BLINK_DURATION_SECONDS = 0.16
 export const BLINK_MIN_INTERVAL_SECONDS = 4
 export const BLINK_MAX_INTERVAL_SECONDS = 7
+/**
+ * Quanto da abertura ocular o peso da pálpebra conserva no máximo. Em `idle`
+ * (droop 0.6) a pálpebra cobre cerca de 42% do olho; em `listening` (droop 0)
+ * a abertura é total.
+ */
+export const LID_DROOP_OPEN_FACTOR = 0.6
 
 export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
   idle: {
@@ -47,7 +73,14 @@ export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
     pulse: 0.15,
     sway: 1,
     alert: 0,
-    aura: 0.12
+    aura: 0.12,
+    lidDroop: 0.6,
+    browRaise: 0.08,
+    browFurrow: 0,
+    smile: 0.5,
+    breathe: 0.5,
+    lookAside: 0,
+    smokeStrength: 0.25
   },
   listening: {
     eyeOpenness: 1,
@@ -58,7 +91,14 @@ export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
     pulse: 0.38,
     sway: 0.6,
     alert: 0,
-    aura: 0.62
+    aura: 0.62,
+    lidDroop: 0,
+    browRaise: 0.4,
+    browFurrow: 0,
+    smile: 0.3,
+    breathe: 0.35,
+    lookAside: 0,
+    smokeStrength: 0.15
   },
   speaking: {
     eyeOpenness: 0.88,
@@ -69,7 +109,14 @@ export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
     pulse: 0.5,
     sway: 0.8,
     alert: 0,
-    aura: 0.38
+    aura: 0.38,
+    lidDroop: 0.3,
+    browRaise: 0.12,
+    browFurrow: 0,
+    smile: 0.6,
+    breathe: 0.7,
+    lookAside: 0,
+    smokeStrength: 0
   },
   thinking: {
     eyeOpenness: 0.42,
@@ -80,7 +127,14 @@ export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
     pulse: 0.24,
     sway: 0.4,
     alert: 0,
-    aura: 0.3
+    aura: 0.3,
+    lidDroop: 0.75,
+    browRaise: 0.2,
+    browFurrow: 0.1,
+    smile: 0.15,
+    breathe: 0.3,
+    lookAside: 0.7,
+    smokeStrength: 0.6
   },
   error: {
     eyeOpenness: 0.68,
@@ -91,7 +145,14 @@ export const EXPRESSION_TARGETS: Record<AvatarState, ExpressionTargets> = {
     pulse: 0.85,
     sway: 0.5,
     alert: 1,
-    aura: 0.85
+    aura: 0.85,
+    lidDroop: 0.2,
+    browRaise: 0,
+    browFurrow: 1,
+    smile: 0,
+    breathe: 0.2,
+    lookAside: 0,
+    smokeStrength: 0.1
   }
 }
 
@@ -117,11 +178,22 @@ const TARGET_KEYS = [
   'pulse',
   'sway',
   'alert',
-  'aura'
+  'aura',
+  'lidDroop',
+  'browRaise',
+  'browFurrow',
+  'smile',
+  'breathe',
+  'lookAside',
+  'smokeStrength'
 ] as const
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value))
+}
+
+function clampSigned(value: number): number {
+  return Math.min(1, Math.max(-1, value))
 }
 
 function copyTargets(source: ExpressionTargets): ExpressionTargets {
@@ -134,7 +206,14 @@ function copyTargets(source: ExpressionTargets): ExpressionTargets {
     pulse: source.pulse,
     sway: source.sway,
     alert: source.alert,
-    aura: source.aura
+    aura: source.aura,
+    lidDroop: source.lidDroop,
+    browRaise: source.browRaise,
+    browFurrow: source.browFurrow,
+    smile: source.smile,
+    breathe: source.breathe,
+    lookAside: source.lookAside,
+    smokeStrength: source.smokeStrength
   }
 }
 
@@ -213,9 +292,14 @@ export function createExpressionEngine(options: ExpressionEngineOptions = {}): E
 
       const blink = updateBlink(step)
       const pulse = current.pulse * (0.5 + 0.5 * Math.sin((elapsed * Math.PI * 2) / 2.4))
+      // Uma única leitura: o estado abre, a piscada fecha e o peso da pálpebra
+      // reduz a abertura. A cena consome `lidClosure` sem refazer a conta.
+      const droopKeep = 1 - clamp01(current.lidDroop) * LID_DROOP_OPEN_FACTOR
+      const lidClosure = clamp01(1 - clamp01(current.eyeOpenness * blink * droopKeep))
 
       return {
         eyeOpenness: clamp01(current.eyeOpenness * blink),
+        lidClosure,
         antennaLift: clamp01(current.antennaLift),
         headTilt: current.headTilt,
         mouthOpen: clamp01(current.mouthOpen),
@@ -224,6 +308,13 @@ export function createExpressionEngine(options: ExpressionEngineOptions = {}): E
         sway: Math.max(0, current.sway),
         alert: clamp01(current.alert),
         aura: clamp01(current.aura),
+        lidDroop: clamp01(current.lidDroop),
+        browRaise: clamp01(current.browRaise),
+        browFurrow: clamp01(current.browFurrow),
+        smile: clamp01(current.smile),
+        breathe: clamp01(current.breathe),
+        lookAside: clampSigned(current.lookAside),
+        smokeStrength: clamp01(current.smokeStrength),
         blink,
         time: elapsed
       }
