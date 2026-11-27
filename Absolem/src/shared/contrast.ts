@@ -118,3 +118,64 @@ export function clampBodyAlpha(input: number): number {
   const value = Number.isFinite(input) ? input : 0
   return Math.min(1, Math.max(MIN_BODY_ALPHA, value))
 }
+
+/** Cores do tema v2 que recebem aviso de contraste (não bloqueante). */
+export interface ThemeAccentColors {
+  primaryColor: string
+  bellyColor: string
+  detailColor: string
+}
+
+export type ThemeAccentColor = 'belly' | 'detail'
+export type ThemeContrastBackground = 'body' | 'overlay'
+
+export interface ThemeContrastIssue {
+  color: ThemeAccentColor
+  background: ThemeContrastBackground
+  ratio: number
+}
+
+const ACCENT_LABELS: Record<ThemeAccentColor, string> = {
+  belly: 'A cor da barriga',
+  detail: 'A cor dos detalhes'
+}
+
+const BACKGROUND_LABELS: Record<ThemeContrastBackground, string> = {
+  body: 'o corpo',
+  overlay: 'o fundo do overlay'
+}
+
+/**
+ * Contraste das cores novas contra o corpo e contra o fundo do overlay.
+ * `primaryColor` mantém o mínimo bloqueante de 3:1 no fundo (o aviso já existe
+ * na aba); barriga e detalhes só geram aviso, sem impedir a escolha.
+ */
+export function themeContrastIssues(colors: ThemeAccentColors): ThemeContrastIssue[] {
+  const issues: ThemeContrastIssue[] = []
+  const entries: Array<[ThemeAccentColor, string]> = [
+    ['belly', colors.bellyColor],
+    ['detail', colors.detailColor]
+  ]
+
+  for (const [color, value] of entries) {
+    const backgrounds: Array<[ThemeContrastBackground, string]> = [
+      ['body', colors.primaryColor],
+      ['overlay', OVERLAY_BACKGROUND]
+    ]
+    for (const [background, reference] of backgrounds) {
+      const ratio = contrastRatio(value, reference)
+      if (ratio < MIN_AVATAR_CONTRAST) issues.push({ color, background, ratio })
+    }
+  }
+
+  return issues
+}
+
+/** Mensagens pt-BR para a UI; lista vazia quando tudo passa. */
+export function themeContrastWarnings(colors: ThemeAccentColors): string[] {
+  return themeContrastIssues(colors).map(
+    (issue) =>
+      `${ACCENT_LABELS[issue.color]} tem contraste ${issue.ratio.toFixed(1)}:1 com ` +
+      `${BACKGROUND_LABELS[issue.background]} (mínimo ${MIN_AVATAR_CONTRAST}:1).`
+  )
+}

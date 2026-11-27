@@ -7,6 +7,9 @@ import type {
   ThemeOutfit,
   ThemeStyle
 } from '../../../../shared/theme'
+import { resolveAvatarLook } from './looks'
+import type { AvatarLook } from './looks'
+import { clampOutlineStrength } from './outline'
 
 /**
  * Adaptador tema -> parâmetros do avatar.
@@ -64,9 +67,13 @@ export interface AvatarMaterialParams {
 export interface AvatarParams {
   primary: AvatarLinearColor
   effect: AvatarLinearColor
+  belly: AvatarLinearColor
+  detail: AvatarLinearColor
   shadow: AvatarLinearColor
   debugColor: AvatarLinearColor
   glowIntensity: number
+  outlineStrength: number
+  look: AvatarLook
   style: ThemeStyle
   outfit: ThemeOutfit
   accessories: ThemeAccessory[]
@@ -91,11 +98,15 @@ export function toAvatarParams(theme: ThemeConfig): AvatarParams {
   return {
     primary: linearColor(theme.primaryColor),
     effect: linearColor(theme.effectColor),
+    belly: linearColor(theme.bellyColor),
+    detail: linearColor(theme.detailColor),
     // Buracos (pupila/boca) e o HUD de debug não vêm do tema; ficam no
     // adaptador para o código de comportamento não guardar cor literal.
     shadow: linearColor('#0b1220'),
     debugColor: linearColor('#93c5fd'),
     glowIntensity: glow,
+    outlineStrength: clampOutlineStrength(theme.outlineStrength),
+    look: resolveAvatarLook(theme.look),
     style: theme.style,
     outfit: theme.outfit,
     accessories: [...theme.accessories],

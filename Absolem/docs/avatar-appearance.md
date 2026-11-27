@@ -916,3 +916,126 @@ Pendência manual honesta da task 20: rodar a matriz dos cinco estados com
 `?debug=1` e medir fps em idle e speaking >= 45 na máquina de referência. A
 janela transparente do overlay continua sem captura confiável neste ambiente,
 então não há imagem nem número de fps inventado.
+
+## 15. Task 21 - tema v2, preset de 1951 e Configurações
+
+O tema passou a conhecer o acabamento, a cor da barriga, a cor dos detalhes e a
+força do contorno. Nada de geometria, material, animação ou expressão mudou:
+esta task só levou dados existentes para o schema, o store e a aba Aparência.
+
+### 15.1 Schema v2
+
+`src/shared/theme.ts`, `THEME_SCHEMA_VERSION = 2`:
+
+| Campo             | Tipo                  | Padrão      | Uso                                           |
+| ----------------- | --------------------- | ----------- | --------------------------------------------- |
+| `look`            | `holo` ou `storybook` | `storybook` | acabamento do avatar                          |
+| `bellyColor`      | hex                   | `#ade4ef`   | placas da barriga (`belly`)                   |
+| `detailColor`     | hex                   | `#f06292`   | mãos, lábios e língua (`hand`/`lip`/`tongue`) |
+| `outlineStrength` | 0..1                  | `0.7`       | força do contorno no acabamento ilustrado     |
+
+`primaryColor` continua sendo o corpo e `effectColor` os efeitos/aura.
+`normalizeTheme` aceita um tema v1 sem erro, preenche só o que falta e devolve
+sempre os quatro campos. `themeNormalizationWarnings` avisa quando `look` é
+desconhecido, quando `outlineStrength` sai de 0..1 e quando uma cor nova não é
+hex válido.
+
+### 15.2 Preset Absolem 1951
+
+`THEME_PRESETS` agora tem sete entradas; `absolem1951` é a primeira e o
+`DEFAULT_THEME_PRESET_ID` de `defaultTheme()`:
+
+| Campo              | Valor              |
+| ------------------ | ------------------ |
+| `primaryColor`     | `#1f7f96`          |
+| `effectColor`      | `#dfe8f0`          |
+| `bellyColor`       | `#ade4ef`          |
+| `detailColor`      | `#f06292`          |
+| `glowIntensity`    | `0.35`             |
+| `outlineStrength`  | `0.7`              |
+| `style` / `outfit` | `classic` / `none` |
+| `look`             | `storybook`        |
+| `particleDensity`  | `low`              |
+| `scale`            | `1`                |
+
+Os seis presets antigos continuam existindo e declaram `look: 'holo'`
+explicitamente, preservando o visual holográfico. A decisão de padrão está
+registrada na task 21: instalações novas e quem nunca abriu a aba Aparência
+recebem o look de 1951; temas salvos preservam as cores e o `presetId` do
+usuário. Reverter é trocar `DEFAULT_THEME_PRESET_ID` de volta para `classic`.
+
+### 15.3 Store 1.11.0
+
+`STORE_SCHEMA_VERSION = '1.11.0'` e `migrate1110` normaliza `theme` pelo
+`normalizeTheme` v2. Como o ajv valida o arquivo antes das migrações, os quatro
+campos novos são opcionais no schema; um tema v1 salvo continua válido e é
+completado na migração. `migrate1100` (task 09/interface) não foi editada nem
+renumerada. A migração preserva `primaryColor`, `effectColor`, `presetId` e
+demais valores do usuário, preenche `look`, `bellyColor`, `detailColor` e
+`outlineStrength` só quando ausentes e é idempotente.
+
+### 15.4 Import e export
+
+O formato continua `{ app: 'absolem', kind: 'theme', version, theme }`, agora
+com `version: 2`. Import de arquivo v1 passa pelo `normalizeTheme` e ganha os
+campos novos sem perder as cores. JSON quebrado, formato errado e arquivo acima
+de 64 KB continuam bloqueantes e não alteram o tema atual; `look` ou cor
+inválidos aplicam o padrão e devolvem aviso legível na aba.
+
+### 15.5 Aba Aparência e aplicação ao vivo
+
+A aba ganhou o seletor Acabamento (`Holofote`/`Ilustração`), os campos Cor da
+barriga e Cor dos detalhes, e o controle Contorno (0 a 100%). Todo controle tem
+`<label htmlFor>` em pt-BR, sem id interno exposto. O preset Absolem 1951
+aparece primeiro, "Personalizado" continua aparecendo após edição manual e
+"Restaurar padrão" volta ao tema padrão.
+
+`themeAdapter.toAvatarParams` é o único que lê os campos novos: leva `look`,
+`bellyColor`, `detailColor` e `outlineStrength` para `AvatarParams`. A cena
+aplica a paleta da barriga/detalhes, troca o acabamento ao vivo por
+`applyLookToScene` e ajusta o contorno sem recriar renderer, câmera ou loop.
+Mudar só cor atualiza os materiais existentes; a malha não é reconstruída.
+
+A temporização não mudou: `timing.ts` e `debounce.test.ts` continuam iguais,
+com 100 ms de push para o overlay e 300 ms de persistência. O preview continua
+com `pixelRatio` 1, metade das partículas e contexto WebGL próprio; ele recebe o
+tema completo e aplica no mesmo ciclo de render, sem compartilhar contexto com o
+overlay. Nenhum canal IPC novo foi criado.
+
+### 15.6 Contraste
+
+`src/shared/contrast.ts` ganhou `themeContrastIssues` e `themeContrastWarnings`.
+A cor principal mantém o mínimo bloqueante de 3:1 contra `#0b0f14`; barriga e
+detalhes são comparados com o corpo e com o fundo do overlay e geram apenas
+aviso não bloqueante. O preset padrão passa no corpo para a barriga; o detalhe
+rosa pode avisar contra o corpo azul, conforme a regra.
+
+### 15.7 Testes e medição honesta
+
+Testes cobertos nesta task:
+
+| Arquivo                     | Cobertura                                              |
+| --------------------------- | ------------------------------------------------------ |
+| `theme.test.ts`             | v1 para v2, look inválido, faixa do contorno, #RGB     |
+| `theme-presets.test.ts`     | sete ids, 1951 como padrão, normalização, não mutação  |
+| `store.test.ts`             | migração 1.11.0, cores preservadas, look, idempotência |
+| `theme-io.test.ts`          | import v1, export v2, look inválido, limite de 64 KB   |
+| `appearance-labels.test.ts` | rótulos dos campos novos e duas opções de acabamento   |
+| `contrast.test.ts`          | barriga clara passa, detalhe sem contraste avisa       |
+| `theme-boundary.test.ts`    | presets fora do comportamento e adaptador único        |
+
+`debounce.test.ts`, `expressions.test.ts`, `lipSync.test.ts` e
+`holoMaterial.test.ts` continuam intocados e verdes.
+
+Medição honesta: o tema não adiciona geometria nem draw calls. Os baselines
+continuam os das tasks 18 e 20: 80 draw calls / 15.056 triângulos / 165 fps e
+129 draw calls / 24.456 triângulos / 165 fps nesta máquina. O orçamento de 24
+draw calls **não** está cumprido; a mesclagem continua na task 23. Nenhum fps
+novo foi medido e este documento não declara captura visual.
+
+Pendência manual honesta: aplicar Absolem 1951 e conferir preview e overlay ao
+vivo; arrastar barriga, detalhes e contorno e ver a mudança em menos de 150 ms;
+reiniciar e confirmar que o tema persiste; importar um tema v1 e confirmar cores
+preservadas mais o look novo; navegar por teclado com foco visível. A janela
+transparente do overlay continua sem captura confiável e a GPU real não está
+garantida neste ambiente.

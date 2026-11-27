@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.10.0')
+    expect(options.projectVersion).toBe('1.11.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -89,7 +89,8 @@ describe('store persistente', () => {
       '1.7.0',
       '1.8.0',
       '1.9.0',
-      '1.10.0'
+      '1.10.0',
+      '1.11.0'
     ])
   })
 
@@ -311,6 +312,75 @@ describe('store persistente', () => {
     state.data.set('web', { enabled: 'não' })
     storeMod.STORE_MIGRATIONS['1.9.0'](store)
     expect(state.data.get('web')).toEqual({ enabled: true })
+  })
+
+  describe('1.11.0 - tema v2', () => {
+    const v1Classic = {
+      version: 1,
+      presetId: 'classic',
+      primaryColor: '#3b82f6',
+      effectColor: '#93c5fd',
+      glowIntensity: 0.7,
+      style: 'classic',
+      outfit: 'none',
+      accessories: [],
+      particleDensity: 'medium',
+      scale: 1,
+      reducedMotion: false
+    }
+
+    it('store 1.10.0 com tema classic migra para 1.11.0', () => {
+      const store = fakeStore()
+      state.data.set('theme', v1Classic)
+
+      storeMod.STORE_MIGRATIONS['1.11.0'](store)
+
+      const theme = state.data.get('theme') as { version: number; look: string }
+      expect(theme.version).toBe(2)
+      expect(theme.look).toBe('storybook')
+    })
+
+    it('cores do usuário são preservadas', () => {
+      const store = fakeStore()
+      state.data.set('theme', {
+        ...v1Classic,
+        primaryColor: '#123456',
+        effectColor: '#abcdef'
+      })
+
+      storeMod.STORE_MIGRATIONS['1.11.0'](store)
+
+      const theme = state.data.get('theme') as Record<string, unknown>
+      expect(theme.primaryColor).toBe('#123456')
+      expect(theme.effectColor).toBe('#abcdef')
+      expect(theme.presetId).toBe('classic')
+    })
+
+    it('look ausente vira storybook', () => {
+      const store = fakeStore()
+      state.data.set('theme', { ...v1Classic, presetId: 'neon', look: undefined })
+
+      storeMod.STORE_MIGRATIONS['1.11.0'](store)
+
+      const theme = state.data.get('theme') as Record<string, unknown>
+      expect(theme.look).toBe('storybook')
+      expect(theme.presetId).toBe('neon')
+      expect(theme.bellyColor).toBe('#ade4ef')
+      expect(theme.detailColor).toBe('#f06292')
+      expect(theme.outlineStrength).toBe(0.7)
+    })
+
+    it('store 1.11.0 não é remigrado', () => {
+      const store = fakeStore()
+      state.data.set('theme', v1Classic)
+      storeMod.STORE_MIGRATIONS['1.11.0'](store)
+      const once = state.data.get('theme') as Record<string, unknown>
+
+      storeMod.STORE_MIGRATIONS['1.11.0'](store)
+
+      expect(state.data.get('theme')).toEqual(once)
+      expect(once.version).toBe(2)
+    })
   })
 
   it('store corrompido não lança', async () => {

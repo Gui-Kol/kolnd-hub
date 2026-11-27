@@ -41,12 +41,12 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.9.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.11.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.10.0'
+export const STORE_SCHEMA_VERSION = '1.11.0'
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
@@ -340,6 +340,13 @@ const schema: Store.Schema<AbsolemConfig> = {
       presetId: { type: 'string' },
       primaryColor: { type: 'string' },
       effectColor: { type: 'string' },
+      // Campos do tema v2 (task 21). Opcionais de propósito: o electron-store
+      // valida o arquivo ANTES de rodar as migrações, então um tema v1 salvo
+      // precisa continuar válido; a 1.11.0 normaliza e preenche os ausentes.
+      bellyColor: { type: 'string' },
+      detailColor: { type: 'string' },
+      look: { type: 'string' },
+      outlineStrength: { type: 'number' },
       glowIntensity: { type: 'number' },
       style: { type: 'string' },
       outfit: { type: 'string' },
@@ -677,6 +684,16 @@ export function migrate1100(store: StoreLike): void {
   store.set('chat', normalizeChatState(store.get('chat', defaultChatConfig())))
 }
 
+/**
+ * 1.11.0: aditiva (task 21). Normaliza `theme` no schema v2: preserva cores e
+ * `presetId` do usuário e preenche `look`, `bellyColor`, `detailColor` e
+ * `outlineStrength` só quando ausentes. Um tema v1 abre sem perda e sem aviso
+ * de erro; a migração é idempotente.
+ */
+export function migrate1110(store: StoreLike): void {
+  store.set('theme', normalizeTheme(store.get('theme', defaultThemeConfig())))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -688,7 +705,8 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.7.0': migrate170,
   '1.8.0': migrate180,
   '1.9.0': migrate190,
-  '1.10.0': migrate1100
+  '1.10.0': migrate1100,
+  '1.11.0': migrate1110
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

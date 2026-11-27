@@ -3,7 +3,8 @@ import {
   contrastRatio,
   contrastWithOverlay,
   fixContrast,
-  MIN_AVATAR_CONTRAST
+  MIN_AVATAR_CONTRAST,
+  themeContrastWarnings
 } from '../../../shared/contrast'
 import type { OverlayLayout, OverlayPosition } from '../../../shared/config'
 import {
@@ -16,6 +17,7 @@ import {
   DEFAULT_THEME_PRESET_ID,
   PARTICLE_DENSITIES,
   THEME_ACCESSORIES,
+  THEME_LOOKS,
   THEME_OUTFITS,
   THEME_PRESETS,
   THEME_STYLES,
@@ -23,6 +25,7 @@ import {
   type ParticleDensity,
   type ThemeAccessory,
   type ThemeConfig,
+  type ThemeLook,
   type ThemeOutfit,
   type ThemePresetId,
   type ThemeStyle
@@ -54,6 +57,11 @@ const OUTFIT_LABELS: Record<ThemeOutfit, string> = {
   scarf: 'Cachecol',
   collar: 'Coleira',
   visor: 'Visor'
+}
+
+const LOOK_LABELS: Record<ThemeLook, string> = {
+  holo: 'Holofote',
+  storybook: 'Ilustração'
 }
 
 const DENSITY_LABELS: Record<ParticleDensity, string> = {
@@ -94,6 +102,7 @@ export function AppearanceTab({
     : 'custom'
   const overlayContrast = contrastWithOverlay(theme.primaryColor)
   const primaryEffectContrast = contrastRatio(theme.primaryColor, theme.effectColor)
+  const accentWarnings = themeContrastWarnings(theme)
 
   function patch(partial: Partial<ThemeConfig>): void {
     onThemeChange(
@@ -160,6 +169,32 @@ export function AppearanceTab({
         ) : null}
       </section>
 
+      <section aria-labelledby="appearance-look-title" className="flex flex-col gap-3">
+        <h2 id="appearance-look-title" className="text-sm font-semibold text-ink-primary">
+          Acabamento
+        </h2>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="appearance-look" className="text-xs text-ink-secondary">
+            Acabamento
+          </label>
+          <select
+            id="appearance-look"
+            className="w-full rounded border border-surface-2 bg-surface-1 px-3 py-2 text-sm text-ink-primary"
+            value={theme.look}
+            onChange={(event) => patch({ look: event.target.value as ThemeLook })}
+          >
+            {THEME_LOOKS.map((look) => (
+              <option key={look} value={look}>
+                {LOOK_LABELS[look]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-ink-tertiary">
+            Holofote mantém o brilho holográfico; Ilustração usa o acabamento de 1951.
+          </p>
+        </div>
+      </section>
+
       <section aria-labelledby="appearance-color-title" className="flex flex-col gap-3">
         <h2 id="appearance-color-title" className="text-sm font-semibold text-ink-primary">
           Cores e brilho
@@ -194,6 +229,38 @@ export function AppearanceTab({
                 onChange={(event) => patch({ effectColor: event.target.value })}
               />
               <output className="font-mono text-xs text-ink-tertiary">{theme.effectColor}</output>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="appearance-belly-color" className="text-xs text-ink-secondary">
+              Cor da barriga
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="appearance-belly-color"
+                type="color"
+                className="h-9 w-12 rounded border border-surface-2 bg-surface-1"
+                value={theme.bellyColor}
+                onChange={(event) => patch({ bellyColor: event.target.value })}
+              />
+              <output className="font-mono text-xs text-ink-tertiary">{theme.bellyColor}</output>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="appearance-detail-color" className="text-xs text-ink-secondary">
+              Cor dos detalhes
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="appearance-detail-color"
+                type="color"
+                className="h-9 w-12 rounded border border-surface-2 bg-surface-1"
+                value={theme.detailColor}
+                onChange={(event) => patch({ detailColor: event.target.value })}
+              />
+              <output className="font-mono text-xs text-ink-tertiary">{theme.detailColor}</output>
             </div>
           </div>
         </div>
@@ -244,6 +311,20 @@ export function AppearanceTab({
             {primaryEffectContrast.toFixed(1)}:1); os efeitos podem se confundir com o corpo.
           </p>
         ) : null}
+
+        {accentWarnings.length > 0 ? (
+          <div
+            role="status"
+            className="rounded border border-surface-2 bg-surface-1 px-3 py-2 text-xs text-ink-tertiary"
+          >
+            <p>Algumas cores novas podem ficar difíceis de ver:</p>
+            <ul className="mt-1 list-disc pl-4">
+              {accentWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section aria-labelledby="appearance-shape-title" className="flex flex-col gap-3">
@@ -285,6 +366,27 @@ export function AppearanceTab({
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="appearance-outline" className="text-xs text-ink-secondary">
+            Contorno
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              id="appearance-outline"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(theme.outlineStrength * 100)}
+              onChange={(event) => patch({ outlineStrength: Number(event.target.value) / 100 })}
+              className="flex-1"
+            />
+            <output className="w-10 text-right font-mono text-xs text-ink-tertiary">
+              {Math.round(theme.outlineStrength * 100)}%
+            </output>
           </div>
         </div>
 

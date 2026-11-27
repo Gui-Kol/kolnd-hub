@@ -10,9 +10,17 @@
  * inválido vira um tema completo e válido, campo a campo, sem derrubar o app.
  */
 
-export const THEME_SCHEMA_VERSION = 1
+export const THEME_SCHEMA_VERSION = 2
 
-export const THEME_PRESET_IDS = ['classic', 'neon', 'smoke', 'circuit', 'jade', 'amber'] as const
+export const THEME_PRESET_IDS = [
+  'absolem1951',
+  'classic',
+  'neon',
+  'smoke',
+  'circuit',
+  'jade',
+  'amber'
+] as const
 
 export type ThemePresetId = (typeof THEME_PRESET_IDS)[number]
 
@@ -24,6 +32,11 @@ export const THEME_OUTFITS = ['none', 'scarf', 'collar', 'visor'] as const
 
 export type ThemeOutfit = (typeof THEME_OUTFITS)[number]
 
+/** Acabamento do personagem: holograma herdado ou ilustração de 1951. */
+export const THEME_LOOKS = ['holo', 'storybook'] as const
+
+export type ThemeLook = (typeof THEME_LOOKS)[number]
+
 export const THEME_ACCESSORIES = ['antenna_glow', 'back_spikes', 'visor_hud'] as const
 
 export type ThemeAccessory = (typeof THEME_ACCESSORIES)[number]
@@ -34,17 +47,23 @@ export type ParticleDensity = (typeof PARTICLE_DENSITIES)[number]
 
 /** Preset "feito à mão": qualquer edição manual deixa de apontar para um preset. */
 export const THEME_PRESET_CUSTOM = 'custom'
-export const DEFAULT_THEME_PRESET_ID = 'classic'
+export const DEFAULT_THEME_PRESET_ID = 'absolem1951'
 export const MAX_THEME_PRESET_ID_LENGTH = 64
 
-export const DEFAULT_PRIMARY_COLOR = '#3b82f6'
-export const DEFAULT_EFFECT_COLOR = '#93c5fd'
-export const DEFAULT_GLOW_INTENSITY = 0.7
+export const DEFAULT_PRIMARY_COLOR = '#1f7f96'
+export const DEFAULT_EFFECT_COLOR = '#dfe8f0'
+export const DEFAULT_BELLY_COLOR = '#ade4ef'
+export const DEFAULT_DETAIL_COLOR = '#f06292'
+export const DEFAULT_GLOW_INTENSITY = 0.35
 export const DEFAULT_THEME_STYLE: ThemeStyle = 'classic'
 export const DEFAULT_THEME_OUTFIT: ThemeOutfit = 'none'
-export const DEFAULT_PARTICLE_DENSITY: ParticleDensity = 'medium'
+export const DEFAULT_THEME_LOOK: ThemeLook = 'storybook'
+export const DEFAULT_PARTICLE_DENSITY: ParticleDensity = 'low'
 export const GLOW_INTENSITY_MIN = 0
 export const GLOW_INTENSITY_MAX = 1
+export const OUTLINE_STRENGTH_MIN = 0
+export const OUTLINE_STRENGTH_MAX = 1
+export const DEFAULT_THEME_OUTLINE_STRENGTH = 0.7
 export const THEME_SCALE_MIN = 0.8
 export const THEME_SCALE_MAX = 1.5
 export const DEFAULT_THEME_SCALE = 1
@@ -55,9 +74,13 @@ export interface ThemeConfig {
   presetId: string
   primaryColor: string
   effectColor: string
+  bellyColor: string
+  detailColor: string
   glowIntensity: number
+  outlineStrength: number
   style: ThemeStyle
   outfit: ThemeOutfit
+  look: ThemeLook
   accessories: ThemeAccessory[]
   particleDensity: ParticleDensity
   scale: number
@@ -127,9 +150,13 @@ export function defaultTheme(): ThemeConfig {
     presetId: DEFAULT_THEME_PRESET_ID,
     primaryColor: DEFAULT_PRIMARY_COLOR,
     effectColor: DEFAULT_EFFECT_COLOR,
+    bellyColor: DEFAULT_BELLY_COLOR,
+    detailColor: DEFAULT_DETAIL_COLOR,
     glowIntensity: DEFAULT_GLOW_INTENSITY,
+    outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
     style: DEFAULT_THEME_STYLE,
     outfit: DEFAULT_THEME_OUTFIT,
+    look: DEFAULT_THEME_LOOK,
     accessories: [],
     particleDensity: DEFAULT_PARTICLE_DENSITY,
     scale: DEFAULT_THEME_SCALE,
@@ -145,14 +172,23 @@ export function normalizeTheme(input: unknown): ThemeConfig {
     presetId: normalizePresetId(raw.presetId),
     primaryColor: normalizeHexColor(raw.primaryColor, DEFAULT_PRIMARY_COLOR),
     effectColor: normalizeHexColor(raw.effectColor, DEFAULT_EFFECT_COLOR),
+    bellyColor: normalizeHexColor(raw.bellyColor, DEFAULT_BELLY_COLOR),
+    detailColor: normalizeHexColor(raw.detailColor, DEFAULT_DETAIL_COLOR),
     glowIntensity: clampNumber(
       raw.glowIntensity,
       GLOW_INTENSITY_MIN,
       GLOW_INTENSITY_MAX,
       DEFAULT_GLOW_INTENSITY
     ),
+    outlineStrength: clampNumber(
+      raw.outlineStrength,
+      OUTLINE_STRENGTH_MIN,
+      OUTLINE_STRENGTH_MAX,
+      DEFAULT_THEME_OUTLINE_STRENGTH
+    ),
     style: includes(THEME_STYLES, raw.style) ? raw.style : DEFAULT_THEME_STYLE,
     outfit: includes(THEME_OUTFITS, raw.outfit) ? raw.outfit : DEFAULT_THEME_OUTFIT,
+    look: includes(THEME_LOOKS, raw.look) ? raw.look : DEFAULT_THEME_LOOK,
     accessories: normalizeAccessories(raw.accessories),
     particleDensity: includes(PARTICLE_DENSITIES, raw.particleDensity)
       ? raw.particleDensity
@@ -175,14 +211,37 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: readonly ThemePreset[] = [
   {
+    id: 'absolem1951',
+    name: 'Absolem 1951',
+    values: {
+      primaryColor: DEFAULT_PRIMARY_COLOR,
+      effectColor: DEFAULT_EFFECT_COLOR,
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
+      glowIntensity: DEFAULT_GLOW_INTENSITY,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
+      style: DEFAULT_THEME_STYLE,
+      outfit: DEFAULT_THEME_OUTFIT,
+      look: 'storybook',
+      accessories: [],
+      particleDensity: DEFAULT_PARTICLE_DENSITY,
+      scale: 1,
+      reducedMotion: false
+    }
+  },
+  {
     id: 'classic',
     name: 'Absolem Clássico',
     values: {
       primaryColor: '#3b82f6',
       effectColor: '#93c5fd',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.7,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'classic',
       outfit: 'none',
+      look: 'holo',
       accessories: [],
       particleDensity: 'medium',
       scale: 1,
@@ -195,9 +254,13 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     values: {
       primaryColor: '#22d3ee',
       effectColor: '#f0abfc',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.95,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'neon',
       outfit: 'visor',
+      look: 'holo',
       accessories: ['antenna_glow'],
       particleDensity: 'high',
       scale: 1.05,
@@ -210,9 +273,13 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     values: {
       primaryColor: '#94a3b8',
       effectColor: '#cbd5e1',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.55,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'liquid',
       outfit: 'scarf',
+      look: 'holo',
       accessories: ['back_spikes'],
       particleDensity: 'medium',
       scale: 1,
@@ -225,9 +292,13 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     values: {
       primaryColor: '#34d399',
       effectColor: '#a7f3d0',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.8,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'wireframe',
       outfit: 'collar',
+      look: 'holo',
       accessories: ['visor_hud'],
       particleDensity: 'low',
       scale: 0.95,
@@ -240,9 +311,13 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     values: {
       primaryColor: '#10b981',
       effectColor: '#6ee7b7',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.6,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'classic',
       outfit: 'none',
+      look: 'holo',
       accessories: ['back_spikes'],
       particleDensity: 'medium',
       scale: 1.1,
@@ -255,9 +330,13 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     values: {
       primaryColor: '#f59e0b',
       effectColor: '#fcd34d',
+      bellyColor: DEFAULT_BELLY_COLOR,
+      detailColor: DEFAULT_DETAIL_COLOR,
       glowIntensity: 0.85,
+      outlineStrength: DEFAULT_THEME_OUTLINE_STRENGTH,
       style: 'neon',
       outfit: 'scarf',
+      look: 'holo',
       accessories: ['antenna_glow', 'visor_hud'],
       particleDensity: 'high',
       scale: 1,
@@ -321,10 +400,31 @@ export function themeNormalizationWarnings(input: unknown): string[] {
     warnings.push('Cor de efeitos inválida; o padrão foi aplicado.')
   }
   if (
+    raw.bellyColor !== undefined &&
+    !(typeof raw.bellyColor === 'string' && HEX_COLOR_RE.test(raw.bellyColor.trim()))
+  ) {
+    warnings.push('Cor da barriga inválida; o padrão foi aplicado.')
+  }
+  if (
+    raw.detailColor !== undefined &&
+    !(typeof raw.detailColor === 'string' && HEX_COLOR_RE.test(raw.detailColor.trim()))
+  ) {
+    warnings.push('Cor dos detalhes inválida; o padrão foi aplicado.')
+  }
+  if (
     raw.glowIntensity !== undefined &&
     (typeof raw.glowIntensity !== 'number' || raw.glowIntensity !== normalized.glowIntensity)
   ) {
     warnings.push('Brilho fora da faixa 0..1; o valor foi ajustado.')
+  }
+  if (
+    raw.outlineStrength !== undefined &&
+    (typeof raw.outlineStrength !== 'number' || raw.outlineStrength !== normalized.outlineStrength)
+  ) {
+    warnings.push('Contorno fora da faixa 0..1; o valor foi ajustado.')
+  }
+  if (raw.look !== undefined && raw.look !== normalized.look) {
+    warnings.push('Acabamento desconhecido; o padrão foi aplicado.')
   }
   if (raw.style !== undefined && raw.style !== normalized.style) {
     warnings.push('Estilo desconhecido; o padrão foi aplicado.')

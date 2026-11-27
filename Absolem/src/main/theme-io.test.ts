@@ -37,11 +37,110 @@ function fakeDialog(options: {
 const EXPORT_WRAPPER = {
   app: 'absolem',
   kind: 'theme',
-  version: 1,
+  version: 2,
   theme: {}
 }
 
+const V1_THEME = {
+  version: 1,
+  presetId: 'classic',
+  primaryColor: '#3b82f6',
+  effectColor: '#93c5fd',
+  glowIntensity: 0.7,
+  style: 'classic',
+  outfit: 'none',
+  accessories: [],
+  particleDensity: 'medium',
+  scale: 1,
+  reducedMotion: false
+}
+
 describe('export/import de tema', () => {
+  it('importa tema v1', async () => {
+    const fs = fakeFs(JSON.stringify({ ...EXPORT_WRAPPER, version: 1, theme: V1_THEME }))
+    const applyTheme = vi.fn(() => ({ success: true }))
+    const io = createThemeIO({
+      fs,
+      dialog: fakeDialog({ filePaths: ['C:\\tema-v1.json'] }),
+      getTheme: defaultTheme,
+      applyTheme
+    })
+
+    const result = await io.importTheme()
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.theme).toMatchObject({
+      version: 2,
+      presetId: 'classic',
+      primaryColor: '#3b82f6',
+      look: 'storybook',
+      bellyColor: '#ade4ef',
+      detailColor: '#f06292',
+      outlineStrength: 0.7
+    })
+    expect(result.warnings).toEqual([])
+    expect(applyTheme).toHaveBeenCalledTimes(1)
+  })
+
+  it('exporta versão 2', async () => {
+    const fs = fakeFs('')
+    const io = createThemeIO({
+      fs,
+      dialog: fakeDialog({ filePath: 'C:\\saida.json' }),
+      getTheme: () => normalizeTheme({ presetId: 'classic', primaryColor: '#3b82f6' })
+    })
+
+    const result = await io.exportTheme()
+
+    expect(result).toMatchObject({ ok: true, canceled: false })
+    const [, text] = fs.writeFile.mock.calls[0] as [string, string, string]
+    const parsed = JSON.parse(text) as { version: number; theme: { version: number } }
+    expect(parsed.version).toBe(2)
+    expect(parsed.theme.version).toBe(2)
+  })
+
+  it('look inválido gera aviso e aplica default', async () => {
+    const fs = fakeFs(
+      JSON.stringify({
+        ...EXPORT_WRAPPER,
+        theme: { presetId: 'neon', primaryColor: '#22d3ee', look: 'neon' }
+      })
+    )
+    const applyTheme = vi.fn(() => ({ success: true }))
+    const io = createThemeIO({
+      fs,
+      dialog: fakeDialog({ filePaths: ['C:\\tema.json'] }),
+      getTheme: defaultTheme,
+      applyTheme
+    })
+
+    const result = await io.importTheme()
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.theme?.look).toBe('storybook')
+    expect(result.warnings).toContain('Acabamento desconhecido; o padrão foi aplicado.')
+    expect(applyTheme).toHaveBeenCalledTimes(1)
+  })
+
+  it('arquivo > 64 KB segue recusado', async () => {
+    const fs = fakeFs('{}', 64 * 1024 + 1)
+    const io = createThemeIO({
+      fs,
+      dialog: fakeDialog({ filePaths: ['C:\\grande.json'] }),
+      getTheme: defaultTheme,
+      applyTheme: vi.fn(() => ({ success: true }))
+    })
+
+    const result = await io.importTheme()
+
+    expect(result).toMatchObject({ ok: false })
+    if (result.ok) return
+    expect(result.error).toContain('64 KB')
+    expect(fs.readFile).not.toHaveBeenCalled()
+  })
+
   it('import válido aplica', async () => {
     const rawTheme = normalizeTheme({ presetId: 'neon', primaryColor: '#22d3ee' })
     const fs = fakeFs(JSON.stringify({ ...EXPORT_WRAPPER, theme: rawTheme }))
@@ -123,12 +222,16 @@ describe('export/import de tema', () => {
     expect(Object.keys(parsed).sort()).toEqual(['app', 'kind', 'theme', 'version'])
     expect(parsed.app).toBe('absolem')
     expect(parsed.kind).toBe('theme')
-    expect(parsed.version).toBe(1)
+    expect(parsed.version).toBe(2)
     expect(Object.keys(parsed.theme as Record<string, unknown>).sort()).toEqual(
       [
         'accessories',
+        'bellyColor',
+        'detailColor',
         'effectColor',
         'glowIntensity',
+        'look',
+        'outlineStrength',
         'outfit',
         'particleDensity',
         'presetId',

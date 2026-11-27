@@ -44,7 +44,7 @@ describe('fronteira tema x comportamento', () => {
 
   it('adaptador é o único que lê ThemeConfig', () => {
     const readsThemeFields =
-      /theme\.(primaryColor|effectColor|glowIntensity|style|outfit|accessories|particleDensity|scale|reducedMotion)\b/
+      /theme\.(primaryColor|effectColor|bellyColor|detailColor|glowIntensity|outlineStrength|look|style|outfit|accessories|particleDensity|scale|reducedMotion)\b/
     const files = readdirSync(here).filter(
       (file) => file.endsWith('.ts') && !file.endsWith('.test.ts')
     )

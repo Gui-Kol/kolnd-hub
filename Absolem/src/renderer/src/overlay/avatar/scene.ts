@@ -28,7 +28,8 @@ import { resolveAvatarLook } from './looks'
 import { createLipSync } from './lipSync'
 import { applyLookToScene, resolveToneMapping } from './lookScene'
 import { applyThemeChange } from './sceneTheme'
-import { ABSOLEM_1951_PALETTE } from './palettes'
+import { ABSOLEM_1951_PALETTE, applyThemeColors } from './palettes'
+import type { CaterpillarPalette } from './palettes'
 import { createRoleMaterialFactory } from './roleMaterials'
 import {
   STORYBOOK_AMBIENT_INTENSITY,
@@ -38,13 +39,7 @@ import {
   shouldCreateStorybookLights
 } from './toonGradient'
 import type { ToonGradient } from './toonGradient'
-import {
-  DEFAULT_OUTLINE_STRENGTH,
-  OUTLINE_PART_GROUPS,
-  addOutlines,
-  clampOutlineStrength,
-  removeOutlines
-} from './outline'
+import { OUTLINE_PART_GROUPS, addOutlines, clampOutlineStrength, removeOutlines } from './outline'
 import type { OutlineHandle } from './outline'
 import { EYELID_OPEN_ROTATION } from './parts/head'
 import { createParticles, PARTICLE_MAX } from './particles'
@@ -207,9 +202,9 @@ export function createAvatarScene(
   let currentOutfit = resolveCaterpillarOutfit(options.outfit ?? params.outfit)
   const particleScale = Math.max(0, options.particleScale ?? 1)
   let reducedMotion = options.reducedMotion === true || params.reducedMotion
-  // Contorno (task 19): força fixa 0.7 por default; 0 desliga. Sem novo campo
-  // de tema (task 21 expõe). Só no acabamento ilustrado.
-  let outlineStrength = clampOutlineStrength(options.outlineStrength ?? DEFAULT_OUTLINE_STRENGTH)
+  // Contorno (task 19): default 0.7; a task 21 expõe no tema e a opção de cena
+  // continua vencendo (flags de desenvolvimento). 0 desliga.
+  let outlineStrength = clampOutlineStrength(options.outlineStrength ?? params.outlineStrength)
   let outlines: OutlineHandle[] = []
   // Nível de degradação 2 remove contorno de partes pequenas (task 19, T5).
   let smallOutlinesRemoved = false
@@ -228,12 +223,12 @@ export function createAvatarScene(
     transparent: true,
     opacity: 0.92
   })
-  let look: AvatarLook = resolveAvatarLook(options.look)
+  let look: AvatarLook = resolveAvatarLook(options.look ?? params.look)
   // Rampa toon de 4 níveis (task 19): `DataTexture` nativo, sem asset; dona é a cena.
   const toonGradient: ToonGradient = createToonGradient()
   let roleMaterials = createRoleMaterialFactory({
     look,
-    palette: ABSOLEM_1951_PALETTE,
+    palette: themePalette(),
     holo: holoMaterial,
     dark: darkMaterial,
     gradientMap: toonGradient.texture
@@ -344,6 +339,14 @@ export function createAvatarScene(
     return base
   }
 
+  /** Paleta ilustrada com as cores de barriga/detalhes do tema vigente. */
+  function themePalette(): CaterpillarPalette {
+    return applyThemeColors(ABSOLEM_1951_PALETTE, {
+      belly: params.belly.hex,
+      detail: params.detail.hex
+    })
+  }
+
   /**
    * Reconstrução parcial: só a malha da lagarta (estilo/roupa/acessórios). O
    * renderer, a câmera, os materiais, as partículas e o loop continuam os
@@ -357,7 +360,7 @@ export function createAvatarScene(
     roleMaterials.dispose()
     roleMaterials = createRoleMaterialFactory({
       look,
-      palette: ABSOLEM_1951_PALETTE,
+      palette: themePalette(),
       holo: holoMaterial,
       dark: darkMaterial,
       gradientMap: toonGradient.texture
@@ -397,7 +400,7 @@ export function createAvatarScene(
 
   /** Atualiza cores dos materiais existentes sem recriar a malha. */
   function syncMaterialColors(): void {
-    roleMaterials.setPalette(ABSOLEM_1951_PALETTE)
+    roleMaterials.setPalette(themePalette())
     darkMaterial.color.set(params.shadow.hex)
     ;(holoMaterial.uniforms.uColor.value as Color).set(params.primary.hex)
   }
@@ -598,10 +601,13 @@ export function createAvatarScene(
       const prevStyle = currentStyle
       const prevOutfit = currentOutfit
       const prevAccessories = [...params.accessories]
+      const prevOutlineStrength = outlineStrength
+      const nextOutlineStrength = clampOutlineStrength(next.outlineStrength)
 
       currentStyle = next.style
       currentOutfit = next.outfit
       params = next
+      outlineStrength = nextOutlineStrength
 
       primaryColor.set(next.primary.hex)
       effectColor.set(next.effect.hex)
@@ -614,7 +620,22 @@ export function createAvatarScene(
       particles.setCount(Math.round(next.particles.count * particleScale))
       caterpillar.smoke.setReducedMotion(reducedMotion)
 
+      // Troca de acabamento ao vivo: aplica luz/tone mapping e reconstrói só a
+      // malha com a paleta do novo look. Não recria renderer/câmera/loop.
+      if (next.look !== look) {
+        applyLookToScene(next.look, {
+          scene,
+          renderer,
+          lights: storybookLights,
+          holoMaterial
+        })
+        look = next.look
+        rebuildCaterpillar()
+        return
+      }
+
       // Só a cor não reconstrói a malha; estilo/roupa/acessórios reconstroem.
+      // Mudar contorno reconstrói apenas o contorno (outlineStrength do tema).
       applyThemeChange(
         { style: prevStyle, outfit: prevOutfit, accessories: prevAccessories },
         { style: next.style, outfit: next.outfit, accessories: next.accessories },
@@ -622,8 +643,9 @@ export function createAvatarScene(
           rebuildCaterpillar: () => rebuildCaterpillar(),
           rebuildOutline: () => applyOutlines({ includeSmall: !smallOutlinesRemoved }),
           syncMaterialColors: () => syncMaterialColors(),
-          outlineStrength
-        }
+          outlineStrength: prevOutlineStrength
+        },
+        nextOutlineStrength
       )
     },
     setOutlineStrength(strength: number): void {

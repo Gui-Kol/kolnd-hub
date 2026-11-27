@@ -62,3 +62,28 @@ export function normalizePalette(input: unknown): CaterpillarPalette {
 
   return palette
 }
+
+/** Cores do tema v2 que substituem papéis da paleta ilustrada. */
+export interface ThemePaletteColors {
+  belly: string
+  detail: string
+}
+
+/**
+ * Aplica as cores do tema sobre a paleta base sem lançar. `belly` recolore as
+ * placas da barriga; `detail` recolore os detalhes rosados (mãos, lábios e
+ * língua) que a referência de 1951 usa como acento. A paleta original nunca é
+ * mutada: o retorno é completo e normalizado.
+ */
+export function applyThemeColors(
+  base: CaterpillarPalette,
+  colors: ThemePaletteColors
+): CaterpillarPalette {
+  return normalizePalette({
+    ...base,
+    belly: colors.belly,
+    hand: colors.detail,
+    lip: colors.detail,
+    tongue: colors.detail
+  })
+}

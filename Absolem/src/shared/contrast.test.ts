@@ -5,7 +5,9 @@ import {
   contrastRatio,
   contrastWithOverlay,
   fixContrast,
-  hasEnoughContrast
+  hasEnoughContrast,
+  themeContrastIssues,
+  themeContrastWarnings
 } from './contrast'
 
 describe('contraste do avatar', () => {
@@ -34,5 +36,42 @@ describe('contraste do avatar', () => {
     expect(clampBodyAlpha(Number.NaN)).toBe(MIN_BODY_ALPHA)
     expect(clampBodyAlpha(0.5)).toBe(0.5)
     expect(clampBodyAlpha(2)).toBe(1)
+  })
+
+  it('barriga clara sobre corpo escuro passa', () => {
+    const issues = themeContrastIssues({
+      primaryColor: '#1f7f96',
+      bellyColor: '#ade4ef',
+      detailColor: '#ade4ef'
+    })
+
+    expect(issues.filter((issue) => issue.color === 'belly')).toEqual([])
+    expect(
+      themeContrastWarnings({
+        primaryColor: '#1f7f96',
+        bellyColor: '#ade4ef',
+        detailColor: '#ade4ef'
+      }).some((warning) => warning.includes('barriga'))
+    ).toBe(false)
+  })
+
+  it('detalhe sem contraste gera aviso', () => {
+    const issues = themeContrastIssues({
+      primaryColor: '#1f7f96',
+      bellyColor: '#ade4ef',
+      detailColor: '#1f7f96'
+    })
+    const detailOnBody = issues.find(
+      (issue) => issue.color === 'detail' && issue.background === 'body'
+    )
+
+    expect(detailOnBody?.ratio).toBe(1)
+    expect(
+      themeContrastWarnings({
+        primaryColor: '#1f7f96',
+        bellyColor: '#ade4ef',
+        detailColor: '#1f7f96'
+      })
+    ).toContain('A cor dos detalhes tem contraste 1.0:1 com o corpo (mínimo 3:1).')
   })
 })
