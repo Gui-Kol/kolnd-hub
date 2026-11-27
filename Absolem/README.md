@@ -62,6 +62,11 @@ Gemini e cobrado pela sua conta Google**; precos definidos pelo Google. O app **
 **mede tokens** localmente (nunca moeda), mostra teto mensal `monthlyTokenCap` + aviso 80%.
 **Permissoes minimas** e **pausa** (`Control+Alt+P`) para controle.
 
+**Modelos e voz:** o texto usa **`gemini-3.8-flash`** e a voz em tempo real usa o modelo
+Live **`gemini-3.8-live`** com a voz pre-definida **Charon**. Os dois valores ficam em
+`config.json` (`gemini.model` e `gemini.liveModel`); a migracao 1.12.0 troca apenas modelos
+comprovadamente desligados e preserva modelos customizados.
+
 ## Atalhos
 
 - `Control+Alt+A` - mostrar/ocultar overlay (tambem `Control+Alt+Space` para voz, conforme

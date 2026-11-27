@@ -20,7 +20,7 @@ import { getSearchRuntime } from '../search/instance'
 import { WEB_SYSTEM_RULES } from '../search/injection'
 import { IPC } from '../../shared/ipc'
 import type { VoiceAudioPush, VoiceStateChange, VoiceTranscriptPush } from '../../shared/voice'
-import { VOICE_DEFAULT_SHORTCUT } from '../../shared/voice'
+import { VOICE_DEFAULT_SHORTCUT, LIVE_VOICE_NAME } from '../../shared/voice'
 import { isMicrophoneGranted, setMicrophoneConsent } from './consent'
 import { VoiceController } from './controller'
 import { onOverlayHidden } from './overlayEvents'
@@ -149,7 +149,8 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
         transport: new SdkLiveTransport(),
         keys: { getApiKey },
         usage: getUsageMeter(),
-        model: snapshot.gemini.model,
+        model: snapshot.gemini.liveModel,
+        voiceName: LIVE_VOICE_NAME,
         temperature: snapshot.gemini.temperature,
         systemInstruction,
         tools: tools.map((tool) => ({

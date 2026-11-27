@@ -27,6 +27,13 @@ import { LIVE_AUDIO_OUTPUT_RATE } from './liveTransport'
 export const GEMINI_SDK_PACKAGE = '@google/genai'
 export const GEMINI_SDK_VERSION = '3.6.1'
 
+/**
+ * Versão da API usada SÓ pelo Live. O default do SDK 3.6.1 é `v1`, que não
+ * expõe `BidiGenerateContent` (a URL responde 404); `v1beta` é o endpoint do
+ * Live. O transporte de texto continua no default do SDK.
+ */
+export const LIVE_API_VERSION = 'v1beta'
+
 type GenAiModule = typeof import('@google/genai')
 
 let loaded: Promise<GenAiModule> | null = null
@@ -204,6 +211,36 @@ function rateFromMimeType(mimeType: string | undefined): number {
 }
 
 /**
+ * Opções do cliente Live. Ficam separadas para o teste provar, sem rede, que o
+ * Live usa `v1beta` sem alterar o transporte de texto.
+ */
+export function buildLiveClientOptions(apiKey: string): {
+  apiKey: string
+  httpOptions: { apiVersion: typeof LIVE_API_VERSION }
+} {
+  return { apiKey, httpOptions: { apiVersion: LIVE_API_VERSION } }
+}
+
+/**
+ * `speechConfig` da Live API para uma voz pré-definida.
+ *
+ * O SDK 3.6.1 espera `voiceConfig.prebuiltVoiceConfig.voiceName`. Voz vazia ou
+ * só espaços devolve `undefined` para o serviço escolher o default; nenhum
+ * fallback de voz é inventado aqui.
+ */
+export function buildLiveSpeechConfig(
+  voiceName: string | undefined
+): Record<string, unknown> | undefined {
+  const name = typeof voiceName === 'string' ? voiceName.trim() : ''
+  if (!name) return undefined
+  return {
+    voiceConfig: {
+      prebuiltVoiceConfig: { voiceName: name }
+    }
+  }
+}
+
+/**
  * Transporte real da Live API (`ai.live.connect`).
  *
  * Métodos usados do SDK 3.6.1 (confirmados no gate):
@@ -225,7 +262,7 @@ function rateFromMimeType(mimeType: string | undefined): number {
 export class SdkLiveTransport implements LiveTransport {
   async connect(options: LiveConnectOptions): Promise<LiveConnection> {
     const { GoogleGenAI, Modality } = await loadSdk()
-    const ai = new GoogleGenAI({ apiKey: options.apiKey })
+    const ai = new GoogleGenAI(buildLiveClientOptions(options.apiKey))
 
     const config: Record<string, unknown> = {
       responseModalities: [Modality.AUDIO],
@@ -234,6 +271,8 @@ export class SdkLiveTransport implements LiveTransport {
       inputAudioTranscription: {},
       outputAudioTranscription: {}
     }
+    const speechConfig = buildLiveSpeechConfig(options.voiceName)
+    if (speechConfig) config.speechConfig = speechConfig
     if (options.tools && options.tools.length > 0) {
       config.tools = [
         {

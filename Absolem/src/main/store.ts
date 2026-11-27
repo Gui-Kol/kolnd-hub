@@ -21,6 +21,11 @@ import {
 } from '../shared/config'
 import { VOICE_DEFAULT_SHORTCUT } from '../shared/voice'
 import {
+  DEFAULT_GEMINI_LIVE_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  SHUTDOWN_GEMINI_MODELS
+} from '../shared/gemini'
+import {
   normalizeOverlayConfig,
   OVERLAY_DEFAULT_POSITION,
   OVERLAY_DEFAULT_SHORTCUT
@@ -41,14 +46,13 @@ export { normalizeOverlayConfig }
  * - O schema só valida tipos básicos de propósito: enum/faixa no ajv fariam um
  *   valor editado à mão derrubar a criação do arquivo inteiro. A faixa real é
  *   aplicada pelos normalizadores na leitura e na escrita.
- * - `projectVersion` é a versão do schema (1.11.0), independente da versão do
+ * - `projectVersion` é a versão do schema (1.13.0), independente da versão do
  *   app, para que as migrações rodem mesmo durante a fundação.
  * - Nenhum segredo mora aqui: a chave Gemini usa `safeStorage` (secrets.ts).
  */
 
-export const STORE_SCHEMA_VERSION = '1.11.0'
+export const STORE_SCHEMA_VERSION = '1.13.0'
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 const MAX_MODEL_LENGTH = 100
 const MAX_DEVICE_ID_LENGTH = 200
 const MAX_LANGUAGE_LENGTH = 20
@@ -59,7 +63,9 @@ export function defaultOverlayConfig(): OverlayConfig {
     position: OVERLAY_DEFAULT_POSITION,
     visible: false,
     shortcut: OVERLAY_DEFAULT_SHORTCUT,
-    hideOnFullscreen: true
+    // Task 29: o overlay nasce sempre visível e por cima, inclusive em tela
+    // cheia. Auto-hide só quando o usuário ligar explicitamente.
+    hideOnFullscreen: false
   })
 }
 
@@ -83,6 +89,7 @@ export function defaultVoiceConfig(): VoiceConfig {
 export function defaultGeminiConfig(): GeminiConfig {
   return {
     model: DEFAULT_GEMINI_MODEL,
+    liveModel: DEFAULT_GEMINI_LIVE_MODEL,
     temperature: 0.7,
     monthlyTokenCap: DEFAULT_MONTHLY_TOKEN_CAP
   }
@@ -200,8 +207,13 @@ export function normalizeGeminiConfig(input: unknown): GeminiConfig {
     typeof raw.model === 'string' && raw.model.trim()
       ? raw.model.trim().slice(0, MAX_MODEL_LENGTH)
       : DEFAULT_GEMINI_MODEL
+  const liveModel =
+    typeof raw.liveModel === 'string' && raw.liveModel.trim()
+      ? raw.liveModel.trim().slice(0, MAX_MODEL_LENGTH)
+      : DEFAULT_GEMINI_LIVE_MODEL
   return {
     model,
+    liveModel,
     temperature: clampNumber(raw.temperature, 0, 2, 0.7),
     monthlyTokenCap: clampCap(raw.monthlyTokenCap)
   }
@@ -382,6 +394,7 @@ const schema: Store.Schema<AbsolemConfig> = {
     default: defaultGeminiConfig(),
     properties: {
       model: { type: 'string' },
+      liveModel: { type: 'string' },
       temperature: { type: 'number' },
       monthlyTokenCap: { type: 'number' }
     },
@@ -694,6 +707,33 @@ export function migrate1110(store: StoreLike): void {
   store.set('theme', normalizeTheme(store.get('theme', defaultThemeConfig())))
 }
 
+/**
+ * 1.12.0: separa o modelo de texto (`gemini.model`) do modelo Live
+ * (`gemini.liveModel`, usado pela voz). `liveModel` é preenchido com o default
+ * atual quando ausente. `model` só é trocado quando aponta para um modelo
+ * comprovadamente desligado (`SHUTDOWN_GEMINI_MODELS`); modelos customizados do
+ * usuário são preservados. Idempotente.
+ */
+export function migrate1120(store: StoreLike): void {
+  const raw = asRecord(store.get('gemini', defaultGeminiConfig()))
+  const currentModel = typeof raw.model === 'string' ? raw.model.trim() : ''
+  const input: Record<string, unknown> = { ...raw }
+  if ((SHUTDOWN_GEMINI_MODELS as readonly string[]).includes(currentModel)) {
+    input.model = DEFAULT_GEMINI_MODEL
+  }
+  store.set('gemini', normalizeGeminiConfig(input))
+}
+
+/**
+ * 1.13.0: o overlay deixa de sumir em tela cheia (task 29). O valor existente
+ * `hideOnFullscreen` é zerado; o auto-hide passa a ser opt-in explícito.
+ * Idempotente: rodar de novo sobre o formato atual devolve o mesmo objeto.
+ */
+export function migrate1130(store: StoreLike): void {
+  const raw = asRecord(store.get('overlay', defaultOverlayConfig()))
+  store.set('overlay', normalizeOverlayConfig({ ...raw, hideOnFullscreen: false }))
+}
+
 export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.0.0': migrate100,
   '1.1.0': migrate110,
@@ -706,7 +746,9 @@ export const STORE_MIGRATIONS: Record<string, (store: StoreLike) => void> = {
   '1.8.0': migrate180,
   '1.9.0': migrate190,
   '1.10.0': migrate1100,
-  '1.11.0': migrate1110
+  '1.11.0': migrate1110,
+  '1.12.0': migrate1120,
+  '1.13.0': migrate1130
 }
 
 /** Store em memória: fallback quando o config.json está corrompido/inacessível. */

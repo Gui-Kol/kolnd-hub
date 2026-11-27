@@ -32,6 +32,16 @@ describe('diagnostics:gemini', () => {
     expect(diagnostics.configured).toBe(true)
   })
 
+  it('inclui o modelo Live separado do modelo de texto', () => {
+    const diagnostics = buildGeminiDiagnostics({
+      ...source(),
+      getLiveModel: () => 'gemini-3.8-live'
+    })
+
+    expect(diagnostics.model).toBe('gemini-2.0-flash')
+    expect(diagnostics.liveModel).toBe('gemini-3.8-live')
+  })
+
   it('inclui tokens do dia/mês, teto e versões', () => {
     const diagnostics = buildGeminiDiagnostics(source())
 

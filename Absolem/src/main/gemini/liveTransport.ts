@@ -41,6 +41,8 @@ export interface LiveConnectOptions {
   model: string
   systemInstruction: string
   temperature: number
+  /** Voz pré-definida (`speechConfig...voiceName`); vazio usa o default do serviço. */
+  voiceName?: string
   tools?: GeminiToolDeclaration[]
   /** Histórico textual preservado entre reconexões. */
   history?: LiveHistoryTurn[]

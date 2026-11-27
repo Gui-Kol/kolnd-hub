@@ -95,7 +95,7 @@ export function DiagnosticsTab({ api }: DiagnosticsTabProps) {
           node: info?.node ?? '—'
         },
         model: gemini?.model ?? '—',
-        liveModel: gemini?.model ?? '—',
+        liveModel: gemini?.liveModel ?? '—',
         promptVersion: gemini?.promptVersion ?? '—',
         fps: overlayResult?.ok ? overlayResult.fps : null,
         microphone: {

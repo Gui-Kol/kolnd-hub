@@ -70,7 +70,7 @@ function readOverlayConfig(value: unknown): OverlayConfig {
     width: typeof raw.width === 'number' ? raw.width : 320,
     height: typeof raw.height === 'number' ? raw.height : 360,
     shortcut: typeof raw.shortcut === 'string' ? raw.shortcut : 'Control+Alt+A',
-    hideOnFullscreen: raw.hideOnFullscreen !== false
+    hideOnFullscreen: raw.hideOnFullscreen === true
   }
 }
 

@@ -47,7 +47,8 @@ import { getShortcutStatus, registerOverlayShortcut } from './shortcut'
 export const FULLSCREEN_POLL_MS = 2000
 
 let context: IpcContext | null = null
-let hideOnFullscreen = true
+// Task 29: sem auto-hide por padrão; o overlay fica sempre visível e por cima.
+let hideOnFullscreen = false
 let autoHidden = false
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let pollBusy = false
@@ -345,7 +346,7 @@ export function resetOverlayControllerForTests(): void {
   stopDisplayWatch?.()
   stopDisplayWatch = null
   context = null
-  hideOnFullscreen = true
+  hideOnFullscreen = false
   autoHidden = false
   pollBusy = false
   initialized = false

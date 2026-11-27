@@ -124,6 +124,100 @@ describe('catálogo de programas', () => {
     expect(resolveAgain).toHaveBeenCalledTimes(1)
   })
 
+  it('cache da versão 1 é descartado e regravado como versão 2', async () => {
+    const options = baseOptions()
+    const fs = options.fs as CatalogFs & { files: Map<string, string> }
+    // Cache vazio gravado pelo bug do `-Command` (v1).
+    fs.files.set(
+      options.cachePath,
+      JSON.stringify({ version: 1, signature: 'C:\\MenuA:1000|C:\\MenuB:2000', apps: [] })
+    )
+    const resolveShortcuts = vi.fn(options.resolveShortcuts)
+
+    const catalog = createAppCatalog({ ...options, resolveShortcuts })
+    const { apps, cached } = await catalog.load()
+
+    expect(cached).toBe(false)
+    expect(resolveShortcuts).toHaveBeenCalledTimes(1)
+    expect(apps.map((app) => app.name)).toEqual(['Bloco de Notas', 'Calculadora', 'Paint'])
+    const written = JSON.parse(fs.files.get(options.cachePath) ?? '{}') as { version: number }
+    expect(written.version).toBe(2)
+  })
+
+  it('mescla apps conhecidos sem duplicar nome e mantém known na frente do varrido', async () => {
+    const catalog = createAppCatalog(
+      baseOptions({
+        knownApps: [
+          { name: 'Bloco de Notas', kind: 'known', target: 'C:\\Windows\\System32\\notepad.exe' },
+          { name: 'Notepad', kind: 'known', target: 'C:\\Windows\\System32\\notepad.exe' }
+        ]
+      })
+    )
+
+    const { apps } = await catalog.load()
+    const names = apps.map((app) => app.name)
+
+    // "Bloco de Notas" existe como .lnk e como known: aparece uma única vez,
+    // com o alvo do known (precedência do nome normalizado).
+    expect(names.filter((name) => name === 'Bloco de Notas')).toHaveLength(1)
+    expect(apps.find((app) => app.name === 'Bloco de Notas')).toMatchObject({
+      kind: 'known',
+      target: 'C:\\Windows\\System32\\notepad.exe'
+    })
+    expect(names).toContain('Notepad')
+    expect(names).toContain('Calculadora')
+    expect(names).toContain('Paint')
+    expect(await catalog.listNames()).toEqual(names)
+  })
+
+  it('apps conhecidos aparecem mesmo sem nenhum atalho no Menu Iniciar', async () => {
+    const catalog = createAppCatalog(
+      baseOptions({
+        startMenuDirs: ['C:\\Vazio'],
+        knownApps: [
+          { name: 'Notepad', kind: 'known', target: 'C:\\Windows\\System32\\notepad.exe' }
+        ]
+      })
+    )
+
+    const { apps, cached } = await catalog.load()
+
+    expect(cached).toBe(false)
+    expect(apps).toEqual([
+      { name: 'Notepad', kind: 'known', target: 'C:\\Windows\\System32\\notepad.exe' }
+    ])
+    expect(await catalog.listNames()).toEqual(['Notepad'])
+  })
+
+  it('open de app conhecido abre por spawn sem verificar o PID', async () => {
+    const spawn = vi.fn(() => ({ pid: 777, unref: () => undefined }))
+    const isProcessAlive = vi.fn(async () => false)
+    const catalog = createAppCatalog(
+      baseOptions({
+        knownApps: [
+          { name: 'Notepad', kind: 'known', target: 'C:\\Windows\\System32\\notepad.exe' }
+        ],
+        spawn,
+        isProcessAlive
+      })
+    )
+
+    const result = await catalog.open('notepad')
+
+    expect(result).toMatchObject({
+      ok: true,
+      verified: false,
+      pid: 777,
+      app: { name: 'Notepad', kind: 'known' }
+    })
+    expect(spawn).toHaveBeenCalledWith('C:\\Windows\\System32\\notepad.exe', [], {
+      detached: true,
+      stdio: 'ignore',
+      shell: false
+    })
+    expect(isProcessAlive).not.toHaveBeenCalled()
+  })
+
   it('nome desconhecido é recusado sem spawn', async () => {
     const spawn = vi.fn(() => ({ pid: 1, unref: () => undefined }))
     const catalog = createAppCatalog(baseOptions({ spawn }))

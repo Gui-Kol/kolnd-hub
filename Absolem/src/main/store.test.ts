@@ -77,7 +77,7 @@ describe('store persistente', () => {
     expect(storeMod.getStoreSnapshot()).toEqual(storeMod.defaultAbsolemConfig())
 
     const options = state.options as StoreOptionsShape
-    expect(options.projectVersion).toBe('1.11.0')
+    expect(options.projectVersion).toBe('1.13.0')
     expect(Object.keys(options.migrations ?? {})).toEqual([
       '1.0.0',
       '1.1.0',
@@ -90,8 +90,19 @@ describe('store persistente', () => {
       '1.8.0',
       '1.9.0',
       '1.10.0',
-      '1.11.0'
+      '1.11.0',
+      '1.12.0',
+      '1.13.0'
     ])
+  })
+
+  it('defaults de modelo separam texto e voz', () => {
+    expect(storeMod.defaultGeminiConfig()).toEqual({
+      model: 'gemini-3.8-flash',
+      liveModel: 'gemini-3.8-live',
+      temperature: 0.7,
+      monthlyTokenCap: 2_000_000
+    })
   })
 
   it('valor inválido é normalizado sem perder os válidos', () => {
@@ -122,7 +133,7 @@ describe('store persistente', () => {
       width: 240,
       height: 560,
       shortcut: 'Control+Alt+A',
-      hideOnFullscreen: true
+      hideOnFullscreen: false
     })
     expect(snapshot.voice).toEqual({
       enabled: true,
@@ -167,7 +178,7 @@ describe('store persistente', () => {
       width: 320,
       height: 360,
       shortcut: 'Control+Alt+A',
-      hideOnFullscreen: true
+      hideOnFullscreen: false
     }
     expect(state.data.get('overlay')).toEqual(migrated)
 
@@ -192,6 +203,7 @@ describe('store persistente', () => {
 
     expect(state.data.get('gemini')).toEqual({
       model: 'gemini-2.0-flash',
+      liveModel: 'gemini-3.8-live',
       temperature: 0.3,
       monthlyTokenCap: 2_000_000
     })
@@ -380,6 +392,107 @@ describe('store persistente', () => {
 
       expect(state.data.get('theme')).toEqual(once)
       expect(once.version).toBe(2)
+    })
+  })
+
+  describe('1.12.0 - modelo de texto e modelo Live', () => {
+    it('troca modelo desligado pelo default e preenche liveModel', () => {
+      const store = fakeStore()
+      state.data.set('gemini', { model: 'gemini-2.0-flash', temperature: 0.3 })
+
+      storeMod.STORE_MIGRATIONS['1.12.0'](store)
+
+      expect(state.data.get('gemini')).toEqual({
+        model: 'gemini-3.8-flash',
+        liveModel: 'gemini-3.8-live',
+        temperature: 0.3,
+        monthlyTokenCap: 2_000_000
+      })
+    })
+
+    it('troca também gemini-2.0-flash-lite', () => {
+      const store = fakeStore()
+      state.data.set('gemini', { model: 'gemini-2.0-flash-lite' })
+
+      storeMod.STORE_MIGRATIONS['1.12.0'](store)
+
+      expect(state.data.get('gemini')).toMatchObject({
+        model: 'gemini-3.8-flash',
+        liveModel: 'gemini-3.8-live'
+      })
+    })
+
+    it('preserva modelo customizado e liveModel existente', () => {
+      const store = fakeStore()
+      state.data.set('gemini', {
+        model: 'meu-modelo-texto',
+        liveModel: 'meu-modelo-live',
+        temperature: 1.1
+      })
+
+      storeMod.STORE_MIGRATIONS['1.12.0'](store)
+
+      expect(state.data.get('gemini')).toEqual({
+        model: 'meu-modelo-texto',
+        liveModel: 'meu-modelo-live',
+        temperature: 1.1,
+        monthlyTokenCap: 2_000_000
+      })
+    })
+
+    it('é idempotente', () => {
+      const store = fakeStore()
+      state.data.set('gemini', { model: 'gemini-2.0-flash' })
+      storeMod.STORE_MIGRATIONS['1.12.0'](store)
+      const once = state.data.get('gemini')
+
+      storeMod.STORE_MIGRATIONS['1.12.0'](store)
+
+      expect(state.data.get('gemini')).toEqual(once)
+    })
+  })
+
+  describe('1.13.0 - overlay sempre visível', () => {
+    it('zera hideOnFullscreen existente preservando o resto do overlay', () => {
+      const store = fakeStore()
+      state.data.set('overlay', {
+        visible: true,
+        position: 'top-right',
+        offsetX: 10,
+        offsetY: 20,
+        width: 400,
+        height: 500,
+        shortcut: 'Control+Shift+A',
+        hideOnFullscreen: true
+      })
+
+      storeMod.STORE_MIGRATIONS['1.13.0'](store)
+
+      expect(state.data.get('overlay')).toEqual({
+        visible: true,
+        position: 'top-right',
+        offsetX: 10,
+        offsetY: 20,
+        width: 400,
+        height: 500,
+        shortcut: 'Control+Shift+A',
+        hideOnFullscreen: false
+      })
+    })
+
+    it('default é sempre visível e a migração é idempotente', () => {
+      const store = fakeStore()
+
+      // Sem overlay no disco: cria o default já com hideOnFullscreen false.
+      storeMod.STORE_MIGRATIONS['1.13.0'](store)
+      expect(state.data.get('overlay')).toEqual({
+        ...storeMod.defaultOverlayConfig(),
+        hideOnFullscreen: false
+      })
+
+      const once = state.data.get('overlay')
+      storeMod.STORE_MIGRATIONS['1.13.0'](store)
+      expect(state.data.get('overlay')).toEqual(once)
     })
   })
 

@@ -48,7 +48,7 @@ export function registerIpc(ctx: IpcContext): void {
       chromium: process.versions.chrome ?? '',
       node: process.versions.node ?? ''
     }),
-    getLiveModel: () => ctx.getStoreSnapshot().gemini.model,
+    getLiveModel: () => ctx.getStoreSnapshot().gemini.liveModel,
     getOverlayFps: async () => {
       const overlay = ctx.getOverlayWindow()
       if (!overlay || overlay.isDestroyed()) return null

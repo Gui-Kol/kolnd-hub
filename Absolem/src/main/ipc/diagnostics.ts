@@ -29,6 +29,8 @@ import { GEMINI_SDK_PACKAGE, GEMINI_SDK_VERSION } from '../gemini/sdk'
 export interface DiagnosticsSource {
   status: () => GeminiStatusInfo
   getPromptVersion: () => string
+  /** Modelo Live configurado (`gemini.liveModel`); ausente vira string vazia. */
+  getLiveModel?: () => string
 }
 
 export const MAX_DIAGNOSTIC_ERRORS = 5
@@ -64,6 +66,7 @@ export function buildGeminiDiagnostics(
     sdkPackage: sdk.packageName,
     sdkVersion: sdk.version,
     model: status.model,
+    liveModel: engine.getLiveModel?.() ?? '',
     promptVersion: engine.getPromptVersion(),
     configured: status.configured,
     lastError: status.lastError,
@@ -100,7 +103,12 @@ export function registerDiagnosticsIpc(
       return failure(`Payload inválido para ${IPC.diagnosticsGemini}.`)
     }
     try {
-      return { ok: true, diagnostics: buildGeminiDiagnostics(engine) }
+      const source: DiagnosticsSource = {
+        status: () => engine.status(),
+        getPromptVersion: () => engine.getPromptVersion(),
+        getLiveModel: options.getLiveModel
+      }
+      return { ok: true, diagnostics: buildGeminiDiagnostics(source) }
     } catch (err) {
       return failure(`Falha ao montar o diagnóstico do Gemini: ${errorMessage(err)}`)
     }

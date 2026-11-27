@@ -1,5 +1,4 @@
 import { app, dialog, shell } from 'electron'
-import type { BrowserWindow } from 'electron'
 import { execFile, spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import {
@@ -31,6 +30,7 @@ import type { IpcContext } from '../ipc/lifecycle'
 import { logger } from '../logger'
 import { registerShutdownHook } from '../shutdown'
 import { getStoreSnapshot, setStoreValue } from '../store'
+import { parseAllowedExternalUrl } from '../../shared/search'
 import {
   createActionAuditWriter,
   createActionLimiter,
@@ -45,7 +45,8 @@ import {
   type RoutineAuditEvent,
   type RoutineScheduler
 } from '../routines/scheduler'
-import { createAppCatalog } from './appCatalog'
+import { createAppCatalog, type CatalogApp, type ShortcutResolution } from './appCatalog'
+import { batchShortcutPaths, buildShortcutResolveScript, encodePowerShell } from './shortcutResolve'
 import { closeProcess, listProcesses, parseTasklistCsv } from './processes'
 import { searchFiles, defaultSearchRoots } from './search'
 import { readTextFile } from './readFile'
@@ -124,18 +125,23 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-const SHORTCUT_RESOLVE_SCRIPT = [
-  "$ErrorActionPreference='SilentlyContinue'",
-  '$shell=New-Object -ComObject WScript.Shell',
-  '$out=@()',
-  'foreach ($p in $args) {',
-  '  try {',
-  '    $s=$shell.CreateShortcut($p)',
-  '    if ($s.TargetPath) { $out += [pscustomobject]@{ path=$p; target=$s.TargetPath } }',
-  '  } catch {}',
-  '}',
-  'ConvertTo-Json -Compress -Depth 4 -InputObject @($out)'
-].join('\n')
+/** Normaliza a saída JSON do resolver: objeto único ou array. */
+function parseResolvedShortcuts(stdout: string): ShortcutResolution[] {
+  if (!stdout.trim()) return []
+  try {
+    const parsed: unknown = JSON.parse(stdout)
+    const items = Array.isArray(parsed) ? parsed : [parsed]
+    return items.filter(
+      (item): item is ShortcutResolution =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        typeof (item as Record<string, unknown>).path === 'string' &&
+        typeof (item as Record<string, unknown>).target === 'string'
+    )
+  } catch {
+    return []
+  }
+}
 
 export interface ActionsRuntime {
   registry: ToolRegistry
@@ -156,6 +162,23 @@ function startMenuDirs(): string[] {
     dirs.push(join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
   }
   return dirs
+}
+
+/**
+ * Apps conhecidos do Windows (task 29): o Menu Iniciar desta máquina não tem
+ * atalho para o Bloco de Notas e `Get-StartApps` também não o lista. O catálogo
+ * mescla estes nomes fixos e abre por `spawn`, sem verificar PID (o processo
+ * pode delegar a outra instância e sair).
+ */
+export function knownWindowsApps(): CatalogApp[] {
+  const root = process.env.SystemRoot?.trim() || 'C:\\Windows'
+  const notepad = join(root, 'System32', 'notepad.exe')
+  return [
+    { name: 'Bloco de Notas', kind: 'known', target: notepad },
+    { name: 'Notepad', kind: 'known', target: notepad },
+    { name: 'Calculadora', kind: 'known', target: 'calc.exe' },
+    { name: 'Paint', kind: 'known', target: 'mspaint.exe' }
+  ]
 }
 
 function userPath(name: 'documents' | 'desktop' | 'downloads' | 'home'): string {
@@ -188,37 +211,25 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
   const catalog = createAppCatalog({
     cachePath: join(userData, 'app-catalog.json'),
     startMenuDirs: startMenuDirs(),
+    knownApps: knownWindowsApps(),
     fs: { readdir, stat, readFile, writeFile, mkdir },
     resolveShortcuts: async (paths) => {
-      const result = await runCommand('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        SHORTCUT_RESOLVE_SCRIPT,
-        ...paths
-      ])
-      if (!result.stdout.trim()) return []
-      try {
-        const parsed: unknown = JSON.parse(result.stdout)
-        if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (item): item is { path: string; target: string } =>
-              Boolean(item) &&
-              typeof item === 'object' &&
-              typeof (item as Record<string, unknown>).path === 'string' &&
-              typeof (item as Record<string, unknown>).target === 'string'
-          )
-        }
-        if (parsed && typeof parsed === 'object') {
-          const raw = parsed as Record<string, unknown>
-          if (typeof raw.path === 'string' && typeof raw.target === 'string') {
-            return [{ path: raw.path, target: raw.target }]
-          }
-        }
-        return []
-      } catch {
-        return []
+      // `-EncodedCommand` (base64 UTF-16LE) com os caminhos embutidos no script:
+      // com `-Command` os paths não chegavam a `$args` e o catálogo ficava vazio.
+      // O catálogo real tem >100 atalhos e a linha de comando do Windows tem
+      // limite de 32k caracteres: divide em lotes que cabem no limite.
+      const resolved: ShortcutResolution[] = []
+      for (const batch of batchShortcutPaths(paths)) {
+        const script = buildShortcutResolveScript(batch)
+        const result = await runCommand('powershell.exe', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          encodePowerShell(script)
+        ])
+        resolved.push(...parseResolvedShortcuts(result.stdout))
       }
+      return resolved
     },
     spawn: (file, args, options) => spawn(file, args, options),
     isProcessAlive: async (pid) => {
@@ -258,15 +269,44 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
     getPermission: () => getPermission('uia.control')
   })
 
-  const dialogOptions = (options: ConfirmationDialogOptions): Promise<{ response: number }> => {
+  /**
+   * Confirmação sempre visível (task 29): o overlay é sempre-no-topo e não
+   * focável, então nunca serve de pai. Usa a janela principal quando ela está
+   * visível (não minimizada); caso contrário abre sem pai. Enquanto o diálogo
+   * está aberto, o overlay desce um nível para não cobri-lo, e o
+   * `screen-saver` é reaplicado ao final.
+   */
+  const dialogOptions = async (
+    options: ConfirmationDialogOptions
+  ): Promise<{ response: number }> => {
     const overlay = ctx.getOverlayWindow()
-    return overlay && !overlay.isDestroyed()
-      ? dialog.showMessageBox(overlay as BrowserWindow, options)
-      : dialog.showMessageBox(options)
+    const overlayReady = Boolean(overlay && !overlay.isDestroyed())
+    if (overlayReady && overlay) {
+      try {
+        overlay.setAlwaysOnTop(false)
+      } catch {
+        // Janela fechando entre a checagem e a chamada.
+      }
+    }
+    try {
+      const main = ctx.getMainWindow()
+      if (main && !main.isDestroyed() && main.isVisible() && !main.isMinimized()) {
+        return await dialog.showMessageBox(main, options)
+      }
+      return await dialog.showMessageBox(options)
+    } finally {
+      if (overlayReady && overlay) {
+        try {
+          overlay.setAlwaysOnTop(true, 'screen-saver')
+        } catch {
+          // Janela fechando: não há o que restaurar.
+        }
+      }
+    }
   }
   const confirm = createDialogConfirmation(
     { showMessageBox: (_window, options) => dialogOptions(options) },
-    () => ctx.getOverlayWindow()
+    () => ctx.getMainWindow()
   )
 
   const confirmForceClose = async (pid: number): Promise<boolean> => {
@@ -385,6 +425,13 @@ export function createActionsRuntime(ctx: IpcContext): ActionsRuntime {
         },
         id
       ),
+    openUrl: async (url) => {
+      // Mesma allowlist do IPC de pesquisa: só http/https, sem credenciais.
+      const allowed = parseAllowedExternalUrl(url)
+      if (!allowed) throw new Error('Apenas links http ou https podem ser abertos.')
+      await shell.openExternal(allowed)
+      return { url: allowed }
+    },
     system,
     uia,
     limiter,

@@ -91,7 +91,10 @@ export interface VoiceConfig {
 }
 
 export interface GeminiConfig {
+  /** Modelo de texto (chat/visão). */
   model: string
+  /** Modelo Live (áudio nativo) usado pela voz. */
+  liveModel: string
   temperature: number
   /** Teto mensal de tokens (aprovação do gate de custo). */
   monthlyTokenCap: number

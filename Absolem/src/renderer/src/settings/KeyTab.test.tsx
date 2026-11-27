@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GeminiConfig } from '../../../shared/config'
 import type { GeminiTestKeyOutcome } from '../../../shared/gemini'
-import { KeyTab, decreaseMonthlyCap, type KeyTabApi } from './KeyTab'
+import { KeyTab, decreaseMonthlyCap, describeTestError, type KeyTabApi } from './KeyTab'
 
 const reactGlobal = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 reactGlobal.IS_REACT_ACT_ENVIRONMENT = true
@@ -67,6 +67,7 @@ function makeApi(
       key: 'gemini' as const,
       value: {
         model: 'gemini-2.0-flash',
+        liveModel: 'gemini-3.8-live',
         temperature: 0.7,
         monthlyTokenCap
       } satisfies GeminiConfig
@@ -225,6 +226,7 @@ describe('aba Chave e custo', () => {
 
     expect(setGeminiConfig).toHaveBeenCalledWith({
       model: 'gemini-2.0-flash',
+      liveModel: 'gemini-3.8-live',
       temperature: 0.7,
       monthlyTokenCap: 1_000_000
     })
@@ -239,6 +241,60 @@ describe('aba Chave e custo', () => {
     await settle()
 
     expect(button(container, 'Diminuir teto').disabled).toBe(true)
+  })
+
+  it('503 mostra aviso em âmbar e não acusa a chave', async () => {
+    const { api } = makeApi({
+      testOutcome: {
+        ok: true,
+        model: 'gemini-3.8-flash',
+        warning:
+          'Chave aceita, mas o serviço do Gemini está sobrecarregado (HTTP 503). Tente novamente em instantes; a voz continua disponível.',
+        durationMs: 12
+      }
+    })
+    await act(async () => {
+      root.render(<KeyTab api={api} />)
+    })
+    await settle()
+
+    await act(async () => {
+      button(container, 'Testar conexão').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+
+    const outcome = container.querySelector('[data-test-key-outcome]')
+    expect(outcome?.className).toContain('text-amber-200')
+    expect(container.textContent).toContain('Chave aceita')
+    expect(container.textContent).not.toContain('autenticação')
+  })
+})
+
+describe('describeTestError', () => {
+  it('sucesso sem warning é verde', () => {
+    expect(describeTestError({ ok: true })).toBe('Conexão testada com sucesso.')
+  })
+
+  it('sucesso com warning mostra o aviso', () => {
+    const warning = 'Chave aceita, mas o serviço está sobrecarregado.'
+    expect(describeTestError({ ok: true, warning })).toBe(warning)
+  })
+
+  it('server 503 não culpa a chave', () => {
+    const text = describeTestError({
+      ok: false,
+      error: { kind: 'server', message: 'high demand' }
+    })
+    expect(text).toContain('sobrecarregado')
+    expect(text).toContain('não foi recusada')
+  })
+
+  it('timeout não significa chave inválida', () => {
+    const text = describeTestError({
+      ok: false,
+      error: { kind: 'timeout', message: 'demorou' }
+    })
+    expect(text).toContain('não significa que a chave seja inválida')
   })
 })
 

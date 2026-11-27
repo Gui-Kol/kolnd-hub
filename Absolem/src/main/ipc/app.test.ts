@@ -52,7 +52,12 @@ const defaultConfig: AbsolemConfig = {
     maxSessionMinutes: 15,
     silenceTimeoutSeconds: 20
   },
-  gemini: { model: 'gemini-2.0-flash', temperature: 0.7, monthlyTokenCap: 2_000_000 },
+  gemini: {
+    model: 'gemini-2.0-flash',
+    liveModel: 'gemini-3.8-live',
+    temperature: 0.7,
+    monthlyTokenCap: 2_000_000
+  },
   privacy: {
     telemetry: false,
     screen: { mode: 'off', blocklist: [], proactive: false }

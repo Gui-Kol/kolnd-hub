@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createToolRegistry } from '../gemini/tools/registry'
 import type { ToolHandler } from '../gemini/tools/internal'
 import { createActionLimiter } from '../audit/actions'
+import { parseAllowedExternalUrl } from '../../shared/search'
 import { createActionToolEntries, registerActionTools, type ActionToolsEnv } from './tools'
 
 /**
@@ -35,6 +36,11 @@ function env(overrides: Partial<ActionToolsEnv> = {}): ActionToolsEnv {
     planFileOps: async () => ({ ops: [], totalBytes: 0, summary: '' }),
     applyFileOps: async () => ({ ok: true as const, id: 'x', ops: [], totalBytes: 0 }),
     undoFileOp: async () => ({ ok: true as const, id: 'x', undone: 0 }),
+    openUrl: async (url) => {
+      const allowed = parseAllowedExternalUrl(url)
+      if (!allowed) throw new Error('Apenas links http ou https podem ser abertos.')
+      return { url: allowed }
+    },
     system: {
       lock: async () => ({ ok: true as const }),
       sleep: async () => ({ ok: true as const }),
@@ -96,6 +102,34 @@ describe('ferramentas de ações', () => {
       category: 'files.read',
       sensitive: false
     })
+    expect(registry.getTool('open_url')).toMatchObject({
+      category: 'web.search',
+      sensitive: false
+    })
+  })
+
+  it('open_url abre http/https e recusa o resto antes do navegador', async () => {
+    const openUrl = vi.fn(async (url: string) => ({ url }))
+    const entries = createActionToolEntries(env({ openUrl }))
+    const openUrlEntry = entries.find((entry) => entry.definition.name === 'open_url')
+    if (!openUrlEntry) throw new Error('open_url ausente')
+
+    await expect(
+      openUrlEntry.handler({ url: 'https://www.youtube.com/results?search_query=absolem' })
+    ).resolves.toEqual({ url: 'https://www.youtube.com/results?search_query=absolem' })
+    expect(openUrl).toHaveBeenCalledTimes(1)
+
+    // Sem override: a allowlist compartilhada recusa antes de qualquer abertura.
+    const rejecting = createActionToolEntries(env())
+    const rejectingEntry = rejecting.find((entry) => entry.definition.name === 'open_url')
+    if (!rejectingEntry) throw new Error('open_url ausente')
+
+    await expect(rejectingEntry.handler({ url: 'javascript:alert(1)' })).rejects.toThrow(
+      /http ou https/
+    )
+    await expect(
+      rejectingEntry.handler({ url: 'file:///C:/Windows/System32/calc.exe' })
+    ).rejects.toThrow(/http ou https/)
   })
 
   it('open_app recusa nome fora do catálogo sem reportar sucesso', async () => {

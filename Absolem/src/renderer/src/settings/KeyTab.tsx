@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GeminiConfig } from '../../../shared/config'
-import { USAGE_WARNING_PERCENT, type GeminiTestKeyOutcome } from '../../../shared/gemini'
+import {
+  DEFAULT_GEMINI_LIVE_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  USAGE_WARNING_PERCENT,
+  type GeminiTestKeyOutcome
+} from '../../../shared/gemini'
 import type {
   GeminiStatusResult,
   GeminiTestKeyResult,
@@ -58,14 +63,15 @@ function readGeminiConfig(value: unknown): GeminiConfig {
       ? (value as Record<string, unknown>)
       : {}
   return {
-    model: typeof raw.model === 'string' ? raw.model : 'gemini-2.0-flash',
+    model: typeof raw.model === 'string' ? raw.model : DEFAULT_GEMINI_MODEL,
+    liveModel: typeof raw.liveModel === 'string' ? raw.liveModel : DEFAULT_GEMINI_LIVE_MODEL,
     temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
     monthlyTokenCap: typeof raw.monthlyTokenCap === 'number' ? raw.monthlyTokenCap : 2_000_000
   }
 }
 
 export function describeTestError(outcome: GeminiTestKeyOutcome): string {
-  if (outcome.ok) return 'Conexão testada com sucesso.'
+  if (outcome.ok) return outcome.warning ?? 'Conexão testada com sucesso.'
   const kind = outcome.error?.kind ?? 'unknown'
   if (kind === 'auth') {
     return 'Falha de autenticação (401): a chave é inválida, expirou ou não tem permissão. Salve uma chave válida e teste de novo.'
@@ -73,7 +79,12 @@ export function describeTestError(outcome: GeminiTestKeyOutcome): string {
   if (kind === 'quota')
     return 'Cota ou teto de tokens atingido. Ajuste o teto ou aguarde o próximo mês.'
   if (kind === 'network') return 'Falha de rede: verifique a conexão e tente de novo.'
-  if (kind === 'timeout') return 'A chamada demorou demais. Tente de novo.'
+  if (kind === 'server') {
+    return 'O serviço do Gemini está sobrecarregado agora (HTTP 503). Sua chave não foi recusada; tente novamente em instantes. A voz continua disponível.'
+  }
+  if (kind === 'timeout') {
+    return 'A chamada demorou demais; isso não significa que a chave seja inválida. Tente de novo.'
+  }
   return outcome.error?.message ?? 'Não foi possível testar a conexão.'
 }
 
@@ -312,7 +323,11 @@ export function KeyTab({ api }: KeyTabProps) {
           <p
             role="status"
             data-test-key-outcome={testOutcome.ok ? 'ok' : (testOutcome.error?.kind ?? 'error')}
-            className={testOutcome.ok ? 'text-xs text-emerald-200' : 'text-xs text-amber-200'}
+            className={
+              testOutcome.ok && !testOutcome.warning
+                ? 'text-xs text-emerald-200'
+                : 'text-xs text-amber-200'
+            }
           >
             {describeTestError(testOutcome)}
             {testOutcome.ok && typeof testOutcome.durationMs === 'number'

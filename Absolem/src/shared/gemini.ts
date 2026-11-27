@@ -9,6 +9,19 @@
 /** Aviso de consumo exibido quando o mês chega a este percentual do teto. */
 export const USAGE_WARNING_PERCENT = 80
 
+/** Modelo de texto estável padrão (Gemini API, 27/11/2026). */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash'
+
+/** Modelo Live (áudio nativo) padrão da voz (Gemini API, 27/11/2026). */
+export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-live'
+
+/**
+ * Modelos que a documentação oficial marcou como desligados (shut down). A
+ * migração 1.12.0 troca apenas estes valores pelo default; modelos
+ * customizados do usuário são preservados.
+ */
+export const SHUTDOWN_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'] as const
+
 export const GEMINI_ERROR_KINDS = [
   'auth',
   'quota',
@@ -85,13 +98,21 @@ export interface GeminiTestKeyOutcome {
   error?: GeminiErrorSummary
   usage?: ChatUsagePayload
   durationMs?: number
+  /**
+   * Aviso em sucesso parcial: a chave foi aceita, mas o serviço respondeu 5xx.
+   * A UI deve mostrar o aviso em âmbar, não como falha de chave.
+   */
+  warning?: string
 }
 
 /** `diagnostics:gemini`: metadados do motor; nunca a chave. */
 export interface GeminiDiagnostics {
   sdkPackage: string
   sdkVersion: string
+  /** Modelo de texto (`gemini.model`). */
   model: string
+  /** Modelo da voz/Live (`gemini.liveModel`). */
+  liveModel: string
   promptVersion: string
   configured: boolean
   lastError: GeminiErrorSummary | null

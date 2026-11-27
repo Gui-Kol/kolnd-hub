@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GeminiEngine, type ChatSinks } from './engine'
+import { GeminiEngine, type ChatSinks, type EngineLogger } from './engine'
 import { createChatHistory } from './history'
 import { FakeTransport } from './testing/fakeTransport'
 import { createUsageMeter } from './usage'
@@ -27,6 +27,7 @@ function memoryStore(): {
 function makeHarness(options?: {
   configured?: boolean
   scenario?: ConstructorParameters<typeof FakeTransport>[0]
+  logger?: EngineLogger
 }) {
   const configured = options?.configured ?? true
   const transport = new FakeTransport(
@@ -47,7 +48,8 @@ function makeHarness(options?: {
     config: () => ({ model: MODEL, temperature: 0.7, monthlyTokenCap: CAP }),
     usage,
     history,
-    now: () => NOW
+    now: () => NOW,
+    ...(options?.logger ? { logger: options.logger } : {})
   })
   return { engine, transport, keys, store, usage, history }
 }
@@ -147,5 +149,42 @@ describe('GeminiEngine: chave e estado', () => {
     expect(transport.generateAttempts).toBe(1)
     expect(usage.snapshot().today).toBe(12)
     expect(usage.snapshot().month).toBe(12)
+  })
+
+  it('503 no test-key é sucesso parcial: a chave foi aceita', async () => {
+    const overloaded = Object.assign(new Error('high demand'), { status: 503 })
+    const warn = vi.fn()
+    const { engine } = makeHarness({
+      scenario: { generateErrors: [overloaded] },
+      logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() }
+    })
+
+    const result = await engine.testKey()
+
+    expect(result.ok).toBe(true)
+    expect(result.model).toBe(MODEL)
+    expect(result.warning).toContain('sobrecarregado')
+    expect(result.warning).toContain('voz continua disponível')
+    expect(result.error).toBeUndefined()
+    expect(engine.status().lastError).toBeNull()
+    expect(warn).toHaveBeenCalledWith(
+      'gemini',
+      'test-key sobrecarregado',
+      expect.objectContaining({ status: 503 })
+    )
+  })
+
+  it('timeout no test-key não significa chave inválida', async () => {
+    const timedOut = Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })
+    const { engine } = makeHarness({ scenario: { generateErrors: [timedOut] } })
+
+    const result = await engine.testKey()
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toEqual({
+      kind: 'timeout',
+      message:
+        'A chamada demorou demais; isso não significa que a chave seja inválida. Tente de novo.'
+    })
   })
 })

@@ -197,6 +197,8 @@ export function normalizeOverlayConfig(input: unknown): OverlayConfig {
     ...normalizeOverlayLayout(raw),
     visible: raw.visible === true,
     shortcut: normalizeOverlayShortcut(raw.shortcut),
-    hideOnFullscreen: raw.hideOnFullscreen !== false
+    // O overlay deve ficar sempre visível por padrão (task 29). Ocultar em tela
+    // cheia passa a ser opt-in explícito: só `true` liga o auto-hide.
+    hideOnFullscreen: raw.hideOnFullscreen === true
   }
 }

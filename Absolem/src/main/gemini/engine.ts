@@ -164,6 +164,8 @@ export interface TestKeyResult {
   error?: GeminiErrorSummary
   usage?: ChatUsagePayload
   durationMs?: number
+  /** Sucesso parcial: chave aceita, serviço sobrecarregado (5xx). */
+  warning?: string
 }
 
 const DEFAULT_MAX_TEXT_CHARS = 32_000
@@ -315,12 +317,33 @@ export class GeminiEngine {
       }
     } catch (err) {
       const error = classifyError(err)
-      this.lastError = { kind: error.kind, message: error.message }
+      const durationMs = Date.now() - startedAt
+      // 5xx (especialmente 503 "high demand") prova que a chave foi aceita. Não
+      // é falha de autenticação: devolve sucesso parcial com aviso.
+      if (error.kind === 'server') {
+        this.lastError = null
+        this.logger?.warn('gemini', 'test-key sobrecarregado', {
+          status: error.status,
+          durationMs
+        })
+        return {
+          ok: true,
+          model: this.config().model,
+          warning:
+            'Chave aceita, mas o serviço do Gemini está sobrecarregado (HTTP 503). Tente novamente em instantes; a voz continua disponível.',
+          durationMs
+        }
+      }
+      const message =
+        error.kind === 'timeout'
+          ? 'A chamada demorou demais; isso não significa que a chave seja inválida. Tente de novo.'
+          : error.message
+      this.lastError = { kind: error.kind, message }
       this.logger?.warn('gemini', 'test-key falhou', {
         kind: error.kind,
         status: error.status
       })
-      return { ok: false, error: { kind: error.kind, message: error.message } }
+      return { ok: false, error: { kind: error.kind, message } }
     }
   }
 

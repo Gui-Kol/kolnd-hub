@@ -10,14 +10,14 @@
  * - nome fora do catálogo nunca abre.
  *
  * Nada aqui interpola texto do modelo em comando: o PowerShell recebe a lista
- * de caminhos como ARGUMENTOS (`$args`) e o destino do `.lnk` é apenas `file`
- * do `spawn`.
+ * de caminhos embutida no script (`-EncodedCommand`) e o destino do `.lnk` é
+ * apenas `file` do `spawn`.
  */
 
 export interface CatalogApp {
   name: string
-  kind: 'shortcut' | 'aumid'
-  /** Executável resolvido do `.lnk` (kind `shortcut`). */
+  kind: 'shortcut' | 'aumid' | 'known'
+  /** Executável resolvido do `.lnk` (kind `shortcut`) ou fixo (kind `known`). */
   target?: string
   /** AUMID do app UWP (kind `aumid`). */
   aumid?: string
@@ -54,6 +54,11 @@ export interface AppCatalogOptions {
   fs: CatalogFs
   /** Resolve vários `.lnk` numa única chamada de PowerShell. */
   resolveShortcuts: (paths: string[]) => Promise<ShortcutResolution[]>
+  /**
+   * Apps conhecidos (task 29): entram no catálogo mesmo sem atalho no Menu
+   * Iniciar (ex.: Bloco de Notas) e abrem por `spawn` sem verificação de PID.
+   */
+  knownApps?: CatalogApp[]
   spawn: (
     file: string,
     args: string[],
@@ -79,7 +84,7 @@ export interface AppCatalog {
   registerAumid: (name: string, aumid: string) => Promise<{ ok: boolean; error?: string }>
 }
 
-const CACHE_VERSION = 1
+const CACHE_VERSION = 2
 const MAX_SCAN_DEPTH = 6
 const MAX_NAME_LENGTH = 100
 const MAX_AUMID_LENGTH = 200
@@ -118,7 +123,9 @@ function isCatalogApp(value: unknown): value is CatalogApp {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const raw = value as Record<string, unknown>
   if (typeof raw.name !== 'string' || !raw.name.trim()) return false
-  if (raw.kind === 'shortcut') return typeof raw.target === 'string' && raw.target.length > 0
+  if (raw.kind === 'shortcut' || raw.kind === 'known') {
+    return typeof raw.target === 'string' && raw.target.length > 0
+  }
   if (raw.kind === 'aumid') return typeof raw.aumid === 'string' && isSafeAumid(raw.aumid)
   return false
 }
@@ -217,6 +224,40 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
     return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   }
 
+  /** Apps conhecidos válidos, sem duplicatas de nome (a ordem do primeiro vale). */
+  function knownCatalogApps(): CatalogApp[] {
+    const seen = new Set<string>()
+    const apps: CatalogApp[] = []
+    for (const candidate of options.knownApps ?? []) {
+      if (!isCatalogApp(candidate) || candidate.kind !== 'known') continue
+      const key = normalizeLookupName(candidate.name)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      apps.push({
+        name: candidate.name.trim().slice(0, MAX_NAME_LENGTH),
+        kind: 'known',
+        target: candidate.target
+      })
+    }
+    return apps
+  }
+
+  /**
+   * Mescla os apps conhecidos com os varridos. O conhecido tem precedência no
+   * nome normalizado: garante "Bloco de Notas"/"Notepad" mesmo sem `.lnk`.
+   */
+  function mergeApps(scanned: CatalogApp[]): CatalogApp[] {
+    const merged = knownCatalogApps()
+    const seen = new Set(merged.map((app) => normalizeLookupName(app.name)))
+    for (const app of scanned) {
+      const key = normalizeLookupName(app.name)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      merged.push(app)
+    }
+    return merged.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  }
+
   async function load(): Promise<{ apps: CatalogApp[]; cached: boolean }> {
     const signature = await dirSignature()
     if (memory && memory.signature === signature) {
@@ -224,12 +265,15 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
     }
     const cached = await readCache(signature)
     if (cached.cached) {
-      memory = { signature, apps: cached.apps }
-      return cached
+      const apps = mergeApps(cached.apps)
+      memory = { signature, apps }
+      return { apps: [...apps], cached: true }
     }
-    const apps = await scan()
+    const scanned = await scan()
+    const apps = mergeApps(scanned)
     memory = { signature, apps }
-    await writeCache(signature, apps)
+    // O cache guarda só o que veio do disco; conhecidos são mesclados na leitura.
+    await writeCache(signature, scanned)
     return { apps: [...apps], cached: false }
   }
 
@@ -292,6 +336,11 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
       // para verificar. O spawn sem erro é o melhor sinal disponível.
       return { ok: true, app, pid, verified: false }
     }
+    if (app.kind === 'known') {
+      // Apps conhecidos (ex.: notepad.exe) podem delegar a outra instância e
+      // sair: verificar o PID daria falso negativo. O spawn sem erro basta.
+      return { ok: true, app, pid, verified: false }
+    }
     if (!(await verifyPid(pid))) {
       return {
         ok: false,
@@ -314,10 +363,12 @@ export function createAppCatalog(options: AppCatalogOptions): AppCatalog {
     const signature = await dirSignature()
     const current = await load()
     const apps = current.apps.filter(
-      (app) => normalizeLookupName(app.name) !== normalizeLookupName(trimmedName)
+      // Conhecidos não vão para o cache; são mesclados na leitura.
+      (app) =>
+        app.kind !== 'known' && normalizeLookupName(app.name) !== normalizeLookupName(trimmedName)
     )
     apps.push({ name: trimmedName, kind: 'aumid', aumid: aumid.trim() })
-    memory = { signature, apps }
+    memory = { signature, apps: mergeApps(apps) }
     await writeCache(signature, apps)
     return { ok: true }
   }

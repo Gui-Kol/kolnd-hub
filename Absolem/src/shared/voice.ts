@@ -19,6 +19,12 @@ export type VoiceState = (typeof VOICE_STATES)[number]
 
 export const DEFAULT_VOICE_STATE: VoiceState = 'off'
 
+/**
+ * Voz pré-definida do Gemini Live. `Charon` é uma voz oficial do catálogo;
+ * enviada em `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`.
+ */
+export const LIVE_VOICE_NAME = 'Charon'
+
 /** Atalho global de alternância (clique no avatar faz o mesmo). */
 export const VOICE_DEFAULT_SHORTCUT = 'Control+Alt+Space'
 

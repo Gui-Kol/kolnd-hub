@@ -1,4 +1,4 @@
-import { GeminiError, classifyError } from './errors'
+import { GeminiError, classifyError, sanitizeDetail } from './errors'
 import type {
   GeminiFunctionCall,
   GeminiFunctionResponse,
@@ -55,6 +55,8 @@ export interface LiveSessionHandlers {
 
 export interface LiveSessionConfig {
   model: string
+  /** Voz pré-definida do Live (ex.: `Charon`). */
+  voiceName?: string
   temperature?: number
   systemInstruction?: string
   /** Alias pedido pela task (`connect({ systemPrompt })`). */
@@ -118,6 +120,7 @@ export class LiveSession {
     this.handlers = options.handlers ?? {}
     this.config = {
       model: options.model,
+      voiceName: options.voiceName,
       temperature: options.temperature,
       systemInstruction: options.systemInstruction ?? options.systemPrompt,
       systemPrompt: options.systemPrompt,
@@ -251,6 +254,7 @@ export class LiveSession {
           model: this.config.model,
           systemInstruction: this.config.systemInstruction ?? this.config.systemPrompt ?? '',
           temperature: this.config.temperature ?? 0.7,
+          voiceName: this.config.voiceName,
           tools: this.config.tools,
           history: this.getHistory(),
           onEvent: (event) => this.handleEvent(event)
@@ -277,6 +281,7 @@ export class LiveSession {
         const retryable = this.isRetryable(lastError)
         this.logger?.warn('voice', 'falha ao conectar a sessão Live', {
           kind: lastError.kind,
+          detail: sanitizeDetail(err),
           attempt,
           retryable
         })
@@ -337,7 +342,10 @@ export class LiveSession {
   private handleRuntimeError(err: unknown): void {
     if (this.closed || this.reconnecting) return
     const error = classifyError(err)
-    this.logger?.warn('voice', 'erro na sessão Live', { kind: error.kind })
+    this.logger?.warn('voice', 'erro na sessão Live', {
+      kind: error.kind,
+      detail: sanitizeDetail(err)
+    })
     if (!this.isRetryable(error) || this.maxAttempts <= 1) {
       this.fail(error)
       return
@@ -376,6 +384,7 @@ export class LiveSession {
           model: this.config.model,
           systemInstruction: this.config.systemInstruction ?? this.config.systemPrompt ?? '',
           temperature: this.config.temperature ?? 0.7,
+          voiceName: this.config.voiceName,
           tools: this.config.tools,
           history: this.getHistory(),
           onEvent: (event) => this.handleEvent(event)
@@ -395,6 +404,7 @@ export class LiveSession {
         lastError = classifyError(err)
         this.logger?.warn('voice', 'reconexão da sessão Live falhou', {
           kind: lastError.kind,
+          detail: sanitizeDetail(err),
           attempt
         })
         if (!this.isRetryable(lastError)) break

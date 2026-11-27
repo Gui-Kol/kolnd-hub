@@ -14,6 +14,7 @@ import {
   type UiTreeResult
 } from './uia'
 import type { ActionLimiter } from '../audit/actions'
+import { MAX_FETCH_URL_CHARS } from '../../shared/search'
 
 /**
  * Ferramentas reais de controle do computador (task 08, T10).
@@ -37,6 +38,8 @@ export interface ActionToolsEnv {
   planFileOps: (input: { ops: FileOpInput[] }) => Promise<FilePlan>
   applyFileOps: (plan: FilePlan) => Promise<ApplyFileOpsResult>
   undoFileOp: (id: string) => Promise<{ ok: true; id: string; undone: number }>
+  /** Abre um site http/https no navegador padrão (allowlist em `instance.ts`). */
+  openUrl: (url: string) => Promise<{ url: string }>
   system: SystemActions
   uia: UiAutomation
   limiter: ActionLimiter
@@ -119,6 +122,34 @@ export function createActionToolEntries(env: ActionToolsEnv): ToolEntry[] {
         const result = await env.catalog.open(String(args.name ?? ''))
         if (!result.ok) throw new Error(result.error)
         return { app: result.app.name, pid: result.pid, verified: result.verified }
+      }
+    },
+    {
+      definition: {
+        name: 'open_url',
+        description:
+          'Abre um site ou vídeo no navegador padrão do usuário. Use para pedidos como ' +
+          '"abrir o YouTube" ou "ver um vídeo"; para pesquisar no YouTube, monte a URL ' +
+          'https://www.youtube.com/results?search_query=... com termos em texto. Só http/https.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: 'URL completa http ou https (ex.: https://www.youtube.com).',
+              maxLength: MAX_FETCH_URL_CHARS
+            }
+          },
+          required: ['url'],
+          additionalProperties: false
+        },
+        sensitive: false,
+        category: 'web.search',
+        timeoutMs: 10_000
+      },
+      handler: async (args) => {
+        const result = await env.openUrl(String(args.url ?? ''))
+        return { url: result.url }
       }
     },
     {

@@ -50,11 +50,22 @@ export function isGeminiError(value: unknown): value is GeminiError {
 /** Remove credenciais e reduz o texto a uma linha curta. */
 export function sanitizeDetail(value: unknown): string {
   const text = typeof value === 'string' ? value : value instanceof Error ? value.message : ''
-  return text
-    .replace(/(api[-_]?key|key)\s*=\s*[^&\s]+/gi, '$1=[redigido]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_DETAIL)
+  return (
+    text
+      // Redige só o valor da chave, preservando `&x=1` e o restante da mensagem.
+      .replace(/\b(api[-_]?key|key)(\s*=\s*)([^&\s"'<>]+)/gi, '$1$2[redigido]')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MAX_DETAIL)
+  )
+}
+
+/** Status HTTP citado no texto (`Unexpected server response: 404`). */
+function readMessageStatus(detail: string): number | undefined {
+  const match = /Unexpected server response:\s*(\d{3})/i.exec(detail)
+  if (!match) return undefined
+  const status = Number(match[1])
+  return Number.isFinite(status) ? status : undefined
 }
 
 function readStatus(err: unknown): number | undefined {
@@ -102,6 +113,18 @@ const NETWORK_CODES = new Set([
 
 const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'])
 
+/** Mensagens sem `status`/`code` que o SDK repassa cruas (modelo/voz inválidos). */
+const INVALID_MESSAGE_PATTERNS = [
+  /\bINVALID_ARGUMENT\b/i,
+  /\bNOT_FOUND\b/i,
+  /model not found/i,
+  /not supported/i
+]
+
+function isInvalidMessage(detail: string): boolean {
+  return INVALID_MESSAGE_PATTERNS.some((pattern) => pattern.test(detail))
+}
+
 function classifyStatus(status: number, detail: string): GeminiError {
   if (status === 401 || status === 403) {
     return new GeminiError('auth', 'Chave de API inválida, ausente ou sem permissão.', {
@@ -146,6 +169,14 @@ export function classifyError(err: unknown): GeminiError {
   const status = readStatus(err)
   const detail = sanitizeDetail(err)
   if (status !== undefined) return classifyStatus(status, detail)
+  const messageStatus = readMessageStatus(detail)
+  if (messageStatus !== undefined) return classifyStatus(messageStatus, detail)
+  if (isInvalidMessage(detail)) {
+    return new GeminiError(
+      'invalid',
+      'O Gemini recusou o modelo ou a requisição. Verifique as configurações.'
+    )
+  }
 
   const code = readCode(err)
   if (code && TIMEOUT_CODES.has(code)) {

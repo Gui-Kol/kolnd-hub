@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { LIVE_VOICE_NAME } from '../../shared/voice'
 import { GeminiError } from './errors'
 import { LiveSession, type LiveSessionHandlers } from './live'
 import { FakeLiveTransport } from './testing/fakeLiveTransport'
@@ -9,7 +10,11 @@ function networkError(): Error {
   return error
 }
 
-function setup(handlers: LiveSessionHandlers = {}, budgetError?: GeminiError) {
+function setup(
+  handlers: LiveSessionHandlers = {},
+  budgetError?: GeminiError,
+  voiceName: string = LIVE_VOICE_NAME
+) {
   const transport = new FakeLiveTransport()
   const records: Array<{ input: number; output: number }> = []
   const checkBudget = vi.fn(() => {
@@ -27,6 +32,7 @@ function setup(handlers: LiveSessionHandlers = {}, budgetError?: GeminiError) {
     keys: { getApiKey: () => 'chave-de-teste' },
     usage,
     model: 'gemini-live-teste',
+    voiceName,
     temperature: 0.4,
     systemInstruction: 'Você é o Absolem.',
     handlers,
@@ -49,6 +55,7 @@ describe('sessão Live no main', () => {
     expect(transport.connects).toHaveLength(1)
     expect(transport.connects[0]).toMatchObject({
       model: 'gemini-live-teste',
+      voiceName: LIVE_VOICE_NAME,
       temperature: 0.4,
       systemInstruction: 'Você é o Absolem.'
     })
@@ -75,6 +82,8 @@ describe('sessão Live no main', () => {
     await session.connect()
 
     expect(transport.connects).toHaveLength(2)
+    expect(transport.connects[0]?.voiceName).toBe(LIVE_VOICE_NAME)
+    expect(transport.connects[1]?.voiceName).toBe(LIVE_VOICE_NAME)
     expect(session.isConnected()).toBe(true)
     expect(onError).not.toHaveBeenCalled()
     session.close('teste')
@@ -118,6 +127,47 @@ describe('sessão Live no main', () => {
       { name: 'get_current_time', response: { ok: true, result: { iso: '12:00' } } }
     ])
     session.close('teste')
+  })
+
+  it('reconecta após erro em sessão e mantém a voz', async () => {
+    const { transport, session } = setup()
+    await session.connect()
+
+    transport.last?.emit({ type: 'error', error: networkError() })
+
+    await vi.waitFor(() => expect(transport.connects).toHaveLength(2))
+    expect(transport.connects[0]?.voiceName).toBe(LIVE_VOICE_NAME)
+    expect(transport.connects[1]?.voiceName).toBe(LIVE_VOICE_NAME)
+    expect(session.isConnected()).toBe(true)
+    session.close('teste')
+  })
+
+  it('loga detalhe sanitizado quando a conexão falha', async () => {
+    const warnings: Array<Record<string, unknown>> = []
+    const transport = new FakeLiveTransport()
+    const session = new LiveSession({
+      transport,
+      keys: { getApiKey: () => 'chave-de-teste' },
+      usage: { checkBudget: () => undefined, record: () => ({}) },
+      model: 'gemini-live-teste',
+      maxAttempts: 1,
+      sleep: async () => undefined,
+      logger: {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: (_scope: string, _message: unknown, ...args: unknown[]) => {
+          warnings.push((args[0] ?? {}) as Record<string, unknown>)
+        }
+      }
+    })
+    transport.failures = [new Error('INVALID_ARGUMENT: api_key=segredo-nao-pode-vazar')]
+
+    await expect(session.connect()).rejects.toMatchObject({ kind: 'invalid' })
+
+    expect(warnings[0]).toMatchObject({
+      kind: 'invalid',
+      detail: 'INVALID_ARGUMENT: api_key=[redigido]'
+    })
   })
 
   it('close é idempotente e contabiliza o áudio uma vez', async () => {
