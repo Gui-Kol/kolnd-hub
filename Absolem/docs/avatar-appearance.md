@@ -1039,3 +1039,161 @@ reiniciar e confirmar que o tema persiste; importar um tema v1 e confirmar cores
 preservadas mais o look novo; navegar por teclado com foco visível. A janela
 transparente do overlay continua sem captura confiável e a GPU real não está
 garantida neste ambiente.
+
+## 16. Task 22 - enquadramento, área, câmera 3/4 e fallback
+
+Esta task mudou só a câmera, a área em tela, o fallback estático e as flags de
+QA. Nenhuma geometria, material, expressão, animação ou campo de tema foi
+alterado; `theme.ts`, `store`, `themeAdapter`, IPC e o layout do overlay
+continuam os mesmos.
+
+### 16.1 Área do avatar x frame do overlay (T1)
+
+Antes, a janela do overlay nascia em 320x360 e a área clicável era um círculo
+fixo de 64x64 no CSS. Agora o frame e a área do avatar são a mesma coisa:
+
+| Item                  | Regra                                                               |
+| --------------------- | ------------------------------------------------------------------- |
+| Componente            | `src/renderer/src/overlay/AvatarArea.tsx`                           |
+| Tamanho do frame      | `--overlay-width`/`--overlay-height`, vindos de `status.layout`     |
+| Canvas                | ocupa o frame inteiro (`100%`), sem `pointer-events`                |
+| Elipse clicável       | 86% da largura x 90% da altura, centrada; `pointer-events: auto`    |
+| Canto vazio da janela | continua atravessável (`pointer-events: none` no contêiner)         |
+| Fonte da verdade      | `overlay:status` e o push `overlay:status-changed` (layout do main) |
+
+O `OverlayApp` guarda o layout recebido do main e o repassa ao componente. O
+main continua dono de posição, tamanho, margem e multi-monitor; esta task só lê
+o layout. A elipse de clique é a fração documentada do frame: cobre o
+personagem enquadrado com folga e deixa os quatro cantos da janela
+atravessáveis. O `role="button"`, o rótulo e os handlers de clique/voz foram
+movidos para a elipse, então clicar no desenho continua alternando a voz
+(task 06) e clicar no vazio não captura o mouse.
+
+Teste: `src/renderer/src/overlay/AvatarArea.test.tsx` cobre "área do avatar
+recebe width/height do layout" (240x260 e 480x560) e "pointer-events só na
+área". O clique real em 320x360/480x560 e o clique no canto vazio passando para
+o desktop ficam como pendência manual: este ambiente não garante a janela
+transparente real.
+
+### 16.2 Enquadramento automático (T2)
+
+`src/renderer/src/overlay/avatar/framing.ts` é puro e concentra a conta. A cena
+não guarda números de câmera calibrados para a lagarta horizontal.
+
+| Item           | Regra                                                           |
+| -------------- | --------------------------------------------------------------- |
+| Alvo           | centro do bounding box do conjunto, não a origem do `root`      |
+| Margem         | `FRAMING_MARGIN = 0.08` (8%); os cantos ficam em NDC 0.92       |
+| FOV vertical   | 42 graus, o mesmo da cena; nenhum FOV global foi alterado       |
+| Distância      | calculada por canto com `tan(fov/2)` e o aspect do canvas       |
+| Escala do tema | `root.scale = 0.92 * theme.scale` aplicada antes de enquadrar   |
+| `resize`       | só lê os bounds do build; nenhum `Box3` por frame ou por resize |
+| Rebuild        | estilo/roupa/acessórios recalculam bounds uma vez e reenquadram |
+
+`caterpillar.ts` passou a expor `CaterpillarBuild.bounds`, um `Box3` calculado
+uma única vez no fim de `buildCaterpillar`. `scene.ts` escala os cantos pelo
+`root.scale` vigente e chama `computeFraming` no build, no rebuild, ao trocar o
+tema e em `resize`. O `Box3` nunca é recalculado no laço de render.
+
+O alvo é o centro do box porque o cachimbo puxa o conjunto para a direita e a
+cauda para a esquerda; enquadrar pela origem cortaria uma das pontas. O
+`PerspectiveCamera` mantém o FOV 42 e a distância muda com o aspect (240x260,
+320x360 e 480x560 têm distâncias diferentes), o que antes não acontecia com a
+posição fixa em `(0, 0.15, 3.8)`.
+
+Teste: `framing.test.ts` cobre os cinco casos pedidos (preenchimento de 84% a
+94% da altura, bounds largos com margem lateral, alvo central com aspect
+variável, escala 1.5 sem corte e função pura).
+
+### 16.3 Ângulo de câmera 3/4 (T3)
+
+`FRAMING_YAW_DEG = 15` (faixa pedida de 12 a 18 graus) inclina o eixo de visão
+para o lado do cachimbo (X positivo), mostrando volume do rosto e a barriga sem
+virar perfil. O mesmo `framingCameraOffset(FRAMING_YAW_DEG)` usado pela cena é
+usado pelo teste de projeção, então câmera e teste não divergem. O FOV global
+continua 42; não houve motivo para mudá-lo.
+
+Teste: `framing-projection.test.ts` projeta os oito cantos do bounding box real
+do personagem (seed 1, escala de cena 0.92) e exige `|x|` e `|y|` dentro de
+`[-0.94, 0.94]` para 240x260, 320x360 e 480x560, também nas escalas de tema 0.8
+e 1.5. O checklist manual ("o rosto lê em 3/4") fica pendente de humano, porque
+não há captura confiável da janela transparente neste ambiente.
+
+### 16.4 Fallback estático novo (T4)
+
+Os gradientes de `.overlay-avatar--fallback` foram substituídos pela silhueta
+SVG inline de `src/renderer/src/overlay/avatar/FallbackAvatar.tsx`: corpo azul,
+barriga clara, turbante com listra e nó, olho com pupila e brilho, boca,
+cachimbo e contorno. É desenho original em código, sem arquivo externo, sem
+asset e sem animação.
+
+| Item             | Regra                                                                |
+| ---------------- | -------------------------------------------------------------------- |
+| Gatilho          | classe `overlay-avatar--fallback` (contrato da task 03)              |
+| Cores            | CSS vars `--avatar-body`, `--avatar-belly`, `--avatar-detail`        |
+| Origem das cores | `theme.primaryColor`, `theme.bellyColor` e `theme.detailColor`       |
+| Acessibilidade   | `aria-hidden="true"`; o rótulo acessível fica na elipse clicável     |
+| Movimento        | nenhum elemento animado; `prefers-reduced-motion` não muda o desenho |
+| Canvas           | permanece montado para a detecção, mas fica `display: none`          |
+
+Teste: `FallbackAvatar.test.tsx` cobre "sem WebGL monta o SVG e esconde o
+canvas", "SVG usa as cores do tema" e "reduced motion não adiciona animação".
+O teste manual com `--disable-gpu` em 64 px e no tamanho cheio continua
+pendente: a janela transparente do overlay não tem captura confiável aqui.
+
+### 16.5 Flags de QA visual (T5)
+
+`overlayFlags.ts` ganhou `state` (`idle`, `listening`, `speaking`, `thinking`,
+`error`), mantendo `look` e as flags booleanas. O `OverlayApp` aplica
+`handle.setState(state)` uma vez no mount e o HUD `?debug=1` passou a mostrar
+`look`, `state`, escala e tamanho da área além das métricas.
+
+| Flag              | Efeito                                                    |
+| ----------------- | --------------------------------------------------------- |
+| `?state=speaking` | estado visual inicial do avatar; só QA                    |
+| `?look=storybook` | acabamento; já existia na task 14                         |
+| `?debug=1`        | HUD com fps, draws, triângulos, look, state, escala, área |
+| `?fakeVoice=1`    | amplitude falsa para a boca                               |
+| `?slow=1`         | percorre os três níveis de degradação                     |
+
+`parseOverlayFlags(hash, { enabled })` recebe `import.meta.env.DEV` do
+`OverlayApp`: em desenvolvimento (`npm run dev`) as flags valem; no build de
+produção, que é o que o binário empacotado usa, todas voltam ao default. Essa é
+a leitura do renderer para `!app.isPackaged` sem criar IPC novo. Nenhuma flag
+toca em voz, áudio, sessão Live, microfone ou consentimento: `state` só chama o
+`setState` visual do avatar e `qaInitialState` devolve exatamente esse estado.
+
+Teste: `overlayFlags.test.ts` cobre "state válido é lido", "state inválido é
+ignorado", "flags combinadas não se anulam" e "nenhuma flag altera o
+comportamento de voz real". `looks.test.ts` só ganhou `state: null` no objeto
+esperado, porque a interface de flags cresceu; nenhuma asserção foi
+enfraquecida.
+
+### 16.6 Medição honesta e pendências da task 22
+
+Esta task não cria geometria, material, expressão, animação ou tema novo. O
+enquadramento e o fallback não acrescentam draw calls na cena WebGL: o
+`Box3` roda uma vez no build e o SVG só aparece quando não há WebGL.
+
+Baselines honestos continuam os das tasks 18 e 20, nesta máquina: 80 draw
+calls / 15.056 triângulos / 165 fps (task 18) e 129 draw calls / 24.456
+triângulos / 165 fps (task 20). O orçamento de **24 draw calls não está
+cumprido** e continua como pendência da task 23; nenhum número novo de fps foi
+inventado nem medido aqui.
+
+Pendências manuais honestas:
+
+- capturar 240x260, 320x360 e 480x560 com o personagem inteiro (turbante,
+  cauda e cachimbo) e conferir as escalas 0.8 e 1.5;
+- clicar no personagem e confirmar que a voz alterna, e clicar no canto vazio
+  da janela e confirmar que o clique passa para o desktop;
+- abrir com `--disable-gpu` e conferir a silhueta do fallback em 64 px e no
+  tamanho cheio;
+- conferir `?look=storybook&state=speaking&debug=1` e ler `look`, `state`,
+  escala e área no HUD;
+- confirmar visualmente que o rosto lê em 3/4 sem esconder o olho esquerdo nem
+  a mangueira.
+
+A janela transparente do overlay continua sem `page.screenshot()` confiável e
+a GPU real pode não estar disponível neste ambiente; por isso nenhuma captura
+foi declarada e nenhum fps novo foi afirmado.

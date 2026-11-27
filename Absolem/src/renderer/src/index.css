@@ -111,77 +111,57 @@ html.region-route #root {
 }
 
 /*
- * Área do avatar. Só ela recebe clique; o resto da janela deixa o mouse
- * atravessar para a área de trabalho de trás. O canvas do holograma ocupa
- * 100% do círculo (64 px por padrão; o layout real do overlay manda depois).
+ * Área do avatar (task 22, T1). O frame do overlay e a área do avatar são a
+ * mesma coisa: `--overlay-width`/`--overlay-height` vêm do layout retornado
+ * pelo main (240x260 a 480x560). O canvas ocupa o frame inteiro; só a elipse
+ * central `.overlay-avatar__hit` recebe clique, então o canto vazio continua
+ * deixando o mouse atravessar para a área de trabalho de trás (task 02/06).
  */
 .overlay-avatar {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
-  width: 64px;
-  height: 64px;
-  border-radius: 9999px;
-  pointer-events: auto;
+  left: 0;
+  bottom: 0;
+  width: var(--overlay-width, 100%);
+  height: var(--overlay-height, 100%);
+  pointer-events: none;
   background: transparent;
   overflow: hidden;
+}
+
+.overlay-avatar__hit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--overlay-hit-width, 86%);
+  height: var(--overlay-hit-height, 90%);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: auto;
+  background: transparent;
 }
 
 .overlay-canvas {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: inherit;
+  pointer-events: none;
 }
 
 /*
- * Fallback estático (T9): sem WebGL ou com contexto perdido, o canvas some e
- * uma silhueta em CSS ocupa a mesma área, continuando a receber pointer-events.
+ * Fallback estático (T4): sem WebGL ou com contexto perdido, o canvas some e
+ * a silhueta SVG inline de `FallbackAvatar.tsx` ocupa a mesma área. A classe
+ * `overlay-avatar--fallback` continua sendo o gatilho (contrato da task 03).
  */
-.overlay-avatar--fallback {
-  /* Silhueta de lagarta (segmentos + cabeça), estática e sem assets. */
-  background:
-    radial-gradient(circle at 70% 36%, #bae6fd 0 14%, transparent 15%),
-    radial-gradient(circle at 56% 44%, #7dd3fc 0 12%, transparent 13%),
-    radial-gradient(circle at 44% 51%, #60a5fa 0 12%, transparent 13%),
-    radial-gradient(circle at 32% 58%, #3b82f6 0 12%, transparent 13%),
-    radial-gradient(circle at 20% 64%, #2563eb 0 10%, transparent 11%),
-    radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.16) 0 60%, transparent 65%);
-  border: 1px solid rgba(219, 234, 254, 0.55);
-  box-shadow:
-    0 0 0 1px rgba(15, 23, 42, 0.35),
-    0 0 18px rgba(59, 130, 246, 0.55);
-}
-
-.overlay-avatar--fallback::before {
-  /* Antena curva, só decorativa. */
-  content: '';
-  position: absolute;
-  left: 54%;
-  top: 3%;
-  width: 26%;
-  height: 26%;
-  border-top: 2px solid rgba(147, 197, 253, 0.9);
-  border-right: 2px solid rgba(147, 197, 253, 0.9);
-  border-radius: 0 100% 0 0;
-  transform: rotate(-18deg);
-}
-
-.overlay-avatar--fallback::after {
-  /* Olhos: dois pontos escuros na cabeça. */
-  content: '';
-  position: absolute;
-  left: 67%;
-  top: 33%;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #0b1220;
-  box-shadow: 8px 1px 0 #0b1220;
-}
-
 .overlay-avatar--fallback .overlay-canvas {
   display: none;
+}
+
+.fallback-avatar {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 /* Indicador de voz (task 06): ponto vermelho quando o microfone está aberto

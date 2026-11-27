@@ -1,4 +1,4 @@
-import { Group, InstancedMesh, Mesh, MeshBasicMaterial } from 'three'
+import { Box3, Group, InstancedMesh, Mesh, MeshBasicMaterial } from 'three'
 import type { Material } from 'three'
 import { normalizePalette } from './palettes'
 import { buildBodyPart } from './parts/body'
@@ -151,6 +151,11 @@ export interface CaterpillarBuild {
   smoke: PipeSmoke
   /** Grupos estáveis por parte; só `face` segue reservado nesta task. */
   parts: Record<string, Group>
+  /**
+   * Bounding box do personagem calculado uma única vez no build (task 22).
+   * Serve para enquadrar a câmera; `resize` só lê, nunca recalcula.
+   */
+  bounds: Box3
   stats: CaterpillarStats
   /** Libera geometrias (e materiais, se foram criados aqui). */
   dispose: () => void
@@ -322,6 +327,12 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     bodyBaseY: bodyPart.bodyBaseY
   }
 
+  // Enquadramento (task 22): bounds do conjunto calculados uma vez, em espaço
+  // local do root. A cena aplica a escala do tema por fora; nenhuma frame
+  // recalcula `Box3`.
+  root.updateMatrixWorld(true)
+  const bounds = new Box3().setFromObject(root)
+
   const partDisposers: Array<() => void> = [
     bodyPart.dispose,
     headPart.dispose,
@@ -358,6 +369,7 @@ export function buildCaterpillar(options: CaterpillarOptions = {}): CaterpillarB
     outfit: outfitPart?.group ?? null,
     smoke: pipePart.smoke,
     parts,
+    bounds,
     stats,
     dispose(): void {
       if (disposed) return

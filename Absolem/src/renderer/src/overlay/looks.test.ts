@@ -21,7 +21,8 @@ describe('flag look no hash do overlay', () => {
       fakeVoice: true,
       slow: true,
       debug: true,
-      look: 'holo'
+      look: 'holo',
+      state: null
     })
 
     const withoutLook = parseOverlayFlags('#overlay?debug=1')

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_AVATAR_ACCENT } from '../../../shared/avatar'
 import { VOICE_REASONS, VOICE_STATE_LABELS, type VoiceState } from '../../../shared/voice'
 import type { AvatarHandle } from './avatar'
-import { parseOverlayFlags } from './overlayFlags'
+import { parseOverlayFlags, qaInitialState } from './overlayFlags'
 import workletUrl from '../audio/pcm-worklet.js?url'
 import {
   PCM_WORKLET_NAME,
@@ -18,6 +18,14 @@ import { createDeviceWatcher, type DeviceWatcher, type MediaDevicesLike } from '
 import { createDomGrabFactories, grabFrame } from '../capture/grab'
 import type { CaptureIndicatorPush, CaptureRequestPush } from '../../../shared/screen'
 import type { SearchIndicatorPush } from '../../../shared/search'
+import { DEFAULT_OVERLAY_LAYOUT } from '../../../shared/overlay'
+import {
+  DEFAULT_BELLY_COLOR,
+  DEFAULT_DETAIL_COLOR,
+  DEFAULT_PRIMARY_COLOR
+} from '../../../shared/theme'
+import { AvatarArea } from './AvatarArea'
+import { FallbackAvatar } from './avatar/FallbackAvatar'
 import { ConversationLayer } from './conversation/ConversationLayer'
 import { TextInput } from './conversation/TextInput'
 
@@ -37,6 +45,16 @@ function setInteractive(interactive: boolean): void {
 export function OverlayApp() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [debugLine, setDebugLine] = useState<string | null>(null)
+  // Tamanho do frame vem do main (task 22, T1); o CSS do avatar consome as vars.
+  const [layout, setLayout] = useState(DEFAULT_OVERLAY_LAYOUT)
+  const layoutRef = useRef(DEFAULT_OVERLAY_LAYOUT)
+  // Fallback estático (task 22, T4): o SVG herda as cores do tema vigente.
+  const [fallback, setFallback] = useState(false)
+  const [avatarColors, setAvatarColors] = useState({
+    primary: DEFAULT_PRIMARY_COLOR,
+    belly: DEFAULT_BELLY_COLOR,
+    detail: DEFAULT_DETAIL_COLOR
+  })
   // Observável de smoke: prova que o push `theme:changed` chegou e foi aplicado.
   const [themePresetId, setThemePresetId] = useState('')
   const [voiceState, setVoiceState] = useState<VoiceState>('off')
@@ -54,7 +72,7 @@ export function OverlayApp() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const flags = parseOverlayFlags(window.location.hash)
+    const flags = parseOverlayFlags(window.location.hash, { enabled: import.meta.env.DEV })
     let disposed = false
     let handle: AvatarHandle | null = null
     let unsubscribeStatus: (() => void) | null = null
@@ -65,6 +83,12 @@ export function OverlayApp() {
     let motionMedia: MediaQueryList | null = null
     let visible = true
     let themeReducedMotion = false
+
+    const applyLayout = (next: typeof DEFAULT_OVERLAY_LAYOUT): void => {
+      if (disposed) return
+      layoutRef.current = next
+      setLayout(next)
+    }
 
     // Voz (task 06): captura PCM, reprodução e VAD vivem no renderer; o main
     // é o dono do estado. Estas variáveis são recriadas a cada mount.
@@ -317,14 +341,27 @@ export function OverlayApp() {
           })
           void deviceWatcher.refresh()
         }
-        if (status?.ok) visible = status.status.visible
+        if (status?.ok) {
+          visible = status.status.visible
+          applyLayout(status.status.layout)
+        }
         const systemReducedMotion =
           typeof window.matchMedia === 'function' &&
           window.matchMedia('(prefers-reduced-motion: reduce)').matches
         const theme = themeResult?.ok ? themeResult.theme : null
         themeReducedMotion = theme?.reducedMotion === true
-        if (theme) setThemePresetId(theme.presetId)
+        if (theme) {
+          setThemePresetId(theme.presetId)
+          setAvatarColors({
+            primary: theme.primaryColor,
+            belly: theme.bellyColor,
+            detail: theme.detailColor
+          })
+        }
         const reducedMotion = systemReducedMotion || themeReducedMotion
+        // HUD de QA (task 22, T5): só leitura, nunca altera comportamento.
+        let debugLook: string = flags.look ?? theme?.look ?? 'storybook'
+        let debugScale = theme?.scale ?? 1
 
         handle = module.mountAvatar(canvas, {
           theme: { accent: DEFAULT_AVATAR_ACCENT },
@@ -333,7 +370,12 @@ export function OverlayApp() {
           reducedMotion,
           debug: flags.debug,
           slow: flags.slow,
-          ...(flags.look ? { look: flags.look } : {})
+          ...(flags.look ? { look: flags.look } : {}),
+          // T4: o SVG de fallback é montado pelo React; a classe continua
+          // sendo adicionada pelo `mountAvatar` (contrato da task 03).
+          onFallback: () => {
+            if (!disposed) setFallback(true)
+          }
         })
         // Métrica de fps exposta ao diagnóstico do main (task 11, T8).
         ;(window as unknown as { __absolemAvatarMetrics?: () => unknown }).__absolemAvatarMetrics =
@@ -349,7 +391,14 @@ export function OverlayApp() {
           themeReducedMotion = next.reducedMotion
           document.documentElement.dataset.themeReceivedAt = String(Date.now())
           setThemePresetId(next.presetId)
+          setAvatarColors({
+            primary: next.primaryColor,
+            belly: next.bellyColor,
+            detail: next.detailColor
+          })
           handle?.applyTheme(next)
+          debugLook = next.look
+          debugScale = next.scale
           if (motionMedia) {
             handle?.setReducedMotion(motionMedia.matches || next.reducedMotion)
           }
@@ -358,6 +407,9 @@ export function OverlayApp() {
         unsubscribeStatus = window.absolem.onOverlayStatusChanged((next) => {
           visible = next.visible
           handle?.setVisible(visible)
+          // O main empurra o layout novo depois de `overlay:set-layout`; a área
+          // do avatar acompanha sem remontar a cena.
+          applyLayout(next.layout)
         })
 
         // Push do main (`avatar:apply`) mantém estado e nível sincronizados.
@@ -411,12 +463,17 @@ export function OverlayApp() {
           }, 60)
         }
 
+        // QA visual (task 22, T5): `?state=` muda só o avatar, nunca a voz.
+        const qaState = qaInitialState(flags)
+        if (qaState) handle.setState(qaState)
+
         if (flags.debug) {
           hudTimer = setInterval(() => {
             if (!handle) return
             const metrics = handle.getMetrics()
+            const area = layoutRef.current
             setDebugLine(
-              `fps ${metrics.fps} | frame ${metrics.frameMs} ms | draws ${metrics.drawCalls} | tris ${metrics.triangles} | deg ${metrics.degradation}`
+              `fps ${metrics.fps} | frame ${metrics.frameMs} ms | draws ${metrics.drawCalls} | tris ${metrics.triangles} | deg ${metrics.degradation} | look ${debugLook} | state ${handle.getState()} | scale ${debugScale.toFixed(2)} | area ${area.width}x${area.height}`
             )
           }, 500)
         }
@@ -424,6 +481,7 @@ export function OverlayApp() {
         // Falha de carregamento do chunk nunca deixa a área preta/sem conteúdo.
         console.warn('avatar: fallback', err)
         canvas.parentElement?.classList.add('overlay-avatar--fallback')
+        if (!disposed) setFallback(true)
       }
     })()
 
@@ -456,13 +514,16 @@ export function OverlayApp() {
   return (
     <div className="overlay-root" data-theme-preset={themePresetId} data-voice-state={voiceState}>
       {/* Clique no avatar = toggle da voz (task 06). O pointerdown também
-          mantém a janela interativa enquanto o mouse está sobre o avatar. */}
-      <div
-        className="overlay-avatar"
-        role="button"
-        tabIndex={-1}
-        aria-label={`Avatar do Absolem. ${VOICE_STATE_LABELS[voiceState]}.`}
-        aria-pressed={voiceState !== 'off'}
+          mantém a janela interativa enquanto o mouse está sobre o avatar. A
+          área de clique é a elipse central do frame (task 22, T1); o canto
+          vazio continua atravessando para o desktop. */}
+      <AvatarArea
+        layout={layout}
+        canvasRef={canvasRef}
+        fallback={fallback}
+        fallbackAvatar={<FallbackAvatar colors={avatarColors} />}
+        ariaLabel={`Avatar do Absolem. ${VOICE_STATE_LABELS[voiceState]}.`}
+        ariaPressed={voiceState !== 'off'}
         title={voiceReason ?? VOICE_STATE_LABELS[voiceState]}
         onPointerEnter={() => setInteractive(true)}
         onPointerLeave={() => setInteractive(false)}
@@ -473,9 +534,7 @@ export function OverlayApp() {
             voiceToggleRef.current()
           }
         }}
-      >
-        <canvas ref={canvasRef} className="overlay-canvas" aria-hidden="true" />
-      </div>
+      />
       <div
         className="voice-indicator"
         data-voice-state={voiceState}

@@ -22,6 +22,7 @@ import { createExpressionEngine } from './expressions'
 import { applyExpressionFrame, createExpressionBase } from './expressionMapping'
 import type { ExpressionBasePose, ExpressionChannels, ExpressionRig } from './expressionMapping'
 import { createContextLossGuard, detectWebGLBackend } from './fallback'
+import { FRAMING_MARGIN, FRAMING_YAW_DEG, computeFraming, framingCameraOffset } from './framing'
 import { createHoloMaterial } from './holoMaterial'
 import type { AvatarLook } from './looks'
 import { resolveAvatarLook } from './looks'
@@ -388,6 +389,8 @@ export function createAvatarScene(
     // que `prefers-reduced-motion` esteja desligado.
     caterpillar.smoke.setReducedMotion(reducedMotion || minimal)
     applyOutlines({ includeSmall: !smallOutlinesRemoved })
+    // Bounds novos: o enquadramento acompanha estilo/roupa/acessórios (task 22).
+    applyFraming()
   }
 
   /** Remove e libera todos os contornos atuais. */
@@ -530,6 +533,31 @@ export function createAvatarScene(
   canvas.addEventListener('webglcontextlost', onContextLost)
   canvas.addEventListener('webglcontextrestored', onContextRestored)
 
+  /**
+   * Enquadra a câmera a partir do bounding box do build (task 22, T2/T3).
+   *
+   * O box já foi calculado uma vez em `buildCaterpillar`; aqui só aplicamos a
+   * escala do `root` (tema 0.8..1.5), sem `Box3.setFromObject` por frame nem a
+   * cada `resize`. `camera.lookAt` usa o centro do conjunto, não a origem, para
+   * não cortar cauda nem turbante. O yaw constante dá o 3/4.
+   */
+  function applyFraming(): void {
+    if (disposed) return
+    const scale = root.scale.x
+    const min = caterpillar.bounds.min.clone().multiplyScalar(scale)
+    const max = caterpillar.bounds.max.clone().multiplyScalar(scale)
+    const framing = computeFraming({ min, max }, camera.aspect, {
+      fovDeg: camera.fov,
+      margin: FRAMING_MARGIN,
+      yawDeg: FRAMING_YAW_DEG
+    })
+    camera.position
+      .copy(framing.target)
+      .addScaledVector(framingCameraOffset(FRAMING_YAW_DEG), framing.distance)
+    camera.lookAt(framing.target)
+    camera.updateMatrixWorld()
+  }
+
   function resize(): void {
     if (disposed) return
     const width = Math.max(1, canvas.clientWidth || canvas.width || 64)
@@ -538,6 +566,8 @@ export function createAvatarScene(
     renderer.setSize(width, height, false)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
+    // `resize` é chamado pelo main e pela janela: só lê os bounds do build.
+    applyFraming()
   }
 
   function resetMetrics(): void {
@@ -614,6 +644,8 @@ export function createAvatarScene(
       darkMaterial.color.set(next.shadow.hex)
       holoMaterial.uniforms.uNoise.value = next.materials.noise
       root.scale.setScalar(0.92 * next.scale)
+      // Escala do tema aplicada antes do enquadramento (task 22, T2).
+      applyFraming()
 
       reducedMotion = next.reducedMotion
       particles.setReducedMotion(reducedMotion)
