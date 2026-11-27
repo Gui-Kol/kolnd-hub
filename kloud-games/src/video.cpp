@@ -33,6 +33,7 @@ extern "C" {
 #include "input.h"
 #include "logging.h"
 #include "nvenc/nvenc_encoder.h"
+#include "perf/latencyTrace.h"
 #include "platform/common.h"
 #include "sync.h"
 #include "video.h"
@@ -2056,6 +2057,39 @@ namespace video {
     return std::nullopt;
   }
 
+  namespace {
+
+    /**
+     * @brief Record one encoded packet in the latency trace when tracing is enabled.
+     *
+     * The three marks are the capture timestamp attached to the frame by the platform backend, the
+     * encoder submission timestamp, and the moment the encoded packet is enqueued for the network
+     * thread (`mail::video_packets`). Nothing is recorded for frames without a capture timestamp,
+     * such as the blank keep-alive frame sent before the first capture.
+     *
+     * @param encode_submit Time the frame was submitted to the encoder, or empty when tracing is off.
+     * @param captured_at Capture timestamp attached to the frame, when known.
+     * @param session_key Stream session that produced the packet.
+     */
+    void trace_enqueued_packet(const std::optional<perf::clock_t::time_point> &encode_submit, const std::optional<std::chrono::steady_clock::time_point> &captured_at, const void *session_key) {
+      if (!encode_submit || !captured_at) {
+        return;
+      }
+
+      static perf::trace_window_t window;
+      const auto result = window.record(*captured_at, *encode_submit, perf::clock_t::now(), session_key);
+
+      if (result.first_packet_of_session) {
+        BOOST_LOG(info) << perf::format_first_packet_line(result.capture_to_queue_ms);
+      }
+
+      if (result.summary) {
+        BOOST_LOG(info) << perf::format_summary_line(*result.summary);
+      }
+    }
+
+  }  // namespace
+
   /**
    * @brief Drain encoded packets from an FFmpeg encoder session.
    *
@@ -2076,6 +2110,8 @@ namespace video {
 
     auto &sps = session.sps;
     auto &vps = session.vps;
+
+    const auto encode_submit = perf::trace_enabled() ? std::optional {perf::clock_t::now()} : std::nullopt;
 
     // send the frame to the encoder
     auto ret = avcodec_send_frame(ctx.get(), frame);
@@ -2134,7 +2170,9 @@ namespace video {
 
       packet->replacements = &session.replacements;
       packet->channel_data = channel_data;
+      const auto captured_at = packet->frame_timestamp;
       packets->raise(std::move(packet));
+      trace_enqueued_packet(encode_submit, captured_at, channel_data);
     }
 
     return 0;
@@ -2151,6 +2189,8 @@ namespace video {
    * @return 0 when packets are queued; nonzero when NVENC encoding fails.
    */
   int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, stream::session_t *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+    const auto encode_submit = perf::trace_enabled() ? std::optional {perf::clock_t::now()} : std::nullopt;
+
     auto encoded_frame = session.encode_frame(frame_nr);
     if (encoded_frame.data.empty()) {
       BOOST_LOG(error) << "NvENC returned empty packet";
@@ -2167,6 +2207,8 @@ namespace video {
     packet->frame_timestamp = frame_timestamp;
     packets->raise(std::move(packet));
 
+    trace_enqueued_packet(encode_submit, frame_timestamp, channel_data);
+
     return 0;
   }
 
@@ -2181,6 +2223,8 @@ namespace video {
    * @return 0 when packets are queued; nonzero when VideoToolbox encoding fails.
    */
   int encode_vt(int64_t frame_nr, vt_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, stream::session_t *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+    const auto encode_submit = perf::trace_enabled() ? std::optional {perf::clock_t::now()} : std::nullopt;
+
     auto encoded_frame = session.encode_frame(frame_nr);
     if (encoded_frame.data.empty()) {
       BOOST_LOG(error) << "VideoToolbox returned empty packet";
@@ -2195,6 +2239,8 @@ namespace video {
     packet->channel_data = channel_data;
     packet->frame_timestamp = frame_timestamp;
     packets->raise(std::move(packet));
+
+    trace_enqueued_packet(encode_submit, frame_timestamp, channel_data);
 
     return 0;
   }
