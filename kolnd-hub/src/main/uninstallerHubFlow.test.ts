@@ -3,6 +3,9 @@
 // fluem para mocks, e nenhuma pasta real é apagada.
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'events'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   runHubUninstallSteps,
   removeKloudGamesService,
@@ -130,6 +133,7 @@ beforeEach(() => {
     registryGone: true,
     shortcutsGone: true,
     tempCleaned: true,
+    configGone: true,
     remaining: [],
     logPath: 'C:\\fake\\logs\\kloud-games-uninstall.log'
   })
@@ -345,5 +349,156 @@ describe('runHubUninstallSteps — dependências e ordem (T5/T6)', () => {
     const firstWipe = events.findIndex((evt) => evt.stepId === 'wipe')
     expect(spawnDone).toBeGreaterThanOrEqual(0)
     expect(firstWipe).toBeGreaterThan(spawnDone)
+  })
+
+  it('wipeUserData:true apaga %APPDATA%\\kolnd-hub e %APPDATA%\\absolem depois de parar os apps', async () => {
+    electronMock.isPackaged = true
+    const root = mkdtempSync(join(tmpdir(), 'hub-wipe-absolem-'))
+    electronMock.appDataPath = root
+    mkdirSync(join(root, 'kolnd-hub', 'logs'), { recursive: true })
+    mkdirSync(join(root, 'absolem', 'logs'), { recursive: true })
+    writeFileSync(join(root, 'absolem', 'config.json'), '{}')
+    writeFileSync(join(root, 'absolem', 'memory.sqlite'), 'db')
+    writeFileSync(join(root, 'kolnd-hub', 'config.json'), '{}')
+
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        process.nextTick(() => child.emit('spawn'))
+      }
+      return child
+    }) as never)
+
+    const stopApps = vi.fn(async () => undefined)
+    try {
+      const result = await runHubUninstallSteps(
+        { wipeUserData: true, skipKloud: true, backupPath: null },
+        () => {},
+        { stopApps }
+      )
+
+      expect(result.ok).toBe(true)
+      expect(stopApps).toHaveBeenCalledTimes(1)
+      expect(existsSync(join(root, 'kolnd-hub'))).toBe(false)
+      expect(existsSync(join(root, 'absolem'))).toBe(false)
+      expect(result.wipeErrors).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('wipeUserData:true com Kloud Games já ausente apaga as configurações por usuário dele', async () => {
+    electronMock.isPackaged = true
+    const root = mkdtempSync(join(tmpdir(), 'hub-wipe-kloud-config-'))
+    const appData = join(root, 'Roaming')
+    const localAppData = join(root, 'Local')
+    mkdirSync(appData, { recursive: true })
+    mkdirSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES'), { recursive: true })
+    writeFileSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES', 'config.json'), '{}')
+    electronMock.appDataPath = appData
+    const savedLocalAppData = process.env.LOCALAPPDATA
+    const savedProgramData = process.env.ProgramData
+    process.env.LOCALAPPDATA = localAppData
+    process.env.ProgramData = join(root, 'ProgramData')
+    detectKloudGamesMock.mockReturnValue({
+      status: 'missing',
+      exePath: null,
+      service: 'missing',
+      entry: null
+    })
+
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        process.nextTick(() => child.emit('spawn'))
+      }
+      return child
+    }) as never)
+
+    try {
+      const result = await runHubUninstallSteps(
+        { wipeUserData: true, skipKloud: false, backupPath: null },
+        () => {}
+      )
+
+      expect(result.ok).toBe(true)
+      expect(existsSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES'))).toBe(false)
+    } finally {
+      process.env.LOCALAPPDATA = savedLocalAppData
+      process.env.ProgramData = savedProgramData
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('skipKloud:true preserva as configurações do Kloud Games (produto continua instalado)', async () => {
+    electronMock.isPackaged = true
+    const root = mkdtempSync(join(tmpdir(), 'hub-skip-kloud-config-'))
+    const localAppData = join(root, 'Local')
+    mkdirSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES'), { recursive: true })
+    writeFileSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES', 'config.json'), '{}')
+    electronMock.appDataPath = join(root, 'Roaming')
+    mkdirSync(join(root, 'Roaming'), { recursive: true })
+    const savedLocalAppData = process.env.LOCALAPPDATA
+    const savedProgramData = process.env.ProgramData
+    process.env.LOCALAPPDATA = localAppData
+    process.env.ProgramData = join(root, 'ProgramData')
+
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        process.nextTick(() => child.emit('spawn'))
+      }
+      return child
+    }) as never)
+
+    try {
+      const result = await runHubUninstallSteps(
+        { wipeUserData: true, skipKloud: true, backupPath: null },
+        () => {}
+      )
+
+      expect(result.ok).toBe(true)
+      expect(existsSync(join(localAppData, 'LizardByte', 'KLOUD_GAMES', 'config.json'))).toBe(true)
+    } finally {
+      process.env.LOCALAPPDATA = savedLocalAppData
+      process.env.ProgramData = savedProgramData
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('wipeUserData:false preserva %APPDATA%\\absolem (a opção "manter" vale para o Absolem)', async () => {
+    electronMock.isPackaged = true
+    const root = mkdtempSync(join(tmpdir(), 'hub-keep-absolem-'))
+    electronMock.appDataPath = root
+    mkdirSync(join(root, 'absolem'), { recursive: true })
+    writeFileSync(join(root, 'absolem', 'config.json'), '{}')
+
+    vi.mocked(spawn).mockImplementation(((cmd: unknown) => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      if (String(cmd).toLowerCase().includes('uninstall kolnd hub')) {
+        process.nextTick(() => child.emit('spawn'))
+      }
+      return child
+    }) as never)
+
+    const stopApps = vi.fn(async () => undefined)
+    try {
+      const result = await runHubUninstallSteps(
+        { wipeUserData: false, skipKloud: true, backupPath: null },
+        () => {},
+        { stopApps }
+      )
+
+      expect(result.ok).toBe(true)
+      expect(stopApps).not.toHaveBeenCalled()
+      expect(existsSync(join(root, 'absolem', 'config.json'))).toBe(true)
+      expect(result.wipeErrors).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

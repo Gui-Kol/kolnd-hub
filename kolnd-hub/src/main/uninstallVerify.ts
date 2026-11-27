@@ -7,6 +7,7 @@ import {
   resetKloudGamesState
 } from './kloudGames'
 import { findKloudGamesUninstallEntry, getKloudGamesServiceStatus } from './uninstallDetection'
+import { getKloudGamesConfigDirs } from './uninstall/appConfigs'
 
 /** Nome da pasta de atalhos do Kloud Games dentro do Menu Iniciar. */
 const START_MENU_PARENT = 'LizardByte'
@@ -18,6 +19,8 @@ export interface KloudGamesUninstallReport {
   registryGone: boolean
   shortcutsGone: boolean
   tempCleaned: boolean
+  /** `config\` da instalação, `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES` sumiram. */
+  configGone: boolean
   remaining: string[]
   logPath: string
 }
@@ -84,6 +87,19 @@ export function checkTempCleaned(): boolean {
 }
 
 /**
+ * Todas as pastas de configuração do Kloud Games sumiram (ou nunca existiram):
+ * `config\` da instalação per-machine, `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES`
+ * e `%ProgramData%\KLOUD_GAMES`.
+ */
+export function checkConfigGone(): boolean {
+  try {
+    return getKloudGamesConfigDirs().every((dir) => !existsSync(dir))
+  } catch {
+    return true
+  }
+}
+
+/**
  * Laudo pós-desinstalação do Kloud Games.
  * Tolerante: nenhuma verificação derruba o fluxo — itens que ainda estiverem
  * presentes vão apenas para `remaining[]` (atalhos/temp são avisos, não
@@ -118,5 +134,21 @@ export function verifyKloudGamesRemoval(): KloudGamesUninstallReport {
     remaining.push('A pasta %TEMP%\\KLOUD_GAMES ainda existe.')
   }
 
-  return { exeGone, serviceGone, registryGone, shortcutsGone, tempCleaned, remaining, logPath }
+  const configGone = checkConfigGone()
+  if (!configGone) {
+    remaining.push(
+      'As configurações do Kloud Games ainda estão presentes (config\\ da instalação, %LOCALAPPDATA%\\LizardByte\\KLOUD_GAMES ou %ProgramData%\\KLOUD_GAMES).'
+    )
+  }
+
+  return {
+    exeGone,
+    serviceGone,
+    registryGone,
+    shortcutsGone,
+    tempCleaned,
+    configGone,
+    remaining,
+    logPath
+  }
 }

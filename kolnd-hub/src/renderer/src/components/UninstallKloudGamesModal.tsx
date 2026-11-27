@@ -335,6 +335,7 @@ export function UninstallKloudGamesModal({
         registryGone?: boolean
         shortcutsGone?: boolean
         tempCleaned?: boolean
+        configGone?: boolean
         remaining?: string[]
         logPath?: string
       }
@@ -353,7 +354,12 @@ export function UninstallKloudGamesModal({
     { label: 'Serviço KLOUD_GAMESsvc', ok: report?.serviceGone },
     { label: 'Registro de desinstalação', ok: report?.registryGone },
     { label: 'Atalhos do Menu Iniciar', ok: report?.shortcutsGone },
-    { label: 'Arquivos temporários (%TEMP%\\KLOUD_GAMES)', ok: report?.tempCleaned }
+    { label: 'Arquivos temporários (%TEMP%\\KLOUD_GAMES)', ok: report?.tempCleaned },
+    {
+      label:
+        'Configurações (config\\, %LOCALAPPDATA%\\LizardByte\\KLOUD_GAMES e %ProgramData%\\KLOUD_GAMES)',
+      ok: report?.configGone
+    }
   ]
 
   if (!open) return null
@@ -411,6 +417,11 @@ export function UninstallKloudGamesModal({
                       {orphanTargetDir ?? 'C:\\Program Files\\KLOUD_GAMES'}
                     </span>
                   </li>
+                  <li>
+                    Apaga as configurações em{' '}
+                    <span className="font-mono">%LOCALAPPDATA%\LizardByte\KLOUD_GAMES</span> e{' '}
+                    <span className="font-mono">%ProgramData%\KLOUD_GAMES</span>
+                  </li>
                   <li>Zera o estado salvo do Hub (kloud-games.paths.json)</li>
                   <li>Nada do registro será alterado — a entrada já não existe</li>
                   <li>
@@ -445,10 +456,20 @@ export function UninstallKloudGamesModal({
               <ul className="w-full space-y-1 text-left text-xs text-ink-secondary">
                 <li className="flex items-center gap-2">
                   <Package size={12} className="shrink-0 text-ink-tertiary" aria-hidden="true" />
-                  <span>Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\</span>
+                  <span>
+                    Programa e dados em C:\Program Files\KLOUD_GAMES — incluindo config\ e
+                    config\credentials
+                  </span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Wrench size={12} className="shrink-0 text-ink-tertiary" aria-hidden="true" />
+                  <span>
+                    Configurações do serviço em %LOCALAPPDATA%\LizardByte\KLOUD_GAMES e
+                    %ProgramData%\KLOUD_GAMES
+                  </span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Shield size={12} className="shrink-0 text-ink-tertiary" aria-hidden="true" />
                   <span>Serviço KLOUD_GAMESsvc</span>
                 </li>
                 <li className="flex items-center gap-2">

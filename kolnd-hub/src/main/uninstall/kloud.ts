@@ -28,6 +28,13 @@ import {
   appendKloudGamesUninstallLog
 } from '../kloudGames'
 import {
+  escapePowerShellLiteral,
+  getKloudGamesInstallConfigDirs,
+  getKloudGamesPerUserConfigDirs,
+  KLOUD_GAMES_DATA_BASENAME,
+  wipeConfigFolder
+} from './appConfigs'
+import {
   attachLaudo,
   type HubWipeResult,
   type UninstallProgress,
@@ -135,6 +142,40 @@ export function deleteKloudGamesOrphanFolder(
   }
 
   return result
+}
+
+/**
+ * Apaga as configurações POR USUÁRIO do Kloud Games que o MSI não conhece:
+ * `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` (config do serviço) e
+ * `%ProgramData%\KLOUD_GAMES` (undo do driver NVIDIA). A pasta `config\` da
+ * instalação per-machine é removida pelo processo elevado do msiexec — ver
+ * `buildInstallConfigCleanupCommand`.
+ */
+export function removeKloudGamesPerUserConfigs(log: (line: string) => void): HubWipeResult {
+  const combined: HubWipeResult = { inventory: [], deleted: [], errors: [] }
+  for (const dir of getKloudGamesPerUserConfigDirs()) {
+    const wipe = wipeConfigFolder(dir, [KLOUD_GAMES_DATA_BASENAME], log, '[kloud-config]')
+    combined.inventory.push(...wipe.inventory)
+    combined.deleted.push(...wipe.deleted)
+    combined.errors.push(...wipe.errors)
+  }
+  return combined
+}
+
+/**
+ * Trecho PowerShell que apaga as configurações dentro da instalação
+ * per-machine (`<Program Files>\KLOUD_GAMES\config`, incluindo
+ * `credentials\`) no MESMO processo elevado do msiexec — sem um segundo UAC.
+ * Só entram caminhos que casam com o padrão oficial de instalação.
+ */
+function buildInstallConfigCleanupCommand(): string {
+  return getKloudGamesInstallConfigDirs()
+    .filter((dir) => isProgramFilesKloudGamesDir(dirname(dir)))
+    .map((dir) => {
+      const escaped = escapePowerShellLiteral(dir)
+      return `if (Test-Path -LiteralPath '${escaped}') { Remove-Item -LiteralPath '${escaped}' -Recurse -Force -ErrorAction SilentlyContinue }`
+    })
+    .join(' ')
 }
 
 /** Resultado da execução elevada de um comando PowerShell. */
@@ -299,7 +340,15 @@ export class Uninstaller extends EventEmitter {
       log('[msiexec] Iniciando desinstalação elevada do MSI (msiexec /x)…\n')
 
       const escapedGuid = productCode.replace(/'/g, "''")
-      const command = `$p = Start-Process msiexec.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '/x','"${escapedGuid}"','/qn','/norestart'; exit $p.ExitCode`
+      // Remove a pasta `config\` criada em runtime dentro da instalação no
+      // MESMO processo elevado do msiexec (sem segundo UAC), mas só quando o
+      // MSI realmente removeu o produto. 1638 (versão mais nova) preserva as
+      // configurações porque o Kloud Games continua instalado.
+      const configCleanup = buildInstallConfigCleanupCommand()
+      const configCleanupStep = configCleanup
+        ? ` if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010 -or $p.ExitCode -eq 1641 -or $p.ExitCode -eq 1605 -or $p.ExitCode -eq 1612) { ${configCleanup} };`
+        : ''
+      const command = `$p = Start-Process msiexec.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '/x','"${escapedGuid}"','/qn','/norestart';${configCleanupStep} exit $p.ExitCode`
 
       appendKloudGamesUninstallLog(
         `Início da desinstalação do Kloud Games\nProductCode: ${productCode}\nComando: powershell.exe -NoProfile -Command ${command}`
@@ -349,6 +398,7 @@ export class Uninstaller extends EventEmitter {
         return report
       }
 
+      let preserveConfig = false
       switch (msiexecResult.kind) {
         case 'success':
           report.success = true
@@ -379,6 +429,8 @@ export class Uninstaller extends EventEmitter {
           break
         case 'newer-version':
           // Sucesso parcial: já existe versão mais nova; nada removido, mas não é erro do Hub.
+          // As configurações do Kloud Games continuam valendo para essa instalação.
+          preserveConfig = true
           report.success = true
           report.remaining.push(msiexecResult.message)
           log(`[msiexec] ${msiexecResult.message}\n`)
@@ -408,10 +460,21 @@ export class Uninstaller extends EventEmitter {
       log('[verify] Verificação concluída.\n')
 
       // ── Etapa cleanup (95) ─────────────────────────────────────────
-      progress('cleanup', 'running', 95, 'Limpando dados temporários…')
-      log('[cleanup] Limpando %TEMP%\\KLOUD_GAMES…\n')
+      progress('cleanup', 'running', 95, 'Limpando configurações e dados temporários…')
+      log('[cleanup] Limpando %TEMP%\\KLOUD_GAMES e as configurações do Kloud Games…\n')
       resetKloudGamesState()
       removeTempKloudGamesDir()
+      // A pasta `config\` da instalação foi removida no processo elevado do
+      // msiexec; aqui saem as pastas por usuário que o MSI não conhece. Em
+      // `newer-version` o produto continua instalado — nada é apagado.
+      if (!preserveConfig) {
+        const configWipe = removeKloudGamesPerUserConfigs(log)
+        if (configWipe.errors.length > 0) {
+          log(
+            `[cleanup] ${configWipe.errors.length} ${configWipe.errors.length === 1 ? 'item de configuração falhou' : 'itens de configuração falharam'} — veja as linhas [kloud-config] acima.\n`
+          )
+        }
+      }
 
       // ── T3: laudo pós-desinstalação ────────────────────────────────
       const verify = verifyKloudGamesRemoval()
@@ -562,9 +625,11 @@ export class Uninstaller extends EventEmitter {
         report.remaining.push(`${wipeError.item}: ${wipeError.error}`)
       }
 
-      // Zera o estado salvo (a "Instalação quebrada" deixa de ser reportada).
+      // Zera o estado salvo (a "Instalação quebrada" deixa de ser reportada) e
+      // apaga também as configurações por usuário que o MSI não conhece.
       resetKloudGamesState()
       removeTempKloudGamesDir()
+      removeKloudGamesPerUserConfigs(log)
 
       const verify = verifyKloudGamesRemoval()
       report.report = verify

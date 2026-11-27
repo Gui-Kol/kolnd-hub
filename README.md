@@ -102,32 +102,32 @@ Em **Configurações**, no fim da página, existe a zona **"Zona de perigo"** co
 
 **"Desinstalar Kolnd Hub"** → desinstala o Hub pelo desinstalador oficial do Windows (NSIS **per-user**, sem exigir administrador):
 
-1. Primeiro o Hub desinstala o **Kloud Games** (se estiver instalado) — mesmo fluxo do botão acima, com UAC. Se algo falhar, você decide a cada passo: **"Desinstalar só o Hub"** (segue sem o Kloud Games) ou **"Cancelar"** (nada é alterado). Se o Kloud Games não estiver instalado, essa etapa é pulada.
-2. Se você escolheu apagar seus dados, apaga a pasta `%APPDATA%\kolnd-hub` (ver abaixo).
+1. Primeiro o Hub desinstala o **Kloud Games** (se estiver instalado) — mesmo fluxo do botão acima, com UAC. Se algo falhar, você decide a cada passo: **"Desinstalar só o Hub"** (segue sem o Kloud Games) ou **"Cancelar"** (nada é alterado). Se o Kloud Games não estiver instalado, essa etapa é pulada. As configurações dele (`config\` da instalação, `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES`) são apagadas junto.
+2. Se você escolheu apagar seus dados, apaga a pasta `%APPDATA%\kolnd-hub` e também `%APPDATA%\absolem` (ver abaixo).
 3. Por fim, o desinstalador do Windows abre e o Hub se encerra sozinho para ele assumir. O Hub não abre mais depois disso.
 
 - Pede para digitar `Kolnd Hub` antes de confirmar. Em `npm run dev` o botão fica desabilitado — só funciona no app instalado.
 - O **Mark LVII** (assistente) fica dentro da pasta do Hub em `resources/programs/MarkLVII` e **vai junto** com a desinstalação.
-- O **Absolem** também fica dentro da pasta do Hub em `resources/programs/Absolem` e sai com ela; os dados dele em `%APPDATA%\absolem` são **preservados**.
+- O **Absolem** também fica dentro da pasta do Hub em `resources/programs/Absolem` e sai com ela; as configurações dele em `%APPDATA%\absolem` seguem a sua escolha de dados (apagadas na opção irreversível, preservadas em "manter").
 
 ### O que acontece com seus dados
 
 Em **qualquer** desinstalação (pelo botão do Hub ou pelo Windows), o padrão é:
 
 - **Preservado — `%APPDATA%\kolnd-hub` inteiro**: `config.json` (electron-store), a flag de primeira execução (`first-run-complete.flag`), `logs\` (`kolnd-hub.log` e `kloud-games-uninstall.log`), `kloud-games.paths.json` e `game-icons\`. Nada disso é apagado pelo desinstalador NSIS (`deleteAppDataOnUninstall: false`), a menos que você escolha a opção irreversível no botão do Hub.
-- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`, onde o `MarkLVII.exe` grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`), e `resources\programs\Absolem\`** (o programa em si; os dados do Absolem ficam em `%APPDATA%\absolem` e **não** são tocados). Os dados do Mark LVII são **perdidos** na desinstalação — o NSIS não tem como preservá-los.
+- **Removido — o diretório de instalação inteiro** (per-user: `%LOCALAPPDATA%\Programs\Kolnd Hub`), **incluindo `resources\programs\MarkLVII\`, onde o `MarkLVII.exe` grava a chave de API (`config\api_keys.json`) e a memória das conversas (`memory\`), e `resources\programs\Absolem\`** (o programa em si; as configurações do Absolem ficam em `%APPDATA%\absolem` e seguem a escolha de dados). Os dados do Mark LVII são **perdidos** na desinstalação — o NSIS não tem como preservá-los.
 
 Ao desinstalar o Hub pelo botão, você escolhe uma das duas opções:
 
-- **"Manter meus dados e configurações (recomendado)"** — padrão; o que está em `%APPDATA%\kolnd-hub` fica intacto (config, biblioteca, logs, ícones e flag de primeira execução);
-- **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `game-icons\` e qualquer outra coisa que estiver lá). Não há como desfazer.
+- **"Manter meus dados e configurações (recomendado)"** — padrão; o que está em `%APPDATA%\kolnd-hub` e em `%APPDATA%\absolem` fica intacto (config, biblioteca, logs, ícones, flag de primeira execução, memória e chave do Absolem);
+- **"Apagar também meus dados e configurações (irreversível)"** — apaga o **conteúdo inteiro** de `%APPDATA%\kolnd-hub` (config.json, `first-run-complete.flag`, `logs\`, `game-icons\` e qualquer outra coisa que estiver lá) **e** a pasta `%APPDATA%\absolem` (configurações, chave cifrada, memória, logs e Crashpad do Absolem). Não há como desfazer.
 
-Resumindo em uma linha: **`%APPDATA%\kolnd-hub` é preservado; o diretório de instalação é removido** — inclusive os dados que o Mark LVII grava ao lado do `MarkLVII.exe`. Os dados do Absolem ficam em `%APPDATA%\absolem`, fora do diretório de instalação, e **sobrevivem** à desinstalação.
+Resumindo em uma linha: **`%APPDATA%\kolnd-hub` e `%APPDATA%\absolem` são preservados por padrão; o diretório de instalação é removido** — inclusive os dados que o Mark LVII grava ao lado do `MarkLVII.exe`. A opção irreversível apaga também os dois diretórios de dados.
 
 Duas regras importantes:
 
-- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** e **não** inclui os dados gravados ao lado do `MarkLVII.exe`; copie manualmente `resources\programs\MarkLVII\config` e `...\memory` se quiser guardar a chave e a memória. Os dados do Absolem em `%APPDATA%\absolem` também não entram nesse backup, mas continuam no disco depois da desinstalação.
-- Nada fora de `%APPDATA%\kolnd-hub` é apagado pelo Hub. O que remove a instalação do Kloud Games e a pasta do Hub são os desinstaladores oficiais (MSI e NSIS).
+- O botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se já existir, cria `KolndHub-Backup-AAAAMMDD-HHmmss-2`, `-3`, …). O backup é **opcional e manual** — não é automático; clique nele **antes** de confirmar a desinstalação se quiser guardar seus dados. **Atenção: o backup cobre apenas `%APPDATA%\kolnd-hub`** e **não** inclui os dados gravados ao lado do `MarkLVII.exe`; copie manualmente `resources\programs\MarkLVII\config` e `...\memory` se quiser guardar a chave e a memória. As configurações do Absolem em `%APPDATA%\absolem` também não entram nesse backup — copie essa pasta antes se quiser guardá-las.
+- Fora de `%APPDATA%\kolnd-hub` e `%APPDATA%\absolem`, o Hub apaga as configurações do Kloud Games quando o desinstala (`config\` da instalação, `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES`). O resto da instalação do Kloud Games e a pasta do Hub saem pelos desinstaladores oficiais (MSI e NSIS).
 
 Note que a preferência **"Iniciar Kloud Games junto com o Kolnd Hub"** (`launchKloudOnStart`, em `config.json`) também fica em `%APPDATA%\kolnd-hub` — ela sobrevive à desinstalação se você mantiver os dados; quem decide apagá-la é a opção de apagar tudo.
 

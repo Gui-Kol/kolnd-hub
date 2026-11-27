@@ -354,7 +354,11 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
 1. **Kloud Games** — o MSI é per-machine: `msiexec /x {ProductCode} /qn /norestart` via
    PowerShell elevado (`-Verb RunAs`). O Hub encerra o `KLOUD_GAMES.exe` antes (duas
    tentativas); se não conseguir, o MSI não é chamado. Remove programa, serviço
-   `KLOUD_GAMESsvc`, regras de firewall, PATH e atalhos.
+   `KLOUD_GAMESsvc`, regras de firewall, PATH e atalhos. No **mesmo processo elevado**,
+   remove a pasta `config\` criada em runtime dentro de `C:\Program Files\KLOUD_GAMES`
+   (o MSI não a conhece) e, no cleanup, as pastas por usuário
+   `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES`; o laudo
+   (`uninstallVerify.ts`) confere `configGone`.
 2. **Kolnd Hub** (só no app empacotado, com desinstalador NSIS presente) — sequência em
    `runHubUninstallSteps` (`uninstall/hub.ts`; re-exportado pelo barrel `uninstaller.ts`):
    1. resolve o desinstalador NSIS (se não achar, nada é apagado e o erro aparece na hora);
@@ -364,13 +368,16 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
       (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada é apagado e o erro
       aparece com a instrução de desinstalar pelo Windows;
    4. **wipe opcional** (irreversível, só se escolhido), depois do spawn confirmado:
-      apaga `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (listadas
-      no final).
+      encerra os programas abertos pelo Hub (o IPC injeta `processManager.killAll`) e
+      apaga `%APPDATA%\kolnd-hub` e `%APPDATA%\absolem` item a item, tolerando falhas
+      individuais (listadas no final). `%APPDATA%\absolem` é o `userData` do Absolem
+      (config, memória SQLite, chave cifrada, logs e Crashpad) — `uninstall/appConfigs.ts`
+      é o único dono desses caminhos, com trava de `basename`.
 
 O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`
-(config, flag de first-run e logs sobrevivem por padrão), mas **sempre remove
-o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
+nem `%APPDATA%\absolem` (config, flag de first-run e logs sobrevivem por padrão), mas
+**sempre remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
 `resources\programs\MarkLVII\` com os dados que o `MarkLVII.exe` grava ao lado de si
 (chave de API e memória — não há espelho em `%APPDATA%`). Durante qualquer desinstalação destrutiva, o tray, o X da
 janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
@@ -491,34 +498,34 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 
 ## 10. Mapa de arquivos
 
-| Assunto                                 | Arquivo                                                                                                                                                      |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bootstrap / janela / tray / IPC inline  | `kolnd-hub/src/main/index.ts`                                                                                                                                |
-| Crash reporting                         | `kolnd-hub/src/main/crashReporting.ts`                                                                                                                       |
-| Store + migrações                       | `kolnd-hub/src/main/store.ts`                                                                                                                                |
-| Logger                                  | `kolnd-hub/src/main/logger.ts`                                                                                                                               |
-| First-run (flag/fluxo)                  | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                                                                                                     |
-| Dependências (python/pip)               | `kolnd-hub/src/main/dependencyChecker.ts`                                                                                                                    |
-| Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                      |
-| Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                     |
-| Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                 |
-| Jogos / Steam, Epic e Minecraft         | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`, `gameImport.ts`                                                   |
-| Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                           |
-| Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                       |
-| Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
-| Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
-| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
-| Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
-| FPS do app em foco (PresentMon)         | `kolnd-hub/src/main/fps/` (`engine.ts`, `agent.ts`, `paths.ts`, `reader.ts`, `target.ts`, `aggregate.ts`, `index.ts`), `src/shared/fps.ts`, `resources/fps/` |
-| Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                     |
-| Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
-| Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
-| Chat (Go Live embutido)                 | `kolnd-hub/src/main/chat.ts`, `kolnd-hub/src/shared/chat.ts`, `kolnd-hub/src/renderer/src/components/Chat.tsx`                                               |
-| Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |
-| Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                            |
-| Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                |
-| Build                                   | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                                                                                                  |
-| Testes                                  | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)                                                                                         |
+| Assunto                                 | Arquivo                                                                                                                                                                                 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bootstrap / janela / tray / IPC inline  | `kolnd-hub/src/main/index.ts`                                                                                                                                                           |
+| Crash reporting                         | `kolnd-hub/src/main/crashReporting.ts`                                                                                                                                                  |
+| Store + migrações                       | `kolnd-hub/src/main/store.ts`                                                                                                                                                           |
+| Logger                                  | `kolnd-hub/src/main/logger.ts`                                                                                                                                                          |
+| First-run (flag/fluxo)                  | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                                                                                                                                |
+| Dependências (python/pip)               | `kolnd-hub/src/main/dependencyChecker.ts`                                                                                                                                               |
+| Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                                                 |
+| Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                                                |
+| Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                                            |
+| Jogos / Steam, Epic e Minecraft         | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`, `gameImport.ts`                                                                              |
+| Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                                                      |
+| Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                                                  |
+| Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstall/appConfigs.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
+| Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                                                      |
+| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                                                        |
+| Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                                                   |
+| FPS do app em foco (PresentMon)         | `kolnd-hub/src/main/fps/` (`engine.ts`, `agent.ts`, `paths.ts`, `reader.ts`, `target.ts`, `aggregate.ts`, `index.ts`), `src/shared/fps.ts`, `resources/fps/`                            |
+| Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                                                |
+| Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                                                       |
+| Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                                                          |
+| Chat (Go Live embutido)                 | `kolnd-hub/src/main/chat.ts`, `kolnd-hub/src/shared/chat.ts`, `kolnd-hub/src/renderer/src/components/Chat.tsx`                                                                          |
+| Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                                               |
+| Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                                                       |
+| Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                                           |
+| Build                                   | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                                                                                                                             |
+| Testes                                  | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)                                                                                                                    |
 
 Documentos relacionados: [`kolnd-hub/README.md`](../kolnd-hub/README.md) (comandos,
 qualidade/CI, primeira execução, desinstalação), [`kolnd-hub/AGENTS.md`](../kolnd-hub/AGENTS.md)

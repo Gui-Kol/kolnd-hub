@@ -36,6 +36,7 @@ import {
   checkRegistryGone,
   checkShortcutsGone,
   checkTempCleaned,
+  checkConfigGone,
   verifyKloudGamesRemoval,
   type KloudGamesUninstallReport
 } from './uninstallVerify'
@@ -90,6 +91,12 @@ beforeEach(() => {
 
   process.env.APPDATA = savedEnv.APPDATA
   process.env.TEMP = savedEnv.TEMP
+  // Pastas de configuração do Kloud Games isoladas (não existem por padrão):
+  // nunca apontar para os Program Files reais da máquina de teste.
+  process.env.ProgramFiles = join(base, 'pf-none')
+  process.env['ProgramFiles(x86)'] = join(base, 'pf86-none')
+  process.env.ProgramData = join(base, 'pd-none')
+  process.env.LOCALAPPDATA = join(base, 'lad-none')
 })
 
 afterEach(() => {
@@ -206,6 +213,45 @@ describe('uninstallVerify — checkTempCleaned', () => {
   })
 })
 
+describe('uninstallVerify — checkConfigGone', () => {
+  let root: string | null = null
+
+  afterEach(() => {
+    if (root) removeDir(root)
+    root = null
+  })
+
+  it('true quando nenhuma pasta de configuração do Kloud Games existe', () => {
+    root = envDir('kg-cfg-clean-')
+    process.env.LOCALAPPDATA = join(root, 'Local')
+    process.env.ProgramData = join(root, 'ProgramData')
+    process.env.ProgramFiles = join(root, 'Program Files')
+    process.env['ProgramFiles(x86)'] = join(root, 'Program Files (x86)')
+    expect(checkConfigGone()).toBe(true)
+  })
+
+  it('false quando %LOCALAPPDATA%\\LizardByte\\KLOUD_GAMES ainda existe', () => {
+    root = envDir('kg-cfg-local-')
+    process.env.LOCALAPPDATA = root
+    mkdirSync(join(root, 'LizardByte', 'KLOUD_GAMES'), { recursive: true })
+    expect(checkConfigGone()).toBe(false)
+  })
+
+  it('false quando %ProgramData%\\KLOUD_GAMES ainda existe', () => {
+    root = envDir('kg-cfg-pd-')
+    process.env.ProgramData = root
+    mkdirSync(join(root, 'KLOUD_GAMES'), { recursive: true })
+    expect(checkConfigGone()).toBe(false)
+  })
+
+  it('false quando config\\ dentro da instalação ainda existe', () => {
+    root = envDir('kg-cfg-pf-')
+    process.env.ProgramFiles = root
+    mkdirSync(join(root, 'KLOUD_GAMES', 'config'), { recursive: true })
+    expect(checkConfigGone()).toBe(false)
+  })
+})
+
 describe('uninstallVerify — verifyKloudGamesRemoval', () => {
   let root: string | null = null
 
@@ -227,6 +273,7 @@ describe('uninstallVerify — verifyKloudGamesRemoval', () => {
     expect(report.registryGone).toBe(true)
     expect(report.shortcutsGone).toBe(true)
     expect(report.tempCleaned).toBe(true)
+    expect(report.configGone).toBe(true)
     expect(report.remaining).toEqual([])
     expect(report.logPath).toBe('C:\\fake\\userData\\logs\\kloud-games-uninstall.log')
   })
@@ -263,7 +310,7 @@ describe('uninstallVerify — verifyKloudGamesRemoval', () => {
     expect(report.remaining[2]).toContain('registro')
   })
 
-  it('todos os itens presentes: remaining com 5 entradas, nenhum item derruba o fluxo', () => {
+  it('todos os itens presentes: remaining com 6 entradas, nenhum item derruba o fluxo', () => {
     findKloudGamesExeMock.mockReturnValue('C:\\x\\KLOUD_GAMES.exe')
     getKloudGamesServiceStatusMock.mockReturnValue('running')
     findKloudGamesUninstallEntryMock.mockReturnValue({
@@ -274,13 +321,16 @@ describe('uninstallVerify — verifyKloudGamesRemoval', () => {
     })
     makeStartMenu(root!, { lizardByte: true, rootLnks: ['KLOUD_GAMES.lnk'] })
     mkdirSync(join(root!, 'KLOUD_GAMES'), { recursive: true })
+    process.env.ProgramData = join(root!, 'ProgramData')
+    mkdirSync(join(root!, 'ProgramData', 'KLOUD_GAMES'), { recursive: true })
     const report = verifyKloudGamesRemoval()
-    expect(report.remaining).toHaveLength(5)
+    expect(report.remaining).toHaveLength(6)
     expect(report.exeGone).toBe(false)
     expect(report.serviceGone).toBe(false)
     expect(report.registryGone).toBe(false)
     expect(report.shortcutsGone).toBe(false)
     expect(report.tempCleaned).toBe(false)
+    expect(report.configGone).toBe(false)
     expect(() => verifyKloudGamesRemoval()).not.toThrow()
   })
 })
