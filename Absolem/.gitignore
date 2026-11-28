@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.log
+
+# Dados de usuário: chave cifrada, memória, logs e rastros de crash (nunca commitar)
+secrets.bin
+*.sqlite*
+logs/
+audit/
+Crashpad/

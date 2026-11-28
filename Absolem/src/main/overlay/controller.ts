@@ -1,0 +1,391 @@
+import { screen } from 'electron'
+import type { BrowserWindow } from 'electron'
+import type { OverlayConfig, OverlayLayout } from '../../shared/config'
+import { IPC } from '../../shared/ipc'
+import type { OverlayStatus, OverlayStatusResult, SimpleResult } from '../../shared/ipc'
+import {
+  isOverlayPosition,
+  normalizeAccelerator,
+  normalizeOverlayLayout
+} from '../../shared/overlay'
+import {
+  OVERLAY_HEIGHT_MAX,
+  OVERLAY_HEIGHT_MIN,
+  OVERLAY_WIDTH_MAX,
+  OVERLAY_WIDTH_MIN
+} from '../../shared/overlay'
+import type { IpcContext } from '../ipc/lifecycle'
+import { logger } from '../logger'
+import { registerShutdownHook } from '../shutdown'
+import { getStoreValue, setStoreValue } from '../store'
+import { watchDisplayChanges } from './displays'
+import { getForegroundWindow, shouldHideForFullscreen } from './foreground'
+import { isInteractive, setInteractive } from './interactive'
+import {
+  destroyOverlayWindow,
+  getOverlayLayout,
+  getOverlayWindow,
+  hideOverlayWindow,
+  isOverlayVisible,
+  reapplyOverlayBounds,
+  setOverlayLayout,
+  showOverlayWindow
+} from './overlayWindow'
+import { getShortcutStatus, registerOverlayShortcut } from './shortcut'
+import { emitOverlayShown } from '../voice/overlayEvents'
+
+/**
+ * Controlador do overlay: visibilidade, persistência, atalho global, push de
+ * status e auto-hide em tela cheia.
+ *
+ * Regras de segurança:
+ * - o overlay começa oculto; só aparece por ação explícita, atalho ou pela
+ *   preferência persistida (`overlay.visible`), exceto no autostart `--hidden`;
+ * - hide/show sempre resetam o estado interativo (a janela volta a deixar o
+ *   clique atravessar);
+ * - auto-hide por tela cheia NÃO persiste `visible:false`: ao sair do
+ *   fullscreen o overlay volta e, se o usuário escondeu de propósito, o
+ *   watcher já foi parado.
+ */
+
+/** Intervalo mínimo de sondagem; não descer abaixo de 2 s (custo/ruído). */
+export const FULLSCREEN_POLL_MS = 2000
+
+let context: IpcContext | null = null
+// Task 29: sem auto-hide por padrão; o overlay fica sempre visível e por cima.
+let hideOnFullscreen = false
+let autoHidden = false
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollBusy = false
+let stopDisplayWatch: (() => void) | null = null
+let initialized = false
+let inputModeTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Tempo sem digitação antes de o overlay voltar a não focável. */
+export const OVERLAY_INPUT_IDLE_MS = 30_000
+
+function currentConfig(): OverlayConfig {
+  const snapshot = context?.getStoreSnapshot()
+  return snapshot ? snapshot.overlay : (getStoreValue('overlay') as OverlayConfig)
+}
+
+function persistOverlay(patch: Partial<OverlayConfig>): void {
+  const result = setStoreValue('overlay', { ...currentConfig(), ...patch })
+  if (!result.success) {
+    logger.warn('overlay', `falha ao persistir a configuração: ${result.error ?? 'desconhecida'}`)
+  }
+}
+
+/** Status atual para o IPC e para o push `overlay:status-changed`. */
+export function getOverlayStatus(): OverlayStatus {
+  return {
+    visible: isOverlayVisible(),
+    interactive: isInteractive(),
+    autoHidden,
+    layout: getOverlayLayout(),
+    shortcut: getShortcutStatus(),
+    hideOnFullscreen
+  }
+}
+
+function pushTo(window: BrowserWindow | null, status: OverlayStatus): void {
+  if (!window || window.isDestroyed()) return
+  try {
+    window.webContents.send(IPC.overlayStatusChanged, status)
+  } catch {
+    // Janela fechando entre a checagem e o envio: o próximo evento reenvia.
+  }
+}
+
+function broadcastStatus(): OverlayStatus {
+  const status = getOverlayStatus()
+  pushTo(getOverlayWindow(), status)
+  pushTo(context?.getMainWindow() ?? null, status)
+  return status
+}
+
+function startFullscreenWatch(): void {
+  if (pollTimer || !hideOnFullscreen) return
+  if (!isOverlayVisible() && !autoHidden) return
+  pollTimer = setInterval(() => {
+    void pollForeground()
+  }, FULLSCREEN_POLL_MS)
+}
+
+function stopFullscreenWatch(): void {
+  if (!pollTimer) return
+  clearInterval(pollTimer)
+  pollTimer = null
+}
+
+/**
+ * Sonda assíncrona (PowerShell com timeout). Falha/JSON inválido = `null`:
+ * nunca oculta por leitura ruim. A própria janela do Absolem é ignorada.
+ */
+async function pollForeground(): Promise<void> {
+  if (pollBusy) return
+  if (!hideOnFullscreen || (!isOverlayVisible() && !autoHidden)) {
+    stopFullscreenWatch()
+    return
+  }
+
+  pollBusy = true
+  try {
+    const foreground = await getForegroundWindow()
+    if (!foreground) return
+
+    const monitorBounds = screen.getDisplayMatching(foreground.bounds).bounds
+    const fullscreen = shouldHideForFullscreen(foreground, monitorBounds, process.pid)
+
+    if (fullscreen && !autoHidden) {
+      autoHidden = true
+      hideOverlayWindow()
+      logger.info('overlay', 'ocultada automaticamente (tela cheia)')
+      broadcastStatus()
+    } else if (!fullscreen && autoHidden) {
+      autoHidden = false
+      showOverlayWindow()
+      logger.info('overlay', 'reexibida ao sair da tela cheia')
+      broadcastStatus()
+    }
+  } catch (err) {
+    logger.warn('overlay', 'falha ao consultar a janela em primeiro plano', err)
+  } finally {
+    pollBusy = false
+  }
+}
+
+function applyVisible(next: boolean, persist: boolean): OverlayStatus {
+  const wasVisible = isOverlayVisible()
+  // Texto/foco nunca sobrevivem a esconder/mostrar o overlay.
+  deactivateOverlayInputMode()
+  if (next) {
+    autoHidden = false
+    showOverlayWindow()
+    startFullscreenWatch()
+    // Só a transição oculto → visível dispara a saudação; reaplicar o layout
+    // ou já estar visível não fala de novo.
+    if (!wasVisible) emitOverlayShown()
+  } else {
+    autoHidden = false
+    hideOverlayWindow()
+    stopFullscreenWatch()
+  }
+
+  if (persist) persistOverlay({ visible: next })
+  return broadcastStatus()
+}
+
+/** Mostra o overlay (não rouba foco: a janela usa `showInactive`). */
+export function showOverlay(persist = true): OverlayStatus {
+  return applyVisible(true, persist)
+}
+
+/** Oculta por ação do usuário (atalho, bandeja ou IPC). */
+export function hideOverlay(): OverlayStatus {
+  return applyVisible(false, true)
+}
+
+export function toggleOverlay(): OverlayStatus {
+  return isOverlayVisible() ? hideOverlay() : showOverlay()
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+const LAYOUT_KEYS = ['position', 'offsetX', 'offsetY', 'width', 'height'] as const
+
+/** Valida e aplica um patch de layout; persiste o resultado normalizado. */
+export function setOverlayLayoutFromRequest(
+  input: unknown,
+  options: { persist?: boolean } = {}
+): OverlayStatusResult {
+  if (!isPlainRecord(input)) {
+    return { ok: false, error: 'Payload inválido para overlay:set-layout.' }
+  }
+
+  for (const key of Object.keys(input)) {
+    if (!(LAYOUT_KEYS as readonly string[]).includes(key)) {
+      return { ok: false, error: `Campo desconhecido em overlay:set-layout: ${key}` }
+    }
+    const value = input[key]
+    if (key === 'position') {
+      if (typeof value !== 'string' || !isOverlayPosition(value)) {
+        return { ok: false, error: 'Posição do overlay inválida.' }
+      }
+    } else if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return { ok: false, error: `Valor inválido em overlay:set-layout: ${key}` }
+    } else if (key === 'width' && (value < OVERLAY_WIDTH_MIN || value > OVERLAY_WIDTH_MAX)) {
+      return {
+        ok: false,
+        error: `Largura fora da faixa ${OVERLAY_WIDTH_MIN}..${OVERLAY_WIDTH_MAX}.`
+      }
+    } else if (key === 'height' && (value < OVERLAY_HEIGHT_MIN || value > OVERLAY_HEIGHT_MAX)) {
+      return {
+        ok: false,
+        error: `Altura fora da faixa ${OVERLAY_HEIGHT_MIN}..${OVERLAY_HEIGHT_MAX}.`
+      }
+    }
+  }
+
+  const merged: OverlayLayout = normalizeOverlayLayout({ ...getOverlayLayout(), ...input })
+  const applied = setOverlayLayout(merged)
+  if (options.persist !== false) persistOverlay(applied)
+  return { ok: true, status: broadcastStatus() }
+}
+
+/** Valida e aplica `{ interactive: boolean }`. */
+export function setOverlayInteractiveFromRequest(input: unknown): OverlayStatusResult {
+  if (!isPlainRecord(input) || typeof input.interactive !== 'boolean') {
+    return { ok: false, error: 'Payload inválido para overlay:set-interactive.' }
+  }
+
+  setInteractive(input.interactive)
+  logger.info('overlay', `interativo: ${input.interactive ? 'sim' : 'não'}`)
+  return { ok: true, status: broadcastStatus() }
+}
+
+/**
+ * `overlay:set-shortcut`: aplica o atalho na hora (re-registra o global) e só
+ * persiste quando o SO aceitou. Em conflito devolve erro e preserva o anterior:
+ * `registerOverlayShortcut` re-registra o atalho que já funcionava.
+ */
+export function setOverlayShortcutFromRequest(input: unknown): OverlayStatusResult {
+  if (!isPlainRecord(input) || typeof input.shortcut !== 'string') {
+    return { ok: false, error: 'Payload inválido para overlay:set-shortcut.' }
+  }
+  const normalized = normalizeAccelerator(input.shortcut)
+  if (!normalized) {
+    return { ok: false, error: 'Atalho inválido: use ao menos um modificador e uma tecla.' }
+  }
+
+  const status = registerOverlayShortcut(normalized, () => {
+    toggleOverlay()
+  })
+  if (!status.registered || status.accelerator !== normalized) {
+    return {
+      ok: false,
+      error: 'Atalho em uso por outro aplicativo. O atalho anterior foi mantido.'
+    }
+  }
+
+  persistOverlay({ shortcut: normalized })
+  logger.info('overlay', `atalho atualizado: ${normalized}`)
+  return { ok: true, status: broadcastStatus() }
+}
+
+/**
+ * `overlay:set-input-mode`: o overlay nasce `focusable:false` para nunca roubar
+ * foco. Só enquanto o campo de texto está em uso ele vira focável; Esc, fechar
+ * o balão, esconder o overlay ou 30 s sem digitação devolvem o estado original.
+ */
+export function setOverlayInputModeFromRequest(input: unknown): SimpleResult {
+  if (!isPlainRecord(input) || typeof input.active !== 'boolean') {
+    return { ok: false, error: 'Payload inválido para overlay:set-input-mode.' }
+  }
+  if (!input.active) {
+    deactivateOverlayInputMode()
+    return { ok: true }
+  }
+  const window = getOverlayWindow()
+  if (!window) return { ok: false, error: 'Overlay indisponível.' }
+  try {
+    setInteractive(true)
+    window.setFocusable(true)
+    viewWindowFocus(window)
+    if (inputModeTimer) clearTimeout(inputModeTimer)
+    inputModeTimer = setTimeout(() => {
+      inputModeTimer = null
+      deactivateOverlayInputMode()
+    }, OVERLAY_INPUT_IDLE_MS)
+  } catch (err) {
+    logger.warn('overlay', 'falha ao ativar o modo de entrada', err)
+    return { ok: false, error: 'Falha ao ativar o campo de texto.' }
+  }
+  return { ok: true }
+}
+
+/** Devolve o overlay ao estado não focável e não interativo. */
+export function deactivateOverlayInputMode(): void {
+  if (inputModeTimer) {
+    clearTimeout(inputModeTimer)
+    inputModeTimer = null
+  }
+  const window = getOverlayWindow()
+  if (!window) {
+    setInteractive(false)
+    return
+  }
+  try {
+    if (window.isFocused()) window.blur()
+    window.setFocusable(false)
+  } catch {
+    // Janela em processo de fechamento.
+  }
+  setInteractive(false)
+}
+
+function viewWindowFocus(window: BrowserWindow): void {
+  if (!window.isVisible()) window.showInactive()
+  window.focus()
+}
+
+/**
+ * Inicializa no `whenReady` (screen/globalShortcut exigem app pronto):
+ * aplica o layout persistido, registra o atalho, observa monitores, instala o
+ * gancho de encerramento e reexibe se a preferência mandar.
+ */
+export function initializeOverlay(
+  ctx: IpcContext,
+  options: { hideOnFullscreen?: boolean } = {}
+): void {
+  if (initialized) return
+  initialized = true
+
+  context = ctx
+  const config = ctx.getStoreSnapshot().overlay
+  // O harness visual (task 23) desliga o auto-hide para a tela cheia do
+  // ambiente de teste não interromper a captura. Em produção o option não é
+  // passado e a preferência persistida continua mandando.
+  hideOnFullscreen = options.hideOnFullscreen ?? config.hideOnFullscreen
+  setOverlayLayout(config)
+
+  registerOverlayShortcut(config.shortcut, () => {
+    toggleOverlay()
+  })
+
+  stopDisplayWatch = watchDisplayChanges(() => {
+    reapplyOverlayBounds()
+    broadcastStatus()
+  })
+
+  registerShutdownHook('overlay', shutdownOverlay)
+
+  if (config.visible && !process.argv.includes('--hidden')) {
+    applyVisible(true, false)
+  }
+}
+
+/** Encerramento: para timers, solta os monitores e destrói a janela. */
+export function shutdownOverlay(): void {
+  stopFullscreenWatch()
+  deactivateOverlayInputMode()
+  stopDisplayWatch?.()
+  stopDisplayWatch = null
+  destroyOverlayWindow()
+}
+
+/** Hook exclusivo de teste: zera estado e timers. */
+export function resetOverlayControllerForTests(): void {
+  stopFullscreenWatch()
+  if (inputModeTimer) clearTimeout(inputModeTimer)
+  inputModeTimer = null
+  stopDisplayWatch?.()
+  stopDisplayWatch = null
+  context = null
+  hideOnFullscreen = false
+  autoHidden = false
+  pollBusy = false
+  initialized = false
+}

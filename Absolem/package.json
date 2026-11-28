@@ -1,0 +1,76 @@
+{
+  "name": "absolem",
+  "version": "0.0.0",
+  "description": "Absolem - Assistente de IA para Windows. Agente de IA presente na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini. Distribuído e atualizado junto com o Kolnd Hub (sem versão/release próprios).",
+  "main": "./out/main/index.js",
+  "author": "Kolnd",
+  "license": "MIT",
+  "homepage": "https://github.com/Gui-Kol/kolnd-hub",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gui-Kol/kolnd-hub"
+  },
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package:dir": "electron-builder --dir",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "verify:build": "npm run verify && npm run build",
+    "test:e2e": "npm run build && playwright test --config=tests/e2e/playwright.config.ts",
+    "test:bundle": "node scripts/smoke-bundle.mjs",
+    "postinstall": "node scripts/postinstall-sqlite.cjs && electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@google/genai": "3.6.1",
+    "better-sqlite3": "11.10.0",
+    "electron-store": "^8.2.0",
+    "linkedom": "0.18.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.1",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "0.187.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.9",
+    "autoprefixer": "^10.4.20",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.4.49",
+    "prebuild-install": "^7.1.3",
+    "prettier": "^3.10.0",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^2.1.9"
+  },
+  "allowScripts": {
+    "electron": true,
+    "esbuild": true,
+    "better-sqlite3": false
+  }
+}

@@ -7,6 +7,7 @@
 // `globalShortcut.register`, e o renderer precisa montar o mesmo formato ao
 // gravar o atalho — as duas pontas usam estas funções.
 
+import type { HudFpsReading } from './fps'
 import type { HwSnapshot } from './hwmon'
 
 /** Atalho padrão: combinação improvável de já estar em uso em outros apps. */
@@ -132,6 +133,11 @@ export interface HudUpdate {
   size: HudSize
   /** ISO 8601 do instante em que o main montou esta atualização. */
   capturedAt: string
+  /**
+   * Faixa de FPS (campo ADITIVO): ausente em builds antigos/sem captura. O
+   * renderer valida de novo; um número só aparece com `state === 'live'`.
+   */
+  fps?: HudFpsReading
 }
 
 type ModifierName = 'Control' | 'Alt' | 'Shift' | 'Super'

@@ -19,6 +19,7 @@ import {
 import type {
   DriverStatus,
   DriverStatusInfo,
+  FpsStatusInfo,
   HudScale,
   HudStatus,
   HwCpuTempSource,
@@ -39,6 +40,7 @@ import {
   HUD_WIDTH_MIN,
   HUD_WIDTH_STEP
 } from '../../../shared/hud'
+import { normalizeHudFpsReading } from '../../../shared/fps'
 import {
   HWMON_INTERVAL_DEFAULT_MS,
   HWMON_INTERVAL_MAX_MS,
@@ -255,6 +257,49 @@ function isHudStatus(value: unknown): value is HudStatus {
   return true
 }
 
+/** O renderer valida a leitura de FPS (número só com `state === 'live'`). */
+function isFpsStatusInfo(value: unknown): value is FpsStatusInfo {
+  if (!isRecord(value)) return false
+  if (value.installed !== null && typeof value.installed !== 'boolean') return false
+  if (typeof value.active !== 'boolean') return false
+  return normalizeHudFpsReading(value.reading) !== null
+}
+
+function isFpsActivationResult(
+  value: unknown
+): value is { ok: boolean; cancelled?: boolean; error?: string } {
+  if (!isRecord(value)) return false
+  if (typeof value.ok !== 'boolean') return false
+  if (value.cancelled !== undefined && typeof value.cancelled !== 'boolean') return false
+  if (value.error !== undefined && typeof value.error !== 'string') return false
+  return true
+}
+
+const FPS_SEAL: Record<FpsStatusInfo['reading']['state'], { text: string; tone: BadgeTone }> = {
+  live: { text: 'FPS ao vivo', tone: 'success' },
+  warming: { text: 'medindo…', tone: 'neutral' },
+  'not-activated': { text: 'captura não ativada', tone: 'warning' },
+  outdated: { text: 'captura desatualizada', tone: 'warning' },
+  unavailable: { text: 'sem leitura', tone: 'warning' },
+  'no-target': { text: 'sem jogo em foco', tone: 'neutral' },
+  'no-presents': { text: 'em foco não apresenta', tone: 'neutral' }
+}
+
+function fpsSeal(status: FpsStatusInfo | null): { text: string; tone: BadgeTone } {
+  if (!status) return { text: 'carregando…', tone: 'neutral' }
+  if (status.reading.state === 'unavailable' && status.reading.reason === 'engine-missing') {
+    return { text: 'captura indisponível', tone: 'warning' }
+  }
+  return FPS_SEAL[status.reading.state]
+}
+
+function fpsActionLabel(status: FpsStatusInfo | null): string | null {
+  if (!status) return null
+  if (status.reading.state === 'not-activated') return 'Tentar de novo'
+  if (status.reading.state === 'outdated') return 'Atualizar'
+  return null
+}
+
 function formatInt(value: number): string {
   return value.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 }
@@ -401,6 +446,9 @@ export function PcMonitor(): JSX.Element {
   const [hudNotice, setHudNotice] = useState<string | null>(null)
   const [hudError, setHudError] = useState<string | null>(null)
   const [hudSizeBusy, setHudSizeBusy] = useState(false)
+  // Captura de FPS: selo/retry no Monitor (a ativação primária é o atalho).
+  const [fpsStatus, setFpsStatus] = useState<FpsStatusInfo | null>(null)
+  const [fpsBusy, setFpsBusy] = useState(false)
   // Intervalo de atualização do monitor (aba + HUD usam o MESMO timer no main).
   const [hwIntervalMs, setHwIntervalMs] = useState(HWMON_INTERVAL_DEFAULT_MS)
   const [hwIntervalBusy, setHwIntervalBusy] = useState(false)
@@ -441,6 +489,12 @@ export function PcMonitor(): JSX.Element {
       .hudGet()
       .then((status) => {
         if (mountedRef.current && isHudStatus(status)) setHud(status)
+      })
+      .catch(() => undefined)
+    void window.api
+      .fpsStatus()
+      .then((status) => {
+        if (mountedRef.current && isFpsStatusInfo(status)) setFpsStatus(status)
       })
       .catch(() => undefined)
 
@@ -522,6 +576,12 @@ export function PcMonitor(): JSX.Element {
           if (mountedRef.current && isHudStatus(status)) setHud(status)
         })
         .catch(() => undefined)
+      void window.api
+        .fpsStatus()
+        .then((status) => {
+          if (mountedRef.current && isFpsStatusInfo(status)) setFpsStatus(status)
+        })
+        .catch(() => undefined)
     }
     window.addEventListener('focus', refresh)
     return (): void => window.removeEventListener('focus', refresh)
@@ -542,6 +602,34 @@ export function PcMonitor(): JSX.Element {
       }
     } finally {
       if (mountedRef.current) setHudBusy(false)
+    }
+  }
+
+  // Retry explícito da captura de FPS (o caminho primário continua sendo o
+  // atalho; aqui o usuário pediu outra tentativa depois de recusa/atualização).
+  const activateFps = async (): Promise<void> => {
+    if (fpsBusy) return
+    setFpsBusy(true)
+    setHudError(null)
+    setHudNotice(null)
+    try {
+      const result = await window.api.fpsActivate()
+      if (!mountedRef.current) return
+      if (isFpsActivationResult(result)) {
+        if (result.cancelled) {
+          setHudError('A permissão não foi concedida. Nada foi alterado.')
+        } else if (!result.ok) {
+          setHudError(result.error ?? 'Não foi possível ativar a captura de FPS.')
+        }
+      }
+      const status = await window.api.fpsStatus()
+      if (mountedRef.current && isFpsStatusInfo(status)) setFpsStatus(status)
+    } catch {
+      if (mountedRef.current) {
+        setHudError('Não foi possível ativar a captura de FPS. Tente novamente.')
+      }
+    } finally {
+      if (mountedRef.current) setFpsBusy(false)
     }
   }
 
@@ -655,9 +743,6 @@ export function PcMonitor(): JSX.Element {
       : driverReady
         ? 'O driver de sensores não devolveu temperatura nesta leitura.'
         : `${DASH_TITLE.cpuTemp} ${INSTALL_HINT}`
-  const cpuPowerTitle = driverReady
-    ? 'O driver de sensores não devolveu potência nesta leitura.'
-    : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
   const gpuTempTitle =
     gpuVendor === null
       ? DASH_TITLE.gpu
@@ -694,6 +779,19 @@ export function PcMonitor(): JSX.Element {
     totalW === null ? 'unavailable' : measuredTotalW !== null ? 'measured' : 'estimated'
   const barMaxW = Math.max(cpuPowerW ?? 0, gpuPowerW ?? 0, platformW ?? 0, 1)
 
+  // Título coerente com o valor mostrado: medido nunca herda o texto de "sem
+  // leitura do driver". O selo de origem ao lado do número repete essa distinção.
+  const cpuPowerTitle =
+    cpuSource === 'measured'
+      ? 'Potência do pacote medida pelo driver de sensores (RAPL).'
+      : cpuSource === 'estimated'
+        ? driverReady
+          ? 'O driver não devolveu potência nesta leitura; o valor mostrado é estimado pelo modelo fixo.'
+          : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
+        : driverReady
+          ? 'O driver não devolveu potência nesta leitura.'
+          : `${DASH_TITLE.cpuPower} ${INSTALL_HINT}`
+
   // Intervalo vigente no texto do cabeçalho (a fonte da verdade é o main).
   const intervalLabel = formatIntervalLabel(hwIntervalMs)
 
@@ -719,7 +817,8 @@ export function PcMonitor(): JSX.Element {
                 data-testid="hw-interval-hint"
               >
                 Intervalos curtos usam mais CPU. A coleta completa leva ~0,6 s; abaixo disso o Hub
-                atualiza o mais rápido que consegue.
+                atualiza o mais rápido que consegue. Com só a sobreposição (HUD) ativa, ela atualiza
+                1×/s; com esta aba aberta vale o intervalo acima.
               </p>
             </div>
           </div>
@@ -759,9 +858,10 @@ export function PcMonitor(): JSX.Element {
       </motion.div>
 
       {/* ── Sensores avançados (driver opcional) ───────────
-          Fica no topo de propósito: sem driver, a CPU mostra "—" em temperatura e
-          potência — a ação que resolve o traço precisa estar à vista, sem rolar a
-          página. O estado do driver continua no badge do cabeçalho, sem duplicar. */}
+          Fica no topo de propósito: sem driver, a temperatura mostra "—" e a
+          potência cai para a estimativa — a ação que permite MEDIR precisa estar
+          à vista, sem rolar a página. O estado do driver continua no badge do
+          cabeçalho, sem duplicar. */}
       <motion.div {...entranceProps(reduced, { y: 10 })} data-testid="hw-advanced-sensors">
         <Card className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:gap-6 md:p-5">
           <div className="flex items-start gap-3">
@@ -776,7 +876,7 @@ export function PcMonitor(): JSX.Element {
                 }`}
               >
                 {driverState === 'absent'
-                  ? 'Sem eles, temperatura e potência da CPU ficam em “—”. A instalação é opcional e pede 1 confirmação do Windows.'
+                  ? 'Sem eles, a temperatura da CPU fica em “—” e a potência é estimada. A instalação é opcional e pede 1 confirmação do Windows.'
                   : driverState === 'present'
                     ? 'Instalado, mas a leitura não está ativa — clique para ativar.'
                     : sensorsOutdated
@@ -857,7 +957,9 @@ export function PcMonitor(): JSX.Element {
                 formatDecimal(totalW, 1)
               )}
             </span>
-            <span className="text-[11px] text-ink-tertiary">W no total</span>
+            <span className="text-[11px] text-ink-tertiary">
+              {totalSource === 'measured' ? 'W medidos (CPU + GPU)' : 'W no total'}
+            </span>
           </p>
 
           <div className="space-y-3">
@@ -889,13 +991,27 @@ export function PcMonitor(): JSX.Element {
 
           <p className="text-[10px] leading-relaxed text-ink-tertiary">
             GPU medida pelo nvidia-smi (NVIDIA); em AMD/Intel o uso vem do contador do Windows, mas
-            a potência não é exposta sem driver. CPU e plataforma são <strong>estimadas</strong>{' '}
-            pelo modelo fixo: classe térmica de 35 W + 4,5 W por núcleo (limitada a 45–150 W),
-            proporcional ao uso da CPU
-            {platformW !== null
-              ? `, mais ${formatDecimal(platformW, 0)} W fixos de plataforma`
-              : ''}
-            . O total estimado só aparece com a GPU medida; o total medido soma apenas CPU + GPU.
+            a potência não é exposta sem driver.{' '}
+            {cpuSource === 'measured' ? (
+              <>
+                A CPU é <strong>medida</strong> pelo driver de sensores; a plataforma continua{' '}
+                <strong>estimada</strong>
+                {platformW !== null
+                  ? ` em ${formatDecimal(platformW, 0)} W fixos (placa, RAM, SSDs e ventoinhas)`
+                  : ''}
+                .{' '}
+              </>
+            ) : (
+              <>
+                CPU e plataforma são <strong>estimadas</strong> pelo modelo fixo: classe térmica de
+                35 W + 4,5 W por núcleo (limitada a 45–150 W), proporcional ao uso da CPU
+                {platformW !== null
+                  ? `, mais ${formatDecimal(platformW, 0)} W fixos de plataforma`
+                  : ''}
+                .{' '}
+              </>
+            )}
+            O total estimado só aparece com a GPU medida; o total medido soma apenas CPU + GPU.
             {!driverReady ? ' Instale os sensores avançados para medir a CPU.' : ''}
           </p>
         </Card>
@@ -958,13 +1074,26 @@ export function PcMonitor(): JSX.Element {
               </span>
             </Stat>
             <Stat label="Potência">
-              <span data-testid="hw-cpu-power">
+              <span data-testid="hw-cpu-power" className="inline-flex items-center gap-2">
                 <Value
-                  value={cpu?.watts ?? null}
+                  value={cpuPowerW}
                   format={(value) => formatDecimal(value, 1)}
                   unit="W"
                   title={cpuPowerTitle}
                 />
+                {cpuPowerW !== null ? (
+                  <span
+                    className="text-[10px] font-normal text-ink-tertiary"
+                    data-testid="hw-cpu-power-source"
+                    title={
+                      cpuSource === 'measured'
+                        ? 'Potência do pacote medida pelo driver de sensores (RAPL).'
+                        : 'Potência estimada pelo modelo fixo — não é medição.'
+                    }
+                  >
+                    {POWER_SOURCE_LABEL[cpuSource]}
+                  </span>
+                ) : null}
               </span>
             </Stat>
             <Stat label="Tensão (Vcore)">
@@ -1301,6 +1430,37 @@ export function PcMonitor(): JSX.Element {
               data-testid="hud-visible-switch"
               className="shrink-0"
             />
+          </div>
+
+          <div className="flex flex-wrap items-start justify-between gap-4 border-t border-[var(--border-subtle)] pt-4">
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold text-ink-primary">FPS do app em foco</h4>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-ink-secondary">
+                Abra o jogo e use o atalho: a faixa mostra o FPS do app em primeiro plano. Sem jogo
+                em foco, aparece “—” com a instrução.
+              </p>
+              <p className="mt-1 max-w-xl text-[10px] leading-relaxed text-ink-tertiary">
+                A ativação acontece no primeiro atalho e pede permissão de administrador uma única
+                vez (leitura por ETW). Nada é injetado no jogo.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Badge tone={fpsSeal(fpsStatus).tone} data-testid="fps-capture-status">
+                {fpsSeal(fpsStatus).text}
+              </Badge>
+              {fpsActionLabel(fpsStatus) && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => void activateFps()}
+                  disabled={fpsBusy}
+                  data-testid="fps-capture-action"
+                >
+                  {fpsBusy && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                  {fpsActionLabel(fpsStatus)}
+                </Button>
+              )}
+            </div>
           </div>
 
           {(hudError ?? hud?.error) && (

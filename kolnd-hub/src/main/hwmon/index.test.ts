@@ -37,12 +37,18 @@ import {
   applyHwPollIntervalMs,
   collectHwSnapshot,
   getHwPollIntervalMs,
+  getHwPollingConsumersForTests,
+  getHwPollingEffectiveIntervalForTests,
   getHwPollingRefCountForTests,
+  isHwPollingActiveForTests,
   mergeCpuReadings,
   onHwSnapshot,
   registerHwMonitorIpc,
   releaseHwPolling,
   resetHwMonitorForTests,
+  setHwPollingHudVisible,
+  setHwPollingSystemSuspended,
+  setHwPollingWindowVisible,
   shouldReprobe
 } from './index'
 import type { IpcContext } from '../ipc/lifecycle'
@@ -499,20 +505,40 @@ describe('refcount do polling (aba + HUD)', () => {
     const seen: HwSnapshot[] = []
     const unsubscribe = onHwSnapshot((snapshot) => seen.push(snapshot))
 
-    acquireHwPolling()
-    acquireHwPolling()
+    acquireHwPolling('monitor')
+    acquireHwPolling('monitor')
     expect(getHwPollingRefCountForTests()).toBe(2)
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(seen.length).toBeGreaterThan(0)
 
-    releaseHwPolling()
+    releaseHwPolling('monitor')
     expect(getHwPollingRefCountForTests()).toBe(1)
 
-    releaseHwPolling()
+    releaseHwPolling('monitor')
     expect(getHwPollingRefCountForTests()).toBe(0)
 
     unsubscribe()
+  })
+
+  it('conta monitor e HUD separadamente e deriva o total', () => {
+    acquireHwPolling('monitor')
+    acquireHwPolling('hud')
+    expect(getHwPollingConsumersForTests()).toEqual({ monitor: 1, hud: 1 })
+    expect(getHwPollingRefCountForTests()).toBe(2)
+
+    releaseHwPolling('monitor')
+    expect(getHwPollingConsumersForTests()).toEqual({ monitor: 0, hud: 1 })
+    // Ainda há consumidor: o timer não pode parar.
+    expect(isHwPollingActiveForTests()).toBe(true)
+
+    releaseHwPolling('hud')
+    expect(getHwPollingConsumersForTests()).toEqual({ monitor: 0, hud: 0 })
+    expect(isHwPollingActiveForTests()).toBe(false)
+
+    // Release a mais (HUD/aba desmontando duas vezes) não vai a negativo.
+    releaseHwPolling('monitor')
+    expect(getHwPollingConsumersForTests()).toEqual({ monitor: 0, hud: 0 })
   })
 
   it('listener que lança não impede os demais de receber o snapshot', async () => {
@@ -522,23 +548,175 @@ describe('refcount do polling (aba + HUD)', () => {
     })
     const unsubscribeGood = onHwSnapshot((snapshot) => received.push(snapshot))
 
-    acquireHwPolling()
+    acquireHwPolling('monitor')
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(received.length).toBeGreaterThan(0)
 
-    releaseHwPolling()
+    releaseHwPolling('monitor')
     unsubscribeBad()
     unsubscribeGood()
   })
 
   it('stopHwMonitorPolling zera o refcount (will-quit nunca deixa timer)', () => {
-    acquireHwPolling()
+    acquireHwPolling('monitor')
     expect(getHwPollingRefCountForTests()).toBe(1)
     resetHwMonitorForTests()
     expect(getHwPollingRefCountForTests()).toBe(0)
     // release depois de um stop forçado não vai a negativo.
-    releaseHwPolling()
+    releaseHwPolling('monitor')
     expect(getHwPollingRefCountForTests()).toBe(0)
+  })
+})
+
+describe('período efetivo (piso de 1 s só com HUD)', () => {
+  it('HUD sozinho usa 1 s; abrir a aba volta ao valor configurado', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      registerHwMonitorIpc(createContext())
+      applyHwPollIntervalMs(500)
+      const received: HwSnapshot[] = []
+      const unsubscribe = onHwSnapshot((snapshot) => received.push(snapshot))
+
+      acquireHwPolling('hud')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received).toHaveLength(1)
+      expect(getHwPollingEffectiveIntervalForTests()).toBe(1000)
+
+      // 500 ms depois nada: o timer do HUD está no piso de 1 s.
+      await vi.advanceTimersByTimeAsync(500)
+      expect(received).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(received).toHaveLength(2)
+
+      // A aba Monitor montada manda no período: volta para os 500 ms escolhidos.
+      acquireHwPolling('monitor')
+      expect(getHwPollingEffectiveIntervalForTests()).toBe(500)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(received).toHaveLength(3)
+
+      // Fechar a aba devolve o piso, sem parar o timer (o HUD continua).
+      releaseHwPolling('monitor')
+      expect(getHwPollingEffectiveIntervalForTests()).toBe(1000)
+      expect(isHwPollingActiveForTests()).toBe(true)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(received).toHaveLength(4)
+
+      // Sem consumidor nenhum o timer para.
+      releaseHwPolling('hud')
+      expect(isHwPollingActiveForTests()).toBe(false)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(received).toHaveLength(4)
+
+      unsubscribe()
+    } finally {
+      resetHwMonitorForTests()
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('suspensão automática do polling', () => {
+  it('suspenso + acquire não liga o timer; retomar dispara UMA coleta imediata', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      registerHwMonitorIpc(createContext())
+      const received: HwSnapshot[] = []
+      const unsubscribe = onHwSnapshot((snapshot) => received.push(snapshot))
+
+      setHwPollingSystemSuspended(true)
+      acquireHwPolling('monitor')
+      // O consumidor fica registrado, mas nada é coletado enquanto o sistema
+      // está bloqueado/suspenso.
+      expect(getHwPollingRefCountForTests()).toBe(1)
+      expect(isHwPollingActiveForTests()).toBe(false)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(received).toHaveLength(0)
+
+      setHwPollingSystemSuspended(false)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(received).toHaveLength(2)
+
+      unsubscribe()
+    } finally {
+      resetHwMonitorForTests()
+      vi.useRealTimers()
+    }
+  })
+
+  it('janela oculta sem HUD suspende; mostrar retoma sem perder o consumidor', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      registerHwMonitorIpc(createContext())
+      const received: HwSnapshot[] = []
+      const unsubscribe = onHwSnapshot((snapshot) => received.push(snapshot))
+
+      acquireHwPolling('monitor')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received).toHaveLength(1)
+
+      // X para a bandeja com a aba Monitor montada: o timer para e o refcount fica.
+      setHwPollingWindowVisible(false)
+      expect(isHwPollingActiveForTests()).toBe(false)
+      expect(getHwPollingRefCountForTests()).toBe(1)
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(received).toHaveLength(1)
+
+      setHwPollingWindowVisible(true)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received).toHaveLength(2)
+      expect(isHwPollingActiveForTests()).toBe(true)
+
+      // HUD visível conta como "alguém olhando": a bandeja não suspende.
+      setHwPollingHudVisible(true)
+      setHwPollingWindowVisible(false)
+      expect(isHwPollingActiveForTests()).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(received).toHaveLength(3)
+
+      // Fechar o HUD sem janela visível para o timer de novo.
+      setHwPollingHudVisible(false)
+      expect(isHwPollingActiveForTests()).toBe(false)
+
+      unsubscribe()
+    } finally {
+      resetHwMonitorForTests()
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('envio para a janela principal (hwmon:update)', () => {
+  it('não envia sem a aba Monitor e envia um por tick quando ela está montada', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      const { context, sent } = createWindowContext()
+      registerHwMonitorIpc(context)
+
+      // Só o HUD consome: o renderer da janela não recebe IPC nenhum.
+      acquireHwPolling('hud')
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(sent).toHaveLength(0)
+      expect(isHwPollingActiveForTests()).toBe(true)
+
+      // Abrir a aba passa a entregar um snapshot por tick (500 ms).
+      acquireHwPolling('monitor')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(sent).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(sent).toHaveLength(2)
+
+      // Fechar a aba volta a silenciar a janela, mesmo com o HUD ativo.
+      releaseHwPolling('monitor')
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(sent).toHaveLength(2)
+
+      releaseHwPolling('hud')
+    } finally {
+      resetHwMonitorForTests()
+      vi.useRealTimers()
+    }
   })
 })
 

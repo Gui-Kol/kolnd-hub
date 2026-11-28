@@ -10,7 +10,7 @@
 ## 1. Visão geral
 
 O Kolnd Hub é a central de controle do ecossistema Kolnd: inicia/para/monitora os
-programas (Mark LVII, Kloud Games), gerencia a inicialização do PC, a biblioteca de
+programas (Kloud Games e Absolem), gerencia a inicialização do PC, a biblioteca de
 jogos (Steam, Epic Games e Minecraft Launcher), o modo Big Picture (gamepad/TV) e a própria
 desinstalação. É um app Electron empacotado como instalador NSIS único.
 
@@ -118,12 +118,18 @@ e quebra os três processos em compilação, se esquecida.
 React puro (sem acesso a Node/DOM do main). Estrutura:
 
 - `components/` — Dashboard, Settings, Inicializacao (startup do PC), Biblioteca,
-  Big Picture (`BigPicture*.tsx`), FirstRunInstall, Uninstall* (zona de perigo), etc.
+  Chat (`Chat.tsx`, `<webview>` do Go Live em partição própria, fora das transições
+  animadas), Big Picture (`BigPicture*.tsx`), FirstRunInstall, Uninstall* (zona de
+  perigo), etc.
 - `hooks/` — `useGamepad.ts`, `useGamesRunning.ts`, `useGuideButtonShortcut.ts`
 - `lib/` — lógica pura e testável (`appsConfig.ts`, `hubConfig.ts`, `spatialNav.ts`,
   `gamepad/`, `sfx.ts`, `startup.ts`, `uninstall.ts`…). Testes Vitest co-localizados
   (`*.test.ts`).
 - `config/apps.ts` — definição estática dos apps padrão do Hub.
+
+A topbar expõe **5 páginas**: Ferramentas, Biblioteca, Chat, Meu PC (Inicialização) e
+Configurações. Só a página **Chat** renderiza um `<webview>` (Go Live) e fica fora das
+transições animadas; as demais seguem no `AnimatePresence` do `App.tsx`.
 
 Fallback de config no renderer: `lib/hubConfig.ts` lê/grava via IPC (`config:*`); se o
 store estiver indisponível/corrompido, cai no `localStorage` (e na primeira abertura
@@ -144,13 +150,25 @@ mais handlers inline em `index.ts`:
 | `registerFirstRunIpc`                    | `firstRunInstaller.ts`                                                         | `firstRun:start`/`cancel`/`retry-kloud-games` + eventos `firstRun:*`                                                                                                                                                                  |
 | `registerWingetIpc`                      | `wingetUpdater.ts`                                                             | `winget:list-upgrades`, `winget:upgrade-one`, `winget:kill-upgrade`                                                                                                                                                                   |
 | `registerTempCleanerIpc`                 | `tempCleaner.ts`                                                               | `system:clean-temp`                                                                                                                                                                                                                   |
+| `registerRamMonitorIpc`                  | `ramMonitor.ts`                                                                | `ram:info`                                                                                                                                                                                                                            |
+| `registerRamOptimizerIpc`                | `ramOptimizer.ts`                                                              | `ram:optimize`, `ram:purge-standby`                                                                                                                                                                                                   |
+| `registerRamAutoIpc`                     | `ramAutoOptimizer.ts`                                                          | `ram:auto-get`, `ram:auto-set`                                                                                                                                                                                                        |
 | `registerDisplayIpc`                     | `displaySettings.ts`                                                           | `display:get`, `display:set-resolution`, `display:set-scale`, `display:confirm-change`, `display:revert-change` + evento `display:change-reverted`                                                                                    |
 | `registerGamesIpc`                       | `games.ts`                                                                     | `games:get`/`add`/`update`/`remove`/`launch`/`stop`/…                                                                                                                                                                                 |
 | `registerGameImportIpc`                  | `gameImport.ts` (+ `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`) | `games:import-all`                                                                                                                                                                                                                    |
-| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`get-mode`/`set-mode`/`public-ip`/`install-zerotier`/`open-zerotier`/`set-zerotier-open`/`open-kloud-web`/`copy`                                                                                                                                                |
+| `registerRemoteAccessIpc`                | `ipc/remoteAccess.ts`                                                          | `remote:status`/`get-mode`/`set-mode`/`public-ip`/`install-zerotier`/`open-zerotier`/`set-zerotier-open`/`open-kloud-web`/`copy`                                                                                                      |
 | `registerUpdatesIpc`                     | `ipc/updates.ts`                                                               | `updates:check`, `updates:install`, `updates:cancel` + evento `update:progress`                                                                                                                                                       |
 | `registerUninstallIpc`                   | `uninstaller.ts` (barrel; domínio em `uninstall/{shared,kloud,hub}.ts`)        | `uninstall:kloud-status`/`kloud-games`/`kloud-orphan`/`remove-kloud-service`, `uninstall:hub-status`, `uninstall:backup-data`, `uninstall:open-logs` + eventos `uninstall:progress/log/complete`                                      |
 | inline em `index.ts`                     | —                                                                              | `app:launch`/`stop`/`status`/`all-status`/`logs`/`shutdown`, `kloud-games:launch`/`status`, `window:*`, `shell:*`, `system:*`, `startup:*`, `dialog:pick-path`, `diagnostic:export`, `firstRun:check`/`markComplete`, `uninstall:hub` |
+
+### Atualizações do PC (winget)
+
+`winget:list-upgrades` passa por `listUpgradableCached(force)`: uma lista bem-sucedida fica
+em memória por **10 min** (`WINGET_LIST_CACHE_TTL_MS`) e é reutilizada ao reabrir a aba sem
+rodar o winget — nem o probe `winget --version`. O argumento opcional `{ force: true }`
+(botão "Verificar novamente") ignora o cache. Erros não são cacheados; chamadas
+concorrentes compartilham a mesma promessa em voo; e o sucesso de `winget:upgrade-one`
+chama `invalidateUpgradableCache()`, forçando a próxima lista a ser real.
 
 ### Acesso remoto (ZeroTier)
 
@@ -267,8 +285,8 @@ As etapas (`firstRunInstaller.ts`, em ordem, todas canceladas/logadas via evento
 
 ```
 check ─► python ─► kloud-games ─► programs ─► finalize
-verificar   winget      MSI embutido   Mark LVII        marca o
-python/pip  --silent    via UAC        e Kloud Games   flag e pronto
+verificar   winget      MSI embutido   Kloud Games     marca o
+python/pip  --silent    via UAC        e Absolem       flag e pronto
 ```
 
 1. **check** — `dependencyChecker.ts` verifica Python e pip (spawnSync `--version`).
@@ -278,8 +296,8 @@ python/pip  --silent    via UAC        e Kloud Games   flag e pronto
    é instalado com `msiexec /i … /quiet /norestart`, elevado com
    `Start-Process -Verb RunAs`. **Falha aqui não bloqueia o Hub** — o MSI segue
    disponível para instalação manual.
-4. **programs** — `programsDeployer.ts` verifica/implanta o Mark LVII (bundle em
-   `resources/programs/MarkLVII`) e o Kloud Games.
+4. **programs** — `programsDeployer.ts` verifica/implanta o Kloud Games e o
+   Absolem (build Electron em `resources/programs/Absolem`).
 5. **finalize** — grava o flag (`markFirstRunComplete`).
 
 Em execuções seguintes, `isFirstRun()` retorna `false` e o app vai direto para o dashboard.
@@ -334,7 +352,11 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
 1. **Kloud Games** — o MSI é per-machine: `msiexec /x {ProductCode} /qn /norestart` via
    PowerShell elevado (`-Verb RunAs`). O Hub encerra o `KLOUD_GAMES.exe` antes (duas
    tentativas); se não conseguir, o MSI não é chamado. Remove programa, serviço
-   `KLOUD_GAMESsvc`, regras de firewall, PATH e atalhos.
+   `KLOUD_GAMESsvc`, regras de firewall, PATH e atalhos. No **mesmo processo elevado**,
+   remove a pasta `config\` criada em runtime dentro de `C:\Program Files\KLOUD_GAMES`
+   (o MSI não a conhece) e, no cleanup, as pastas por usuário
+   `%LOCALAPPDATA%\LizardByte\KLOUD_GAMES` e `%ProgramData%\KLOUD_GAMES`; o laudo
+   (`uninstallVerify.ts`) confere `configGone`.
 2. **Kolnd Hub** (só no app empacotado, com desinstalador NSIS presente) — sequência em
    `runHubUninstallSteps` (`uninstall/hub.ts`; re-exportado pelo barrel `uninstaller.ts`):
    1. resolve o desinstalador NSIS (se não achar, nada é apagado e o erro aparece na hora);
@@ -344,15 +366,17 @@ confirmação digitada (`KLOUD_GAMES` / `Kolnd Hub`, case-insensitive):
       (`killAll` + `destroy` + `app.quit`). Se o spawn falhar, nada é apagado e o erro
       aparece com a instrução de desinstalar pelo Windows;
    4. **wipe opcional** (irreversível, só se escolhido), depois do spawn confirmado:
-      apaga `%APPDATA%\kolnd-hub` item a item, tolerando falhas individuais (listadas
-      no final).
+      encerra os programas abertos pelo Hub (o IPC injeta `processManager.killAll`) e
+      apaga `%APPDATA%\kolnd-hub` e `%APPDATA%\absolem` item a item, tolerando falhas
+      individuais (listadas no final). `%APPDATA%\absolem` é o `userData` do Absolem
+      (config, memória SQLite, chave cifrada, logs e Crashpad) — `uninstall/appConfigs.ts`
+      é o único dono desses caminhos, com trava de `basename`.
 
 O NSIS está configurado com `deleteAppDataOnUninstall: false`
 (`electron-builder.yml`) — o desinstalador do Windows **não** apaga `%APPDATA%\kolnd-hub`
-(config, flag de first-run e logs sobrevivem por padrão), mas **sempre remove
-o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
-`resources\programs\MarkLVII\` com os dados que o `MarkLVII.exe` grava ao lado de si
-(chave de API e memória — não há espelho em `%APPDATA%`). Durante qualquer desinstalação destrutiva, o tray, o X da
+nem `%APPDATA%\absolem` (config, flag de first-run e logs sobrevivem por padrão), mas
+**sempre remove o diretório de instalação inteiro** (`%LOCALAPPDATA%\Programs\Kolnd Hub`), incluindo
+`resources\programs\Absolem\`. Durante qualquer desinstalação destrutiva, o tray, o X da
 janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
 `isAnyUninstallInProgress`).
 
@@ -364,6 +388,19 @@ janela e o `app:shutdown` ficam travados (`lockMainWindowForUninstall` /
 base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`/`data:`).
 - **Navegação**: `will-navigate` bloqueado (dev: só origem do dev server);
   `window.open` sempre negado, abrindo no navegador só `https:`/`http:`/`mailto:`.
+- **`<webview>` do Chat (Go Live)**: `webviewTag: true` **só** na janela principal. O
+  handler `will-attach-webview` valida o `src` pela allowlist (`isChatUrl`, https no host
+  exato), apaga o `preload` e força `nodeIntegration: false`, `contextIsolation: true`,
+  `sandbox: true`, `webviewTag: false` e `nodeIntegrationInSubFrames: false` no guest;
+  a partição é fixada em `persist:golive` e `allowpopups` é removido. Nesse guest
+  (`did-attach-webview`), links externos abrem no navegador via `isAllowedExternalUrl` e
+  popups são negados; `will-navigate`/`will-redirect` só permitem `golive.nemtudo.me` e os
+  hosts do login (`apigolive.nemtudo.me` e `discord.com`), para o OAuth do Discord concluir
+  dentro do próprio webview.
+  Na sessão da partição, `media`/`display-capture`/`fullscreen`/
+  `clipboard-sanitized-write` são concedidos **apenas** à origem do site (o resto é negado
+  e logado), o compartilhamento de tela usa a tela primária + loopback quando possível e
+  downloads são cancelados. O guest não recebe `window.api`.
 - **Single instance**: segunda instância nunca toca no disco nem no IPC.
 - **Crash reporting local** (`crashReporting.ts`, primeiro import do main):
   `crashReporter.start({ uploadToServer: false, submitURL: '', compress: true })` — nada
@@ -388,9 +425,17 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
   timeout de 15 s com kill/respawn, morre quando o stdin fecha) roda
   `Get-CimInstance Win32_Process` — com anti-cheat ativo o antigo `Get-Process … Path`
   levava ~5 s abrindo handle em cada processo. `listRunningProcesses()` é assíncrona,
-  tem cache de 5 s e o renderer consulta a cada 10 s (60 s com a janela na bandeja);
-  **nenhum spawn periódico**. `listStartupItems()` é assíncrona (2 `execFile` em
-  paralelo) e não segura a tela de loading.
+  tem cache de 5 s e **nenhum spawn periódico**. `listStartupItems()` é assíncrona
+  (2 `execFile` em paralelo) e não segura a tela de loading.
+- **Agendador único de processos** (`processWatch.ts`): o main é o dono do ritmo das
+  consultas de WMI. O renderer assina `process-watch:start` (`{ id, intervalMs }`,
+  4–120 s) e recebe o resultado por `process-watch:update` com o mesmo formato de
+  `system:running-processes`; `process-watch:stop` remove o consumidor. Existe **um**
+  timer, no menor intervalo ativo, com uma consulta em voo (tick concorrente é
+  ignorado) e sem timer quando não há consumidor. O Dashboard assina com 15 s visível /
+  60 s na bandeja; Biblioteca e Big Picture com 10 s. Os dois caminhos dividem o cache
+  de 5 s, então o custo real é uma consulta por ciclo, não uma por consumidor.
+  `stopProcessWatch()` no `will-quit` encerra o timer.
 - **Shell externo**: `shell:openExternal` com allowlist de esquemas; `shell:openPath`
   com caminho validado (≤1024, `resolvePath` para `%VAR%`/relativos).
 - **Artefato elevado**: nunca em diretório gravável pelo usuário. O agente de sensores
@@ -401,50 +446,88 @@ base-uri 'none'; form-action 'none'` (estilos/imagens permitem `'unsafe-inline'`
 
 ## 9. Sensores elevados
 
+- **Monitor sem privilégio (`src/main/hwmon/`)**: o polling compartilhado (aba Monitor e HUD)
+  faz as consultas caras (CIM dinâmico/estático e NVML) em **um** `powershell.exe` persistente
+  por sessão (`collector.ts`), criado na primeira coleta. A `CimSession` é aberta uma vez, o
+  assembly C#/`nvml.dll` é carregado uma vez e os jobs `cim-dynamic`, `static` e `nvml` respondem
+  por linha (`KOLND-HWM <id> <json>`), com 1 request em voo e timeout de 2 s (8 s nas primeiras
+  respostas, que incluem sessão/`Add-Type`). O `nvidia-smi` continua sendo a fonte de
+  uso/temperatura/energia da GPU. O corpo CIM é o mesmo nos dois caminhos (`cimScripts.ts`); após
+  2 falhas seguidas o main desiste do helper e volta ao processo por tick até o fim da sessão.
+  `stopHwCollector()` no `will-quit` fecha o stdin, agenda o kill de segurança (1 s) e não deixa
+  órfãos. `nvml.ts` mantém `readNvmlFanDirect` como fallback e `nativeSensors.ts` mantém o caminho
+  `runFile` quando o coletor está desativado.
+- **Cadência por consumidor e pausa automática**: o polling é um só, com refcount separado por
+  tipo (`monitor` via `hwmon:start`/`hwmon:stop`, `hud` via visibilidade da sobreposição). Com a
+  aba Monitor montada vale o intervalo escolhido (100–2000 ms); com só o HUD ativo o timer usa
+  `max(intervalo, HUD_PUSH_MIN_INTERVAL_MS = 1000)` e o push `hud:update` é limitado a 1 Hz
+  (`src/shared/hwmon.ts`). `hwmon:update` só é enviado à janela principal quando há consumidor
+  `monitor`. O timer para — sem zerar o refcount — quando a janela está na bandeja sem HUD, a tela
+  bloqueia (`lock-screen`) ou o PC suspende (`suspend`), e volta em `show`/`unlock-screen`/`resume`
+  com uma coleta imediata antes do reagendamento. `hwmon:snapshot` (leitura avulsa) continua
+  funcionando independentemente da suspensão.
 - **Agente único**: a tarefa `KolndHubSensorsAgent` (logon, `HIGHEST`) roda um PowerShell
   persistente que abre o PawnIO uma vez e publica `%ProgramData%\Kolnd Hub\sensors\latest.json`
   a 1 Hz. O main só lê o arquivo (sem privilégio); amostra com mais de 3 s é stale. O script
   e a DLL vivem em `...\sensors\agent` com ACL explícita e só são copiados após o SHA-256.
+  Os watts do RAPL usam o `timestamp` da amostra (não o instante da leitura): como o sink
+  grava a 1 Hz e o monitor lê a 2 Hz, a mesma amostra lida duas vezes devolve a média
+  vigente e não desloca a referência do delta seguinte.
 - **Vcore**: os SMN do SVI2 entram no mesmo lote (`0x59800`, `0x5A008`, `0x5A00C`,
   `0x5A010`). `cpuVoltage.ts` escolhe o plano 0 pelo modelo (`+0xC` legado, `+0x10` em
   Zen 2–5) e decodifica `1,550 − 0,00625 × VID`; no Intel usa `IA32_PERF_STATUS`. Leitura
   fora de 0,3–1,8 V vira `null` (nunca estimativa). O HUD publica em `hud-cpu-voltage` e o
   Monitor em `hw-cpu-voltage`.
-- **FPS removido**: a medição de FPS/frametime por ETW saiu do app (HUD, card do Monitor,
-  IPCs, preload e módulo `src/main/fps/`). As sobras de máquinas antigas — tarefa
-  `KolndHubFpsAgent`, processo `KolndFpsEtw.exe` e `%ProgramData%\Kolnd Hub\fps` — são limpas
-  no re-estágio do agente de sensores (install e remove), e a presença delas marca o agente
-  como desatualizado na UI.
+- **FPS do app em foco (PresentMon embarcado)**: a faixa de FPS do HUD usa o
+  PresentMon 2.6.0 x64 (MIT), embutido em `resources/fps` e estagiado em
+  `%ProgramData%\Kolnd Hub\capture` (ACL antes da cópia + SHA-256 do destino). A
+  tarefa `KolndHubFpsCapture` (logon, `HIGHEST`) roda um supervisor PowerShell +
+  tap C# **sem ETW próprio**: lê o stdout do PresentMon
+  (`--v1_metrics --output_stdout`, sessão `KolndHubFpsCapture`) e grava
+  `latest.json` atômico a 1 Hz. O main escreve `%APPDATA%\kolnd-hub\fps\heartbeat`
+  a cada 2 s; sem heartbeat a tarefa fica idle e, ao matar o PresentMon, o tap
+  para a sessão com `logman stop` — processo e sessão saem em ~5 s. O alvo é só o
+  app em primeiro plano (`self-focus` para o Hub, `foreground-ignored` para
+  Explorer/shell); sink com mais de 3 s vira `unavailable` e nunca repete o
+  último número. Antes de capturar, o script para a sessão legada
+  `KolndHubFps` — órfã, ela causou 381 mil eventos ETW perdidos na T0.
+- **Limpeza legada × captura nova**: a limpeza do agente de sensores continua
+  restrita a `%ProgramData%\Kolnd Hub\fps` (tarefa `KolndHubFpsAgent`,
+  `KolndFpsEtw.exe` e diretório antigo). `...\capture` é o diretório NOVO da
+  captura e não é tratado como sobra; um teste de regressão trava isso.
 
 ## 10. Mapa de arquivos
 
-| Assunto                                 | Arquivo                                                                                                                                                      |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bootstrap / janela / tray / IPC inline  | `kolnd-hub/src/main/index.ts`                                                                                                                                |
-| Crash reporting                         | `kolnd-hub/src/main/crashReporting.ts`                                                                                                                       |
-| Store + migrações                       | `kolnd-hub/src/main/store.ts`                                                                                                                                |
-| Logger                                  | `kolnd-hub/src/main/logger.ts`                                                                                                                               |
-| First-run (flag/fluxo)                  | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                                                                                                     |
-| Dependências (python/pip)               | `kolnd-hub/src/main/dependencyChecker.ts`                                                                                                                    |
-| Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                      |
-| Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                     |
-| Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                 |
-| Jogos / Steam, Epic e Minecraft         | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`, `gameImport.ts`                                                   |
-| Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                           |
-| Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                       |
-| Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
-| Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                           |
-| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                             |
-| Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                        |
-| Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                            |
-| Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                               |
-| Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                    |
-| Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                            |
-| Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                |
-| Build                                   | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                                                                                                  |
-| Testes                                  | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)                                                                                         |
+| Assunto                                 | Arquivo                                                                                                                                                                                 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bootstrap / janela / tray / IPC inline  | `kolnd-hub/src/main/index.ts`                                                                                                                                                           |
+| Crash reporting                         | `kolnd-hub/src/main/crashReporting.ts`                                                                                                                                                  |
+| Store + migrações                       | `kolnd-hub/src/main/store.ts`                                                                                                                                                           |
+| Logger                                  | `kolnd-hub/src/main/logger.ts`                                                                                                                                                          |
+| First-run (flag/fluxo)                  | `kolnd-hub/src/main/firstRun.ts`, `firstRunInstaller.ts`                                                                                                                                |
+| Dependências (python/pip)               | `kolnd-hub/src/main/dependencyChecker.ts`                                                                                                                                               |
+| Instalação silenciosa                   | `kolnd-hub/src/main/silentInstaller.ts`                                                                                                                                                 |
+| Implantação de programas                | `kolnd-hub/src/main/programsDeployer.ts`                                                                                                                                                |
+| Gerenciamento de processos              | `kolnd-hub/src/main/processManager.ts`, `processKiller.ts`, `commandLine.ts`                                                                                                            |
+| Jogos / Steam, Epic e Minecraft         | `kolnd-hub/src/main/games.ts`, `steamScanner.ts`, `epicScanner.ts`, `minecraftScanner.ts`, `gameImport.ts`                                                                              |
+| Kloud Games (estado + abertura elevada) | `kolnd-hub/src/main/kloudGames.ts`                                                                                                                                                      |
+| Startup do PC                           | `kolnd-hub/src/main/startupManager.ts`                                                                                                                                                  |
+| Desinstalação                           | `kolnd-hub/src/main/uninstaller.ts` (barrel), `uninstall/shared.ts`, `uninstall/kloud.ts`, `uninstall/hub.ts`, `uninstall/appConfigs.ts`, `uninstallDetection.ts`, `uninstallVerify.ts` |
+| Diagnóstico                             | `kolnd-hub/src/main/diagnostic.ts`                                                                                                                                                      |
+| Tela (escala/resolução/Hz)              | `kolnd-hub/src/main/displaySettings.ts`, `src/shared/display.ts`                                                                                                                        |
+| Sensores avançados (PawnIO + agente)    | `kolnd-hub/src/main/hwmon/` (`agent.ts`, `driver.ts`, `cpuVoltage.ts`, `cpuPower.ts`)                                                                                                   |
+| FPS do app em foco (PresentMon)         | `kolnd-hub/src/main/fps/` (`engine.ts`, `agent.ts`, `paths.ts`, `reader.ts`, `target.ts`, `aggregate.ts`, `index.ts`), `src/shared/fps.ts`, `resources/fps/`                            |
+| Monitor sem privilégio (CIM/NVML)       | `kolnd-hub/src/main/hwmon/` (`collector.ts`, `cimScripts.ts`, `nativeSensors.ts`, `nvml.ts`, `index.ts`)                                                                                |
+| Preload (`window.api`)                  | `kolnd-hub/src/preload/index.ts` (+ `index.d.ts`)                                                                                                                                       |
+| Big Picture (nav. espacial)             | `kolnd-hub/src/renderer/src/lib/spatialNav.ts`                                                                                                                                          |
+| Chat (Go Live embutido)                 | `kolnd-hub/src/main/chat.ts`, `kolnd-hub/src/shared/chat.ts`, `kolnd-hub/src/renderer/src/components/Chat.tsx`                                                                          |
+| Gamepad (perfis/detecção)               | `kolnd-hub/src/renderer/src/lib/gamepad/`                                                                                                                                               |
+| Tipos compartilhados (gamepad)          | `kolnd-hub/src/shared/gamepad.ts`                                                                                                                                                       |
+| Fallback de config                      | `kolnd-hub/src/renderer/src/lib/hubConfig.ts`                                                                                                                                           |
+| Build                                   | `kolnd-hub/electron.vite.config.ts`, `electron-builder.yml`                                                                                                                             |
+| Testes                                  | `kolnd-hub/vitest.config.ts` (co-localizados, `src/**/*.test.ts(x)`)                                                                                                                    |
 
 Documentos relacionados: [`kolnd-hub/README.md`](../kolnd-hub/README.md) (comandos,
 qualidade/CI, primeira execução, desinstalação), [`kolnd-hub/AGENTS.md`](../kolnd-hub/AGENTS.md)
-(regras para agentes), [`RELEASE.md`](RELEASE.md) (release), `../kloud-games/AGENTS.md` e
-`../Mark-LVII/AGENTS.md` (outros componentes do monorepo).
+(regras para agentes), [`RELEASE.md`](RELEASE.md) (release) e `../kloud-games/AGENTS.md`
+(outro componente do monorepo).

@@ -14,7 +14,11 @@ import {
   Smartphone
 } from 'lucide-react'
 import type { RemoteModeReason, RemoteStatus } from '../../../shared/remote'
-import { KLOUD_WEB_PORT, ZEROTIER_DOWNLOAD_URL } from '../../../shared/remote'
+import {
+  KLOUD_REMOTE_VIDEO_URL,
+  KLOUD_WEB_PORT,
+  ZEROTIER_DOWNLOAD_URL
+} from '../../../shared/remote'
 import {
   bestRemoteAddress,
   buildAddressSummary,
@@ -319,6 +323,28 @@ export function RemoteHelpModal({
         <strong className="text-ink-primary">Moonlight</strong> é o app que assiste e joga. O
         pareamento é sempre igual: o Moonlight mostra um PIN e você digita no painel do Kloud Games.
       </p>
+
+      {/* Vídeo e download só abrem no clique — o Hub nunca carrega a página sozinho. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => void window.api.openExternal(KLOUD_REMOTE_VIDEO_URL)}
+        >
+          <Play size={12} aria-hidden="true" />
+          Assistir ao vídeo explicativo
+          <ExternalLink size={12} aria-hidden="true" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => void window.api.openExternal(ZEROTIER_DOWNLOAD_URL)}
+        >
+          <Download size={12} aria-hidden="true" />
+          Baixar ZeroTier
+          <ExternalLink size={12} aria-hidden="true" />
+        </Button>
+      </div>
 
       {/* Abas PC / celular */}
       <div

@@ -3,13 +3,14 @@
 #
 #   1. acha o `Kolnd Hub Setup *.exe` mais recente em dist/ (glob pelo artifactName
 #      fixado em electron-builder.yml - `Kolnd Hub Setup ${version}.exe`);
-#   2. confere o tamanho minimo (o bundle real passa de 100 MB; o placeholder nao);
+#   2. confere o tamanho minimo (o instalador com o MSI real passa do limite;
+#      builds truncadas/placeholder ficam abaixo);
 #   3. lista o payload do .exe com 7-Zip (`7z l`, sem extrair nada) e confirma a
 #      presenca de:
-#        - programs/MarkLVII/MarkLVII.exe         (na saida do 7z aparece com prefixo,
-#        - programs/kloud-games/KLOUD_GAMES.msi  ex.: resources\programs\...);
+#        - programs/kloud-games/KLOUD_GAMES.msi  (na saida do 7z aparece com prefixo,
+#                                                ex.: resources\programs\...);
 #   4. se existir `dist/win-unpacked/` (intermediario do electron-builder), confere
-#      os mesmos dois arquivos la tambem.
+#      o mesmo arquivo la tambem.
 #
 # Hash NAO e verificado aqui - quem gera o SHA-256 dos artefatos finais e o
 # gen-sha256sums.ps1 (dono dessa logica; nao duplicar).
@@ -27,7 +28,7 @@
 #
 # Opcoes (todas opcionais; os padroes cobrem o fluxo normal):
 #   -DistDir    pasta do dist          (default: <repo>\kolnd-hub\dist)
-#   -MinSizeMB  tamanho minimo em MB   (default: 100)
+#   -MinSizeMB  tamanho minimo em MB   (default: 80)
 #   -SevenZip   caminho do 7z.exe/7za.exe (default: procura no PATH e em
 #               "$env:ProgramFiles\7-Zip\7z.exe" / "${env:ProgramFiles(x86)}\7-Zip\7z.exe")
 #
@@ -39,7 +40,7 @@
 [CmdletBinding()]
 param(
     [string]$DistDir,
-    [int]$MinSizeMB = 100,
+    [int]$MinSizeMB = 80,
     [string]$SevenZip
 )
 
@@ -122,7 +123,6 @@ if ($sevenZipExit -ge 2) {
 # `win-unpacked/` (o electron-builder extraResources leva `programs/` para
 # `resources/programs/` no instalado).
 $expected = @(
-    @{ Label = 'MarkLVII.exe';     Pattern = 'programs[\\/]MarkLVII[\\/]MarkLVII\.exe';     Relative = 'resources\programs\MarkLVII\MarkLVII.exe' },
     @{ Label = 'KLOUD_GAMES.msi'; Pattern = 'programs[\\/]kloud-games[\\/]KLOUD_GAMES\.msi'; Relative = 'resources\programs\kloud-games\KLOUD_GAMES.msi' }
 )
 

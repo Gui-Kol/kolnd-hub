@@ -18,7 +18,7 @@ Público-alvo: um mantenedor que **nunca** fez um release deste projeto. Siga as
 - **Decisão do usuário**: passos marcados como tal dependem de uma decisão explícita do dono do projeto (Kolnd). Não decida por ele — registre a dependência e pare.
 - **Branch**: desenvolvimento na `Dev`; o `main` é estável e não recebe commits diretos (ver READMEs). Onde a branch de origem da tag de release é ambígua, o passo está marcado como decisão do usuário.
 - PowerShell é o shell de referência no Windows; `cmd` é usado quando indicado (ex.: `.bat`).
-- CI: todo push na `Dev` dispara `.github/workflows/ci.yml` (sem filtro de paths — docs também disparam) em `windows-latest`: `npm ci` → audit (informativo) → typecheck → lint → format:check → testes → build → `npm run package` com placeholder de `resources/programs/MarkLVII`.
+- CI: todo push na `Dev` dispara `.github/workflows/ci.yml` (sem filtro de paths — docs também disparam) em `windows-latest`: `npm ci` → audit (informativo) → typecheck → lint → format:check → testes → build → `npm run package` (o MSI real não é commitado; o CI valida o pipeline de empacotamento).
 
 ## Release via workflow manual (release.yml)
 
@@ -30,11 +30,11 @@ Como disparar:
 
 1. Aba **Actions** do repositório → workflow **Release** → **Run workflow** (branch `Dev`).
 2. Preencher `version` (ex.: `1.4.0` — deve corresponder ao `version` de `kolnd-hub/package.json`) e marcar `confirm` (o job só roda com `confirm == true`).
-3. Acompanhar o run: `npm ci` → typecheck → testes → placeholder de MarkLVII → `npm run package` → `SHA256SUMS.txt` via `scripts/gen-sha256sums.ps1`.
+3. Acompanhar o run: `npm ci` → typecheck → testes → `npm run package` → `SHA256SUMS.txt` via `scripts/gen-sha256sums.ps1`.
 
 O que o artefato contém (`kolnd-hub-setup-release-<version>`, retido por **30 dias**; o artifact do CI `kolnd-hub-setup` continua com 7 dias):
 
-- `kolnd-hub/dist/Kolnd Hub Setup <version>.exe` (build com **placeholder** de MarkLVII — não distribuível publicamente enquanto o bundle real não for usado);
+- `kolnd-hub/dist/Kolnd Hub Setup <version>.exe` (build sem o MSI real — não distribuível publicamente enquanto o MSI não for usado);
 - `kolnd-hub/dist/SHA256SUMS.txt` (SHA-256 do `.exe`; a linha do MSI é pulada no runner, pois o MSI não é commitado).
 
 Por que **não** publica automaticamente: o repositório é público e o formato de release público é **decisão pendente do usuário** (item 15 do relatório; ver Passo 7 e "Pendências e decisões do usuário"). Quando o usuário decidir, o ajuste é trocar o gatilho do workflow para `push: tags: ['v*']` e adicionar o passo de publicação (ex.: `gh release create` com o `.exe` + `SHA256SUMS.txt` anexados, conforme o Passo 7) — nada além disso muda no pipeline.
@@ -161,14 +161,14 @@ git grep -n "1.4.0" -- README.md kolnd-hub/README.md kolnd-hub/src build-install
 2. [ ] Abrir o Hub pela primeira vez → a tela de instalação com as etapas (Verificação de dependências → Python → Kloud Games → Programas → Finalização) aparece.
 3. [ ] **Python via winget** (apenas se ausente): aceitar o UAC; ao final, `python --version` funciona em terminal novo. Critério de falha: winget falha silenciosamente ou o passo trava — registrar saída.
 4. [ ] **Kloud Games via MSI embutido**: aceitar o UAC; validar depois: pasta `C:\Program Files\KLOUD_GAMES` existe; serviço `KLOUD_GAMESsvc` rodando (`services.msc`); regras de firewall criadas (`wf.msc`); autostart configurado. Critérios de falha: `msiexec` retorna código ≠ 0/3010/1641; serviço ausente. (Códigos **3010** e **1641** = reinício necessário — sucesso com aviso, não erro.)
-5. [ ] **Programas + Finalização**: Mark LVII implantado em `<instalação>\resources\programs\MarkLVII`; flag criada em `%APPDATA%\kolnd-hub\first-run-complete.flag`; `config.json` presente em `%APPDATA%\kolnd-hub\`.
+5. [ ] **Programas + Finalização**: Absolem implantado em `<instalação>\resources\programs\Absolem`; flag criada em `%APPDATA%\kolnd-hub\first-run-complete.flag`; `config.json` presente em `%APPDATA%\kolnd-hub\`.
 6. [ ] Segunda abertura do app → vai direto para o dashboard (sem a tela de instalação).
 7. [ ] Fechar/reabrir uma vez e confirmar que nada pede UAC de novo (o MSI já está instalado).
 
 ### 2.3 Cenários de falha UAC (obrigatórios)
 
 - [ ] **UAC negado no Kloud Games**: negar o prompt → o Hub **não** pode travar; deve registrar a falha e seguir (Kloud Games é opcional no primeiro uso). Confirmar que `<instalação>\resources\programs\kloud-games\KLOUD_GAMES.msi` permanece disponível para instalação manual posterior (`msiexec /i "<caminho>\KLOUD_GAMES.msi"` como administrador).
-- [ ] **UAC negado no Python** (com Python ausente): negar → o Mark LVII fica inutilizável até o Python ser instalado, mas o Hub abre normalmente. Registrar comportamento observado.
+- [ ] **UAC negado no Python** (com Python ausente): negar → o Hub abre normalmente; registrar o comportamento observado.
 - [ ] **Conta sem admin + política restritiva** (AppLocker / bloqueio de `powershell.exe -Verb RunAs`, se disponível na VM): o MSI pode não instalar na primeira execução — o Hub deve reportar o erro, e a saída documentada é instalar o MSI manualmente como administrador. Registrar resultado ou marcar como "não testado" explicitamente.
 
 ### 2.4 Rede com proxy (se aplicável)
@@ -206,7 +206,7 @@ O script cuida de: renomeações idempotentes do snapshot, submódulos (incluind
 - [ ] Build terminou sem erro (o `.bat` aborta com `[ERRO]` se o MSI falhar).
 - [ ] MSI gerado/atualizado em `kolnd-hub\resources\programs\kloud-games\KLOUD_GAMES.msi` (conferir timestamp — deve ser de hoje).
 - [ ] O MSI **não** foi commitado (`.gitignore` cobre `*.msi`; `resources/` não vai para o git).
-- [ ] (Opcional) Mark LVII reconstruído antes do pacote: `powershell -ExecutionPolicy Bypass -File kolnd-hub\scripts\build-mark-lvii.ps1` — ou tudo de uma vez: `scripts\build-all.ps1` (`-SkipMarkLVII`, `-SkipKloudGames`, `-SkipPackage`).
+- [ ] (Opcional) Absolem reconstruído antes do pacote: `powershell -ExecutionPolicy Bypass -File kolnd-hub\scripts\build-absolem.ps1` — ou tudo de uma vez: `scripts\build-all.ps1` (`-SkipKloudGames`, `-SkipAbsolem`, `-SkipPackage`).
 
 **Falha:** MSI ausente ou com timestamp antigo = o instalador do Passo 4 sairia com o programa defasado. Pare e investigue.
 
@@ -225,13 +225,13 @@ npm run package    # electron-vite build && electron-builder --win
 O electron-builder (`electron-builder.yml`, alvo `nsis`, per-user, `oneClick: false`, `allowToChangeInstallationDirectory: false`, `deleteAppDataOnUninstall: false`) gera:
 
 ```
-kolnd-hub\dist\Kolnd Hub Setup X.Y.Z.exe    (~360 MB)
+kolnd-hub\dist\Kolnd Hub Setup X.Y.Z.exe
 ```
 
 - [ ] Arquivo gerado com a **versão certa** no nome (`Kolnd Hub Setup X.Y.Z.exe`) — conferir `kolnd-hub\dist\`.
-- [ ] `resources/programs/MarkLVII` presente no pacote (o `extraResources` **falha o build** se a pasta não existir — em CI um placeholder é usado; localmente ela é produzida por `scripts/build-mark-lvii.ps1` e **não é commitada**).
-- [ ] Segredos ausentes do pacote: `config/api_keys.json`, `config/certs/`, `config/whatsapp_web/`, `memory/` ficam fora pelo `filter` do `electron-builder.yml`. (Conferir o `.yml` se o empacotamento mudou.)
-- [ ] Após rodar build de qualquer programa (MSI ou Mark LVII), rodar `npm run package` **de novo** para o instalador pegar a versão nova.
+- [ ] `resources/programs/kloud-games/KLOUD_GAMES.msi` e (se aplicável) `resources/programs/Absolem` presentes no pacote — o `extraResources` empacota o que existir no diretório versionado; o MSI e o Absolem **não são commitados**.
+- [ ] Segredos/dados de usuário ausentes do pacote (o `filter` do `electron-builder.yml` deve excluí-los; conferir o `.yml` se o empacotamento mudou).
+- [ ] Após rodar build de qualquer programa (MSI ou Absolem), rodar `npm run package` **de novo** para o instalador pegar a versão nova.
 
 ### Verificação pós-package (verify-release.ps1)
 
@@ -241,11 +241,11 @@ Após o `npm run package`, confirme que o instalador leva o **bundle real** (nã
 powershell -NoProfile -File kolnd-hub\scripts\verify-release.ps1
 ```
 
-O script lista o payload do `.exe` com 7-Zip (sem extrair nada) e confere `programs/MarkLVII/MarkLVII.exe` e `programs/kloud-games/KLOUD_GAMES.msi` (e o `win-unpacked/`, se existir). Saída ≠ 0 se algo faltar; opções `-DistDir` (default `kolnd-hub\dist`), `-MinSizeMB` (default 100) e `-SevenZip <path>`. Não gera hash — isso é o `gen-sha256sums.ps1` (Passo 7) — e não substitui o Passo 2 (máquina limpa).
+O script lista o payload do `.exe` com 7-Zip (sem extrair nada) e confere `programs/kloud-games/KLOUD_GAMES.msi` (e o `win-unpacked/`, se existir). Saída ≠ 0 se algo faltar; opções `-DistDir` (default `kolnd-hub\dist`), `-MinSizeMB` (default 80) e `-SevenZip <path>`. Não gera hash — isso é o `gen-sha256sums.ps1` (Passo 7) — e não substitui o Passo 2 (máquina limpa).
 
 - [ ] `verify-release.ps1` passou (exit 0) antes de seguir para o Passo 5.
 
-**Falha:** nome do `.exe` com versão errada = bump incompleto (Passo 1). Build quebrando por `extraResources` = Mark LVII não foi reconstruído/preparado.
+**Falha:** nome do `.exe` com versão errada = bump incompleto (Passo 1). Build quebrando por `extraResources` = o MSI (ou o Absolem) não foi preparado.
 
 > Depois deste passo, volte ao **Passo 2** e execute o roteiro de máquina limpa com o instalador recém-gerado. Só prossiga ao Passo 5 com o Passo 2 registrado.
 
@@ -253,17 +253,17 @@ O script lista o payload do `.exe` com 7-Zip (sem extrair nada) e confere `progr
 
 ## Passo 5 — Verificar desinstalação (preserva `%APPDATA%\kolnd-hub`)
 
-> **Contexto factual (não contradizer):** o desinstalador NSIS tem `deleteAppDataOnUninstall: false` — `%APPDATA%\kolnd-hub` **inteiro é preservado**; o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`) é **sempre removido**, **incluindo `resources\programs\MarkLVII`**, com os dados que o `MarkLVII.exe` grava ao lado do executável (`config\api_keys.json`, `memory\`). Não há espelho desses dados em `%APPDATA%`. A opção irreversível "Apagar também meus dados e configurações" do botão do Hub é a única coisa que apaga `%APPDATA%\kolnd-hub`.
+> **Contexto factual (não contradizer):** o desinstalador NSIS tem `deleteAppDataOnUninstall: false` — `%APPDATA%\kolnd-hub` **inteiro é preservado**; o diretório de instalação (`%LOCALAPPDATA%\Programs\Kolnd Hub`) é **sempre removido**, **incluindo `resources\programs\Absolem`**. A opção irreversível "Apagar também meus dados e configurações" do botão do Hub é a única coisa que apaga `%APPDATA%\kolnd-hub` (e `%APPDATA%\absolem`).
 
 Roteiro de verificação (na **mesma VM limpa** do Passo 2, com o release instalado e a primeira execução concluída):
 
 1. [ ] Confirmar que `%APPDATA%\kolnd-hub` está populado: `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log`, `kloud-games.paths.json` e — se houver — `game-icons\`.
 2. [ ] Desinstalar pela "Zona de perigo" do Hub (**Configurações → fim da página → "Desinstalar Kolnd Hub"**, pede digitar `Kolnd Hub`; só funciona no app empacotado) **ou** pelo Windows (**Configurações → Aplicativos → Kolnd Hub**). Ambos equivalem. Códigos `msiexec` 3010/1641 = sucesso com aviso de reinício.
 3. [ ] **Confirmar preservados** (`%APPDATA%\kolnd-hub`): `config.json`, `first-run-complete.flag`, `logs\kolnd-hub.log` e o que mais existia (`kloud-games.paths.json`, `game-icons\`).
-4. [ ] **Confirmar removido** (`%LOCALAPPDATA%\Programs\Kolnd Hub`): pasta inteira, **incluindo `resources\programs\MarkLVII\`**.
-5. [ ] **Registrar** (na release notes ou na task 2.2): "desinstalação verificada preservando %APPDATA%\kolnd-hub; `resources/programs/MarkLVII` apagado junto com a instalação, incluindo chave de API e memória gravadas ao lado do `MarkLVII.exe`".
+4. [ ] **Confirmar removido** (`%LOCALAPPDATA%\Programs\Kolnd Hub`): pasta inteira, **incluindo `resources\programs\Absolem\`**.
+5. [ ] **Registrar** (na release notes ou na task 2.2): "desinstalação verificada preservando %APPDATA%\kolnd-hub; `resources/programs/Absolem` apagado junto com a instalação".
 6. [ ] (Opcional, recomendado) Reinstalar o mesmo release e confirmar que o Hub abre direto no dashboard com as configurações preservadas (prova de ida e volta).
-7. [ ] Backup manual pré-desinstalação (vale para usuários reais e para o teste): botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (nunca sobrescreve). Não cobre dados ao lado do `MarkLVII.exe`.
+7. [ ] Backup manual pré-desinstalação (vale para usuários reais e para o teste): botão **"Fazer backup dos meus dados"** copia `%APPDATA%\kolnd-hub` para `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (nunca sobrescreve). Não cobre `%APPDATA%\absolem`.
 
 Critérios de falha: qualquer item de `%APPDATA%\kolnd-hub` apagado pelo desinstalador = **no-go** (regressão grave). `%LOCALAPPDATA%\Programs\Kolnd Hub` remanescente = investigar permissões/processo aberto.
 
@@ -369,8 +369,8 @@ Monte as notas copiando a seção da versão de `CHANGELOG.md` e completando o o
 Conteúdo obrigatório das notas:
 
 - [ ] Versão, data e resumo (2–4 linhas) do que mudou.
-- [ ] Destaques/notas por área (Hub, Kloud Games/MSI, Mark LVII, build/CI) a partir dos commits.
-- [ ] **Bloco "Desinstalação e seus dados"** (sempre presente): `%APPDATA%\kolnd-hub` é preservado por padrão; o diretório de instalação é removido, **incluindo `resources\programs\MarkLVII`** e os dados (chave de API e memória) ao lado do `MarkLVII.exe`. (Texto de referência: seções "Desinstalação" do `README.md` raiz e do `kolnd-hub/README.md`.)
+- [ ] Destaques/notas por área (Hub, Kloud Games/MSI, Absolem, build/CI) a partir dos commits.
+- [ ] **Bloco "Desinstalação e seus dados"** (sempre presente): `%APPDATA%\kolnd-hub` é preservado por padrão; o diretório de instalação é removido, **incluindo `resources\programs\Absolem`**. (Texto de referência: seções "Desinstalação" do `README.md` raiz e do `kolnd-hub/README.md`.)
 - [ ] **Riscos e pendências conhecidas**: assinatura pendente (2.4) / SmartScreen provável; máquina limpa executada ou pendente (2.2) com o resultado registrado; migração de schema (se houve) e o que ela faz.
 - [ ] SHA-256 dos artefatos (ou referência ao `SHA256SUMS.txt` anexado).
 - [ ] Instruções mínimas de atualização (instalar o novo por cima? desinstalar antes? — hoje: instalar por cima, que é o comportamento suportado pelo NSIS per-user).
@@ -396,7 +396,7 @@ Se o release **já foi publicado** e está quebrado:
    - [ ] Corrigir na `Dev` (`git revert` do commit causador ou fix forward — **nunca** `git push --force` em `main`/`Dev`).
    - [ ] Novo bump `X.Y.Z+1` (Passo 1) e repetir os Passos 2–8.
 4. **Dados do usuário**
-   - [ ] Se a versão quebrada corrompeu/apagou dados: orientar os usuários afetados a restaurar `%APPDATA%\kolnd-hub` a partir de `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se fizeram backup). A desinstalação preserva `%APPDATA%\kolnd-hub` — a recuperação quase sempre é possível. Dados do assistente (chave/memória) ficam ao lado do `MarkLVII.exe` e não são cobertos por esse backup.
+   - [ ] Se a versão quebrada corrompeu/apagou dados: orientar os usuários afetados a restaurar `%APPDATA%\kolnd-hub` a partir de `Documentos\KolndHub-Backup-AAAAMMDD-HHmmss` (se fizeram backup). A desinstalação preserva `%APPDATA%\kolnd-hub` — a recuperação quase sempre é possível.
 5. **Pós-mortem curto**
    - [ ] Registrar: o que quebrou, por que o checklist não pegou, qual passo deste guia muda. Atualizar este guia (e a 11.4/2.7 quando existirem) com a lição aprendida.
 
@@ -448,7 +448,7 @@ Este guia **não decide** por nenhum destes itens — apenas os referencia:
 | 11-11.3     | `build-installer.bat` lê versão do `package.json`                                  | Feito (`e7e9bf3b`)                                        | Passo 1.3                                                                                           |
 | 11-11.4     | `CHANGELOG.md`                                                                     | Criado (15/11/2026); **revisão do usuário (T4) pendente** | Passo 8 referencia a seção da versão a copiar                                                       |
 | 11-11.5     | NOTICE no instalador (conformidade de licenças)                                    | Pendente                                                  | Candidato a entrar no release que o incluir                                                         |
-| 01-1.9      | Migrar dados do Mark LVII para `%APPDATA%`                                          | Não aplicável ao Mark LVII (grava ao lado do exe)         | Passo 5 descreve a perda dos dados ao lado do `MarkLVII.exe`                                         |
+| 01-1.9      | Migrar dados do Mark LVII para `%APPDATA%`                                          | Removido do ecossistema (app descontinuado)               | Item histórico; o Mark LVII não faz mais parte do Hub                                                |
 
 Itens exigem decisão/ação do **usuário**; nada aqui substitui essa decisão.
 

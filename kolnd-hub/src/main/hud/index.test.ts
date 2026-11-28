@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   setHudSize: vi.fn(),
   acquireHwPolling: vi.fn(),
   releaseHwPolling: vi.fn(),
+  setHwPollingHudVisible: vi.fn(),
   onHwSnapshot: vi.fn(),
   collectHwSnapshot: vi.fn(),
   showHudWindow: vi.fn(),
@@ -21,7 +22,10 @@ const mocks = vi.hoisted(() => ({
   getHudWindow: vi.fn(),
   destroyHudWindow: vi.fn(),
   setHudWidth: vi.fn(),
-  setHudHeight: vi.fn()
+  setHudHeight: vi.fn(),
+  getCachedFpsReading: vi.fn(),
+  refreshFpsReading: vi.fn(),
+  ensureFpsActivation: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -39,6 +43,7 @@ vi.mock('../logger', () => ({
 vi.mock('../hwmon', () => ({
   acquireHwPolling: mocks.acquireHwPolling,
   releaseHwPolling: mocks.releaseHwPolling,
+  setHwPollingHudVisible: mocks.setHwPollingHudVisible,
   onHwSnapshot: mocks.onHwSnapshot,
   collectHwSnapshot: mocks.collectHwSnapshot
 }))
@@ -55,6 +60,11 @@ vi.mock('./overlayWindow', () => ({
   destroyHudWindow: mocks.destroyHudWindow,
   setHudWidth: mocks.setHudWidth,
   setHudHeight: mocks.setHudHeight
+}))
+vi.mock('../fps', () => ({
+  getCachedFpsReading: mocks.getCachedFpsReading,
+  refreshFpsReading: mocks.refreshFpsReading,
+  ensureFpsActivation: mocks.ensureFpsActivation
 }))
 
 import { registerHudIpc, resetHudForTests } from './index'
@@ -165,6 +175,18 @@ beforeEach(() => {
   mocks.getHudWindow.mockReturnValue(fakeWindow)
   mocks.setHudWidth.mockImplementation((width: number) => width)
   mocks.setHudHeight.mockImplementation((height: number) => height)
+  mocks.getCachedFpsReading.mockReturnValue({
+    state: 'live',
+    fps: 144,
+    frametimeMs: 6.94,
+    processName: 'game'
+  })
+  mocks.refreshFpsReading.mockResolvedValue({
+    state: 'live',
+    fps: 144,
+    frametimeMs: 6.94,
+    processName: 'game'
+  })
 })
 
 describe('registerHudIpc', () => {
@@ -196,7 +218,8 @@ describe('registerHudIpc', () => {
     expect(mocks.register).toHaveBeenCalledWith('Alt+Shift+F9', expect.any(Function))
     expect(mocks.showHudWindow).toHaveBeenCalledTimes(1)
     expect(mocks.setHudWidth).toHaveBeenCalledWith(420)
-    expect(mocks.acquireHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.acquireHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenCalledWith(true)
     expect(mocks.setHudVisible).not.toHaveBeenCalled()
   })
 })
@@ -218,7 +241,8 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     const shown = getHandler('hud:set-visible')({}, true) as HudStatus
     expect(shown.config.visible).toBe(true)
     expect(mocks.showHudWindow).toHaveBeenCalledTimes(1)
-    expect(mocks.acquireHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.acquireHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenLastCalledWith(true)
     expect(mocks.onHwSnapshot).toHaveBeenCalledTimes(1)
     expect(mocks.setHudVisible).toHaveBeenCalledWith(true)
 
@@ -236,8 +260,34 @@ describe('hud:get / hud:set-visible / hud:toggle', () => {
     const hidden = getHandler('hud:set-visible')({}, false) as HudStatus
     expect(hidden.config.visible).toBe(false)
     expect(mocks.hideHudWindow).toHaveBeenCalledTimes(1)
-    expect(mocks.releaseHwPolling).toHaveBeenCalledTimes(1)
+    expect(mocks.releaseHwPolling).toHaveBeenCalledWith('hud')
+    expect(mocks.setHwPollingHudVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.setHudVisible).toHaveBeenLastCalledWith(false)
+  })
+
+  it('push inclui a leitura de FPS (aditiva) e atualiza antes do primeiro envio', async () => {
+    register()
+    getHandler('hud:set-visible')({}, true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(mocks.refreshFpsReading).toHaveBeenCalledTimes(1)
+    expect(fakeWindow.webContents.send).toHaveBeenCalledWith(
+      'hud:update',
+      expect.objectContaining({
+        fps: { state: 'live', fps: 144, frametimeMs: 6.94, processName: 'game' }
+      })
+    )
+  })
+
+  it('só o atalho global tenta ativar a captura; IPC nunca pede UAC', () => {
+    register()
+    const shortcut = mocks.register.mock.calls[0][1] as () => void
+    shortcut()
+    expect(mocks.ensureFpsActivation).toHaveBeenCalledTimes(1)
+
+    mocks.ensureFpsActivation.mockClear()
+    getHandler('hud:set-visible')({}, true)
+    getHandler('hud:toggle')({})
+    expect(mocks.ensureFpsActivation).not.toHaveBeenCalled()
   })
 
   it('não abre um segundo timer: dois set-visible(true) usam o mesmo acquire', () => {
@@ -382,6 +432,36 @@ describe('push hud:update', () => {
         capturedAt: expect.any(String)
       })
     )
+  })
+
+  it('limita o push a 1 Hz: 2 snapshots em 500 ms → 1 envio; 1 s depois → envia', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T12:00:00.000Z') })
+    try {
+      register()
+      getHandler('hud:set-visible')({}, true)
+      // Push imediato do show (forçado) termina antes de cronometrar o throttle.
+      await vi.advanceTimersByTimeAsync(0)
+      const listener = mocks.onHwSnapshot.mock.calls[0][0] as (snapshot: HwSnapshot) => void
+
+      // Passado 1 s do push do show, o snapshot do polling entra.
+      await vi.advanceTimersByTimeAsync(1000)
+      fakeWindow.webContents.send.mockClear()
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(1)
+
+      // 500 ms depois: descartado (o HUD não precisa de 2 Hz).
+      await vi.advanceTimersByTimeAsync(500)
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(1)
+
+      // Mais 500 ms: 1 s desde o último envio, entra de novo.
+      await vi.advanceTimersByTimeAsync(500)
+      listener(snapshotFixture())
+      expect(fakeWindow.webContents.send).toHaveBeenCalledTimes(2)
+    } finally {
+      resetHudForTests()
+      vi.useRealTimers()
+    }
   })
 
   it('não envia para janela oculta/destruída', () => {

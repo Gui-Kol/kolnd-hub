@@ -217,8 +217,8 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-ink-primary">Desinstalar Kloud Games</h3>
                 <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-                  Remove o Kloud Games (programa, serviço, regras de firewall, PATH e atalhos). Suas
-                  preferências do Hub continuam salvas.
+                  Remove o Kloud Games (programa, configurações, serviço, regras de firewall, PATH e
+                  atalhos). Suas preferências do Hub continuam salvas.
                 </p>
               </div>
             </div>
@@ -300,8 +300,8 @@ export function UninstallDangerZone({ onToast }: UninstallDangerZoneProps): JSX.
                 <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
                   Remove o Kolnd Hub{' '}
                   <strong className="text-ink-primary">e também desinstala o Kloud Games</strong>{' '}
-                  durante o processo (perguntaremos a cada passo). O Mark LVI é removido junto com a
-                  pasta do Hub.
+                  durante o processo (perguntaremos a cada passo). As configurações do Absolem
+                  seguem a sua escolha de dados.
                 </p>
               </div>
             </div>

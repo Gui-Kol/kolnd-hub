@@ -55,17 +55,10 @@ if(NOT KLOUD_GAMES_ASSETS_DIR)
 endif()
 
 # platform specific compile definitions
-if(WIN32)
-    include(${CMAKE_MODULE_PATH}/compile_definitions/windows.cmake)
-elseif(UNIX)
-    include(${CMAKE_MODULE_PATH}/compile_definitions/unix.cmake)
-
-    if(APPLE)
-        include(${CMAKE_MODULE_PATH}/compile_definitions/macos.cmake)
-    else()
-        include(${CMAKE_MODULE_PATH}/compile_definitions/linux.cmake)
-    endif()
+if(NOT WIN32)
+    message(FATAL_ERROR "KLOUD_GAMES only supports Windows builds.")
 endif()
+include(${CMAKE_MODULE_PATH}/compile_definitions/windows.cmake)
 
 # libvirtualhid
 CPMGetPackage(libvirtualhid)
@@ -73,11 +66,6 @@ list(APPEND KLOUD_GAMES_EXTERNAL_LIBRARIES libvirtualhid::libvirtualhid)
 list(APPEND PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/virtualhid_input.h"
         "${CMAKE_SOURCE_DIR}/src/platform/virtualhid_input.cpp")
-
-# build libevdev before the libvirtualhid target when using the ExternalProject fallback
-if(EXTERNAL_PROJECT_LIBEVDEV_USED AND TARGET libvirtualhid)
-    add_dependencies(libvirtualhid libevdev)
-endif()
 
 set(NVENC_PUBLIC_SOURCES
         "${CMAKE_SOURCE_DIR}/src/nvenc/nvenc_config.h"

@@ -3,7 +3,7 @@
 // destrutivo de verdade: o alvo de Program Files nunca é apagado (o gate de
 // `isProgramFilesKloudGamesDir` é testado à parte e a recusa é verificada
 // com pastas temporárias).
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -93,6 +93,7 @@ const ALL_GONE = {
   registryGone: true,
   shortcutsGone: true,
   tempCleaned: true,
+  configGone: true,
   remaining: [],
   logPath: 'C:\\fake\\logs\\kloud-games-uninstall.log'
 }
@@ -372,6 +373,56 @@ describe('fluxo uninstall — vertentes da matriz', () => {
       ['/IM', 'KLOUD_GAMES.exe', '/F'],
       expect.objectContaining({ windowsHide: true })
     )
+  })
+})
+
+describe('limpeza das configurações do Kloud Games', () => {
+  const savedEnv = { ...process.env }
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'kg-config-test-'))
+    process.env.LOCALAPPDATA = join(root, 'Local')
+    process.env.ProgramData = join(root, 'ProgramData')
+    // Padrão oficial (o comando é apenas montado; o spawn está mockado).
+    process.env.ProgramFiles = 'C:\\Program Files'
+    process.env['ProgramFiles(x86)'] = 'C:\\Program Files (x86)'
+  })
+
+  afterEach(() => {
+    process.env = savedEnv
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('msiexec com sucesso remove config\\ elevado e as pastas por usuário', async () => {
+    mkdirSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES'), { recursive: true })
+    mkdirSync(join(root, 'ProgramData', 'KLOUD_GAMES'), { recursive: true })
+    writeFileSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES', 'config.json'), '{}')
+    writeFileSync(join(root, 'ProgramData', 'KLOUD_GAMES', 'undo.dat'), 'x')
+
+    fakeChildThatClosesWith(0)
+    const u = new Uninstaller()
+    const report = await u.uninstall(() => {})
+
+    expect(report.success).toBe(true)
+    const command = String(vi.mocked(spawn).mock.calls[0]?.[1]?.[2] ?? '')
+    expect(command).toContain('Remove-Item')
+    expect(command).toContain('KLOUD_GAMES')
+    expect(command).toContain('$p.ExitCode -eq 0')
+    expect(existsSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES'))).toBe(false)
+    expect(existsSync(join(root, 'ProgramData', 'KLOUD_GAMES'))).toBe(false)
+  })
+
+  it('versão mais nova (1638) não apaga as configurações da instalação existente', async () => {
+    mkdirSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES'), { recursive: true })
+    writeFileSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES', 'config.json'), '{}')
+
+    fakeChildThatClosesWith(1638)
+    const u = new Uninstaller()
+    const report = await u.uninstall(() => {})
+
+    expect(report.msiexecKind).toBe('newer-version')
+    expect(existsSync(join(root, 'Local', 'LizardByte', 'KLOUD_GAMES', 'config.json'))).toBe(true)
   })
 })
 

@@ -38,6 +38,10 @@ describe('preload — contrato de window.api', () => {
     expect(Object.keys(api).length).toBeGreaterThanOrEqual(80)
     for (const key of [
       'systemPcName',
+      'systemRunningProcesses',
+      'startProcessWatch',
+      'stopProcessWatch',
+      'onProcessWatchUpdate',
       'getGames',
       'getGameCollections',
       'createGameCollection',
@@ -49,6 +53,8 @@ describe('preload — contrato de window.api', () => {
       'firstRunCheck',
       'hwmonSnapshot',
       'hudGet',
+      'fpsStatus',
+      'fpsActivate',
       'remoteSetZeroTierOpen',
       'uninstallHub',
       'onUninstallComplete',
@@ -61,6 +67,15 @@ describe('preload — contrato de window.api', () => {
   it('encaminha os canais principais com os argumentos certos', async () => {
     await api.systemPcName()
     expect(mocks.invoke).toHaveBeenLastCalledWith('system:pc-name')
+
+    await api.startProcessWatch('games:running', 10000)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('process-watch:start', {
+      id: 'games:running',
+      intervalMs: 10000
+    })
+
+    await api.stopProcessWatch('games:running')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('process-watch:stop', { id: 'games:running' })
 
     await api.launchApp('app1', 'run.exe', 'C:\\app', false)
     expect(mocks.invoke).toHaveBeenLastCalledWith('app:launch', 'app1', 'run.exe', 'C:\\app', false)
@@ -93,6 +108,12 @@ describe('preload — contrato de window.api', () => {
     await api.getGameCover('g1')
     expect(mocks.invoke).toHaveBeenLastCalledWith('games:get-cover', 'g1')
 
+    await api.listUpgradableUpdates()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('winget:list-upgrades')
+
+    await api.listUpgradableUpdates(true)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('winget:list-upgrades', { force: true })
+
     await api.upgradeOneUpdate('Git.Git')
     expect(mocks.invoke).toHaveBeenLastCalledWith('winget:upgrade-one', { id: 'Git.Git' })
 
@@ -113,6 +134,12 @@ describe('preload — contrato de window.api', () => {
 
     await api.hudReportSize(300)
     expect(mocks.invoke).toHaveBeenLastCalledWith('hud:report-size', { height: 300 })
+
+    await api.fpsStatus()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('fps:status')
+
+    await api.fpsActivate()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('fps:activate')
 
     await api.remoteSetZeroTierOpen(false)
     expect(mocks.invoke).toHaveBeenLastCalledWith('remote:set-zerotier-open', false)
@@ -156,6 +183,9 @@ describe('preload — contrato de window.api', () => {
 
     api.onStatusChanged(vi.fn() as never)
     expect(mocks.on).toHaveBeenLastCalledWith('app:status-changed', expect.any(Function))
+
+    api.onProcessWatchUpdate(vi.fn() as never)
+    expect(mocks.on).toHaveBeenLastCalledWith('process-watch:update', expect.any(Function))
   })
 
   it('onStatusChanged repassa appId e status separadamente', () => {

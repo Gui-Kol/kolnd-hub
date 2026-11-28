@@ -178,22 +178,8 @@
     background: transparent;
   }
 
-  /* @deprecated(13.7+) — gate 13.2/13.3: scanlines removidas "de vez". Mantida só
-     porque Layout/BigPicture/FirstRunInstall/LoadingScreen ainda montam o <div>.
-     Remoção final + deleção dos <div> na migração das telas (13.7/13.16/13.15/13.5-side). */
-  .scanlines {
-    position: fixed;
-    inset: 0;
-    background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.15) 50%);
-    background-size: 100% 4px;
-    pointer-events: none;
-    z-index: var(--z-toast); /* ≡ 60 (valor igual ao legado) */
-    animation: scanline 10s linear infinite;
-  }
-
   /* Acessibilidade: quem pediu menos movimento recebe menos movimento (T8) */
   @media (prefers-reduced-motion: reduce) {
-    .scanlines,
     .animate-pulse,
     .animate-pulse-slow,
     .animate-skew,
@@ -228,9 +214,7 @@
   /* Glass — RESTRITO a modal/toast/overlay do Big Picture (13.2 §5, §8).
      Proibido em cards, painéis, nav, botões, inputs, badges, titlebar. */
   .glass {
-    background: color-mix(in srgb, var(--surface-3) 90%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--surface-3);
     border: 1px solid var(--border-subtle);
   }
 
@@ -457,11 +441,6 @@
     transform: translateX(100%);
   }
 }
-
-/* Nota: @keyframes scanline NÃO é definido aqui de propósito — no build atual o
-   Tailwind nunca emitia esse keyframe (nada usava `animate-scanline`), ou seja,
-   o overlay .scanlines era estático. Reintroduzir o keyframe mudaria o visual;
-   a remoção final do overlay acontece nas telas (13.7+). */
 
 /* ─── 13.6 — Skeleton shimmer (components/ui/Skeleton.tsx) ───
    Shimmer SUTIL para o primitivo <Skeleton/>: gradiente frio superfície 2 → 3,

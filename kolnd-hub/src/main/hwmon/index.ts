@@ -2,7 +2,11 @@ import { app, ipcMain } from 'electron'
 import { logger } from '../logger'
 import type { IpcContext } from '../ipc/lifecycle'
 import { getHwmonIntervalMs, setHwmonIntervalMs } from '../store'
-import { HWMON_INTERVAL_DEFAULT_MS, normalizeHwmonIntervalMs } from '../../shared/hwmon'
+import {
+  HUD_PUSH_MIN_INTERVAL_MS,
+  HWMON_INTERVAL_DEFAULT_MS,
+  normalizeHwmonIntervalMs
+} from '../../shared/hwmon'
 import { readCpuPower, type CpuPowerReading } from './cpuPower'
 import {
   getDriverStatus,
@@ -10,6 +14,7 @@ import {
   type DriverStatusInfo,
   type InstallDriverResult
 } from './driver'
+import { stopHwCollector } from './collector'
 import { snapshotNative, type DriverStatus, type HwSnapshot } from './nativeSensors'
 import { estimatePlatformWatts, estimateTotalWatts } from './powerEstimate'
 
@@ -17,12 +22,22 @@ import { estimatePlatformWatts, estimateTotalWatts } from './powerEstimate'
  * Orquestração do monitor de hardware (Fase A).
  *
  * Um único polling compartilhado por refcount entre a aba Monitor e a
- * sobreposição (HUD); cada consumidor chama `acquireHwPolling`/`releaseHwPolling`.
- * O renderer da aba usa `hwmon:start`/`hwmon:stop`, que mapeiam para o refcount.
- * O período vem de `hwmonIntervalMs` no store (padrão 0,5 s) e é aplicado ao
- * timer sem criar um segundo polling. Leituras são assíncronas e nunca lançam
- * para o renderer: sensor ausente vira `null` (a UI mostra "—").
+ * sobreposição (HUD); cada consumidor chama `acquireHwPolling`/`releaseHwPolling`
+ * com o seu tipo. O renderer da aba usa `hwmon:start`/`hwmon:stop`, que mapeiam
+ * para o tipo `monitor`; o HUD usa `hud`. O período vem de `hwmonIntervalMs` no
+ * store (padrão 0,5 s) e é aplicado ao timer sem criar um segundo polling.
+ * Com só o HUD consumindo, o timer ganha um piso de 1 s (`HUD_PUSH_MIN_INTERVAL_MS`)
+ * — a sobreposição não precisa de 2 Hz e a coleta custa CPU.
+ *
+ * O polling também só roda quando alguém está olhando: com a janela na bandeja
+ * (sem HUD), a tela bloqueada ou o PC suspenso, o timer para sem perder os
+ * refcounts; ao voltar, uma coleta imediata e o reagendamento normal. Leituras
+ * são assíncronas e nunca lançam para o renderer: sensor ausente vira `null`
+ * (a UI mostra "—").
  */
+
+/** Consumidor do polling: a aba Monitor (ativa) ou a sobreposição (passiva). */
+export type HwPollingConsumerKind = 'monitor' | 'hud'
 
 /** Período vigente do timer (ms). Sempre normalizado antes de agendar. */
 let pollIntervalMs = HWMON_INTERVAL_DEFAULT_MS
@@ -49,11 +64,26 @@ let lastDriverCheckAt = 0
 let lastLoggedDriverState: DriverStatus | null = null
 
 /**
- * Refcount de consumidores do polling: a aba Monitor e a sobreposição (HUD)
- * podem querer a mesma leitura ao mesmo tempo. Um único timer atende os dois;
- * ele só para quando o último consumidor solta.
+ * Refcount de consumidores do polling, separado por tipo: a aba Monitor e a
+ * sobreposição (HUD) podem querer a mesma leitura ao mesmo tempo. Um único timer
+ * atende os dois; ele só para quando o último consumidor solta. A separação
+ * permite o piso de 1 s quando só o HUD consome, sem afetar o intervalo que o
+ * usuário escolheu para a aba aberta.
  */
-let refCount = 0
+let monitorConsumers = 0
+let hudConsumers = 0
+
+/**
+ * Estado do que está sendo observado. O polling só roda quando alguém está
+ * olhando; `windowVisible` e `hudVisible` são alimentados por eventos reais
+ * (`show`/`hide` da janela e visibilidade do HUD) e `systemSuspended` pelo
+ * `powerMonitor` (tela bloqueada ou PC suspenso).
+ */
+let windowVisible = true
+let hudVisible = false
+let systemSuspended = false
+/** Período realmente aplicado ao `setInterval` (null quando não há timer). */
+let scheduledIntervalMs: number | null = null
 
 /**
  * Assinantes de cada snapshot (push `hud:update`). Ficam separados do envio
@@ -220,6 +250,9 @@ export async function collectHwSnapshot(): Promise<HwSnapshot> {
 }
 
 function sendUpdate(snapshot: HwSnapshot): void {
+  // Sem a aba Monitor montada ninguém escuta `hwmon:update`: com o HUD ligado o
+  // caminho é só `onHwSnapshot`. Evita acordar o renderer da janela a cada tick.
+  if (monitorConsumers === 0) return
   const window = context?.getMainWindow()
   if (!window || window.isDestroyed()) return
   try {
@@ -268,6 +301,31 @@ async function pollOnce(): Promise<void> {
   }
 }
 
+/** Total de consumidores (aba + HUD) — a aba manda no período efetivo. */
+function totalConsumers(): number {
+  return monitorConsumers + hudConsumers
+}
+
+/**
+ * Período efetivo do timer.
+ *
+ * O piso de 1 s vale SÓ quando apenas o HUD consome: a sobreposição é passiva e
+ * 1 Hz basta. Com a aba Monitor montada, o usuário vê os números ao vivo e o
+ * valor escolhido (100–2000 ms) é respeitado — o B4 não pode piorar.
+ */
+function effectivePollIntervalMs(): number {
+  if (monitorConsumers > 0) return pollIntervalMs
+  return Math.max(pollIntervalMs, HUD_PUSH_MIN_INTERVAL_MS)
+}
+
+/**
+ * O polling só faz sentido com consumidor E alguém olhando: janela principal
+ * visível ou HUD na tela, fora de bloqueio de tela/suspensão do sistema.
+ */
+function shouldPoll(): boolean {
+  return totalConsumers() > 0 && !systemSuspended && (windowVisible || hudVisible)
+}
+
 /**
  * (Re)agenda o timer único com o período vigente. Não dispara leitura imediata:
  * quem inicia o polling já faz a primeira leitura em `startPolling`, e trocar o
@@ -275,9 +333,10 @@ async function pollOnce(): Promise<void> {
  */
 function schedulePolling(): void {
   if (timer) clearInterval(timer)
+  scheduledIntervalMs = effectivePollIntervalMs()
   timer = setInterval(() => {
     void pollOnce()
-  }, pollIntervalMs)
+  }, scheduledIntervalMs)
 }
 
 function startPolling(): void {
@@ -291,7 +350,25 @@ function stopPolling(): void {
     clearInterval(timer)
     timer = null
   }
+  scheduledIntervalMs = null
   polling = false
+}
+
+/**
+ * Alinha o timer com o estado atual: para quando não há ninguém olhando, inicia
+ * (com uma coleta imediata) na primeira vez e reagenda se o período efetivo
+ * mudou (ex.: monitor abriu/fechou, só HUD passou a valer 1 s).
+ */
+function reconcilePolling(): void {
+  if (!shouldPoll()) {
+    stopPolling()
+    return
+  }
+  if (!timer) {
+    startPolling()
+    return
+  }
+  if (scheduledIntervalMs !== effectivePollIntervalMs()) schedulePolling()
 }
 
 /** Período vigente do polling (ms) — exposto para testes e para o IPC. */
@@ -316,30 +393,89 @@ export function applyHwPollIntervalMs(input: unknown): number {
 /**
  * Adquire o polling (aba Monitor com `hwmon:start`, HUD ao ficar visível).
  * Idempotente por consumidor: cada acquire precisa do release correspondente.
+ * Com o sistema suspenso ou a janela oculta sem HUD, o timer não liga — o
+ * refcount fica guardado para quando voltar a existir alguém olhando.
  */
-export function acquireHwPolling(): void {
-  refCount += 1
+export function acquireHwPolling(kind: HwPollingConsumerKind): void {
+  if (kind === 'monitor') monitorConsumers += 1
+  else hudConsumers += 1
   // Só agora a UI vai consumir o monitor: revalida o driver para o caso de ele
   // ter sido instalado com o app já aberto (instalador do Windows, por exemplo).
-  forceDriverStatusRefresh()
-  startPolling()
+  // Suspenso não há o que revalidar — a primeira coleta ao retomar sonda.
+  if (shouldPoll()) forceDriverStatusRefresh()
+  reconcilePolling()
 }
 
-/** Solta o polling; só para quando o último consumidor sair. */
-export function releaseHwPolling(): void {
-  refCount = Math.max(0, refCount - 1)
-  if (refCount === 0) stopPolling()
+/** Solta o polling; só para quando o último consumidor sai ou ninguém olha. */
+export function releaseHwPolling(kind: HwPollingConsumerKind): void {
+  if (kind === 'monitor') monitorConsumers = Math.max(0, monitorConsumers - 1)
+  else hudConsumers = Math.max(0, hudConsumers - 1)
+  reconcilePolling()
 }
 
-/** Para o polling e zera o refcount (chamado no `will-quit`). */
+/**
+ * Espelha a visibilidade da janela principal (show/hide, incluindo a bandeja e
+ * o `--hidden`). Ocultar não solta consumidores: a aba Monitor continua montada
+ * e volta a receber dados assim que a janela reaparecer.
+ */
+export function setHwPollingWindowVisible(visible: boolean): void {
+  if (windowVisible === visible) return
+  windowVisible = visible
+  reconcilePolling()
+}
+
+/** Espelha a visibilidade do HUD (chamado pelo módulo `hud` em `applyVisible`). */
+export function setHwPollingHudVisible(visible: boolean): void {
+  if (hudVisible === visible) return
+  hudVisible = visible
+  reconcilePolling()
+}
+
+/**
+ * Suspende o polling por bloqueio de tela/suspensão do PC (`lock-screen`,
+ * `suspend`) e retoma em `unlock-screen`/`resume` com UMA coleta imediata — o
+ * painel não espera o próximo tick. Idempotente: os quatro eventos podem
+ * chegar repetidos ou fora de ordem.
+ */
+export function setHwPollingSystemSuspended(suspended: boolean): void {
+  if (systemSuspended === suspended) return
+  systemSuspended = suspended
+  logger.info('hwmon', suspended ? 'polling suspenso (sistema)' : 'polling retomado (sistema)')
+  reconcilePolling()
+}
+
+/**
+ * Para o polling e zera o refcount (chamado no `will-quit`).
+ *
+ * O coletor persistente também é encerrado aqui: a sessão acabou e o helper não
+ * pode virar órfão. `stop` fecha o stdin (o script sai do loop) e agenda o kill
+ * de segurança.
+ */
 export function stopHwMonitorPolling(): void {
-  refCount = 0
+  monitorConsumers = 0
+  hudConsumers = 0
   stopPolling()
+  stopHwCollector()
 }
 
 /** Apenas para testes: quantos consumidores estão segurando o polling agora. */
 export function getHwPollingRefCountForTests(): number {
-  return refCount
+  return totalConsumers()
+}
+
+/** Apenas para testes: refcount separado por tipo (monitor × HUD). */
+export function getHwPollingConsumersForTests(): { monitor: number; hud: number } {
+  return { monitor: monitorConsumers, hud: hudConsumers }
+}
+
+/** Apenas para testes: período que o timer realmente usa neste instante. */
+export function getHwPollingEffectiveIntervalForTests(): number {
+  return effectivePollIntervalMs()
+}
+
+/** Apenas para testes: existe timer agendado (o polling está ligado). */
+export function isHwPollingActiveForTests(): boolean {
+  return timer !== null
 }
 
 function assertNoArguments(args: unknown[]): void {
@@ -359,13 +495,13 @@ export function registerHwMonitorIpc(ctx: IpcContext): void {
 
   ipcMain.handle('hwmon:start', (_event, ...args: unknown[]): { ok: boolean } => {
     assertNoArguments(args)
-    acquireHwPolling()
+    acquireHwPolling('monitor')
     return { ok: true }
   })
 
   ipcMain.handle('hwmon:stop', (_event, ...args: unknown[]): { ok: boolean } => {
     assertNoArguments(args)
-    releaseHwPolling()
+    releaseHwPolling('monitor')
     return { ok: true }
   })
 
@@ -418,6 +554,9 @@ export function resetHwMonitorForTests(): void {
   stopHwMonitorPolling()
   context = null
   pollIntervalMs = HWMON_INTERVAL_DEFAULT_MS
+  windowVisible = true
+  hudVisible = false
+  systemSuspended = false
   driverState = 'absent'
   driverKnown = false
   statusPromise = null

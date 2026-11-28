@@ -33,6 +33,7 @@ extern "C" {
 #include "input.h"
 #include "logging.h"
 #include "nvenc/nvenc_encoder.h"
+#include "perf/latencyTrace.h"
 #include "platform/common.h"
 #include "sync.h"
 #include "video.h"
@@ -86,6 +87,66 @@ namespace video {
      */
     bool is_legacy_video_format(int video_format) {
       return video_format == format_mpeg2 || video_format == format_h263p;
+    }
+
+    /**
+     * @brief Map a GameStream video format to the short codec name used in logs.
+     *
+     * @param video_format Requested GameStream video codec identifier.
+     * @return Short codec name (h264, hevc, av1, mpeg2, h263p).
+     */
+    std::string_view codec_name_from_format(int video_format) {
+      switch (video_format) {
+        case format_h264:
+          return "h264";
+        case format_hevc:
+          return "hevc";
+        case format_av1:
+          return "av1";
+        case format_mpeg2:
+          return "mpeg2";
+        case format_h263p:
+          return "h263p";
+        default:
+          return "unknown";
+      }
+    }
+
+    /**
+     * @brief Compute the effective minimum FPS target for a requested frame rate.
+     *
+     * Matches the value used to size the encoder's frame-wait timeout: a configured
+     * target above zero wins, otherwise half of the client framerate is used.
+     *
+     * @param framerate Client-requested framerate.
+     * @return Effective minimum FPS target.
+     */
+    double effective_minimum_fps_target(int framerate) {
+      return config::video.minimum_fps_target > 0.0 ? config::video.minimum_fps_target : framerate / 2.0;
+    }
+
+    /**
+     * @brief Log the effective AVCodec encoder and low-latency parameters once per session.
+     *
+     * The standalone NVENC backend logs the same fields from `nvenc_base`. AVCodec
+     * backends have no NVENC quality preset, two-pass or split-frame setting, so those
+     * fields are reported as `n/a` here.
+     *
+     * @param encoder Selected encoder backend.
+     * @param codec FFmpeg codec descriptor selected for the client configuration.
+     * @param config Client-requested video configuration.
+     * @param ctx Opened FFmpeg codec context.
+     */
+    void log_avcodec_encode_session(const encoder_t &encoder, const encoder_t::codec_t &codec, const config_t &config, const AVCodecContext &ctx) {
+      BOOST_LOG(info) << "Encode session: encoder="sv << encoder.name
+                      << " codec="sv << codec_name_from_format(config.videoFormat)
+                      << " ffmpeg_codec="sv << codec.name
+                      << " preset=n/a two_pass=n/a split_encode=n/a"sv
+                      << " hags_request="sv << (config::video.nv_realtime_hags ? "on"sv : "off"sv)
+                      << " high_power_request="sv << (config::video.nv_KLOUD_GAMES_high_power_mode ? "on"sv : "off"sv)
+                      << " max_b_frames="sv << ctx.max_b_frames
+                      << " rc_buffer_size="sv << ctx.rc_buffer_size
+                      << " minimum_fps_target="sv << effective_minimum_fps_target(config.framerate);
     }
   }  // namespace
 
@@ -623,79 +684,6 @@ namespace video {
 
   private:
     std::unique_ptr<platf::nvenc_encode_device_t> device;
-    bool force_idr = false;
-  };
-
-  /**
-   * @brief Native VideoToolbox encode session and device state for hardware encoding.
-   */
-  class vt_encode_session_t: public encode_session_t {
-  public:
-    /**
-     * @brief Initialize a VideoToolbox encode session and take ownership of its device.
-     *
-     * @param encode_device Encode device.
-     */
-    vt_encode_session_t(std::unique_ptr<platf::vt_encode_device_t> encode_device):
-        device(std::move(encode_device)) {
-    }
-
-    /**
-     * @brief Supply the next captured image to the encode device.
-     *
-     * @param img Image or frame object to read from or populate.
-     * @return Conversion status.
-     */
-    int convert(platf::img_t &img) override {
-      if (!device) {
-        return -1;
-      }
-      return device->convert(img);
-    }
-
-    /**
-     * @brief Mark the frame as a request for an IDR frame.
-     */
-    void request_idr_frame() override {
-      force_idr = true;
-    }
-
-    /**
-     * @brief Mark the frame as a request for a normal inter frame.
-     */
-    void request_normal_frame() override {
-      force_idr = false;
-    }
-
-    /**
-     * @brief Mark the frame range whose references must be invalidated.
-     * @note VideoToolbox has no reference frame invalidation; recover with an IDR frame instead.
-     *
-     * @param first_frame First frame.
-     * @param last_frame Last frame.
-     */
-    void invalidate_ref_frames(int64_t first_frame, int64_t last_frame) override {
-      force_idr = true;
-    }
-
-    /**
-     * @brief Submit the next frame to VideoToolbox and return the encoded payload.
-     *
-     * @param frame_index Monotonic frame index assigned by the video pipeline.
-     * @return Encoded frame payload and frame metadata.
-     */
-    platf::vt_encoded_frame encode_frame(uint64_t frame_index) {
-      if (!device) {
-        return {};
-      }
-
-      auto result = device->encode_frame(frame_index, force_idr);
-      force_idr = false;
-      return result;
-    }
-
-  private:
-    std::unique_ptr<platf::vt_encode_device_t> device;
     bool force_idr = false;
   };
 
@@ -1815,6 +1803,9 @@ namespace video {
     if (!disp) {
       return;
     }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::display_created);
+    }
     display_wp = disp;
 
     constexpr auto capture_buffer_size = 12;
@@ -2056,6 +2047,46 @@ namespace video {
     return std::nullopt;
   }
 
+  namespace {
+
+    /**
+     * @brief Record one encoded packet in the latency trace when tracing is enabled.
+     *
+     * The three marks are the capture timestamp attached to the frame by the platform backend, the
+     * encoder submission timestamp, and the moment the encoded packet is enqueued for the network
+     * thread (`mail::video_packets`). Nothing is recorded for frames without a capture timestamp,
+     * such as the blank keep-alive frame sent before the first capture.
+     *
+     * @param encode_submit Time the frame was submitted to the encoder, or empty when tracing is off.
+     * @param captured_at Capture timestamp attached to the frame, when known.
+     * @param session_key Stream session that produced the packet.
+     */
+    void trace_enqueued_packet(const std::optional<perf::clock_t::time_point> &encode_submit, const std::optional<std::chrono::steady_clock::time_point> &captured_at, const void *session_key) {
+      if (!encode_submit || !captured_at) {
+        return;
+      }
+
+      static perf::trace_window_t window;
+      const auto result = window.record(*captured_at, *encode_submit, perf::clock_t::now(), session_key);
+
+      if (result.first_packet_of_session) {
+        BOOST_LOG(info) << perf::format_first_packet_line(result.capture_to_queue_ms);
+      }
+
+      auto &timeline = perf::startup_timeline();
+      if (timeline.mark_once(perf::startup_stage_e::first_packet)) {
+        if (auto line = timeline.format_line()) {
+          BOOST_LOG(info) << *line;
+        }
+      }
+
+      if (result.summary) {
+        BOOST_LOG(info) << perf::format_summary_line(*result.summary);
+      }
+    }
+
+  }  // namespace
+
   /**
    * @brief Drain encoded packets from an FFmpeg encoder session.
    *
@@ -2076,6 +2107,8 @@ namespace video {
 
     auto &sps = session.sps;
     auto &vps = session.vps;
+
+    const auto encode_submit = perf::trace_enabled() ? std::optional {perf::clock_t::now()} : std::nullopt;
 
     // send the frame to the encoder
     auto ret = avcodec_send_frame(ctx.get(), frame);
@@ -2134,7 +2167,9 @@ namespace video {
 
       packet->replacements = &session.replacements;
       packet->channel_data = channel_data;
+      const auto captured_at = packet->frame_timestamp;
       packets->raise(std::move(packet));
+      trace_enqueued_packet(encode_submit, captured_at, channel_data);
     }
 
     return 0;
@@ -2151,6 +2186,8 @@ namespace video {
    * @return 0 when packets are queued; nonzero when NVENC encoding fails.
    */
   int encode_nvenc(int64_t frame_nr, nvenc_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, stream::session_t *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+    const auto encode_submit = perf::trace_enabled() ? std::optional {perf::clock_t::now()} : std::nullopt;
+
     auto encoded_frame = session.encode_frame(frame_nr);
     if (encoded_frame.data.empty()) {
       BOOST_LOG(error) << "NvENC returned empty packet";
@@ -2167,34 +2204,7 @@ namespace video {
     packet->frame_timestamp = frame_timestamp;
     packets->raise(std::move(packet));
 
-    return 0;
-  }
-
-  /**
-   * @brief Encode one frame through VideoToolbox and queue the resulting packet.
-   *
-   * @param frame_nr Monotonic frame index assigned by the video pipeline.
-   * @param session Active VideoToolbox encoder session.
-   * @param packets Output queue that receives the encoded packet.
-   * @param channel_data Stream session that receives the encoded packet.
-   * @param frame_timestamp Capture timestamp associated with the encoded frame.
-   * @return 0 when packets are queued; nonzero when VideoToolbox encoding fails.
-   */
-  int encode_vt(int64_t frame_nr, vt_encode_session_t &session, safe::mail_raw_t::queue_t<packet_t> &packets, stream::session_t *channel_data, std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
-    auto encoded_frame = session.encode_frame(frame_nr);
-    if (encoded_frame.data.empty()) {
-      BOOST_LOG(error) << "VideoToolbox returned empty packet";
-      return -1;
-    }
-
-    if (frame_nr != encoded_frame.frame_index) {
-      BOOST_LOG(error) << "VideoToolbox frame index mismatch " << frame_nr << " " << encoded_frame.frame_index;
-    }
-
-    auto packet = std::make_unique<packet_raw_generic>(std::move(encoded_frame.data), encoded_frame.frame_index, encoded_frame.idr);
-    packet->channel_data = channel_data;
-    packet->frame_timestamp = frame_timestamp;
-    packets->raise(std::move(packet));
+    trace_enqueued_packet(encode_submit, frame_timestamp, channel_data);
 
     return 0;
   }
@@ -2214,8 +2224,6 @@ namespace video {
       return encode_avcodec(frame_nr, *avcodec_session, packets, channel_data, frame_timestamp);
     } else if (auto nvenc_session = dynamic_cast<nvenc_encode_session_t *>(&session)) {
       return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp);
-    } else if (auto vt_session = dynamic_cast<vt_encode_session_t *>(&session)) {
-      return encode_vt(frame_nr, *vt_session, packets, channel_data, frame_timestamp);
     }
 
     return -1;
@@ -2560,6 +2568,9 @@ namespace video {
       break;
     }
 
+    // Observability: report the effective low-latency encoder configuration once per session.
+    log_avcodec_encode_session(encoder, video_format, config, *ctx);
+
     avcodec_frame_t frame {av_frame_alloc()};
     frame->format = ctx->pix_fmt;
     frame->width = ctx->width;
@@ -2651,21 +2662,6 @@ namespace video {
   }
 
   /**
-   * @brief Create native VideoToolbox encode session.
-   *
-   * @param client_config Client stream configuration negotiated for this session.
-   * @param encode_device Encode device.
-   * @return Constructed VideoToolbox encode session object.
-   */
-  std::unique_ptr<vt_encode_session_t> make_vt_encode_session(const config_t &client_config, std::unique_ptr<platf::vt_encode_device_t> encode_device) {
-    if (!encode_device->init_encoder(client_config, encode_device->colorspace)) {
-      return nullptr;
-    }
-
-    return std::make_unique<vt_encode_session_t>(std::move(encode_device));
-  }
-
-  /**
    * @brief Create encode session.
    *
    * @param disp Display connection or display handle.
@@ -2683,9 +2679,6 @@ namespace video {
     } else if (dynamic_cast<platf::nvenc_encode_device_t *>(encode_device.get())) {
       auto nvenc_encode_device = boost::dynamic_pointer_cast<platf::nvenc_encode_device_t>(std::move(encode_device));
       return make_nvenc_encode_session(config, std::move(nvenc_encode_device));
-    } else if (dynamic_cast<platf::vt_encode_device_t *>(encode_device.get())) {
-      auto vt_encode_device = boost::dynamic_pointer_cast<platf::vt_encode_device_t>(std::move(encode_device));
-      return make_vt_encode_session(config, std::move(vt_encode_device));
     }
 
     return nullptr;
@@ -2718,6 +2711,9 @@ namespace video {
     auto session = make_encode_session(disp.get(), encoder, config, disp->width, disp->height, std::move(encode_device));
     if (!session) {
       return;
+    }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::encoder_created);
     }
 
     // As a workaround for NVENC hangs and to generally speed up encoder reinit,
@@ -2911,8 +2907,6 @@ namespace video {
       result = disp.make_avcodec_encode_device(pix_fmt);
     } else if (dynamic_cast<const encoder_platform_formats_nvenc *>(encoder.platform_formats.get())) {
       result = disp.make_nvenc_encode_device(pix_fmt);
-    } else if (dynamic_cast<const encoder_platform_formats_vt *>(encoder.platform_formats.get())) {
-      result = disp.make_vt_encode_device(pix_fmt);
     }
 
     if (result) {
@@ -2958,6 +2952,9 @@ namespace video {
     auto session = make_encode_session(disp, encoder, ctx.config, img.width, img.height, std::move(encode_device));
     if (!session) {
       return std::nullopt;
+    }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::encoder_created);
     }
 
     // Load the initial image to prepare for encoding
@@ -3019,6 +3016,9 @@ namespace video {
 
     if (!disp) {
       return encode_e::capture_error;
+    }
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::display_created);
     }
 
     auto img = disp->alloc_img();
@@ -3660,7 +3660,12 @@ namespace video {
   }
 
   int probe_encoders() {
-    if (!allow_encoder_probing(display_device::enumerate_devices())) {
+    const auto devices {display_device::enumerate_devices()};
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().mark(perf::startup_stage_e::enumerate_displays);
+    }
+
+    if (!allow_encoder_probing(devices)) {
       // Error already logged
       return -1;
     }

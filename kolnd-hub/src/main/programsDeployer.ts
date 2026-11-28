@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, cpSync } from 'fs'
+import { existsSync, mkdirSync, cpSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { app } from 'electron'
 import { findKloudGamesExe, getKloudGamesDir } from './kloudGames'
@@ -108,9 +108,86 @@ function deployKloudGames(): ProgramDeployResult {
   }
 }
 
+/**
+ * `source` é mais novo que `target`? Usado só no dev para saber se o build
+ * local do Absolem avançou depois da última cópia para o bundle. Falha de
+ * leitura nunca dispara cópia (trata como "não mais novo").
+ */
+function isSourceNewer(source: string, target: string): boolean {
+  try {
+    return statSync(source).mtimeMs > statSync(target).mtimeMs
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Verifica/copia o build do Absolem para resources/programs/Absolem.
+ *
+ * O Absolem é distribuído como o build Electron pronto (win-unpacked), sem
+ * instalador próprio: roda direto de dentro da pasta do Hub e some junto com
+ * ela na desinstalação. Os dados do app ficam em %APPDATA%\absolem. Ele não tem
+ * versão/release próprios — é atualizado junto com a Hub.
+ */
+function deployAbsolem(): ProgramDeployResult {
+  const targetDir = join(getProgramsDir(), 'Absolem')
+  const targetExe = join(targetDir, 'Absolem.exe')
+  const isDev = !app?.isPackaged
+  const sourceDir = join(getHubBaseDir(), '..', 'Absolem', 'dist', 'win-unpacked')
+  const sourceExe = join(sourceDir, 'Absolem.exe')
+
+  if (existsSync(targetExe)) {
+    // Em produção o instalador do Hub substitui os resources inteiros, então o
+    // que está no bundle é sempre o mais novo. Em dev o bundle copiado pode
+    // ficar para trás: recopia quando o build local for mais recente.
+    const stale = isDev && existsSync(sourceExe) && isSourceNewer(sourceExe, targetExe)
+    if (!stale) {
+      return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+    }
+    logger.info(
+      'programsDeployer',
+      `DEV: build do Absolem em ${sourceDir} é mais novo que o bundle — recopiando`
+    )
+  }
+
+  // Em dev copia do build local; em produção só aceita o que veio nos
+  // resources embutidos no instalador.
+  if (isDev) {
+    if (existsSync(sourceExe)) {
+      try {
+        logger.info(
+          'programsDeployer',
+          `DEV fallback: copiando Absolem de ${sourceDir} para ${targetDir} (não ocorre em produção)`
+        )
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true })
+        }
+        cpSync(sourceDir, targetDir, { recursive: true })
+        return { id: 'absolem', name: 'Absolem', installed: true, path: targetDir }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          id: 'absolem',
+          name: 'Absolem',
+          installed: false,
+          error: `Falha ao copiar Absolem: ${message}`
+        }
+      }
+    }
+  }
+
+  return {
+    id: 'absolem',
+    name: 'Absolem',
+    installed: false,
+    error: `Executável não encontrado em ${targetExe}. Em produção, o instalador deve embutir este programa em resources/programs/Absolem.`
+  }
+}
+
 /** Verifica/implanta todos os programas do ecossistema. */
 export async function deployPrograms(): Promise<ProgramDeployResult[]> {
-  return [deployMarkLvii(), deployKloudGames()]
+  // Absolem por último para preservar a ordem/índices históricos usados nos testes.
+  return [deployMarkLvii(), deployKloudGames(), deployAbsolem()]
 }
 
 /** Gera um relatório em texto do resultado da implantação. */

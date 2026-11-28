@@ -3,7 +3,7 @@
 # Objetivo (item 2.8 do relatório de melhorias): tornar o MSI reproduzível fora da
 # máquina do desenvolvedor. NÃO roda em push/PR — apenas workflow_dispatch e um
 # agendamento semanal (domingo 04:00 UTC). O build completo leva ~30–60 min
-# (primeira execução; o cache de cmake-build-windows pode reduzir as seguintes).
+# (primeira execução; o cache de cmake-build-release pode reduzir as seguintes).
 #
 # A PRIMEIRA execução real (workflow_dispatch) é responsabilidade do usuário do
 # repositório (push/dispatch exigem permissão de escrita). Este workflow foi
@@ -37,7 +37,7 @@
 # dotnet) → correções idempotentes de renomeação do snapshot → submódulos
 # (clone raso dos ausentes com --depth 1 + init aninhado, PULANDO
 # build-deps|flatpak e seus FFmpeg aninhados) → pacman ucrt64 → cmake -G Ninja
-# (RelWithDebInfo) + ninja → cpack -G WIX → cópia do MSI para
+# (Release, sem docs/testes) + ninja → cpack -G WIX → cópia do MSI para
 # kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi.
 #
 # Saída: kolnd-hub/resources/programs/kloud-games/KLOUD_GAMES.msi (empacotado
@@ -56,16 +56,18 @@
 # kloud-games é uma ÁRVORE comum do monorepo (não é um gitlink), então o SHA do
 # HEAD do monorepo identifica corretamente todo o conteúdo do fork.
 #
-# Trade-off do cache de build: `kloud-games/cmake-build-windows` contém os
-# objetos C++ (RelWithDebInfo, facilmente >1 GB) e o .wix baixado pelo CMake
-# (o plano 2.8 o chamava de `kloud-games/build`; o diretório REAL, definido em
-# $BuildDir no ps1, é cmake-build-windows — renomear aqui quebraria o cache).
+# Trade-off do cache de build: `kloud-games/cmake-build-release` contém os
+# objetos C++ do perfil de release (sem docs/testes, sem debug info) e o .wix
+# baixado pelo CMake. O diretório REAL é definido em $BuildDir no ps1
+# (cmake-build-release); renomear aqui quebraria o cache. O build de
+# desenvolvimento continua em cmake-build-windows e não entra no cache.
 # Limite de cache do repositório: 10 GB, evicção por LRU. A chave usa o SHA do
 # HEAD do monorepo + o hash do ps1; qualquer push invalida o cache — correto,
 # pois o build depende de todo o fork. CMakeCache.txt guarda caminhos
 # absolutos, estáveis entre runs (D:\a\<repo>\<repo>). Se a restauração vier de
-# um estado estranho, o ps1 detecta toolchain divergente (sem g++.exe no cache)
-# e APAGA o diretório para reconfigurar do zero — falha de cache é segura.
+# um estado estranho, o ps1 detecta toolchain ou perfil divergente (sem
+# g++.exe / CMAKE_BUILD_TYPE != Release / docs ou testes ligados no cache) e
+# APAGA o diretório para reconfigurar do zero — falha de cache é segura.
 # Se o cache não couber/não ajudar, este step pode ser removido (build sempre
 # do zero, ~30–60 min).
 #
@@ -99,19 +101,19 @@ jobs:
           fetch-depth: 1
 
       # SHA do HEAD do monorepo (kloud-games é árvore comum, não gitlink) —
-      # chaveia o cache de cmake-build-windows. Ver trade-off no cabeçalho.
+      # chaveia o cache de cmake-build-release. Ver trade-off no cabeçalho.
       - name: Chave do cache de build (SHA do HEAD)
         id: kgsha
         shell: pwsh
         run: echo "sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
 
-      - name: Cache do build incremental (cmake-build-windows)
+      - name: Cache do build incremental (cmake-build-release)
         uses: actions/cache@v4
         with:
-          path: kloud-games/cmake-build-windows
-          key: kloud-games-cmake-build-${{ steps.kgsha.outputs.sha }}-${{ hashFiles('kolnd-hub/scripts/build-kloud-games.ps1') }}
+          path: kloud-games/cmake-build-release
+          key: kloud-games-cmake-build-release-${{ steps.kgsha.outputs.sha }}-${{ hashFiles('kolnd-hub/scripts/build-kloud-games.ps1') }}
           restore-keys: |
-            kloud-games-cmake-build-
+            kloud-games-cmake-build-release-
 
       # Pré-requisito do ps1: Node.js NATIVO no PATH (build da Web UI via
       # vite). Node 22 LTS, mesma convenção do ci.yml. Sem cache npm — não há
@@ -136,7 +138,7 @@ jobs:
 
       # Pré-requisito do ps1 e do WiX: .NET SDK 8 (`dotnet --list-sdks`).
       # WiX 4.0.4 é instalado pelo CMake do fork (tool-path dentro de
-      # cmake-build-windows/.wix) — não há step de WiX aqui de propósito.
+      # cmake-build-release/.wix) — não há step de WiX aqui de propósito.
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -172,7 +174,7 @@ jobs:
           - **SHA-256:** ``$hash``
           - **Artefato:** ``kloud-games-msi`` (retenção de 30 dias, Actions > este run > Artifacts)
           - **SHA256SUMS:** kolnd-hub/dist/SHA256SUMS.txt (incluído no artefato)
-          - **Duração esperada:** ~30–60 min na primeira execução (build C++ completo); cache de ``cmake-build-windows`` pode reduzir as seguintes
+          - **Duração esperada:** ~30–60 min na primeira execução (build C++ completo); cache de ``cmake-build-release`` pode reduzir as seguintes
           "@
           $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           Write-Host "MSI: $msi ($sizeMB MB)"

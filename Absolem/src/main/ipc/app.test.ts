@@ -1,0 +1,220 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import pkg from '../../../package.json'
+import type { AbsolemConfig } from '../../shared/config'
+import { IPC } from '../../shared/ipc'
+import { defaultTheme } from '../../shared/theme'
+import { resolveHubVersion } from '../../shared/version'
+import type { IpcContext } from './lifecycle'
+
+type Handler = (event: unknown, payload: unknown) => unknown
+
+const state = vi.hoisted(() => ({
+  handlers: new Map<string, Handler>(),
+  quit: vi.fn(),
+  relaunch: vi.fn(),
+  quittingAtQuit: [] as boolean[]
+}))
+
+vi.mock('electron', () => ({
+  app: {
+    getName: () => 'Absolem',
+    getVersion: () => pkg.version,
+    quit: state.quit,
+    relaunch: state.relaunch
+  },
+  ipcMain: {
+    handle: (channel: string, handler: Handler) => {
+      state.handlers.set(channel, handler)
+    }
+  }
+}))
+
+type AppModule = typeof import('./app')
+type QuitStateModule = typeof import('../quitState')
+
+let appMod: AppModule
+let quitState: QuitStateModule
+
+const defaultConfig: AbsolemConfig = {
+  overlay: {
+    visible: false,
+    position: 'bottom-left',
+    offsetX: 0,
+    offsetY: 0,
+    width: 320,
+    height: 360,
+    shortcut: 'Control+Alt+A',
+    hideOnFullscreen: true
+  },
+  theme: defaultTheme(),
+  voice: {
+    enabled: false,
+    inputDeviceId: null,
+    outputDeviceId: null,
+    outputVolume: 1,
+    maxSessionMinutes: 15,
+    silenceTimeoutSeconds: 20
+  },
+  gemini: {
+    model: 'gemini-2.0-flash',
+    liveModel: 'gemini-3.8-live',
+    temperature: 0.7,
+    monthlyTokenCap: 2_000_000,
+    unlimitedUsage: false
+  },
+  privacy: {
+    telemetry: false,
+    screen: { mode: 'off', blocklist: [], proactive: false }
+  },
+  permissions: {
+    microphone: false,
+    paused: false,
+    categories: {
+      'apps.launch': 'ask',
+      'apps.close': 'ask',
+      'files.read': 'ask',
+      'files.write': 'ask',
+      'system.power': 'deny',
+      'uia.control': 'deny',
+      'web.search': 'allow'
+    }
+  },
+  ui: { language: 'pt-BR', reducedMotion: false, startMinimized: false },
+  usage: { days: {}, warnedMonths: [] },
+  chat: { turns: [] },
+  memory: { enabled: true, autoExtract: true, lastConsolidationAt: null, note: '' },
+  web: { enabled: true },
+  routines: []
+}
+
+function makeContext(): IpcContext {
+  return {
+    getMainWindow: () => null,
+    getOverlayWindow: () => null,
+    getStoreSnapshot: () => defaultConfig,
+    isQuitting: quitState.isQuitting
+  }
+}
+
+function handlerFor(channel: string): Handler {
+  const handler = state.handlers.get(channel)
+  if (!handler) throw new Error(`handler ausente para ${channel}`)
+  return handler
+}
+
+beforeEach(async () => {
+  vi.resetModules()
+  state.handlers.clear()
+  state.quit.mockReset()
+  state.relaunch.mockReset()
+  state.quittingAtQuit = []
+  quitState = await import('../quitState')
+  appMod = await import('./app')
+  appMod.registerAppIpc(makeContext())
+  state.quit.mockImplementation(() => {
+    state.quittingAtQuit.push(quitState.isQuitting())
+  })
+})
+
+describe('IPC base do app', () => {
+  it('app:get-info devolve nome, versão e plataforma', () => {
+    const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+    expect(result).toEqual({
+      ok: true,
+      info: {
+        name: 'Absolem',
+        version: resolveHubVersion(process.env, pkg.version),
+        platform: process.platform,
+        electron: process.versions.electron ?? '',
+        chromium: process.versions.chrome ?? '',
+        node: process.versions.node ?? ''
+      }
+    })
+  })
+
+  it('app:get-info usa a versão da Hub injetada no ambiente', () => {
+    const previous = process.env.ABSOLEM_HUB_VERSION
+    process.env.ABSOLEM_HUB_VERSION = '1.2.2'
+    try {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toMatchObject({ ok: true, info: { version: '1.2.2' } })
+    } finally {
+      if (previous === undefined) delete process.env.ABSOLEM_HUB_VERSION
+      else process.env.ABSOLEM_HUB_VERSION = previous
+    }
+  })
+
+  it('app:get-info ignora valor inválido e usa o fallback do Electron', () => {
+    const previous = process.env.ABSOLEM_HUB_VERSION
+    process.env.ABSOLEM_HUB_VERSION = 'não-é-versão'
+    try {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toMatchObject({ ok: true, info: { version: pkg.version } })
+    } finally {
+      if (previous === undefined) delete process.env.ABSOLEM_HUB_VERSION
+      else process.env.ABSOLEM_HUB_VERSION = previous
+    }
+  })
+
+  // Prova T6: roda só quando o ambiente traz a versão da Hub (como no launch
+  // real). `ABSOLEM_HUB_VERSION=1.2.2 npx vitest run src/main/ipc/app.test.ts`
+  it.runIf(process.env.ABSOLEM_HUB_VERSION === '1.2.2')(
+    'T6: app:get-info devolve a versão 1.2.2 injetada pela Hub no processo',
+    () => {
+      const result = handlerFor(IPC.appGetInfo)(undefined, undefined)
+      expect(result).toEqual({
+        ok: true,
+        info: {
+          name: 'Absolem',
+          version: '1.2.2',
+          platform: process.platform,
+          electron: process.versions.electron ?? '',
+          chromium: process.versions.chrome ?? '',
+          node: process.versions.node ?? ''
+        }
+      })
+    }
+  )
+
+  it('payload inválido não lança e devolve ok false', () => {
+    const getInfo = handlerFor(IPC.appGetInfo)
+    const invalidGetInfo = { unexpected: true }
+
+    expect(() => getInfo(undefined, invalidGetInfo)).not.toThrow()
+    expect(getInfo(undefined, invalidGetInfo)).toMatchObject({ ok: false })
+
+    const quit = handlerFor(IPC.appQuit)
+    expect(() => quit(undefined, { unexpected: true })).not.toThrow()
+    expect(quit(undefined, { unexpected: true })).toMatchObject({ ok: false })
+    expect(state.quit).not.toHaveBeenCalled()
+  })
+
+  it('app:quit chama markQuitting antes de app.quit', () => {
+    expect(quitState.isQuitting()).toBe(false)
+
+    const result = handlerFor(IPC.appQuit)(undefined, undefined)
+
+    expect(result).toEqual({ ok: true })
+    expect(state.quit).toHaveBeenCalledTimes(1)
+    expect(state.quittingAtQuit).toEqual([true])
+    expect(quitState.isQuitting()).toBe(true)
+  })
+
+  it('app:relaunch agenda o mesmo executável e encerra ordenadamente', () => {
+    const result = handlerFor(IPC.appRelaunch)(undefined, undefined)
+
+    expect(result).toEqual({ ok: true })
+    expect(state.relaunch).toHaveBeenCalledTimes(1)
+    expect(state.quit).toHaveBeenCalledTimes(1)
+    expect(state.quittingAtQuit).toEqual([true])
+  })
+
+  it('app:relaunch é idempotente e valida payload', () => {
+    const relaunch = handlerFor(IPC.appRelaunch)
+    expect(relaunch(undefined, { unexpected: true })).toMatchObject({ ok: false })
+    expect(state.relaunch).not.toHaveBeenCalled()
+    expect(relaunch(undefined, undefined)).toEqual({ ok: true })
+    expect(relaunch(undefined, undefined)).toEqual({ ok: true })
+    expect(state.relaunch).toHaveBeenCalledTimes(1)
+  })
+})

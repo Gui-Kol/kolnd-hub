@@ -7,7 +7,7 @@ coverage/
 Thumbs.db
 
 # Built program bundles (regenerate with scripts/build-*.ps1)
-resources/programs/MarkLVII/
+resources/programs/Absolem/
 resources/programs/kloud-games/KLOUD_GAMES.exe
 resources/programs/kloud-games/assets/
 resources/programs/kloud-games/kloud-games.paths.json
@@ -16,3 +16,7 @@ resources/programs/kloud-games/kloud-games.paths.json
 # nunca entram no git). pins.json e COPYING são versionados de propósito.
 resources/pawnio/*.bin
 resources/pawnio/*.exe
+
+# PresentMon (motor de FPS baixado por scripts/fetch-presentmon.ps1). O binário
+# nunca entra no git; pins.json e COPYING são versionados de propósito.
+resources/fps/*.exe

@@ -18,6 +18,11 @@ interface LayoutProps {
   onOpenSearch: () => void
   /** Faixa de atualização (App decide quando existe e quando foi adiada). */
   updateBanner?: ReactNode
+  /**
+   * Sem padding interno e sem rolagem: usado só pela página Chat, cujo
+   * <webview> ocupa a área toda (p-8/overflow-y-auto quebrariam o tamanho).
+   */
+  fullBleed?: boolean
 }
 
 /**
@@ -35,7 +40,8 @@ export function Layout({
   onExit,
   onEnterBigPicture,
   onOpenSearch,
-  updateBanner
+  updateBanner,
+  fullBleed = false
 }: LayoutProps): JSX.Element {
   return (
     <div className="h-screen flex flex-col">
@@ -114,7 +120,11 @@ export function Layout({
 
       {/* ── Main content area — largura total, único container rolável ── */}
       {/* tabIndex={-1}: permite o skip-link levar o foco para o conteúdo por teclado */}
-      <main id="conteudo" tabIndex={-1} className="flex-1 overflow-y-auto p-8 pb-12">
+      <main
+        id="conteudo"
+        tabIndex={-1}
+        className={fullBleed ? 'flex-1 overflow-hidden p-0' : 'flex-1 overflow-y-auto p-8 pb-12'}
+      >
         {children}
       </main>
     </div>

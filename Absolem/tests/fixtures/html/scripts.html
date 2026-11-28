@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <title>Página com scripts</title>
+    <style>
+      body {
+        background: #000;
+      }
+    </style>
+    <script>
+      const segredo = 'TOKEN_DO_SCRIPT_NAO_DEVE_APARECER'
+      console.log(segredo)
+    </script>
+  </head>
+  <body>
+    <h1>Conteúdo visível</h1>
+    <p>Este parágrafo é o conteúdo real da página.</p>
+    <noscript>ATIVAR_JAVASCRIPT_NAO_DEVE_APARECER</noscript>
+    <form>
+      <label>Senha <input type="password" value="SENHA_DO_FORMULARIO" /></label>
+    </form>
+    <svg><text>SVG_NAO_DEVE_APARECER</text></svg>
+    <iframe src="https://example.test">IFRAME_NAO_DEVE_APARECER</iframe>
+  </body>
+</html>

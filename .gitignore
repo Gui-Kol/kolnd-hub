@@ -54,10 +54,27 @@ desktop.ini
 # Artefatos de migração gerados em runtime (guardam caminhos absolutos da máquina)
 *.migrated
 
-# Nunca commitar dados de usuário do Mark LVII / bundles gerados
-Mark-LVII/config/api_keys.json
+# Nunca commitar dados de usuário / bundles gerados
 kolnd-hub-userdata-backups/
-resources/programs/MarkLVII/
+resources/programs/Absolem/
+resources/programs/Absolem/
 
 # Gerente agent working files (task tracking, not for commit)
 gerente/tasks/
+
+# Credenciais e dados pessoais (defesa em profundidade; ver scripts/check-secrets.mjs)
+secrets.bin
+api_keys.json
+*.pem
+*.pfx
+*.p12
+client_secret*.json
+token*.json
+*credentials*.json
+.env*
+!.env.example
+**/config/certs/
+**/config/whatsapp_web/
+**/memory.sqlite*
+gerente/memory.md
+gerente/task.md

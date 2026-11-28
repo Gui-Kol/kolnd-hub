@@ -1,0 +1,78 @@
+# electron-builder final (task 32). Sem instalador/release próprios: o Absolem é
+# embarcado no Kolnd Hub (resources/programs/Absolem) como build win-unpacked e
+# atualizado junto com a Hub.
+appId: com.kolnd.absolem
+productName: Absolem
+
+directories:
+  buildResources: resources
+  output: dist
+
+# Somente o app empacotado: código-fonte, testes, docs, configs internos e
+# scripts de build ficam fora do app.asar. LICENSE acompanha a distribuição.
+files:
+  - '!**/.vscode/*'
+  - '!src'
+  - '!src/**'
+  - '!tests'
+  - '!tests/**'
+  - '!coverage'
+  - '!coverage/**'
+  - '!test-results'
+  - '!test-results/**'
+  - '!playwright-report'
+  - '!playwright-report/**'
+  - '!docs'
+  - '!docs/**'
+  - '!scripts'
+  - '!scripts/**'
+  - '!resources'
+  - '!electron.vite.config.*'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts,eslint.config.mjs}'
+  - '!{tailwind.config.js,postcss.config.js}'
+  - '!{.prettierrc.json,.prettierignore,.gitignore,.gitattributes,.npmrc}'
+  - '!{README.md,electron-builder.yml}'
+  - '!**/*.tsbuildinfo'
+  - '!*.log'
+  # Artefato enxuto (task 10): mapas, tipagem, docs de dependências e fontes
+  # nativas não são carregados em runtime. Licenças (LICENSE/LICENCE/NOTICE)
+  # continuam no pacote.
+  - '!**/*.map'
+  - '!**/*.{ts,tsx}'
+  - '!**/{CHANGELOG,README,HISTORY,AUTHORS,CONTRIBUTORS,SECURITY}*'
+  - '!**/tsconfig.json'
+  - '!**/eslint.config.*'
+  # `better-sqlite3` precisa apenas de lib/ + build/Release/better_sqlite3.node
+  # (fora do asar por asarUnpack); deps/ e src/ são fontes de compilação.
+  - '!**/node_modules/better-sqlite3/{deps,src}/**'
+  # react, react-dom, scheduler e three entram no bundle do renderer; o
+  # main/preload não os exigem (conferido em out/main e out/preload).
+  - '!**/node_modules/{three,react,react-dom,scheduler,loose-envify,js-tokens}/**'
+
+# Ícones da bandeja chegam em <resources>/ (fora do asar).
+extraResources:
+  - from: resources/tray-icon.png
+    to: tray-icon.png
+  - from: resources/tray-icon@2x.png
+    to: tray-icon@2x.png
+
+# app.asar ligado; módulo nativo FORA do asar (better-sqlite3 + qualquer .node).
+asar: true
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/*.node'
+
+# Rebuild dos módulos nativos para a ABI do Electron 28 (Windows x64).
+npmRebuild: true
+
+win:
+  # Ícone do app (lagarta holográfica própria; ver resources/CREDITS.md).
+  # Sem target de instalador: o artefato usado é `dist/win-unpacked`, copiado
+  # para o bundle da Hub por `kolnd-hub/scripts/build-absolem.ps1`.
+  icon: resources/icon.ico
+  # O Absolem precisa operar com a conta elevada e solicita UAC em cada
+  # abertura; não há elevação silenciosa nem script externo.
+  requestedExecutionLevel: requireAdministrator
+
+# Assinatura de código não configurada: não há executável/instalador próprio a
+# assinar. O binário entregue ao usuário é o do Kolnd Hub.

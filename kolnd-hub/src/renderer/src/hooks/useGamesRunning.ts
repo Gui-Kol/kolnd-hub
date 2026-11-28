@@ -1,9 +1,9 @@
 // useGamesRunning — "quais jogos estão abertos?" para a Biblioteca e o Big Picture.
 //
-// Consulta `games:running-map` (uma única chamada PowerShell por sondagem,
-// englobando todos os jogos da tela) em um intervalo leve (4 s) e mantém um
-// Set de ids em execução. O estado é atualizado de forma otimizada: a sondagem
-// só re-renderiza quando a composição de jogos abertos muda de fato.
+// Assina o agendador único do main (`process-watch`, 10 s): cada push dispara
+// `games:running-map`, que aproveita o cache de 5 s da consulta de processos.
+// Antes o hook tinha um timer próprio de 4 s que furava esse cache. O estado é
+// atualizado de forma otimizada: só re-renderiza quando a composição muda.
 //
 // Também expõe `refresh()` para reconsultar imediatamente após lançar ou
 // encerrar um jogo pelo Hub (sensação de resposta instantânea).
@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Game } from '../types'
 
-const POLL_INTERVAL_MS = 4000
+const POLL_INTERVAL_MS = 10000
+const CONSUMER_ID = 'games:running'
 
 export interface UseGamesRunningResult {
   /** Ids dos jogos abertos no momento (fonte: processos do sistema). */
@@ -56,13 +57,21 @@ export function useGamesRunning(games: Game[]): UseGamesRunningResult {
   }, [])
 
   useEffect(() => {
-    // Sondagem inicial (via timer, não síncrona no efeito) + intervalo.
-    // `gamesKey` reexecuta a sondagem quando a lista de jogos muda.
+    let active = true
+    // `gamesKey` reexecuta a assinatura quando a lista de jogos muda; o main
+    // mantém um único timer no menor intervalo pedido por todos os consumidores.
+    const unsubscribe = window.api.onProcessWatchUpdate(() => {
+      if (active) void refresh()
+    })
     const initial = window.setTimeout(() => void refresh(), 0)
-    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS)
+    void window.api.startProcessWatch(CONSUMER_ID, POLL_INTERVAL_MS).catch(() => {
+      // Sem main: mantém o último estado conhecido; o refresh manual continua.
+    })
     return (): void => {
+      active = false
       window.clearTimeout(initial)
-      window.clearInterval(timer)
+      unsubscribe()
+      void window.api.stopProcessWatch(CONSUMER_ID).catch(() => undefined)
     }
   }, [refresh, gamesKey])
 

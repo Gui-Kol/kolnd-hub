@@ -14,10 +14,13 @@ import { existsSync, readdirSync, rmdirSync, rmSync } from 'fs'
 import { basename, join } from 'path'
 import { findHubUninstaller, detectKloudGames } from '../uninstallDetection'
 import { appendKloudGamesUninstallLog } from '../kloudGames'
-import { uninstaller, uninstallKloudGames } from './kloud'
+import { isFpsAgentInstalled, removeFpsAgent } from '../fps/agent'
+import { uninstaller, uninstallKloudGames, removeKloudGamesPerUserConfigs } from './kloud'
+import { ABSOLEM_DATA_BASENAME, getAbsolemDataDir, wipeConfigFolder } from './appConfigs'
 import {
   isHubUninstallInProgress,
   setHubUninstallInProgress,
+  type HubWipeItemError,
   type HubWipeResult,
   type UninstallProgress
 } from './shared'
@@ -55,6 +58,16 @@ export interface HubUninstallComplete {
   kloudError?: string
   stage?: string
   wipeErrors?: string[]
+}
+
+/** Opções injetadas pelo IPC (o domínio não conhece o ProcessManager). */
+export interface HubUninstallOptions {
+  /**
+   * Encerra os programas abertos pelo Hub antes do wipe. Necessário para o
+   * Absolem: com o processo aberto, `memory.sqlite` fica travado no Windows e
+   * a pasta `%APPDATA%\absolem` não pode ser apagada por inteiro.
+   */
+  stopApps?: () => Promise<void>
 }
 
 /** StepIds internos do fluxo do Kloud Games (não devem chegar crus à UI do Hub). */
@@ -216,7 +229,8 @@ const HUB_UNINSTALLER_NOT_FOUND =
  */
 export async function runHubUninstallSteps(
   rawArgs: unknown,
-  emit: (evt: UninstallProgress) => void
+  emit: (evt: UninstallProgress) => void,
+  options: HubUninstallOptions = {}
 ): Promise<HubUninstallResult> {
   if (isHubUninstallInProgress()) {
     return {
@@ -262,6 +276,7 @@ export async function runHubUninstallSteps(
     )
 
     // ── Etapa kloud ─────────────────────────────────────────────────────
+    let kloudWasMissing = false
     if (args.skipKloud) {
       log('[kloud] Pulando o Kloud Games (você escolheu desinstalar só o Hub).\n')
       progress('kloud', 'done', 70, 'Kloud Games pulado')
@@ -269,6 +284,7 @@ export async function runHubUninstallSteps(
       progress('kloud', 'running', 5, 'Verificando o Kloud Games…')
       const detection = detectKloudGames()
       if (detection.status === 'missing') {
+        kloudWasMissing = true
         log('[kloud] Kloud Games não instalado — pulando.\n')
         progress('kloud', 'done', 70, 'Kloud Games não instalado — pulando')
       } else {
@@ -300,6 +316,36 @@ export async function runHubUninstallSteps(
     }
 
     // ── Etapa spawn — inicia o desinstalador NSIS antes de qualquer wipe ──
+    // A captura de FPS é uma TAREFA do Windows que o NSIS não conhece: ela sai
+    // antes do spawn. Se o usuário recusar o UAC, o fluxo continua e a pendência
+    // fica registrada no log (o desinstalador do Windows não a remove sozinho).
+    progress('spawn', 'running', 79, 'Removendo a captura de FPS…')
+    try {
+      const fpsInstalled = await isFpsAgentInstalled()
+      if (fpsInstalled === true) {
+        const fpsRemoval = await removeFpsAgent()
+        if (fpsRemoval.ok) {
+          log('[fps] Tarefa KolndHubFpsCapture removida.\n')
+        } else if (fpsRemoval.cancelled) {
+          log(
+            '[fps] Permissão não concedida: a tarefa KolndHubFpsCapture pode continuar instalada. Remova depois com um UAC (ou reabra o Hub).\n'
+          )
+        } else {
+          log(
+            `[fps] Não foi possível remover a captura: ${fpsRemoval.error ?? 'erro desconhecido'}\n`
+          )
+        }
+      } else if (fpsInstalled === false) {
+        log('[fps] Tarefa de captura não instalada — nada para remover.\n')
+      } else {
+        log('[fps] Não foi possível consultar a tarefa de captura; verifique depois.\n')
+      }
+    } catch (err) {
+      log(
+        `[fps] Falha ao remover a captura de FPS: ${err instanceof Error ? err.message : String(err)}\n`
+      )
+    }
+
     // A ordem importa: se o spawn falhar, nada em %APPDATA%\kolnd-hub foi
     // apagado ainda — o wipe só roda depois do spawn confirmado.
     progress('spawn', 'running', 80, 'Iniciando o desinstalador do Kolnd Hub…')
@@ -321,7 +367,20 @@ export async function runHubUninstallSteps(
     // ── Etapa wipe — só se o usuário escolheu apagar os dados ────────────
     let wipeErrors: string[] | undefined
     if (args.wipeUserData) {
-      progress('wipe', 'running', 90, 'Apagando seus dados em %APPDATA%\\kolnd-hub…')
+      // Programas abertos pelo Hub (ex.: Absolem) precisam sair antes: no
+      // Windows, arquivos abertos (memory.sqlite) bloqueiam a remoção.
+      if (options.stopApps) {
+        progress('wipe', 'running', 90, 'Encerrando os programas abertos pelo Hub…')
+        log('[wipe] Encerrando os programas abertos pelo Hub antes de apagar os dados…\n')
+        try {
+          await options.stopApps()
+        } catch (err) {
+          log(
+            `[wipe] Falha ao encerrar os programas abertos: ${err instanceof Error ? err.message : String(err)}\n`
+          )
+        }
+      }
+      progress('wipe', 'running', 91, 'Apagando seus dados em %APPDATA%\\kolnd-hub…')
       const rootDir = join(app.getPath('appData'), 'kolnd-hub')
       let wipeTotal = 1
       let wipeDone = 0
@@ -339,23 +398,46 @@ export async function runHubUninstallSteps(
           if (count > 0) wipeTotal = count
         }
       )
-      wipeErrors = wipe.errors.map((e) => `${e.item}: ${e.error}`)
-      if (wipe.errors.length > 0) {
+
+      // As configurações do Absolem não ficam em %APPDATA%\kolnd-hub: o
+      // Electron grava tudo em %APPDATA%\absolem. Só apaga com a MESMA escolha
+      // explícita de apagar dados — a opção "manter" preserva as duas pastas.
+      progress('wipe', 'running', 97, 'Apagando as configurações do Absolem…')
+      const absolemWipe = wipeConfigFolder(
+        getAbsolemDataDir(),
+        [ABSOLEM_DATA_BASENAME],
+        log,
+        '[absolem]'
+      )
+
+      // Se o Kloud Games NÃO estava instalado, apaga as configurações por
+      // usuário que o MSI desconhece (sobras de uma remoção anterior). Com
+      // "só o Hub" (skipKloud) ou com o Kloud ainda instalado, nada é tocado.
+      let kloudConfigErrors: HubWipeItemError[] = []
+      if (!args.skipKloud && kloudWasMissing) {
+        progress('wipe', 'running', 98, 'Apagando as configurações do Kloud Games…')
+        const kloudConfigWipe = removeKloudGamesPerUserConfigs(log)
+        kloudConfigErrors = kloudConfigWipe.errors
+      }
+
+      const allErrors = [...wipe.errors, ...absolemWipe.errors, ...kloudConfigErrors]
+      wipeErrors = allErrors.map((e) => `${e.item}: ${e.error}`)
+      if (allErrors.length > 0) {
         log(
-          `[wipe] ${wipe.errors.length} ${wipe.errors.length === 1 ? 'item falhou' : 'itens falharam'} — o desinstalador seguirá mesmo assim. Veja os itens acima.\n`
+          `[wipe] ${allErrors.length} ${allErrors.length === 1 ? 'item falhou' : 'itens falharam'} — o desinstalador seguirá mesmo assim. Veja os itens acima.\n`
         )
         progress(
           'wipe',
           'done',
           98,
-          `Dados apagados com ${wipe.errors.length} falha(s) — detalhes no log`
+          `Dados apagados com ${allErrors.length} falha(s) — detalhes no log`
         )
       } else {
-        progress('wipe', 'done', 98, 'Seus dados foram apagados')
+        progress('wipe', 'done', 98, 'Seus dados e as configurações do Absolem foram apagados')
       }
     } else {
       log('[wipe] wipeUserData=false — nada será apagado (dados e configurações preservados).\n')
-      progress('wipe', 'done', 98, 'Seus dados foram mantidos')
+      progress('wipe', 'done', 98, 'Seus dados e as configurações do Absolem foram mantidos')
     }
 
     progress('done', 'done', 100, 'Concluído')

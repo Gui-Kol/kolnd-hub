@@ -84,6 +84,9 @@ let setHwmonIntervalMs: typeof import('./store').setHwmonIntervalMs
 let getUsageLogPrefs: typeof import('./store').getUsageLogPrefs
 let setUsageLogPrefs: typeof import('./store').setUsageLogPrefs
 let normalizeUsageLogPrefs: typeof import('./store').normalizeUsageLogPrefs
+let getRamAutoPrefs: typeof import('./store').getRamAutoPrefs
+let setRamAutoPrefs: typeof import('./store').setRamAutoPrefs
+let normalizeRamAutoPrefs: typeof import('./store').normalizeRamAutoPrefs
 
 beforeAll(async () => {
   storeMod = await import('./store')
@@ -133,6 +136,9 @@ beforeAll(async () => {
   getUsageLogPrefs = storeMod.getUsageLogPrefs
   setUsageLogPrefs = storeMod.setUsageLogPrefs
   normalizeUsageLogPrefs = storeMod.normalizeUsageLogPrefs
+  getRamAutoPrefs = storeMod.getRamAutoPrefs
+  setRamAutoPrefs = storeMod.setRamAutoPrefs
+  normalizeRamAutoPrefs = storeMod.normalizeRamAutoPrefs
 })
 
 const holder = (): StoreMock => (globalThis as any).__kolndStore
@@ -765,6 +771,53 @@ describe('registro de uso (usageLog)', () => {
   })
 })
 
+describe('otimização automática de RAM (ramAuto)', () => {
+  it('default desligado com 10 minutos; normaliza enabled e o intervalo', () => {
+    expect(getRamAutoPrefs()).toEqual({ enabled: false, intervalMinutes: 10 })
+
+    holder().get.mockImplementation(() => ({ enabled: true, intervalMinutes: 45 }) as never)
+    expect(getRamAutoPrefs()).toEqual({ enabled: true, intervalMinutes: 45 })
+
+    // `enabled` só conta como ligado quando é exatamente true.
+    expect(normalizeRamAutoPrefs({ enabled: 'sim', intervalMinutes: 30 })).toEqual({
+      enabled: false,
+      intervalMinutes: 30
+    })
+    expect(normalizeRamAutoPrefs({ enabled: true, intervalMinutes: 0 })).toEqual({
+      enabled: true,
+      intervalMinutes: 1
+    })
+    expect(normalizeRamAutoPrefs({ enabled: true, intervalMinutes: 200 })).toEqual({
+      enabled: true,
+      intervalMinutes: 60
+    })
+    expect(normalizeRamAutoPrefs(null)).toEqual({ enabled: false, intervalMinutes: 10 })
+  })
+
+  it('setRamAutoPrefs valida o formato e grava o intervalo normalizado', () => {
+    expect(setRamAutoPrefs(null)).toEqual({
+      success: false,
+      error: 'Preferências da otimização automática inválidas.'
+    })
+    expect(setRamAutoPrefs('10')).toEqual({
+      success: false,
+      error: 'Preferências da otimização automática inválidas.'
+    })
+    expect(setRamAutoPrefs({ intervalMinutes: 10 })).toEqual({
+      success: false,
+      error: 'Preferências da otimização automática inválidas: `enabled` deve ser booleano.'
+    })
+    expect(setRamAutoPrefs({ enabled: 'sim', intervalMinutes: 10 })).toEqual({
+      success: false,
+      error: 'Preferências da otimização automática inválidas: `enabled` deve ser booleano.'
+    })
+    expect(holder().set).not.toHaveBeenCalled()
+
+    expect(setRamAutoPrefs({ enabled: true, intervalMinutes: 10.6 })).toEqual({ success: true })
+    expect(holder().set).toHaveBeenCalledWith('ramAuto', { enabled: true, intervalMinutes: 11 })
+  })
+})
+
 // ── config.json corrompido / fallbacks de erro ─────────────────
 
 describe('config.json corrompido (leitura lançando)', () => {
@@ -993,6 +1046,22 @@ describe('migrações de schema (cadeia 1.0.0 → 1.9.0)', () => {
     const invalid = makeFakeStore({ usageLog: { enabled: 'sim', retentionDays: 400 } })
     runChain(invalid)
     expect(invalid.data.usageLog).toEqual({ enabled: true, retentionDays: 30 })
+  })
+
+  it('1.12.0 normaliza ramAuto (default desligado, intervalo preso a 1–60)', () => {
+    expect(typeof migrationsOf()['1.12.0']).toBe('function')
+
+    const empty = makeFakeStore({})
+    migrationsOf()['1.12.0'](empty)
+    expect(empty.data.ramAuto).toEqual({ enabled: false, intervalMinutes: 10 })
+
+    const valid = makeFakeStore({ ramAuto: { enabled: true, intervalMinutes: 45 } })
+    migrationsOf()['1.12.0'](valid)
+    expect(valid.data.ramAuto).toEqual({ enabled: true, intervalMinutes: 45 })
+
+    const invalid = makeFakeStore({ ramAuto: { enabled: 'sim', intervalMinutes: 200 } })
+    migrationsOf()['1.12.0'](invalid)
+    expect(invalid.data.ramAuto).toEqual({ enabled: false, intervalMinutes: 60 })
   })
 
   it('migrações não lançam mesmo com chaves ilegíveis (arquivo inconsistente)', () => {

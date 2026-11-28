@@ -19,6 +19,7 @@ import { OptionsOverlay, ExitOverlay, DisconnectOverlay } from './BigPictureOver
 import { fadeOnlyTransition, useReducedMotion } from '../lib/motion'
 import { Button, Toast } from './ui'
 import { useGamepad } from '../hooks/useGamepad'
+import { useMinuteClock } from '../hooks/useMinuteClock'
 import { playSfx, setSfxEnabled } from '../lib/sfx'
 import { announce, formatFocusItem, useAnnouncer } from '../lib/useAnnouncer'
 import type { GamepadAction, GamepadConfig } from '../lib/gamepad'
@@ -48,27 +49,6 @@ const SECTION_PREFIX: Record<BigPictureSection, string> = {
 const SECTION_LABEL: Record<BigPictureSection, string> = {
   games: 'Jogos',
   controls: 'Controle'
-}
-
-function formatClock(date: Date): string {
-  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
-}
-
-/** Relógio HH:MM do canto superior direito — re-renderiza no máximo 1× por minuto. */
-function useMinuteClock(): string {
-  const [label, setLabel] = useState<string>(() => formatClock(new Date()))
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setLabel((prev) => {
-        const next = formatClock(new Date())
-        return next === prev ? prev : next
-      })
-    }, 1000)
-    return (): void => window.clearInterval(timer)
-  }, [])
-
-  return label
 }
 
 /**
@@ -673,8 +653,7 @@ function ActiveView({ onExit, inputEnabled = true }: ActiveViewProps): JSX.Eleme
 
 /** Fundo do Big Picture — quase plano (quase-preto azulado, mesma linguagem do
  * modo normal: bg-base → bg-sunken) + vinheta fria sutil (≤ 8%, cor de
- * --shadow-*). Sem orbs/glows, sem scanlines (removidas com aprovação no gate
- * 13.2/13.17). Alvo da máscara radial de revelação na transição (T7):
+ * --shadow-*). Sem orbs/glows. Alvo da máscara radial de revelação na transição (T7):
  * `maskRadiusPx === null` → sem máscara. */
 const BigPictureBackdrop = memo(function BigPictureBackdrop({
   refProp,

@@ -90,7 +90,7 @@ describe('loadAppConfigs — fonte electron-store (IPC)', () => {
     const apps = await loadAppConfigs()
     expect(api.configGet).toHaveBeenCalled()
     expect(apps.some((a) => a.id === 'app-a' && a.command === 'a.exe')).toBe(true)
-    expect(apps.some((a) => a.id === 'mark-lvi')).toBe(true)
+    expect(apps.some((a) => a.id === 'absolem')).toBe(true)
   })
 
   it('store vazio (apps []) → cai no localStorage legado', async () => {
@@ -165,11 +165,11 @@ describe('saveAppConfigs', () => {
 describe('loadImportanceMap / saveImportanceMap', () => {
   it('load: store com startupImportance → retorna o mapa', async () => {
     const api: Api = {
-      configGet: vi.fn().mockResolvedValue({ startupImportance: { 'mark-lvi': 'critico' } })
+      configGet: vi.fn().mockResolvedValue({ startupImportance: { absolem: 'critico' } })
     }
     installWindow(api, {})
     const map = await loadImportanceMap()
-    expect(map).toEqual({ 'mark-lvi': 'critico' })
+    expect(map).toEqual({ absolem: 'critico' })
   })
 
   it('load: store vazio → localStorage legado (parseStartupImportance)', async () => {
@@ -177,11 +177,11 @@ describe('loadImportanceMap / saveImportanceMap', () => {
       configGet: vi.fn().mockResolvedValue({}),
       configMigrate: vi.fn().mockResolvedValue({ success: true })
     }
-    const legacy = JSON.stringify({ 'mark-lvi': 'recomendado', x: 'invalido' })
+    const legacy = JSON.stringify({ absolem: 'recomendado', x: 'invalido' })
     installWindow(api, { [LEGACY_IMPORTANCE_KEY]: legacy })
     const map = await loadImportanceMap()
     expect(api.configMigrate).toHaveBeenCalled()
-    expect(map).toEqual({ 'mark-lvi': 'recomendado' })
+    expect(map).toEqual({ absolem: 'recomendado' })
     expect(localStorage.getItem(LEGACY_IMPORTANCE_BACKUP_KEY)).toBe(legacy)
   })
 
@@ -194,17 +194,15 @@ describe('loadImportanceMap / saveImportanceMap', () => {
   it('save: sucesso → não escreve localStorage', async () => {
     const api: Api = { configSetStartupImportance: vi.fn().mockResolvedValue({ success: true }) }
     installWindow(api, {})
-    await saveImportanceMap({ 'mark-lvi': 'critico' as ImportanceLevel })
+    await saveImportanceMap({ absolem: 'critico' as ImportanceLevel })
     expect(localStorage.getItem(LEGACY_IMPORTANCE_KEY)).toBeNull()
   })
 
   it('save: falha → fallback localStorage', async () => {
     const api: Api = { configSetStartupImportance: vi.fn().mockRejectedValue(new Error('fora')) }
     installWindow(api, {})
-    await saveImportanceMap({ 'mark-lvi': 'inutil' as ImportanceLevel })
-    expect(localStorage.getItem(LEGACY_IMPORTANCE_KEY)).toBe(
-      JSON.stringify({ 'mark-lvi': 'inutil' })
-    )
+    await saveImportanceMap({ absolem: 'inutil' as ImportanceLevel })
+    expect(localStorage.getItem(LEGACY_IMPORTANCE_KEY)).toBe(JSON.stringify({ absolem: 'inutil' }))
   })
 })
 
@@ -213,7 +211,7 @@ describe('snapshot de configGet (uma leitura por processo)', () => {
     const api: Api = {
       configGet: vi.fn().mockResolvedValue({
         apps: [appA],
-        startupImportance: { 'mark-lvi': 'critico' }
+        startupImportance: { absolem: 'critico' }
       })
     }
     installWindow(api, {})
@@ -223,20 +221,20 @@ describe('snapshot de configGet (uma leitura por processo)', () => {
 
     expect(api.configGet).toHaveBeenCalledTimes(1)
     expect(apps.some((a) => a.id === 'app-a')).toBe(true)
-    expect(map).toEqual({ 'mark-lvi': 'critico' })
+    expect(map).toEqual({ absolem: 'critico' })
   })
 
   it('loadImportanceMap(true) descarta o snapshot e enxerga o valor novo', async () => {
     const api: Api = {
       configGet: vi
         .fn()
-        .mockResolvedValueOnce({ startupImportance: { 'mark-lvi': 'critico' } })
-        .mockResolvedValueOnce({ startupImportance: { 'mark-lvi': 'inutil' } })
+        .mockResolvedValueOnce({ startupImportance: { absolem: 'critico' } })
+        .mockResolvedValueOnce({ startupImportance: { absolem: 'inutil' } })
     }
     installWindow(api, {})
 
-    expect(await loadImportanceMap()).toEqual({ 'mark-lvi': 'critico' })
-    expect(await loadImportanceMap(true)).toEqual({ 'mark-lvi': 'inutil' })
+    expect(await loadImportanceMap()).toEqual({ absolem: 'critico' })
+    expect(await loadImportanceMap(true)).toEqual({ absolem: 'inutil' })
     expect(api.configGet).toHaveBeenCalledTimes(2)
   })
 })

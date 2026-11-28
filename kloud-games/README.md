@@ -35,10 +35,6 @@
   <!--! @htmlonly_end -->
   <a href="https://github.com/KLOUD_GAMESStream/KLOUD_GAMES"><img src="https://img.shields.io/github/stars/KLOUD_GAMESStream/KLOUD_GAMES.svg?logo=github&style=for-the-badge" alt="GitHub stars"></a>
   <a href="https://github.com/KLOUD_GAMESStream/KLOUD_GAMES/releases/latest"><img src="https://img.shields.io/github/downloads/KLOUD_GAMESStream/KLOUD_GAMES/total.svg?style=for-the-badge&logo=github" alt="GitHub Releases"></a>
-  <a href="https://hub.docker.com/r/lizardbyte/KLOUD_GAMES"><img src="https://img.shields.io/docker/pulls/lizardbyte/KLOUD_GAMES.svg?style=for-the-badge&logo=docker" alt="Docker"></a>
-  <a href="https://github.com/orgs/LizardByte/packages/container/package/KLOUD_GAMES"><img src="https://img.shields.io/badge/dynamic/json.svg?url=https%3A%2F%2Fipitio.github.io%2Fbackage%2FLizardByte%2FKLOUD_GAMES%2FKLOUD_GAMES.json&query=%24.downloads&label=ghcr%20pulls&style=for-the-badge&logo=github" alt="GHCR"></a>
-  <a href="https://flathub.org/apps/dev.lizardbyte.app.KLOUD_GAMES"><img src="https://img.shields.io/flathub/downloads/dev.lizardbyte.app.KLOUD_GAMES.svg?style=for-the-badge&logo=flathub" alt="Flathub installs"></a>
-  <a href="https://flathub.org/apps/dev.lizardbyte.app.KLOUD_GAMES"><img src="https://img.shields.io/flathub/v/dev.lizardbyte.app.KLOUD_GAMES.svg?style=for-the-badge&logo=flathub" alt="Flathub Version"></a>
   <a href="https://github.com/microsoft/winget-pkgs/tree/master/manifests/l/LizardByte/KLOUD_GAMES"><img src="https://img.shields.io/winget/v/LizardByte.KLOUD_GAMES.svg?style=for-the-badge&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHuSURBVFhH7ZfNTtRQGIYZiMDwN/IrCAqIhMSNKxcmymVwG+5dcDVsWHgDrtxwCYQVl+BChzDEwSnPY+eQ0sxoOz1mQuBNnpyvTdvz9jun5/SrjfxnJUkyQbMEz2ELduF1l0YUA3QyTrMAa2AnPtyOXsELeAYNyKtV2EC3k3lYgTOwg09ghy/BTp7CKBRV844BOpmmMV2+ySb4BmInG7AKY7AHH+EYqqhZo9PPBG/BVDlOizAD/XQFmnoPXzxRQX8M/CCYS48L6RIc4ygGHK9WGg9HZSZMUNRPVwNJGg5Hg2Qgqh4N3FsDsb6EmgYm07iwwvUxstdxJTwgmILf4CfZ6bb5OHANX8GN5x20IVxnG8ge94pt2xpwU3GnCwayF4Q2G2vgFLzHndFzQdk4q77nNfCdwL28qNyMtmEf3A1/QV5FjDiPWo5jrwf8TWZChTlgJvL4F9QL50/A43qVidTvLcuoM2wDQ1+IkgefgUpLcYwMVBqCKNJA2b0gKNocOIITOIef8C/F/CdMbh/GklynsSawKLHS8d9/B1x2LUqsfFyy3TMsWj5A1cLkotDbYO4JjWWZlZEGv8EbOIR1CAVN2eG8W5oNKgxaeC6DmTJjZs7ixUxpznLPLT+v4sXpoMLcLI3mzFSonDXIEI/M3QCIO4YuimBJ/gAAAABJRU5ErkJggg==" alt="Winget Version"></a>
   <a href="https://github.com/KLOUD_GAMESStream/KLOUD_GAMES/actions/workflows/ci.yml?query=branch%3Amaster"><img src="https://img.shields.io/github/actions/workflow/status/KLOUD_GAMESStream/KLOUD_GAMES/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge" alt="GitHub Workflow Status (CI)"></a>
   <a href="https://github.com/KLOUD_GAMESStream/KLOUD_GAMES/actions/workflows/localize.yml?query=branch%3Amaster"><img src="https://img.shields.io/github/actions/workflow/status/KLOUD_GAMESStream/KLOUD_GAMES/localize.yml.svg?branch=master&label=localize%20build&logo=github&style=for-the-badge" alt="GitHub Workflow Status (localize)"></a>
@@ -49,6 +45,11 @@
 ## ℹ️ About
 
 KLOUD_GAMES is a self-hosted game stream host for Moonlight.
+
+> [!IMPORTANT]
+> This fork supports **Windows only**. It is built with MSYS2 UCRT64 using CMake, Ninja and WiX (MSI). Packaging and
+> build instructions for other operating systems were removed.
+
 Offering low-latency, cloud gaming server capabilities with support for AMD, Intel, and Nvidia GPUs for hardware
 encoding. Software encoding is also available. You can connect to KLOUD_GAMES from any Moonlight client on a variety of
 devices. A web UI is provided to allow configuration, and client pairing, from your favorite web browser. Pair from
@@ -67,180 +68,77 @@ LizardByte has the full documentation hosted on [Read the Docs](https://docs.liz
     <caption id="gamepad_emulation">Gamepad Emulation</caption>
     <tr>
         <th>Feature</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
-        <td colspan="5" align="center">
+        <td colspan="2" align="center">
         What type of gamepads can be emulated on the host.<br>
         Clients may support other gamepads.
         </td>
     </tr>
     <tr>
         <td>Generic</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>DualShock / DS4 (PlayStation 4)</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>DualSense / DS5 (PlayStation 5)</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Nintendo Switch Pro</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox 360</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox One</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
     <tr>
         <td>Xbox Series</td>
-        <td>🟡<sup>1</sup></td>
-        <td>✅</td>
-        <td>✅<sup>2</sup></td>
-        <td>✅<sup>3</sup></td>
+        <td>✅<sup>1</sup></td>
     </tr>
 </table>
 
 > [!NOTE]
-> <sup>1</sup> Missing motion, touchpad input, battery state, RGB LEDs, adaptive triggers, and raw HID output reports.
-> <sup>2</sup> Requires the separately installed and licensed Virtual HID Broker.
-> <sup>3</sup> All profiles are available through the separately installed and licensed Virtual HID Broker. Xbox 360 and DualShock 4 can also use ViGEmBus.
+> <sup>1</sup> All profiles are available through the separately installed and licensed Virtual HID Broker. Xbox 360 and DualShock 4 can also use ViGEmBus.
 
 <table>
     <caption id="encoding_api">Encoding API</caption>
     <tr>
         <th>Encoding API</th>
         <th>GPU Vendor</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
         <td>AMF</td>
         <td>AMD</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>Media Foundation</td>
         <td>Qualcomm</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>NVENC</td>
         <td>NVIDIA</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>QuickSync</td>
         <td>Intel</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
-    </tr>
-    <tr>
-        <td rowspan="3">VAAPI</td>
-        <td>AMD</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NVIDIA</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td rowspan="2">Video Toolbox</td>
-        <td>Apple</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td rowspan="3">Vulkan Video</td>
-        <td>AMD</td>
-        <td>🟡</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Intel</td>
-        <td>🟡</td>
-        <td>🟡</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NVIDIA</td>
-        <td>➖</td>
-        <td>🟡</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
     <tr>
         <td>Software</td>
         <td>Any</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>✅</td>
         <td>✅</td>
     </tr>
 </table>
@@ -249,87 +147,23 @@ LizardByte has the full documentation hosted on [Read the Docs](https://docs.liz
     <caption id="screen_capture">Screen Capture</caption>
     <tr>
         <th>Capture Method</th>
-        <th>FreeBSD</th>
-        <th>Linux</th>
-        <th>macOS</th>
         <th>Windows</th>
     </tr>
     <tr>
         <td>DXGI Desktop Duplication</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
-    </tr>
-    <tr>
-        <td>KMS/DRM</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>NvFBC (X11 only)</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>ScreenCaptureKit</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>✅</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>Wayland (wlroots)</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
     <tr>
         <td>Windows.Graphics.Capture</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>🟡</td>
     </tr>
     <tr>
         <td>&nbsp;&nbsp;↳ Portable</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>✅</td>
     </tr>
     <tr>
         <td>&nbsp;&nbsp;↳ Service</td>
-        <td>➖</td>
-        <td>➖</td>
-        <td>➖</td>
         <td>❌</td>
-    </tr>
-    <tr>
-        <td>X11</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>XDG Desktop Portal</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
-    </tr>
-    <tr>
-        <td>KWin Screencast</td>
-        <td>✅</td>
-        <td>✅</td>
-        <td>➖</td>
-        <td>➖</td>
     </tr>
 </table>
 

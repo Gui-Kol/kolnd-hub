@@ -12,7 +12,9 @@ import type {
   DisplaySetResult
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { FpsActivationResult, FpsStatusInfo } from '../shared/fps'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
   ClearUsageResult,
@@ -37,6 +39,25 @@ const api = {
 
   systemRunningProcesses: (): Promise<Array<{ name: string; id: number; path: string }>> =>
     ipcRenderer.invoke('system:running-processes'),
+
+  // Agendador único de processos: o renderer pede o ritmo, o main consulta o
+  // WMI no menor intervalo ativo e empurra o mesmo formato de systemRunningProcesses.
+  startProcessWatch: (id: string, intervalMs: number): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('process-watch:start', { id, intervalMs }),
+
+  stopProcessWatch: (id: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('process-watch:stop', { id }),
+
+  onProcessWatchUpdate: (
+    callback: (processes: Array<{ name: string; id: number; path: string }>) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      processes: Array<{ name: string; id: number; path: string }>
+    ): void => callback(processes)
+    ipcRenderer.on('process-watch:update', handler)
+    return () => ipcRenderer.removeListener('process-watch:update', handler)
+  },
 
   // ── Kloud Games ─────────────────────────────────
   kloudGamesLaunch: (): Promise<{
@@ -215,7 +236,10 @@ const api = {
     ipcRenderer.invoke('startup:addBatch', items),
 
   // ── Winget (Manutenção do PC) ───────────────────
-  listUpgradableUpdates: (): Promise<{
+  // Sem `force` = usa o cache de 10 min do main; `force: true` roda o winget de verdade.
+  listUpgradableUpdates: (
+    force?: boolean
+  ): Promise<{
     ok: boolean
     items?: Array<{
       name: string
@@ -226,7 +250,12 @@ const api = {
     error?: string
     rawLog?: string
     wingetMissing?: boolean
-  }> => ipcRenderer.invoke('winget:list-upgrades'),
+    checkedAt?: string
+    fromCache?: boolean
+  }> =>
+    force === undefined
+      ? ipcRenderer.invoke('winget:list-upgrades')
+      : ipcRenderer.invoke('winget:list-upgrades', { force }),
 
   upgradeOneUpdate: (id: string): Promise<{ ok: boolean; exitCode: number | null; log: string }> =>
     ipcRenderer.invoke('winget:upgrade-one', { id }),
@@ -244,6 +273,18 @@ const api = {
     paths?: string[]
     error?: string
   }> => ipcRenderer.invoke('system:clean-temp'),
+
+  // ── Memória do PC (Meu PC) ───────────────────────
+  ramInfo: (): Promise<RamSnapshot> => ipcRenderer.invoke('ram:info'),
+
+  optimizeRam: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:optimize'),
+
+  purgeStandbyMemory: (): Promise<RamOptimizeResult> => ipcRenderer.invoke('ram:purge-standby'),
+
+  getRamAutoPrefs: (): Promise<RamAutoPrefs> => ipcRenderer.invoke('ram:auto-get'),
+
+  setRamAutoPrefs: (prefs: RamAutoPrefs): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('ram:auto-set', prefs),
 
   // ── Benchmark de CPU (Meu PC) ────────────────────
   // Tipos duplicados de propósito (main/preload/renderer não se importam).
@@ -422,6 +463,11 @@ const api = {
     ipcRenderer.on('hud:update', handler)
     return () => ipcRenderer.removeListener('hud:update', handler)
   },
+
+  // ── Faixa de FPS do HUD (selo/retry no Monitor) ──
+  fpsStatus: (): Promise<FpsStatusInfo> => ipcRenderer.invoke('fps:status'),
+
+  fpsActivate: (): Promise<FpsActivationResult> => ipcRenderer.invoke('fps:activate'),
 
   // ── Biblioteca de jogos ──────────────────────────
   getGames: (): Promise<

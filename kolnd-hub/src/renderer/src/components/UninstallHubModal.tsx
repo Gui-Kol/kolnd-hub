@@ -56,7 +56,7 @@ const STEP_LABELS: Record<string, string> = {
   kloud: 'Desinstalando o Kloud Games…',
   backup: 'Verificando o backup dos seus dados…',
   spawn: 'Iniciando o desinstalador do Kolnd Hub…',
-  wipe: 'Apagando seus dados em %APPDATA%\\kolnd-hub…',
+  wipe: 'Apagando seus dados e as configurações do Absolem…',
   done: 'Concluído'
 }
 
@@ -308,8 +308,10 @@ export function UninstallHubModal({
                 (se estiver instalado) — suas{' '}
                 <span className="text-ink-primary">
                   Streams Moonlight ativas serão interrompidas
-                </span>
-                . Se algo falhar, você decide se desinstala só o Hub.
+                </span>{' '}
+                e as configurações dele (config\, %LOCALAPPDATA%\LizardByte\KLOUD_GAMES e
+                %ProgramData%\KLOUD_GAMES) serão apagadas. Se algo falhar, você decide se desinstala
+                só o Hub.
               </span>
             </li>
             <li className="flex gap-2">
@@ -335,16 +337,18 @@ export function UninstallHubModal({
                 <span className="font-mono">first-run-complete.flag</span>,{' '}
                 <span className="font-mono">logs\</span> e{' '}
                 <span className="font-mono">game-icons\</span> — em{' '}
-                <span className="font-mono">%APPDATA%\kolnd-hub</span>.
+                <span className="font-mono">%APPDATA%\kolnd-hub</span> — e a pasta{' '}
+                <span className="font-mono">%APPDATA%\absolem</span> (configurações, chave cifrada,
+                memória e logs do Absolem).
               </span>
             </li>
           </ol>
 
           <p className="w-full text-left text-[11px] leading-relaxed text-ink-tertiary">
-            O Mark LVII (assistente) será removido junto com a pasta do Kolnd Hub — inclusive a
-            chave de API e a memória, que ficam em{' '}
-            <span className="font-mono">resources\programs\MarkLVII</span> dentro da instalação.
-            Faça o backup abaixo se quiser guardá-las.
+            O Absolem é removido junto com a pasta do Hub ({' '}
+            <span className="font-mono">resources\programs\Absolem</span>) e as configurações dele
+            em <span className="font-mono">%APPDATA%\absolem</span> seguem a sua escolha de dados
+            abaixo: apagadas com "apagar também meus dados", preservadas com "manter".
           </p>
 
           {gateBlocked && (
@@ -419,7 +423,8 @@ export function UninstallHubModal({
                     </Badge>
                   </span>
                   <span className="mt-1 block text-[11px] text-ink-secondary">
-                    %APPDATA%\kolnd-hub fica intacto (config, logs, biblioteca e ícones).
+                    %APPDATA%\kolnd-hub e %APPDATA%\absolem ficam intactos (config, logs,
+                    biblioteca, ícones, memória e chave do Absolem).
                   </span>
                 </span>
               </label>
@@ -450,6 +455,9 @@ export function UninstallHubModal({
                   <li>config.json e first-run-complete.flag (suas preferências)</li>
                   <li>logs\ (histórico de registros)</li>
                   <li>game-icons\ (cache de ícones da Biblioteca)</li>
+                  <li>
+                    %APPDATA%\absolem (configurações, chave cifrada, memória e logs do Absolem)
+                  </li>
                 </ul>
               )}
             </div>
@@ -523,7 +531,11 @@ export function UninstallHubModal({
       {phase === 'running' && (
         <div className="flex flex-col items-center space-y-4 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-card border border-danger-border bg-danger-bg">
-            <Zap size={32} className="animate-pulse text-danger" aria-hidden="true" />
+            <Zap
+              size={32}
+              className="animate-pulse text-danger motion-reduce:animate-none"
+              aria-hidden="true"
+            />
           </div>
           <h3 className="text-lg font-bold text-ink-primary">Desinstalação em andamento</h3>
           <p className="text-sm text-ink-secondary" role="status" aria-live="polite">

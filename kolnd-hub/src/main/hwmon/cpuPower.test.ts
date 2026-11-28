@@ -567,6 +567,102 @@ describe('readCpuPower (Intel)', () => {
   })
 })
 
+describe('base de tempo da amostra (sink de 1 Hz lido a 2 Hz)', () => {
+  it('duas amostras 1 s apart dão os watts corretos pelo timestamp da amostra', async () => {
+    const t0 = 1_000_000
+    const reader = sequenceReader([
+      { available: true, msr: [RAPL_UNIT_2_16, 0n], smn: amdSmn(47.5), sampledAtMs: t0 },
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 2_000_000n],
+        smn: amdSmn(47.5),
+        sampledAtMs: t0 + 1_000
+      }
+    ])
+
+    await readCpuPower(t0, reader, 'amd')
+    const second = await readCpuPower(t0 + 1_000, reader, 'amd')
+    expect(second.watts).toBeCloseTo(30.5176, 3)
+  })
+
+  it('amostra repetida devolve a média atual, não zera e não contamina a próxima', async () => {
+    const t0 = 5_000_000
+    const reader = sequenceReader([
+      { available: true, msr: [RAPL_UNIT_2_16, 0n], smn: amdSmn(47.5), sampledAtMs: t0 },
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 2_000_000n],
+        smn: amdSmn(47.5),
+        sampledAtMs: t0 + 1_000
+      },
+      // O arquivo não mudou: a segunda leitura a 2 Hz vê a MESMA amostra.
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 2_000_000n],
+        smn: amdSmn(47.5),
+        sampledAtMs: t0 + 1_000
+      },
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 6_000_000n],
+        smn: amdSmn(47.5),
+        sampledAtMs: t0 + 2_000
+      }
+    ])
+
+    await readCpuPower(t0, reader, 'amd')
+    const measured = await readCpuPower(t0 + 1_000, reader, 'amd')
+    const repeated = await readCpuPower(t0 + 1_500, reader, 'amd')
+    const next = await readCpuPower(t0 + 2_000, reader, 'amd')
+
+    expect(measured.watts).toBeCloseTo(30.5176, 3)
+    // Repetição não vira `null` nem dobra: devolve exatamente a média vigente.
+    expect(repeated.watts).toBe(measured.watts)
+    // Próxima amostra: 4 M unidades em 1 s (delta da AMOSTRA, não da leitura).
+    // Se o instante tivesse sido reescrito no tick repetido, o delta sairia 2×.
+    expect(next.watts).toBeCloseTo(45.7764, 3)
+  })
+
+  it('usa sampledAtMs e ignora o relógio da leitura (now propositalmente errado)', async () => {
+    const t0 = 9_000_000
+    const reader = sequenceReader([
+      { available: true, msr: [RAPL_UNIT_2_16, 0n], smn: amdSmn(47.5), sampledAtMs: t0 },
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 2_000_000n],
+        smn: amdSmn(47.5),
+        sampledAtMs: t0 + 1_000
+      }
+    ])
+
+    await readCpuPower(t0 - 5_000_000, reader, 'amd')
+    const second = await readCpuPower(t0 + 5_000_000, reader, 'amd')
+    expect(second.watts).toBeCloseTo(30.5176, 3)
+  })
+
+  it('mantém o wrap de 32 bits correto com a base da amostra', async () => {
+    const t0 = 7_000_000
+    const reader = sequenceReader([
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 0xffffff00n],
+        smn: amdSmn(50),
+        sampledAtMs: t0
+      },
+      {
+        available: true,
+        msr: [RAPL_UNIT_2_16, 0x00000100n],
+        smn: amdSmn(50),
+        sampledAtMs: t0 + 1_000
+      }
+    ])
+
+    await readCpuPower(t0, reader, 'amd')
+    const second = await readCpuPower(t0 + 1_000, reader, 'amd')
+    expect(second.watts).toBeCloseTo(0.0078125, 8)
+  })
+})
+
 describe('readCpuPower sem driver', () => {
   it('device fechado devolve available=false e campos null nos dois vendors', async () => {
     for (const vendor of ['amd', 'intel'] as const) {

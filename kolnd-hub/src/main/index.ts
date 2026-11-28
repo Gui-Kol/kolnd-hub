@@ -3,7 +3,7 @@
 // outro módulo do main ser avaliado (ver src/main/crashReporting.ts).
 import './crashReporting'
 import { registerChildProcessCleanup } from './crashReporting'
-import { app, shell, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, Tray, Menu, nativeImage, powerMonitor } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
@@ -19,10 +19,18 @@ import { registerConfigIpc, registerPrefsIpc, getConfigSnapshot, getUsageLogPref
 import { registerGamepadIpc } from './gamepad'
 import { registerWingetIpc } from './wingetUpdater'
 import { registerTempCleanerIpc } from './tempCleaner'
+import { registerRamMonitorIpc } from './ramMonitor'
+import { registerRamOptimizerIpc } from './ramOptimizer'
+import { registerRamAutoIpc, startRamAutoOptimizer, stopRamAutoOptimizer } from './ramAutoOptimizer'
 import { registerBenchmarkIpc } from './benchmark'
-import { registerHwMonitorIpc } from './hwmon'
+import {
+  registerHwMonitorIpc,
+  setHwPollingSystemSuspended,
+  setHwPollingWindowVisible
+} from './hwmon'
 import { registerDisplayIpc } from './displaySettings'
 import { registerHudIpc } from './hud'
+import { registerFpsIpc, startFpsCapture } from './fps'
 import { registerUninstallIpc, isAnyUninstallInProgress } from './uninstaller'
 import { registerGamesIpc, repairGameIconsIfNeeded, flushPlaytimeTracking } from './games'
 import { registerCommandValidateIpc } from './commandValidate'
@@ -36,9 +44,12 @@ import { registerRemoteAccessIpc } from './ipc/remoteAccess'
 import { registerUpdatesIpc } from './ipc/updates'
 import { registerUninstallHubIpc } from './ipc/uninstall'
 import { registerProcessEvents } from './ipc/processEvents'
+import { registerProcessWatchIpc } from './ipc/processWatch'
+import { stopProcessWatch } from './processWatch'
 import { registerDiagnosticIpc } from './ipc/diagnostic'
 import { registerConfigTransferIpc } from './ipc/configTransfer'
 import { registerUsageIpc } from './ipc/usage'
+import { configureChatSession, installChatGuards } from './chat'
 import {
   appendUsageEvent,
   buildUsageEvent,
@@ -158,17 +169,30 @@ function createWindow(isFirstRunMode = false, startHidden = false): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Só a janela principal pode criar o <webview> do Chat; o guest recebe
+      // `webviewTag: false` em `installChatGuards` (ver src/main/chat.ts).
+      webviewTag: true
     }
   })
+
+  // Valida o src, remove o preload e força isolamento/sandbox no guest.
+  installChatGuards(mainWindow)
+
+  // O polling do monitor só roda com alguém olhando: X para a bandeja oculta a
+  // janela e pausa o timer (o HUD, se visível, mantém). `--hidden` nasce oculta
+  // e o estado inicial precisa refletir isso — `show` só dispara ao aparecer.
+  setHwPollingWindowVisible(false)
+  mainWindow.on('show', () => setHwPollingWindowVisible(true))
+  mainWindow.on('hide', () => setHwPollingWindowVisible(false))
 
   mainWindow.on('ready-to-show', () => {
     // --hidden (autostart do Hub no Windows): a janela fica viva e oculta —
     // a bandeja a exibe via "Abrir Kolnd Hub"/clique.
     if (!startHidden) mainWindow!.show()
     // Trabalho best-effort que não precisa estar no caminho da primeira
-    // pintura (seed do Mark LVI + reparo de ícones) roda aqui, uma vez por
-    // sessão, DEPOIS que a janela já está pronta.
+    // pintura (reparo de ícones) roda aqui, uma vez por sessão, DEPOIS que a
+    // janela já está pronta.
     runPostWindowWork()
   })
 
@@ -274,6 +298,19 @@ function showMainWindow(): void {
   mainWindow.focus()
 }
 
+/**
+ * Bloqueio de tela e suspensão do PC: ninguém está olhando os números. O polling
+ * do monitor para sem perder os consumidores e, ao voltar (`unlock-screen` /
+ * `resume`), faz uma coleta imediata antes de reagendar. Idempotente — o Windows
+ * pode emitir `unlock-screen` e `resume` juntos.
+ */
+function registerPowerMonitorWiring(): void {
+  powerMonitor.on('lock-screen', () => setHwPollingSystemSuspended(true))
+  powerMonitor.on('suspend', () => setHwPollingSystemSuspended(true))
+  powerMonitor.on('unlock-screen', () => setHwPollingSystemSuspended(false))
+  powerMonitor.on('resume', () => setHwPollingSystemSuspended(false))
+}
+
 function createTray(): void {
   // Ícone da bandeja como asset em disco (não mais blob base64 inline). Se o
   // arquivo não existir, usa imagem vazia + aviso no log — o app nunca cai
@@ -358,11 +395,26 @@ app.whenReady().then(() => {
   // Registra os canais IPC da limpeza de arquivos temporários.
   registerTempCleanerIpc()
 
+  // Registra o canal IPC do monitor de memória (aba Memória em Meu PC).
+  registerRamMonitorIpc()
+
+  // Registra os canais IPC das otimizações de memória por clique (working sets
+  // sem UAC e standby list com UAC).
+  registerRamOptimizerIpc()
+
+  // Registra a otimização automática de RAM (somente trim, sem UAC) e aplica
+  // a preferência persistida — desligada por padrão.
+  registerRamAutoIpc()
+  startRamAutoOptimizer()
+
   // Registra os canais IPC do benchmark de CPU e do teste de estresse.
   registerBenchmarkIpc()
 
   // Registra os canais IPC do monitor de hardware (aba Monitor em Meu PC).
   registerHwMonitorIpc(ctx)
+
+  // Suspensão do polling do monitor quando a tela bloqueia ou o PC suspende.
+  registerPowerMonitorWiring()
 
   // Registra os canais IPC de escala/resolução de tela (aba Tela em Meu PC).
   registerDisplayIpc(ctx)
@@ -370,6 +422,11 @@ app.whenReady().then(() => {
   // Registra os canais IPC da sobreposição (HUD): atalho global + janela
   // transparente always-on-top. Restaura a preferência persistida.
   registerHudIpc(ctx)
+
+  // Captura de FPS: heartbeat/leitura (Hub aberto) + canais `fps:*` do Monitor.
+  // A tarefa elevada só é instalada no primeiro atalho (T5), nunca aqui.
+  startFpsCapture()
+  registerFpsIpc()
 
   // Registra os canais IPC da biblioteca de jogos.
   registerGamesIpc()
@@ -416,6 +473,9 @@ app.whenReady().then(() => {
   // Reencaminha os eventos do ProcessManager para o renderer (status/output).
   registerProcessEvents(ctx)
 
+  // Agendador único das consultas de processos (Dashboard/Biblioteca/BP assinam).
+  registerProcessWatchIpc(ctx)
+
   // Registra o canal IPC de exportação de diagnóstico (diagnostic:export).
   registerDiagnosticIpc(ctx)
 
@@ -429,6 +489,10 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // Sessão do <webview> do Chat: permissões restritas à origem do site. Precisa
+  // existir antes do primeiro attach (a janela é criada logo abaixo).
+  configureChatSession()
+
   const firstRun = isFirstRun()
   // --hidden: o Windows lança o Hub com essa flag (args registrados no Run,
   // ver loginItem.ts) para subir direto para a bandeja. Ignorado na primeira
@@ -438,8 +502,8 @@ app.whenReady().then(() => {
     logger.info('window', 'Iniciado com --hidden: janela oculta, apenas a bandeja')
   }
 
-  // A janela abre JÁ: seed do Mark LVI e reparo de ícones rodam depois do
-  // `ready-to-show` (ver runPostWindowWork), fora do caminho da primeira pintura.
+  // A janela abre JÁ: o reparo de ícones roda depois do `ready-to-show`
+  // (ver runPostWindowWork), fora do caminho da primeira pintura.
   createWindow(firstRun, startHidden)
   createTray()
 })
@@ -452,6 +516,8 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('before-quit', () => {
+    // Cancela o timer da otimização automática antes de qualquer limpeza.
+    stopRamAutoOptimizer()
     // Qualquer app.quit() (Sair, OS, Playwright) libera o close real da janela.
     markQuitting()
     // Tempo de jogo pendente: flush síncrono no store. Durante a desinstalação
@@ -476,6 +542,11 @@ if (gotSingleInstanceLock) {
     // garante que nenhum filho sobreviva ao Hub. O tray já esperou o killAll()
     // normal antes de chamar app.quit(); esta chamada cobre os demais caminhos.
     processManager.killAllSync()
+  })
+
+  app.on('will-quit', () => {
+    // Para o timer único de processos: nenhuma consulta durante a saída.
+    stopProcessWatch()
   })
 
   app.on('activate', () => {

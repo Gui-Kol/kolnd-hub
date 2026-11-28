@@ -34,20 +34,20 @@ describe('shouldNotifyOnCrash', () => {
 
 describe('crashNotificationBody', () => {
   it('monta a copy pt-BR com o nome amigável', () => {
-    expect(crashNotificationBody('Mark LVII')).toBe(
-      'Mark LVII parou inesperadamente — clique para reabrir.'
+    expect(crashNotificationBody('Absolem')).toBe(
+      'Absolem parou inesperadamente — clique para reabrir.'
     )
   })
 })
 
 describe('resolveCrashNotificationLabel', () => {
   const apps = [
-    { id: 'mark-lvi', name: 'Mark LVII' },
+    { id: 'absolem', name: 'Absolem' },
     { id: 'sem-nome', name: '   ' }
   ]
 
   it('resolve o appId para o nome amigável', () => {
-    expect(resolveCrashNotificationLabel(apps, 'mark-lvi')).toBe('Mark LVII')
+    expect(resolveCrashNotificationLabel(apps, 'absolem')).toBe('Absolem')
   })
 
   it('fallback para o appId quando o app não está na config', () => {

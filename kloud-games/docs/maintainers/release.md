@@ -44,7 +44,6 @@ release tag and does not require an npm access token.
    - Update docs on [Read The Docs](https://app.readthedocs.org/projects/KLOUD_GAMESstream/)
    - Update official [Flathub repo](https://github.com/flathub/dev.lizardbyte.app.KLOUD_GAMES/pulls) via a PR
      (we have merge control)
-   - Update our homebrew-homebrew repo via a PR (https://github.com/LizardByte/homebrew-homebrew/pulls)
    - Update our pacman-repo via a PR (https://github.com/LizardByte/pacman-repo/pulls)
    - Update official
      [Winget repo](https://github.com/microsoft/winget-pkgs/issues?q=is%3Apr%20is%3Aopen%20author%3ALizardByte-bot)

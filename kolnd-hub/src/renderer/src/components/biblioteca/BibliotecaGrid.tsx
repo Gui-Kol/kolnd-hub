@@ -62,7 +62,10 @@ export const BibliotecaGrid = memo(function BibliotecaGrid({
           }}
         >
           <div className="flex items-center gap-2.5">
-            <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-pill bg-success" />
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 animate-pulse rounded-pill bg-success motion-reduce:animate-none"
+            />
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
               Em execução agora
             </h2>
@@ -107,7 +110,7 @@ export const BibliotecaGrid = memo(function BibliotecaGrid({
                     <Badge tone="success">
                       <span
                         aria-hidden="true"
-                        className="h-1.5 w-1.5 animate-pulse rounded-pill bg-success"
+                        className="h-1.5 w-1.5 animate-pulse rounded-pill bg-success motion-reduce:animate-none"
                       />
                       Em execução
                     </Badge>

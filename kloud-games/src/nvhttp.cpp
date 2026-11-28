@@ -32,6 +32,7 @@
 #include "logging.h"
 #include "network.h"
 #include "nvhttp.h"
+#include "perf/latencyTrace.h"
 #include "platform/common.h"
 #include "process.h"
 #include "rtsp.h"
@@ -1379,6 +1380,10 @@ namespace nvhttp {
   void launch(bool &host_audio, resp_https_t response, req_https_t request) {
     print_req<KLOUD_GAMESHTTPS>(request);
 
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().begin(perf::clock_t::now());
+    }
+
     pt::ptree tree;
     bool revert_display_configuration {false};
     auto g = util::fail_guard([&]() {
@@ -1432,13 +1437,23 @@ namespace nvhttp {
       // We want to prepare display only if there are no active sessions at
       // the moment. This should be done before probing encoders as it could
       // change the active displays.
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::configure_display_start);
+      }
       display_device::configure_display(config::video, *launch_session);
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::configure_display_done);
+      }
 
       // Probe encoders again before streaming to ensure our chosen
       // encoder matches the active GPU (which could have changed
       // due to hotplugging, driver crash, primary monitor change,
       // or any number of other factors).
-      if (video::probe_encoders()) {
+      const auto probe_result {video::probe_encoders()};
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::probe_encoders_done);
+      }
+      if (probe_result) {
         tree.put("root.<xmlattr>.status_code", 503);
         tree.put("root.<xmlattr>.status_message", "Failed to initialize video capture/encoding. Is a display connected and turned on?");
         tree.put("root.gamesession", 0);
@@ -1497,6 +1512,10 @@ namespace nvhttp {
   void resume(bool &host_audio, resp_https_t response, req_https_t request) {
     print_req<KLOUD_GAMESHTTPS>(request);
 
+    if (perf::trace_enabled()) {
+      perf::startup_timeline().begin(perf::clock_t::now());
+    }
+
     pt::ptree tree;
     auto g = util::fail_guard([&]() {
       std::ostringstream data;
@@ -1544,13 +1563,23 @@ namespace nvhttp {
       // We want to prepare display only if there are no active sessions at
       // the moment. This should be done before probing encoders as it could
       // change the active displays.
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::configure_display_start);
+      }
       display_device::configure_display(config::video, *launch_session);
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::configure_display_done);
+      }
 
       // Probe encoders again before streaming to ensure our chosen
       // encoder matches the active GPU (which could have changed
       // due to hotplugging, driver crash, primary monitor change,
       // or any number of other factors).
-      if (video::probe_encoders()) {
+      const auto probe_result {video::probe_encoders()};
+      if (perf::trace_enabled()) {
+        perf::startup_timeline().mark(perf::startup_stage_e::probe_encoders_done);
+      }
+      if (probe_result) {
         tree.put("root.resume", 0);
         tree.put("root.<xmlattr>.status_code", 503);
         tree.put("root.<xmlattr>.status_message", "Failed to initialize video capture/encoding. Is a display connected and turned on?");

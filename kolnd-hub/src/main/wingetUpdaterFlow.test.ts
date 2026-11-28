@@ -357,7 +357,8 @@ describe('registerWingetIpc', () => {
     finish(children[0], JSON_UPGRADES)
     await expect(list).resolves.toMatchObject({ ok: true, items: [{ id: 'A.B.App' }] })
 
-    const failing = call('winget:list-upgrades') as Promise<unknown>
+    // A primeira resposta ficou no cache; `force` prova que o erro vem da consulta real.
+    const failing = call('winget:list-upgrades', { force: true }) as Promise<unknown>
     finish(children[1], 'saída estranha')
     await expect(failing).resolves.toMatchObject({
       ok: false,
@@ -408,5 +409,165 @@ describe('registerWingetIpc', () => {
       ok: false,
       error: 'Nenhuma atualização em andamento.'
     })
+  })
+
+  it('cache hit não chama isWingetAvailable nem roda o winget de novo', async () => {
+    mod.registerWingetIpc()
+    const first = call('winget:list-upgrades') as Promise<unknown>
+    finish(children[0], JSON_UPGRADES)
+    await expect(first).resolves.toMatchObject({
+      ok: true,
+      fromCache: false,
+      items: [{ id: 'A.B.App' }]
+    })
+    expect(mocks.isWingetAvailable).toHaveBeenCalledTimes(1)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+
+    await expect(call('winget:list-upgrades')).resolves.toMatchObject({
+      ok: true,
+      fromCache: true,
+      items: [{ id: 'A.B.App' }]
+    })
+    expect(mocks.isWingetAvailable).toHaveBeenCalledTimes(1)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('{ force: true } ignora o cache', async () => {
+    mod.registerWingetIpc()
+    const first = call('winget:list-upgrades') as Promise<unknown>
+    finish(children[0], JSON_UPGRADES)
+    await first
+
+    const forced = call('winget:list-upgrades', { force: true }) as Promise<unknown>
+    finish(children[1], '[]')
+    await expect(forced).resolves.toMatchObject({ ok: true, fromCache: false, items: [] })
+    expect(mocks.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('valida o argumento opcional (objeto apenas com force booleano)', async () => {
+    mod.registerWingetIpc()
+    for (const payload of [null, [], 'sim', 1, { force: 'sim' }, { foo: true }]) {
+      await expect(call('winget:list-upgrades', payload)).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringContaining('inválido')
+      })
+    }
+
+    const handler = mocks.handlers.get('winget:list-upgrades') as (
+      event: unknown,
+      payload?: unknown,
+      ...rest: unknown[]
+    ) => Promise<unknown>
+    await expect(handler({}, undefined, 'extra')).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('inválido')
+    })
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+})
+
+describe('listUpgradableCached — cache curto no main', () => {
+  it('duas chamadas em menos de 10 min executam o winget uma vez', async () => {
+    const first = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+    await expect(first).resolves.toMatchObject({
+      fromCache: false,
+      items: [{ id: 'A.B.App' }]
+    })
+
+    const cached = await mod.listUpgradableCached()
+    expect(cached.fromCache).toBe(true)
+    expect(cached.items).toEqual([
+      { name: 'App', id: 'A.B.App', currentVersion: '1.0.0', availableVersion: '2.0.0' }
+    ])
+    expect(Number.isNaN(Date.parse(cached.checkedAt))).toBe(false)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('após o TTL de 10 min executa de novo', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    try {
+      const first = mod.listUpgradableCached()
+      finish(children[0], JSON_UPGRADES)
+      await first
+
+      now.mockReturnValue(1_000_000 + mod.WINGET_LIST_CACHE_TTL_MS - 1)
+      await expect(mod.listUpgradableCached()).resolves.toMatchObject({ fromCache: true })
+      expect(mocks.spawn).toHaveBeenCalledTimes(1)
+
+      now.mockReturnValue(1_000_000 + mod.WINGET_LIST_CACHE_TTL_MS)
+      const second = mod.listUpgradableCached()
+      finish(children[1], '[]')
+      await expect(second).resolves.toMatchObject({ fromCache: false, items: [] })
+      expect(mocks.spawn).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('force ignora o cache', async () => {
+    const first = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+    await first
+
+    const forced = mod.listUpgradableCached(true)
+    finish(children[1], '[]')
+    await expect(forced).resolves.toMatchObject({ fromCache: false, items: [] })
+    expect(mocks.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('invalidação explícita força nova consulta', async () => {
+    const first = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+    await first
+
+    mod.invalidateUpgradableCache()
+
+    const next = mod.listUpgradableCached()
+    finish(children[1], '[]')
+    await expect(next).resolves.toMatchObject({ fromCache: false, items: [] })
+    expect(mocks.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('chamadas concorrentes compartilham uma única execução', async () => {
+    const a = mod.listUpgradableCached()
+    const b = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+
+    const [resultA, resultB] = await Promise.all([a, b])
+    expect(resultA.items).toEqual(resultB.items)
+    expect(resultA.fromCache).toBe(false)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('erro não é cacheado: a próxima chamada tenta de novo', async () => {
+    const first = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+    await first
+    mod.invalidateUpgradableCache()
+
+    const failing = mod.listUpgradableCached()
+    finish(children[1], 'não é json')
+    await expect(failing).rejects.toBeInstanceOf(mod.WingetParseError)
+
+    const retry = mod.listUpgradableCached()
+    finish(children[2], '[]')
+    await expect(retry).resolves.toMatchObject({ fromCache: false, items: [] })
+    expect(mocks.spawn).toHaveBeenCalledTimes(3)
+  })
+
+  it('sucesso de upgradeOne invalida o cache', async () => {
+    const list = mod.listUpgradableCached()
+    finish(children[0], JSON_UPGRADES)
+    await list
+
+    const upgrade = mod.upgradeOne('A.B.App')
+    children[1].emit('close', 0)
+    await expect(upgrade).resolves.toMatchObject({ ok: true })
+
+    const next = mod.listUpgradableCached()
+    finish(children[2], '[]')
+    await expect(next).resolves.toMatchObject({ fromCache: false, items: [] })
+    expect(mocks.spawn).toHaveBeenCalledTimes(3)
   })
 })

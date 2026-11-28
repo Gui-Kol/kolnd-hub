@@ -19,6 +19,10 @@ export interface WingetListResult {
   rawLog?: string
   /** true quando o winget não está disponível/instalado no sistema. */
   wingetMissing?: boolean
+  /** ISO da consulta real que produziu a lista (mesmo quando servida do cache). */
+  checkedAt?: string
+  /** true quando a lista veio do cache em memória (sem rodar o winget agora). */
+  fromCache?: boolean
 }
 
 export interface WingetUpgradeResult {
@@ -50,6 +54,8 @@ const WINGET_BASE_ARGS = ['upgrade', '--accept-source-agreements', '--accept-pac
 const WINGET_LIST_ARGS = ['upgrade']
 /** winget pode demorar na 1ª consulta (sincroniza as fontes) — evita travar para sempre. */
 const WINGET_TIMEOUT_MS = 180_000
+/** Lista de atualizações reutilizada por 10 min: reabrir a aba não roda o winget de novo. */
+export const WINGET_LIST_CACHE_TTL_MS = 10 * 60_000
 const RAW_LOG_MAX_LINES = 25
 const RAW_LOG_MAX_CHARS = 4000
 
@@ -166,6 +172,8 @@ export function upgradeOne(id: string): Promise<WingetUpgradeResult> {
       if (settled) return
       settled = true
       if (currentUpgrade === proc) currentUpgrade = null
+      // O app atualizado sai da lista: força a próxima consulta a ser real.
+      if (result.ok) invalidateUpgradableCache()
       resolve(result)
     }
 
@@ -501,28 +509,122 @@ export async function listUpgradable(): Promise<WingetUpgrade[]> {
   }
 }
 
+/** Última lista bem-sucedida — só sucesso entra no cache; erro nunca é reaproveitado. */
+let upgradableCache: { items: WingetUpgrade[]; checkedAt: number } | null = null
+/** Consulta em voo: chamadas concorrentes compartilham a mesma promessa (1 processo winget). */
+let upgradableInFlight: Promise<WingetUpgrade[]> | null = null
+
+/** Cache válido (dentro do TTL de 10 min) ou null quando expirado/inexistente. */
+function freshUpgradableCache(): { items: WingetUpgrade[]; checkedAt: number } | null {
+  if (!upgradableCache) return null
+  return Date.now() - upgradableCache.checkedAt < WINGET_LIST_CACHE_TTL_MS ? upgradableCache : null
+}
+
+/** true quando há uma lista cacheada ainda dentro do TTL — evita o probe do `--version`. */
+export function hasFreshUpgradableCache(): boolean {
+  return freshUpgradableCache() !== null
+}
+
+/** Descarta a lista cacheada; a próxima consulta volta a rodar o winget de verdade. */
+export function invalidateUpgradableCache(): void {
+  upgradableCache = null
+}
+
+export interface CachedUpgradableResult {
+  items: WingetUpgrade[]
+  /** ISO da consulta real que produziu a lista (não do momento do cache hit). */
+  checkedAt: string
+  /** true quando a resposta veio do cache, sem executar o winget. */
+  fromCache: boolean
+}
+
+/**
+ * Lista de atualizações com cache curto no main.
+ * - `force` ignora o cache (botão "Verificar novamente").
+ * - Sucesso fica 10 min no cache; erro não é cacheado (a próxima chamada tenta de novo).
+ * - Consultas concorrentes compartilham a promessa em voo — nunca dois winget iguais.
+ */
+export async function listUpgradableCached(force = false): Promise<CachedUpgradableResult> {
+  if (!force) {
+    const cached = freshUpgradableCache()
+    if (cached) {
+      return {
+        items: cached.items,
+        checkedAt: new Date(cached.checkedAt).toISOString(),
+        fromCache: true
+      }
+    }
+  }
+
+  if (!upgradableInFlight) {
+    upgradableInFlight = listUpgradable()
+      .then((items) => {
+        upgradableCache = { items, checkedAt: Date.now() }
+        return items
+      })
+      .finally(() => {
+        upgradableInFlight = null
+      })
+  }
+
+  const items = await upgradableInFlight
+  const checkedAt = upgradableCache?.checkedAt ?? Date.now()
+  return { items, checkedAt: new Date(checkedAt).toISOString(), fromCache: false }
+}
+
+/** Valida o argumento opcional do IPC: ausente ou `{ force?: boolean }` (nada além disso). */
+function parseListPayload(
+  payload: unknown
+): { ok: true; force: boolean } | { ok: false; error: string } {
+  if (payload === undefined) return { ok: true, force: false }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return { ok: false, error: 'Parâmetro inválido: use { force?: boolean }.' }
+  }
+  const keys = Object.keys(payload)
+  if (keys.some((key) => key !== 'force')) {
+    return { ok: false, error: 'Parâmetro inválido: chave desconhecida.' }
+  }
+  const force = (payload as { force?: unknown }).force
+  if (force !== undefined && typeof force !== 'boolean') {
+    return { ok: false, error: 'Parâmetro inválido: "force" deve ser booleano.' }
+  }
+  return { ok: true, force: force === true }
+}
+
 /** Registra os canais IPC relacionados ao winget. */
 export function registerWingetIpc(): void {
-  ipcMain.handle('winget:list-upgrades', async (): Promise<WingetListResult> => {
-    if (!isWingetAvailable()) {
-      return {
-        ok: false,
-        wingetMissing: true,
-        error:
-          'O winget (App Installer) não foi encontrado neste PC. Instale ou atualize o App Installer pela Microsoft Store e tente novamente.'
+  ipcMain.handle(
+    'winget:list-upgrades',
+    async (_event, payload?: unknown, ...rest: unknown[]): Promise<WingetListResult> => {
+      if (rest.length > 0) {
+        return { ok: false, error: 'Parâmetro inválido: argumentos demais.' }
+      }
+      const parsed = parseListPayload(payload)
+      if (!parsed.ok) return { ok: false, error: parsed.error }
+
+      // Cache hit não precisa do probe `winget --version` — é ele que aparecia a
+      // cada ativação da aba. Só consulta a disponibilidade quando vai rodar mesmo.
+      const cacheHit = !parsed.force && hasFreshUpgradableCache()
+      if (!cacheHit && !isWingetAvailable()) {
+        return {
+          ok: false,
+          wingetMissing: true,
+          error:
+            'O winget (App Installer) não foi encontrado neste PC. Instale ou atualize o App Installer pela Microsoft Store e tente novamente.'
+        }
+      }
+      try {
+        const { items, checkedAt, fromCache } = await listUpgradableCached(parsed.force)
+        return { ok: true, items, checkedAt, fromCache }
+      } catch (err) {
+        if (err instanceof WingetParseError) {
+          return { ok: false, error: err.message, rawLog: err.rawLog }
+        }
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: message }
       }
     }
-    try {
-      const items = await listUpgradable()
-      return { ok: true, items }
-    } catch (err) {
-      if (err instanceof WingetParseError) {
-        return { ok: false, error: err.message, rawLog: err.rawLog }
-      }
-      const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: message }
-    }
-  })
+  )
 
   ipcMain.handle(
     'winget:upgrade-one',

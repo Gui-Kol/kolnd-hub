@@ -10,7 +10,6 @@
       3. Kloud Games (web)      - testes da UI (Vitest)               -> kloud-games: npm test
       4. Kloud Games (scripts)  - testes dos instaladores (Pester 5)  -> kloud-games\tests\scripts
       5. Kloud Games (C++)      - testes gtest (binário já compilado) -> kloud-games\cmake-build-windows\tests\test_KLOUD_GAMES.exe
-      6. Mark LVI               - ainda não tem suíte automatizada (04-4.5 pendente) - apenas reportado
 
     O binário gtest NÃO é recompilado por este script: ele reflete o último build
     em kloud-games\cmake-build-windows. A suíte Pester só roda se houver Pester 5+
@@ -300,9 +299,6 @@ if ($SkipKloudGames) {
         Add-Result -Suite 'Kloud Games - C++ (gtest)' -Outcome 'FALHOU' -Code $code -Seconds $elapsed
     }
 }
-
-# 6) Mark LVI - sem suíte automatizada
-Skip-Suite -Suite 'Mark LVI' -Reason 'ainda não existe suíte automatizada no repositório (task 04-4.5 pendente).'
 
 # Resumo
 $totalSeconds = [int]((Get-Date) - $startedAll).TotalSeconds

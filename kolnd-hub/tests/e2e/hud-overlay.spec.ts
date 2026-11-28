@@ -4,6 +4,12 @@ import { mkdirSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import type { E2eContext } from './global-setup'
+import {
+  FPS_LONG_PROCESS_DISPLAY,
+  removeFpsSink,
+  seedFpsSink,
+  startFpsSinkLoop
+} from './fps-fixture'
 
 /**
  * Sobreposição (HUD) no Electron real.
@@ -215,6 +221,8 @@ async function inspectHudLayout(hud: Page): Promise<HudLayoutSnapshot | null> {
 
 test('sobreposição (HUD): sem título, canto superior esquerdo e tamanho automático', async () => {
   test.setTimeout(300_000)
+  const ctx = loadContext()
+  const stopSink = startFpsSinkLoop(ctx.userDataDir)
   const app = await launchApp()
 
   try {
@@ -262,6 +270,46 @@ test('sobreposição (HUD): sem título, canto superior esquerdo e tamanho autom
     for (const testId of ['hud-cpu', 'hud-gpu', 'hud-ram', 'hud-energy']) {
       await expect(hud.getByTestId(testId)).toBeVisible()
     }
+
+    // (b2) Faixa de FPS semeada pelo fixture: número vivo + frametime + nome
+    // longo (sem `.exe`). Nada de elevação: o sink de teste é um arquivo.
+    await expect(hud.getByTestId('hud-fps')).toBeVisible()
+    await expect(hud.getByTestId('hud-fps-value')).toHaveText('144')
+    await expect(hud.getByTestId('hud-fps-frametime')).toContainText('6,9')
+    await expect(hud.getByTestId('hud-fps-process')).toHaveText(FPS_LONG_PROCESS_DISPLAY)
+    await expect(hud.getByTestId('hud-fps-state')).toHaveText('ao vivo')
+
+    // (b3) D3: Hub em primeiro plano = "—" + instrução, nunca o FPS do Hub.
+    stopSink()
+    const mainPid = await app.evaluate(() => process.pid)
+    seedFpsSink(ctx.userDataDir, { foregroundPid: mainPid, foregroundName: 'electron.exe' })
+    await expect
+      .poll(async () => hud.getByTestId('hud-fps-value').innerText(), {
+        timeout: 20_000,
+        intervals: [300]
+      })
+      .toBe('—')
+    await expect(hud.getByTestId('hud-fps-state')).toContainText('Abra o jogo e volte a apertar')
+    await expect(hud.getByTestId('hud-fps-process')).toHaveText('—')
+
+    // (b4) Sink velho (> 3 s) = "—" com motivo, sem repetir o último número.
+    seedFpsSink(ctx.userDataDir, { timestamp: new Date(Date.now() - 10_000).toISOString() })
+    await expect
+      .poll(async () => hud.getByTestId('hud-fps-state').innerText(), {
+        timeout: 20_000,
+        intervals: [300]
+      })
+      .toContain('Sem leitura recente')
+    await expect(hud.getByTestId('hud-fps-value')).toHaveText('—')
+
+    // (b5) Sem sink = "—" (motivo varia com a tarefa instalada; nunca número).
+    removeFpsSink(ctx.userDataDir)
+    await expect
+      .poll(async () => hud.getByTestId('hud-fps-value').innerText(), {
+        timeout: 20_000,
+        intervals: [300]
+      })
+      .toBe('—')
     // Vcore é uma métrica da seção CPU; com o agente elevado ativo vem um
     // número com 3 casas, sem ele vem "—" (nunca uma estimativa).
     const cpuVoltage = hud.getByTestId('hud-cpu-voltage')
@@ -434,6 +482,8 @@ test('sobreposição (HUD): sem título, canto superior esquerdo e tamanho autom
       await reopened.close().catch(() => undefined)
     }
   } finally {
+    stopSink()
+    removeFpsSink(ctx.userDataDir)
     await app.close().catch(() => {
       try {
         app.process().kill()
@@ -458,6 +508,8 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
 
   const app = await launchApp()
   let mainWindow: Page | null = null
+  const ctx = loadContext()
+  const stopSink = startFpsSinkLoop(ctx.userDataDir)
 
   try {
     const window = await app.firstWindow()
@@ -564,6 +616,8 @@ test('sobreposição (HUD): 1/2 colunas e nenhum corte de 180 a 560 px', async (
       )
     }
   } finally {
+    stopSink()
+    removeFpsSink(ctx.userDataDir)
     // D10: restaura o padrão e oculta o HUD mesmo em falha — o userData é
     // compartilhado e `hud.visible=true` contaminaria o próximo teste.
     if (mainWindow) {

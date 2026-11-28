@@ -2,17 +2,17 @@ import { AppConfig } from '../types'
 
 export const apps: AppConfig[] = [
   {
-    id: 'mark-lvi',
-    name: 'Mark LVII (JARVIS)',
+    id: 'absolem',
+    name: 'Absolem',
     description:
-      'Assistente pessoal de voz com IA em tempo real. Avatar holográfico com lip-sync, controle do computador e suporte a 50+ idiomas.',
-    icon: '🎙️',
-    color: '#F59E0B',
-    gradient: 'from-amber-500 to-orange-500',
-    command: 'MarkLVII.exe',
-    cwd: 'resources/programs/MarkLVII',
+      'Assistente de IA na área de trabalho, com avatar holográfico, voz em tempo real, memória local e Gemini.',
+    icon: '🐛',
+    color: '#38BDF8',
+    gradient: 'from-sky-500 to-cyan-500',
+    command: 'Absolem.exe',
+    cwd: 'resources/programs/Absolem',
     category: 'ai',
-    tags: ['IA', 'Voz', 'Assistente']
+    tags: ['IA', 'Voz', 'Avatar']
   },
   {
     id: 'kloud-games',

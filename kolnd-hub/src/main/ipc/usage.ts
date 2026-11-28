@@ -89,7 +89,13 @@ export function registerUsageIpc(ctx: IpcContext): void {
           byDay: [],
           topApps: [],
           topGames: [],
-          pageViews: { dashboard: 0, settings: 0, inicializacao: 0, biblioteca: 0 }
+          pageViews: {
+            dashboard: 0,
+            settings: 0,
+            inicializacao: 0,
+            biblioteca: 0,
+            chat: 0
+          }
         },
         error: message
       }

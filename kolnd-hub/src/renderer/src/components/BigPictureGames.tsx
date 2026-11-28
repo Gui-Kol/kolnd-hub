@@ -233,7 +233,10 @@ const GameCard = memo(function GameCard({
               className="inline-flex items-center gap-2 whitespace-nowrap rounded-pill border border-success-border bg-success-bg px-4 py-1.5 text-xs 3xl:text-base font-bold uppercase tracking-[0.2em] text-success"
               title="O jogo está aberto (processo detectado)"
             >
-              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success animate-pulse" />
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 rounded-full bg-success animate-pulse motion-reduce:animate-none"
+              />
               Em execução
             </span>
           )}

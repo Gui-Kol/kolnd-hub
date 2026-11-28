@@ -2204,6 +2204,25 @@ namespace stream {
   }
 
   /**
+   * @brief Return a log-friendly name for a configured encryption mode.
+   *
+   * @param mode One of the `config::ENCRYPTION_MODE_*` values.
+   * @return `never`, `opportunistic`, `mandatory`, or `unknown`.
+   */
+  constexpr std::string_view encryption_mode_name(int mode) {
+    switch (mode) {
+      case config::ENCRYPTION_MODE_NEVER:
+        return "never"sv;
+      case config::ENCRYPTION_MODE_OPPORTUNISTIC:
+        return "opportunistic"sv;
+      case config::ENCRYPTION_MODE_MANDATORY:
+        return "mandatory"sv;
+      default:
+        return "unknown"sv;
+    }
+  }
+
+  /**
    * @brief Run the session video capture and encode thread.
    *
    * @param session Active streaming or pairing session for the request.
@@ -2225,6 +2244,33 @@ namespace stream {
     // Enable local prioritization and QoS tagging on video traffic if requested by the client
     auto address = session->video.peer.address();
     session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, config::stream.dscp_tagging && session->config.videoQosType != 0);
+
+    // Observability: report the effective transport configuration once per video session.
+    const auto address_scope = net::from_address(net::addr_to_normalized_string(address));
+    const auto encryption_policy = net::encryption_mode_for_address(address);
+    const auto video_qos_requested = config::stream.dscp_tagging && session->config.videoQosType != 0;
+
+    std::size_t connected_peers = 0;
+    std::size_t peer_limit = 0;
+    if (auto *enet_host = ref->control_server._host.get(); enet_host) {
+      peer_limit = enet_host->peerCount;
+      for (auto *peer = enet_host->peers; peer != enet_host->peers + enet_host->peerCount; ++peer) {
+        if (peer->state != ENET_PEER_STATE_DISCONNECTED) {
+          ++connected_peers;
+        }
+      }
+    }
+
+    BOOST_LOG(info) << "Transport session: path="sv << net::to_enum_string(address_scope)
+                    << " delivery=udp"sv
+                    << " packetsize="sv << session->config.packetsize
+                    << " fec_percentage="sv << config::stream.fec_percentage
+                    << " dscp_tagging="sv << (config::stream.dscp_tagging ? "on" : "off")
+                    << " video_qos_requested="sv << (video_qos_requested ? "on" : "off")
+                    << " video_qos_applied="sv << (session->video.qos ? "yes" : "no")
+                    << " video_encryption="sv << (session->video.cipher.has_value() ? "on" : "off")
+                    << " encryption_policy="sv << encryption_mode_name(encryption_policy)
+                    << " peers="sv << connected_peers << '/' << peer_limit;
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
     video::capture(session->mail, session->config.monitor, session);

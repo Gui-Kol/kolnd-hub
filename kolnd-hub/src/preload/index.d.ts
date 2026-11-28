@@ -10,7 +10,9 @@ import type {
   DisplaySetResult
 } from '../shared/display'
 import type { HudSize, HudStatus, HudUpdate } from '../shared/hud'
+import type { FpsActivationResult, FpsStatusInfo } from '../shared/fps'
 import type { UpdateCheckResult, UpdateInstallResult, UpdateProgress } from '../shared/updates'
+import type { RamAutoPrefs, RamOptimizeResult, RamSnapshot } from '../shared/ram'
 import type { GameImportReport } from '../shared/gameImport'
 import type {
   ClearUsageResult,
@@ -35,6 +37,12 @@ declare global {
       // ── Sistema ─────────────────────────────────────
       systemPcName: () => Promise<string>
       systemRunningProcesses: () => Promise<Array<{ name: string; id: number; path: string }>>
+      // Agendador único (push do main) — mesmo formato de systemRunningProcesses.
+      startProcessWatch: (id: string, intervalMs: number) => Promise<{ ok: boolean }>
+      stopProcessWatch: (id: string) => Promise<{ ok: boolean }>
+      onProcessWatchUpdate: (
+        callback: (processes: Array<{ name: string; id: number; path: string }>) => void
+      ) => () => void
 
       // ── Kloud Games ─────────────────────────────────
       kloudGamesLaunch: () => Promise<{
@@ -152,7 +160,8 @@ declare global {
       ) => Promise<{ success: boolean; errors: string[] }>
 
       // ── Winget (Manutenção do PC) ───────────────────
-      listUpgradableUpdates: () => Promise<{
+      // Sem `force` = cache de 10 min; `force: true` consulta o winget de verdade.
+      listUpgradableUpdates: (force?: boolean) => Promise<{
         ok: boolean
         items?: Array<{
           name: string
@@ -163,6 +172,8 @@ declare global {
         error?: string
         rawLog?: string
         wingetMissing?: boolean
+        checkedAt?: string
+        fromCache?: boolean
       }>
       upgradeOneUpdate: (
         id: string
@@ -179,6 +190,13 @@ declare global {
         paths?: string[]
         error?: string
       }>
+
+      // ── Memória do PC (Meu PC) ───────────────────────
+      ramInfo: () => Promise<RamSnapshot>
+      optimizeRam: () => Promise<RamOptimizeResult>
+      purgeStandbyMemory: () => Promise<RamOptimizeResult>
+      getRamAutoPrefs: () => Promise<RamAutoPrefs>
+      setRamAutoPrefs: (prefs: RamAutoPrefs) => Promise<{ success: boolean; error?: string }>
 
       // ── Benchmark de CPU (Meu PC) ────────────────────
       runBenchmark: () => Promise<
@@ -275,6 +293,11 @@ declare global {
       onHudStatus: (callback: (status: HudStatus) => void) => () => void
       hudToggle: () => Promise<HudStatus>
       onHudUpdate: (callback: (update: HudUpdate) => void) => () => void
+
+      // ── Faixa de FPS do HUD ──────────────────────────
+      // Tipos canônicos em `src/shared/fps.ts`.
+      fpsStatus: () => Promise<FpsStatusInfo>
+      fpsActivate: () => Promise<FpsActivationResult>
 
       // ── Biblioteca de jogos ───────────────────────
       getGames: () => Promise<

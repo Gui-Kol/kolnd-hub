@@ -47,36 +47,8 @@ describe('parseSavedApps', () => {
 
 describe('migrateLegacyDefaults', () => {
   it('não toca em config personalizada', () => {
-    const custom = app({ id: 'mark-lvi', command: 'meu-jarvis.exe', cwd: 'C:\\opt' })
+    const custom = app({ id: 'absolem', command: 'meu-absolem.exe', cwd: 'C:\\opt' })
     expect(migrateLegacyDefaults(custom)).toEqual(custom)
-  })
-
-  it('atualiza default legado do Mark LVI (fonte) para o Mark LVII embutido', () => {
-    const legacy = app({
-      id: 'mark-lvi',
-      name: 'Mark LVI (JARVIS)',
-      command: 'py main.py',
-      cwd: '../Mark-LVI'
-    })
-    const migrated = migrateLegacyDefaults(legacy)
-    const def = defaultApps.find((d) => d.id === 'mark-lvi')!
-    expect(migrated.command).toBe(def.command)
-    expect(migrated.cwd).toBe(def.cwd)
-    expect(migrated.name).toBe(def.name)
-  })
-
-  it('atualiza default legado do Mark LVI (bundle antigo) para o Mark LVII', () => {
-    const legacy = app({
-      id: 'mark-lvi',
-      name: 'Mark LVI',
-      command: 'MarkLVI.exe',
-      cwd: 'resources/programs/MarkLVI'
-    })
-    const migrated = migrateLegacyDefaults(legacy)
-    const def = defaultApps.find((d) => d.id === 'mark-lvi')!
-    expect(migrated.command).toBe(def.command)
-    expect(migrated.cwd).toBe(def.cwd)
-    expect(migrated.name).toBe(def.name)
   })
 
   it('atualiza default legado do Kloud Games (pré-MSI)', () => {
@@ -98,19 +70,27 @@ describe('mergeAppConfigs', () => {
   })
 
   it('entradas salvas sobrepõem os defaults do mesmo id', () => {
-    const merged = mergeAppConfigs([app({ id: 'mark-lvi', command: 'custom.exe' })])
-    const mark = merged.find((a) => a.id === 'mark-lvi')!
-    expect(mark.command).toBe('custom.exe')
+    const merged = mergeAppConfigs([app({ id: 'absolem', command: 'custom.exe' })])
+    const absolem = merged.find((a) => a.id === 'absolem')!
+    expect(absolem.command).toBe('custom.exe')
   })
 
   it('campos ausentes na entrada salva caem nos defaults', () => {
     // Entrada parcial (runtime real pode vir incompleta do localStorage)
-    const partial = { id: 'mark-lvi', command: 'custom.exe' } as AppConfig
+    const partial = { id: 'absolem', command: 'custom.exe' } as AppConfig
     const merged = mergeAppConfigs([partial])
-    const mark = merged.find((a) => a.id === 'mark-lvi')!
-    expect(mark.command).toBe('custom.exe')
-    expect(mark.name).toBe('Mark LVII (JARVIS)')
-    expect(mark.category).toBe('ai')
+    const absolem = merged.find((a) => a.id === 'absolem')!
+    expect(absolem.command).toBe('custom.exe')
+    expect(absolem.name).toBe('Absolem')
+    expect(absolem.category).toBe('ai')
+  })
+
+  it('descarta entrada salva do Mark LVII (app removido)', () => {
+    const merged = mergeAppConfigs([
+      app({ id: 'mark-lvi', name: 'Mark LVII (JARVIS)', command: 'MarkLVII.exe' }),
+      app({ id: 'kloud-games' })
+    ])
+    expect(merged.some((a) => a.id === 'mark-lvi')).toBe(false)
   })
 
   it('preserva apps salvos que não existem mais nos defaults', () => {
@@ -121,29 +101,45 @@ describe('mergeAppConfigs', () => {
   })
 
   it('não duplica ids', () => {
-    const merged = mergeAppConfigs([app({ id: 'mark-lvi' }), app({ id: 'kloud-games' })])
+    const merged = mergeAppConfigs([app({ id: 'absolem' }), app({ id: 'kloud-games' })])
     const ids = merged.map((a) => a.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('preserva autoRestart no round-trip parse→merge→save (06-6.4)', () => {
     const parsed = parseSavedApps(
-      JSON.stringify([app({ id: 'mark-lvi', autoRestart: true }), app({ id: 'kloud-games' })])
+      JSON.stringify([app({ id: 'absolem', autoRestart: true }), app({ id: 'kloud-games' })])
     )
     expect(parsed).not.toBeNull()
     const merged = mergeAppConfigs(parsed!)
-    expect(merged.find((a) => a.id === 'mark-lvi')?.autoRestart).toBe(true)
+    expect(merged.find((a) => a.id === 'absolem')?.autoRestart).toBe(true)
     expect(merged.find((a) => a.id === 'kloud-games')?.autoRestart).toBeUndefined()
   })
 
   it('preserva persistLogs no round-trip parse→merge→save (05-5.7)', () => {
     const parsed = parseSavedApps(
-      JSON.stringify([app({ id: 'mark-lvi', persistLogs: true }), app({ id: 'kloud-games' })])
+      JSON.stringify([app({ id: 'absolem', persistLogs: true }), app({ id: 'kloud-games' })])
     )
     expect(parsed).not.toBeNull()
     const merged = mergeAppConfigs(parsed!)
-    expect(merged.find((a) => a.id === 'mark-lvi')?.persistLogs).toBe(true)
+    expect(merged.find((a) => a.id === 'absolem')?.persistLogs).toBe(true)
     expect(merged.find((a) => a.id === 'kloud-games')?.persistLogs).toBeUndefined()
+  })
+
+  it('config antiga (só Kloud Games) ganha o Absolem no merge', () => {
+    const merged = mergeAppConfigs([app({ id: 'kloud-games' })])
+    const absolem = merged.find((a) => a.id === 'absolem')
+    expect(absolem).toBeDefined()
+    expect(absolem?.name).toBe('Absolem')
+    expect(absolem?.category).toBe('ai')
+    expect(absolem?.command).toBe('Absolem.exe')
+    expect(absolem?.cwd).toBe('resources/programs/Absolem')
+  })
+
+  it('default do Absolem é ferramenta de IA apontando para o build embutido', () => {
+    const absolem = defaultApps.find((a) => a.id === 'absolem')
+    expect(absolem?.category).toBe('ai')
+    expect(absolem?.command).toBe('Absolem.exe')
   })
 })
 

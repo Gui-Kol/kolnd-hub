@@ -5,7 +5,7 @@
  * (apps completos — inclusive command/cwd, biblioteca de jogos, importação
  * do startup, prefs do Big Picture e controle) para levar de uma máquina
  * para outra. NÃO inclui logs, ícones de jogos, first-run-flag nem dados
- * do Mark LVI (chave de API/memória vivem fora do config.json).
+ * internos dos programas gerenciados (chaves e memórias vivem fora do config.json).
  *
  * Import é SUBSTITUIÇÃO com backup prévio (feito pelo IPC antes de aplicar),
  * nunca merge. Seções ausentes no arquivo são toleradas (o valor atual

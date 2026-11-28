@@ -51,18 +51,10 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      # resources/programs/MarkLVII is ~600 MB and is not committed to git
-      # (it is produced by scripts/build-mark-lvi.ps1). electron-builder's
-      # extraResources fails if the source does not exist, so the release
-      # build drops a placeholder to validate the packaging pipeline end to
-      # end - the artifact is NOT for public distribution until the real
-      # bundle is used (ver docs/RELEASE.md).
-      - name: Create placeholder resources for packaging
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force resources/programs/MarkLVII | Out-Null
-          Set-Content -Path resources/programs/MarkLVII/README.txt `
-            -Value 'CI placeholder - the real bundle is produced by scripts/build-mark-lvi.ps1 and is not committed.'
+      # electron-builder's extraResources empacota o que existir em
+      # resources/programs (diretório versionado pelo README do Kloud Games);
+      # o MSI real não é commitado e o CI só valida o pipeline de empacotamento.
+      # O artefato NÃO é para distribuição pública sem o MSI real (ver docs/RELEASE.md).
 
       # O updater compara a tag da Release com app.getVersion() (SemVer) e exige
       # o digest SHA-256 do asset anexado. Tag/versao divergentes do

@@ -45,20 +45,20 @@ const mockStore = vi.hoisted(() => ({
         useShell: false
       },
       {
-        id: 'mark-lvi',
-        name: 'Mark LVII Secreto',
+        id: 'absolem',
+        name: 'Absolem Secreto',
         description: '',
         icon: '🤖',
         color: '#fff',
         gradient: 'from-a to-b',
-        command: 'mark-lvii.exe --api-key chave-secreta-999',
-        cwd: 'C:\\apps\\mark-lvii',
+        command: 'absolem.exe --api-key chave-secreta-999',
+        cwd: 'C:\\apps\\absolem',
         category: 'ai' as const,
         tags: [],
         useShell: true
       }
     ],
-    startupImportance: { 'kloud-games': 'critico' as const, 'mark-lvi': 'opcional' as const }
+    startupImportance: { 'kloud-games': 'critico' as const, absolem: 'opcional' as const }
   })),
   getStoredGames: vi.fn(() => [
     {
@@ -231,7 +231,7 @@ describe('buildDiagnosticReport', () => {
     // id + category + useShell por app
     expect(report).toContain('kloud-games')
     expect(report).toContain('gaming')
-    expect(report).toContain('mark-lvi')
+    expect(report).toContain('absolem')
     expect(report).toContain('ai')
   })
 
@@ -239,7 +239,7 @@ describe('buildDiagnosticReport', () => {
     const report = buildDiagnosticReport()
     expect(report).not.toContain('comando-secreto.exe')
     expect(report).not.toContain('diretorio-secreto')
-    expect(report).not.toContain('mark-lvii.exe')
+    expect(report).not.toContain('absolem.exe')
     expect(report).not.toContain('segredo.example.com')
     expect(report).not.toContain('tag-secreta')
     expect(report).not.toContain('Jogo Super Secreto')

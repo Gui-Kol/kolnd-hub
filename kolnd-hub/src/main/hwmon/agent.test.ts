@@ -423,6 +423,27 @@ describe('limpeza das sobras do FPS antigo', () => {
     await fs.writeFile(join(staged, 'KolndFpsEtw.exe'), 'resto')
     expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(true)
   })
+
+  it('a limpeza legada NÃO confunde o diretório capture do FPS novo com lixo', async () => {
+    const dir = await tempDir()
+    const programData = join(dir, 'ProgramData')
+    const sinkDir = join(dir, 'sensors')
+    const capture = join(programData, 'Kolnd Hub', 'capture')
+    await fs.mkdir(capture, { recursive: true })
+    await fs.writeFile(join(capture, 'latest.json'), '{}')
+
+    // A captura nova não é sobra: o driver não deve oferecer re-estágio.
+    expect(hasLeftoverFpsArtifacts(sinkDir, programData)).toBe(false)
+
+    // E os scripts elevados do agente de sensores continuam mirando ...\fps.
+    for (const script of [
+      buildSensorsAgentInstallScript(OPTIONS),
+      buildSensorsAgentRemoveScript(OPTIONS.sinkDir)
+    ]) {
+      expect(script).not.toContain(capture)
+      expect(script).toContain(join('Kolnd Hub', 'fps'))
+    }
+  })
 })
 
 describe('parseSensorsLatest', () => {
@@ -493,9 +514,10 @@ describe('createSensorsAgentReader', () => {
     const previous = process.env.KOLDND_HUB_SENSORS_DIR
     process.env.KOLDND_HUB_SENSORS_DIR = dir
     try {
+      const timestamp = new Date()
       await fs.writeFile(
         join(dir, 'latest.json'),
-        JSON.stringify(realSink({ timestamp: new Date().toISOString() })),
+        JSON.stringify(realSink({ timestamp: timestamp.toISOString() })),
         'utf8'
       )
       const result = await createSensorsAgentReader().readBatch({
@@ -505,6 +527,8 @@ describe('createSensorsAgentReader', () => {
       expect(result.available).toBe(true)
       expect(result.msr).toEqual([BigInt(0x000a1003), 123456789n])
       expect(result.smn).toEqual([BigInt(0x6dfb0000)])
+      // A base de tempo dos watts é o timestamp do arquivo, não a hora da leitura.
+      expect(result.sampledAtMs).toBe(timestamp.getTime())
     } finally {
       if (previous === undefined) delete process.env.KOLDND_HUB_SENSORS_DIR
       else process.env.KOLDND_HUB_SENSORS_DIR = previous
@@ -529,6 +553,8 @@ describe('createSensorsAgentReader', () => {
       expect(result.msr).toEqual([null])
       expect(result.smn).toEqual([null])
       expect(result.error).toContain('não está ativa')
+      // Stale não tem amostra: sem timestamp inventado.
+      expect(result.sampledAtMs).toBeUndefined()
     } finally {
       if (previous === undefined) delete process.env.KOLDND_HUB_SENSORS_DIR
       else process.env.KOLDND_HUB_SENSORS_DIR = previous

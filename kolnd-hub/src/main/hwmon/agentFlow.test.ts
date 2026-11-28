@@ -177,6 +177,8 @@ describe('createSensorsAgentReader', () => {
       available: true,
       msr: [10n, null],
       smn: [20n],
+      // O leitor preserva o timestamp da amostra (base de tempo dos watts).
+      sampledAtMs: expect.any(Number),
       error: undefined
     })
   })

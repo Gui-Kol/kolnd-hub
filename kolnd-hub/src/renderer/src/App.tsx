@@ -35,6 +35,7 @@ const Inicializacao = lazy(() =>
 const Biblioteca = lazy(() =>
   import('./components/Biblioteca').then((m) => ({ default: m.Biblioteca }))
 )
+const Chat = lazy(() => import('./components/Chat').then((m) => ({ default: m.Chat })))
 const BigPicture = lazy(() =>
   import('./components/BigPicture').then((m) => ({ default: m.BigPicture }))
 )
@@ -307,43 +308,37 @@ function App(): JSX.Element {
     })()
   }, [isLoading])
 
-  // Processos do sistema em segundo plano: intervalo ADAPTATIVO —
-  // 10s com a janela visível, 60s quando oculta (bandeja), trocando
-  // imediatamente no visibilitychange. O baseline (T0) mostrou que cada
-  // consulta custava ~5 s de CPU do PowerShell; o main agora usa um helper
-  // persistente e não bloqueia mais, e o intervalo maior evita trabalho
-  // contínuo enquanto o usuário joga.
+  // Processos do sistema em segundo plano: o main tem UM agendador (WMI a cada
+  // 15 s com a janela visível, 60 s na bandeja). Antes este efeito tinha o
+  // próprio setTimeout recursivo e consultava o WMI em paralelo ao Big
+  // Picture/Biblioteca. O badge "em segundo plano" usa o mesmo estado.
   useEffect(() => {
-    let cancelled = false
-    let timer: number | undefined
+    let active = true
+    const consumerId = 'app:background-processes'
 
-    const tick = async (): Promise<void> => {
-      try {
-        const procs = await window.api.systemRunningProcesses()
-        if (!cancelled) setBgProcesses(procs as SystemProcess[])
-      } catch {
-        // Ignore polling errors
-      } finally {
-        if (!cancelled) {
-          const delay = document.visibilityState === 'visible' ? 10000 : 60000
-          timer = window.setTimeout(() => void tick(), delay)
-        }
-      }
+    const unsubscribe = window.api.onProcessWatchUpdate((processes) => {
+      if (active) setBgProcesses(processes)
+    })
+
+    const subscribe = (): void => {
+      const intervalMs = document.visibilityState === 'visible' ? 15000 : 60000
+      void window.api.startProcessWatch(consumerId, intervalMs).catch(() => {
+        // Sem main: mantém o último retrato conhecido e não trava a UI.
+      })
     }
 
     const onVisibility = (): void => {
-      // Reinicia já com o intervalo novo; se a janela voltou a ficar visível,
-      // atualiza na hora em vez de esperar o ciclo de 30s.
-      window.clearTimeout(timer)
-      void tick()
+      // Re-registrar o mesmo id atualiza o intervalo no agendador único.
+      subscribe()
     }
 
-    void tick()
+    subscribe()
     document.addEventListener('visibilitychange', onVisibility)
     return (): void => {
-      cancelled = true
-      window.clearTimeout(timer)
+      active = false
       document.removeEventListener('visibilitychange', onVisibility)
+      unsubscribe()
+      void window.api.stopProcessWatch(consumerId).catch(() => undefined)
     }
   }, [])
 
@@ -720,6 +715,7 @@ function App(): JSX.Element {
             onNavigate={setCurrentPage}
             runningCount={runningCount}
             toolCount={apps.length}
+            fullBleed={currentPage === 'chat'}
             pcName={pcName}
             onExit={() => setExitModalOpen(true)}
             onEnterBigPicture={enterBigPicture}
@@ -739,53 +735,66 @@ function App(): JSX.Element {
             {/* ── Transição única de página (13.19): fade + slide ≤ 8 px, 200 ms,
                 easing --ease-standard; uma camada por página. Com reduce: 0 ms.
                 O <main> rolável vem do Layout; o wrapper anima só a troca. ── */}
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={currentPage}
-                initial={{ opacity: 0, y: reduced ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: reduced ? 0 : -8 }}
-                transition={reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {currentPage === 'dashboard' ? (
-                  <Dashboard
-                    apps={apps}
-                    appStates={effectiveStates}
-                    onLaunch={handleLaunch}
-                    onStop={handleStop}
-                    onToast={onToast}
-                    onOpenSettings={() => setCurrentPage('settings')}
-                  />
-                ) : currentPage === 'inicializacao' ? (
-                  <ErrorBoundary>
+            {currentPage === 'chat' ? (
+              // D7: o <webview> fica FORA do motion — transform no ancestral
+              // quebra a composição do guest. O Layout em fullBleed remove
+              // padding/rolagem; sair da página desmonta o webview.
+              <ErrorBoundary>
+                <Suspense fallback={null}>
+                  <Chat />
+                </Suspense>
+              </ErrorBoundary>
+            ) : (
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={currentPage}
+                  initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: reduced ? 0 : -8 }}
+                  transition={
+                    reduced ? { duration: 0 } : { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
+                  }
+                >
+                  {currentPage === 'dashboard' ? (
+                    <Dashboard
+                      apps={apps}
+                      appStates={effectiveStates}
+                      onLaunch={handleLaunch}
+                      onStop={handleStop}
+                      onToast={onToast}
+                      onOpenSettings={() => setCurrentPage('settings')}
+                    />
+                  ) : currentPage === 'inicializacao' ? (
+                    <ErrorBoundary>
+                      <Suspense fallback={null}>
+                        <Inicializacao
+                          pcName={pcName ?? ''}
+                          items={startupItems}
+                          importance={startupImportance}
+                          labels={IMPORTANCE_LABELS}
+                          onRemove={handleRemoveStartup}
+                          onRemoveBatch={handleRemoveBatchStartup}
+                          onAdd={handleAddStartup}
+                          onAddBatch={handleAddBatchStartup}
+                          onReload={() => loadStartupItems(true)}
+                          appsNotInStartup={appsNotInStartup}
+                        />
+                      </Suspense>
+                    </ErrorBoundary>
+                  ) : currentPage === 'biblioteca' ? (
+                    <ErrorBoundary>
+                      <Suspense fallback={null}>
+                        <Biblioteca />
+                      </Suspense>
+                    </ErrorBoundary>
+                  ) : (
                     <Suspense fallback={null}>
-                      <Inicializacao
-                        pcName={pcName ?? ''}
-                        items={startupItems}
-                        importance={startupImportance}
-                        labels={IMPORTANCE_LABELS}
-                        onRemove={handleRemoveStartup}
-                        onRemoveBatch={handleRemoveBatchStartup}
-                        onAdd={handleAddStartup}
-                        onAddBatch={handleAddBatchStartup}
-                        onReload={() => loadStartupItems(true)}
-                        appsNotInStartup={appsNotInStartup}
-                      />
+                      <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
                     </Suspense>
-                  </ErrorBoundary>
-                ) : currentPage === 'biblioteca' ? (
-                  <ErrorBoundary>
-                    <Suspense fallback={null}>
-                      <Biblioteca />
-                    </Suspense>
-                  </ErrorBoundary>
-                ) : (
-                  <Suspense fallback={null}>
-                    <Settings apps={apps} onSave={handleSaveApps} onToast={onToast} />
-                  </Suspense>
-                )}
-              </motion.div>
-            </AnimatePresence>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </Layout>
 
           {/* ── Error toast ──────────────────────────────── */}

@@ -66,7 +66,7 @@ export function AppDetailModal({
         : 'Parado'
 
   const statusDot = isRunning
-    ? 'bg-success animate-pulse'
+    ? 'bg-success animate-pulse motion-reduce:animate-none'
     : isError
       ? 'bg-danger'
       : 'bg-ink-tertiary'

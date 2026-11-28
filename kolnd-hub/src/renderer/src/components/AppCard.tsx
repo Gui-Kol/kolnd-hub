@@ -11,6 +11,7 @@ import {
 import { AppConfig, AppState } from '../types'
 import { entranceProps, useReducedMotion } from '../lib/motion'
 import { zeroTierBadge } from '../lib/remoteAccess'
+import { appWarning } from '../lib/appWarnings'
 import type { ZeroTierInfo } from '../../../shared/remote'
 import { Badge, Button, IconButton } from './ui'
 
@@ -81,12 +82,14 @@ export function AppCard({
         : 'Parado'
 
   const statusDot = isRunning
-    ? 'bg-success animate-pulse'
+    ? 'bg-success animate-pulse motion-reduce:animate-none'
     : isError
       ? 'bg-danger'
       : 'bg-ink-tertiary'
   const statusText = isRunning ? 'text-success' : isError ? 'text-danger' : 'text-ink-tertiary'
   const powerBadge = remote?.zerotier ? zeroTierBadge(remote.zerotier) : null
+  // Alerta de app em desenvolvimento (tooltip nativo via title).
+  const warning = appWarning(app.id)
 
   return (
     <motion.div
@@ -121,7 +124,7 @@ export function AppCard({
           <Badge tone="success" role="status">
             <span
               aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-pill bg-success animate-pulse"
+              className="h-1.5 w-1.5 rounded-pill bg-success animate-pulse motion-reduce:animate-none"
             />
             Online
           </Badge>
@@ -137,9 +140,21 @@ export function AppCard({
               {app.icon}
             </div>
             <div>
-              <h3 className="text-base font-semibold tracking-tight text-ink-primary">
-                {app.name}
-              </h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-base font-semibold tracking-tight text-ink-primary">
+                  {app.name}
+                </h3>
+                {warning && (
+                  <span
+                    className="flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-pill border border-warn-border bg-warn-bg text-[10px] font-bold leading-none text-warn"
+                    title={warning}
+                    aria-label={warning}
+                    data-testid="app-warning"
+                  >
+                    !
+                  </span>
+                )}
+              </div>
               <div className="mt-1 flex items-center gap-1.5">
                 <div className={`h-2 w-2 rounded-pill transition-colors ${statusDot}`} />
                 <span

@@ -40,7 +40,8 @@ const PAGE_LABELS: Record<UsagePage, string> = {
   dashboard: 'Início',
   settings: 'Configurações',
   inicializacao: 'Inicialização',
-  biblioteca: 'Biblioteca'
+  biblioteca: 'Biblioteca',
+  chat: 'Chat'
 }
 
 const ACTION_LABELS = {

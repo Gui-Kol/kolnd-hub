@@ -19,7 +19,7 @@ const proc = (name: string, path = ''): SystemProcess => ({ name, id: 1, path })
 
 describe('executableName', () => {
   it('extrai o executável de comandos simples', () => {
-    expect(executableName('MarkLVII.exe')).toBe('marklvii')
+    expect(executableName('Absolem.exe')).toBe('absolem')
     expect(executableName('code.exe')).toBe('code')
   })
 

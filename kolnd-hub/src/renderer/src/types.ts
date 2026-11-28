@@ -39,7 +39,7 @@ export interface AppState {
   source?: 'hub' | 'background'
 }
 
-export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca'
+export type Page = 'dashboard' | 'settings' | 'inicializacao' | 'biblioteca' | 'chat'
 
 // Tipos do modo Big Picture (lib/gamepad, T1) re-exportados para consumo único.
 export type {
@@ -84,6 +84,17 @@ export type {
 
 // Tipos da sobreposição (HUD) — fonte única em `src/shared/hud.ts`.
 export type { HudConfig, HudScale, HudSize, HudStatus, HudUpdate } from '../../shared/hud'
+
+// Faixa de FPS do HUD — fonte única em `src/shared/fps.ts`.
+export type {
+  FpsActivationResult,
+  FpsPidSample,
+  FpsSink,
+  FpsStatusInfo,
+  HudFpsReading,
+  HudFpsReason,
+  HudFpsState
+} from '../../shared/fps'
 
 export type GameOrigin = 'steam' | 'epic' | 'minecraft' | 'custom'
 
@@ -161,6 +172,10 @@ export interface WingetListResult {
   rawLog?: string
   /** true quando o winget não está disponível/instalado no sistema. */
   wingetMissing?: boolean
+  /** ISO da consulta real que produziu a lista (mesmo quando servida do cache). */
+  checkedAt?: string
+  /** true quando a lista veio do cache em memória (sem rodar o winget agora). */
+  fromCache?: boolean
 }
 
 export interface WingetUpgradeResult {
@@ -190,6 +205,52 @@ export interface CleanResult {
   paths?: string[]
   /** Mensagem amigável em caso de falha global (nunca um stack trace). */
   error?: string
+}
+
+/** Processo que mais consome memória física (working set). */
+export interface RamProcessInfo {
+  pid: number
+  name: string
+  workingSetBytes: number
+}
+
+/** Leitura pontual da memória do PC (aba Memória em Meu PC). */
+export interface RamSnapshot {
+  ok: boolean
+  totalBytes: number
+  usedBytes: number
+  usedPercent: number
+  freeBytes: number
+  /** Disponível para novos processos; null na leitura básica do Node. */
+  availableBytes: number | null
+  /** Cache do sistema; null na leitura básica do Node. */
+  cacheBytes: number | null
+  /** Soma das listas standby; null na leitura básica do Node. */
+  standbyBytes: number | null
+  /** Commit total; null na leitura básica do Node. */
+  committedBytes: number | null
+  topProcesses: RamProcessInfo[]
+  source: 'cim' | 'os'
+  error?: string
+}
+
+/** Resultado das otimizações de memória (working sets ou standby list). */
+export interface RamOptimizeResult {
+  ok: boolean
+  cancelled?: boolean
+  mode: 'trim' | 'purge'
+  freedBytes: number
+  trimmedProcesses?: number
+  skipped: number
+  errors: number
+  error?: string
+}
+
+/** Preferências da otimização automática de RAM (somente trim, sem UAC). */
+export interface RamAutoPrefs {
+  enabled: boolean
+  /** Intervalo entre execuções, em minutos (1–60). */
+  intervalMinutes: number
 }
 
 /** Nota de uma carga do benchmark (MOps/s em cada fase). */

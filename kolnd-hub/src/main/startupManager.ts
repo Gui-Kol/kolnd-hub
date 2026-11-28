@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from 'child_process'
 import type { ChildProcessWithoutNullStreams } from 'child_process'
 import { hostname } from 'os'
+import { logger } from './logger'
 
 export type StartupLocation = 'registro' | 'pasta-inicializacao'
 export type StartupScope = 'usuario' | 'sistema'
@@ -313,6 +314,13 @@ export async function listRunningProcesses(
   if (processInflight) return processInflight
 
   processInflight = (async (): Promise<RunningProcess[]> => {
+    // Instrumentação de diagnóstico: o `debug` é o caminho normal (custo zero
+    // em info). KOLDND_HUB_TRACE_PROCESSES=1 grava a mesma marca em info para
+    // contar as consultas WMI reais em execuções de medição no Windows.
+    logger.debug('startup', 'consulta de processos (WMI)')
+    if (process.env.KOLDND_HUB_TRACE_PROCESSES === '1') {
+      logger.info('startup', 'consulta de processos (WMI)')
+    }
     const items = parseRunningProcesses(await runner())
     processCache = { at: Date.now(), items }
     return items

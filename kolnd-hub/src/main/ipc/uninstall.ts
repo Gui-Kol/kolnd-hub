@@ -29,9 +29,17 @@ export function registerUninstallHubIpc(ctx: IpcContext): void {
     lockMainWindowForUninstall()
     let result: Awaited<ReturnType<typeof runHubUninstallSteps>>
     try {
-      result = await runHubUninstallSteps(rawArgs, (evt) => {
-        ctx.getMainWindow()?.webContents.send('uninstall:progress', evt)
-      })
+      result = await runHubUninstallSteps(
+        rawArgs,
+        (evt) => {
+          ctx.getMainWindow()?.webContents.send('uninstall:progress', evt)
+        },
+        {
+          // Encerra os programas abertos pelo Hub (Absolem) antes do wipe das
+          // configurações deles; o Hub já vai fechar depois do spawn do NSIS.
+          stopApps: () => ctx.processManager?.killAll?.() ?? Promise.resolve()
+        }
+      )
 
       if (result.ok && result.spawned) {
         // O desinstalador NSIS já está desanexado rodando — agora encerramos o

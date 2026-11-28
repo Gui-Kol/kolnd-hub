@@ -10,6 +10,11 @@ import type { Game } from '../types'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const getRunningGames = vi.fn()
+const onProcessWatchUpdate = vi.fn()
+const startProcessWatch = vi.fn(async () => ({ ok: true }))
+const stopProcessWatch = vi.fn(async () => ({ ok: true }))
+const unsubscribe = vi.fn()
+let processUpdate: (() => void) | null = null
 
 function game(id: string): Game {
   return {
@@ -71,8 +76,20 @@ function ids(): string {
 beforeEach(() => {
   vi.useFakeTimers()
   getRunningGames.mockReset()
-  ;(window as unknown as { api: { getRunningGames: typeof getRunningGames } }).api = {
-    getRunningGames
+  processUpdate = null
+  onProcessWatchUpdate.mockReset()
+  onProcessWatchUpdate.mockImplementation((callback: () => void) => {
+    processUpdate = callback
+    return unsubscribe
+  })
+  startProcessWatch.mockClear()
+  stopProcessWatch.mockClear()
+  unsubscribe.mockClear()
+  ;(window as unknown as { api: Record<string, unknown> }).api = {
+    getRunningGames,
+    onProcessWatchUpdate,
+    startProcessWatch,
+    stopProcessWatch
   }
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -91,7 +108,25 @@ function collect(): void {
   delete (window as unknown as { api?: unknown }).api
 }
 
+/** Simula um push do agendador do main (10 s) e assenta a promessa do refresh. */
+async function push(): Promise<void> {
+  await act(async () => {
+    processUpdate?.()
+    await vi.advanceTimersByTimeAsync(0)
+  })
+}
+
 describe('useGamesRunning', () => {
+  it('assina o agendador único com 10 s em vez do timer próprio de 4 s', async () => {
+    getRunningGames.mockResolvedValue({ ok: true, running: {} })
+    render([game('a')])
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(startProcessWatch).toHaveBeenCalledWith('games:running', 10000)
+    expect(onProcessWatchUpdate).toHaveBeenCalledTimes(1)
+  })
+
   it('lista vazia mantém o set vazio sem consultar a API', async () => {
     render([])
     await act(async () => {
@@ -120,9 +155,7 @@ describe('useGamesRunning', () => {
     expect(ids()).toBe('a')
 
     getRunningGames.mockResolvedValue({ ok: false, running: {} })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000)
-    })
+    await push()
     expect(ids()).toBe('')
   })
 
@@ -134,13 +167,11 @@ describe('useGamesRunning', () => {
     })
 
     getRunningGames.mockRejectedValue(new Error('sem main'))
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000)
-    })
+    await push()
     expect(ids()).toBe('a')
   })
 
-  it('sonda a cada 4 s e reconsulta quando a lista muda', async () => {
+  it('o push do agendador reconsulta e a lista nova rearma a assinatura', async () => {
     getRunningGames.mockResolvedValue({ ok: true, running: {} })
     render([game('a')])
     await act(async () => {
@@ -148,9 +179,7 @@ describe('useGamesRunning', () => {
     })
     expect(getRunningGames).toHaveBeenCalledTimes(1)
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000)
-    })
+    await push()
     expect(getRunningGames).toHaveBeenCalledTimes(2)
 
     render([game('a'), game('b')])
@@ -158,6 +187,8 @@ describe('useGamesRunning', () => {
       await vi.advanceTimersByTimeAsync(0)
     })
     expect(getRunningGames).toHaveBeenLastCalledWith(['a', 'b'])
+    expect(stopProcessWatch).toHaveBeenCalledWith('games:running')
+    expect(startProcessWatch).toHaveBeenLastCalledWith('games:running', 10000)
   })
 
   it('refresh() manual reconsulta imediatamente', async () => {
@@ -174,7 +205,7 @@ describe('useGamesRunning', () => {
     expect(getRunningGames).toHaveBeenCalledTimes(1)
   })
 
-  it('desmontar limpa timer e intervalo (não consulta depois)', async () => {
+  it('desmontar remove a assinatura e para o consumidor (não consulta depois)', async () => {
     getRunningGames.mockResolvedValue({ ok: true, running: {} })
     render([game('a')])
     await act(async () => {
@@ -185,8 +216,10 @@ describe('useGamesRunning', () => {
     act(() => root.unmount())
     mounted = false
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(8000)
+      await vi.advanceTimersByTimeAsync(20000)
     })
     expect(getRunningGames).toHaveBeenCalledTimes(calls)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(stopProcessWatch).toHaveBeenCalledWith('games:running')
   })
 })
