@@ -75,4 +75,27 @@ describe('shutdownApp', () => {
     expect(kill).not.toHaveBeenCalled()
     kill.mockRestore()
   })
+
+  it('gancho com o mesmo nome substitui em vez de acumular', () => {
+    const first = vi.fn()
+    const second = vi.fn()
+    shutdown.registerShutdownHook('overlay', first)
+    shutdown.registerShutdownHook('overlay', second)
+
+    shutdown.shutdownApp(makeContext())
+
+    expect(first).not.toHaveBeenCalled()
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('encerramento repetido roda os ganchos uma única vez', () => {
+    const hook = vi.fn()
+    shutdown.registerShutdownHook('capture', hook)
+
+    shutdown.shutdownApp(makeContext())
+    shutdown.shutdownApp(makeContext())
+
+    expect(hook).toHaveBeenCalledTimes(1)
+    expect(state.quit).toHaveBeenCalledTimes(1)
+  })
 })

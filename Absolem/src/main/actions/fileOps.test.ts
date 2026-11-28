@@ -148,6 +148,40 @@ describe('organização de arquivos', () => {
     expect(harness.files.has('C:\\Docs\\c.txt')).toBe(true)
   })
 
+  it('falha no meio grava journal do que foi feito e undo reverte o parcial', async () => {
+    const harness = createFs({ 'C:\\Docs\\a.txt': 'A', 'C:\\Docs\\b.txt': 'B' })
+    const deps = depsFor(harness)
+    const plan = await planFileOps(deps, {
+      ops: [
+        { kind: 'move', from: 'C:\\Docs\\a.txt', to: 'C:\\Docs\\c.txt' },
+        { kind: 'move', from: 'C:\\Docs\\b.txt', to: 'C:\\Docs\\d.txt' }
+      ]
+    })
+
+    const rename = harness.fs.rename
+    harness.fs.rename = async (from, to) => {
+      if (to === 'C:\\Docs\\d.txt') throw new Error('disco cheio')
+      await rename(from, to)
+    }
+
+    await expect(applyFileOps(deps, plan)).rejects.toThrow(/Falha ao executar o plano/)
+    expect(harness.files.has('C:\\Docs\\c.txt')).toBe(true)
+    expect(harness.files.has('C:\\Docs\\b.txt')).toBe(true)
+    expect(harness.files.has(`${JOURNAL}\\11111111-1111-1111-1111-111111111111.json`)).toBe(true)
+
+    const undone = await undoFileOp(
+      depsFor(harness, () => 2_000),
+      '11111111-1111-1111-1111-111111111111'
+    )
+    expect(undone).toEqual({
+      ok: true,
+      id: '11111111-1111-1111-1111-111111111111',
+      undone: 1
+    })
+    expect(harness.files.get('C:\\Docs\\a.txt')).toBe('A')
+    expect(harness.files.has('C:\\Docs\\c.txt')).toBe(false)
+  })
+
   it('delete usa trashItem e nunca unlink', async () => {
     const harness = createFs({ 'C:\\Docs\\lixo.txt': 'conteudo' })
     const deps = depsFor(harness)

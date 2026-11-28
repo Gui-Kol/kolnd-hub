@@ -49,6 +49,8 @@ export interface LiveScreenSessionHandlers {
   onToolCall: (calls: GeminiFunctionCall[]) => void
   onTurnComplete: () => void
   onError: (error: { kind: GeminiErrorKind; message: string }) => void
+  /** Fechamento externo (cancelamento/encerramento) da sessão. */
+  onClose?: (reason: string) => void
 }
 
 export interface LiveScreenSession {
@@ -76,6 +78,16 @@ export interface ScreenAskOutcome {
 }
 
 export const MAX_SCREEN_QUESTION_CHARS = 4_000
+
+/**
+ * Teto de segurança do turno visual no Live.
+ *
+ * O orçamento de turno existente é de 90 s (`SEARCH_TURN_BUDGET_MS`) e o
+ * deadline total do cliente de texto é 85 s. A visão usa o mesmo teto de 90 s:
+ * cobre resposta longa, ferramentas e uma eventual reconexão sem manter a
+ * sessão aberta indefinidamente se o `turnComplete` nunca chegar.
+ */
+export const SCREEN_LIVE_TURN_TIMEOUT_MS = 90_000
 
 export const SCREEN_SECRET_REFUSAL =
   'Não posso revelar senhas, tokens, chaves ou códigos visíveis na tela. ' +
@@ -326,16 +338,49 @@ export async function askAboutScreenLive(
   const toolResults: ToolCallResult[] = []
   let session: LiveScreenSession | null = null
   let lastModelTranscript = ''
-  let completed = false
-  const finish = (): void => {
-    if (completed) return
-    completed = true
-    sinks.done(emptyUsage())
-    session?.close('turn-complete')
+  /** Turno encerrado: bloqueia eventos novos, mas deixa as ferramentas em voo
+   * concluírem antes do `done`. */
+  let turnEnded = false
+  /** Finalização entregue: `done`/`error`/`close` acontecem no máximo uma vez. */
+  let settled = false
+  const inFlightTools = new Set<Promise<void>>()
+  let turnTimer: ReturnType<typeof setTimeout> | null = null
+  let resolveTurn!: () => void
+  const turnFinished = new Promise<void>((resolve) => {
+    resolveTurn = resolve
+  })
+
+  const clearTurnTimer = (): void => {
+    if (turnTimer !== null) {
+      clearTimeout(turnTimer)
+      turnTimer = null
+    }
+  }
+
+  /**
+   * `done` + fechamento único. Espera as ferramentas já disparadas no turno
+   * para que `toolResults` saia completo; depois marca `settled` antes de
+   * fechar, evitando que o `onClose` do próprio `close` finalize duas vezes.
+   */
+  const finishTurn = (): void => {
+    if (turnEnded || settled) return
+    turnEnded = true
+    void (async () => {
+      while (inFlightTools.size > 0) {
+        await Promise.allSettled([...inFlightTools])
+      }
+      if (settled) return
+      settled = true
+      clearTurnTimer()
+      sinks.done(emptyUsage())
+      session?.close('turn-complete')
+      resolveTurn()
+    })()
   }
 
   session = deps.createSession({
     onTranscript: (event) => {
+      if (settled || turnEnded) return
       if (event.role !== 'model' || !event.text) return
       const delta = event.text.startsWith(lastModelTranscript)
         ? event.text.slice(lastModelTranscript.length)
@@ -344,9 +389,11 @@ export async function askAboutScreenLive(
       if (delta) sinks.delta(delta)
     },
     onToolCall: (calls) => {
-      void (async () => {
+      if (settled || turnEnded) return
+      const task = (async () => {
         const responses: GeminiFunctionResponse[] = []
         for (const call of calls) {
+          if (settled) return
           let result: ToolCallResult
           try {
             result = deps.routeCall
@@ -365,6 +412,7 @@ export async function askAboutScreenLive(
               }
             }
           }
+          if (settled) return
           toolResults.push(result)
           responses.push({
             name: call.name,
@@ -374,26 +422,70 @@ export async function askAboutScreenLive(
               : { ok: false, error: result.error }
           })
         }
-        if (responses.length > 0) session?.sendToolResponse(responses)
+        if (responses.length > 0 && !settled && !turnEnded) {
+          session?.sendToolResponse(responses)
+        }
       })()
+      inFlightTools.add(task)
+      // Resposta de ferramenta nunca derruba o turno; o done/erro do Live
+      // encerra a sessão pelo caminho normal.
+      void task.then(
+        () => inFlightTools.delete(task),
+        () => inFlightTools.delete(task)
+      )
     },
-    onTurnComplete: finish,
+    onTurnComplete: finishTurn,
     onError: (error) => {
-      if (!completed) sinks.error(error)
+      if (settled) return
+      settled = true
+      turnEnded = true
+      clearTurnTimer()
+      sinks.error(error)
+      session?.close('error')
+      resolveTurn()
+    },
+    onClose: () => {
+      // Fechamento externo (cancelamento/encerramento): não emite done/erro,
+      // apenas libera a promessa para o chamador limpar o pedido.
+      if (settled) return
+      settled = true
+      turnEnded = true
+      clearTurnTimer()
+      resolveTurn()
     }
   })
 
   try {
     await session.connect()
+    turnTimer = setTimeout(() => {
+      turnTimer = null
+      if (settled) return
+      settled = true
+      turnEnded = true
+      sinks.error({
+        kind: 'timeout',
+        message: 'O Gemini Live demorou demais para concluir o turno da tela.'
+      })
+      session?.close('timeout')
+      resolveTurn()
+    }, SCREEN_LIVE_TURN_TIMEOUT_MS)
     session.sendImageAndText({ mime: capture.image.mime, data: capture.image.data }, text)
   } catch (err) {
-    session.close('error')
-    sinks.error({
-      kind: 'unknown',
-      message: err instanceof Error ? err.message : 'Falha ao enviar a imagem ao Gemini Live.'
-    })
+    if (!settled) {
+      settled = true
+      turnEnded = true
+      clearTurnTimer()
+      session.close('error')
+      sinks.error({
+        kind: 'unknown',
+        message: err instanceof Error ? err.message : 'Falha ao enviar a imagem ao Gemini Live.'
+      })
+      resolveTurn()
+    }
     return { asked: false, toolResults }
   }
+
+  await turnFinished
 
   return {
     asked: true,

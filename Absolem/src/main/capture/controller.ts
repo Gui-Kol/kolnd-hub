@@ -142,6 +142,8 @@ export interface CaptureControllerDeps {
   grab: (request: CaptureGrabRequest) => Promise<CapturedImage>
   crop?: (image: CapturedImage, rect: PixelRect) => Promise<CapturedImage> | CapturedImage
   confirm?: (request: CaptureConfirmRequest) => Promise<boolean>
+  /** Pedido cancelado pelo usuário (checado antes de capturar e antes de entregar). */
+  isCancelled?: (requestId: string) => boolean
   audit: (event: CaptureAuditEvent) => void
   pushIndicator?: (push: { active: boolean; kind?: CaptureKind }) => void
   limits?: CaptureLimitsLike
@@ -282,6 +284,17 @@ export class CaptureController {
       }
     }
 
+    const requestId = request.requestId ?? `capture-${this.now()}`
+    const cancelled = (): boolean => {
+      try {
+        return this.deps.isCancelled?.(requestId) === true
+      } catch {
+        return false
+      }
+    }
+    // Cancelado durante a resolução do alvo/limites: nem a confirmação abre.
+    if (cancelled()) return failure('cancelled', 'Captura cancelada.')
+
     if (privacy.mode === 'ask') {
       if (!this.deps.confirm) {
         return failure('denied', 'Confirmação necessária para capturar a tela, mas indisponível.')
@@ -303,9 +316,9 @@ export class CaptureController {
 
     const pixelWidth = Math.max(1, Math.round(display.bounds.width * (display.scaleFactor || 1)))
     const pixelHeight = Math.max(1, Math.round(display.bounds.height * (display.scaleFactor || 1)))
-    const requestId = request.requestId ?? `capture-${this.now()}`
     const wasVisible = this.deps.isOverlayVisible()
     let hidden = false
+    if (cancelled()) return failure('cancelled', 'Captura cancelada.')
 
     try {
       if (wasVisible) {
@@ -315,6 +328,8 @@ export class CaptureController {
           OVERLAY_HIDE_DELAY_MS
         )
       }
+      // Cancelamento durante a espera do overlay: nenhum pixel é capturado.
+      if (cancelled()) return failure('cancelled', 'Captura cancelada.')
       this.deps.pushIndicator?.({ active: true, kind: request.kind })
 
       let image: CapturedImage
@@ -330,6 +345,7 @@ export class CaptureController {
           CAPTURE_FRAME_TIMEOUT_MS
         )
       } catch (err) {
+        if (cancelled()) return failure('cancelled', 'Captura cancelada.')
         if (err instanceof CaptureTimeoutError) {
           return failure('timeout', 'A captura de tela não respondeu em 4 segundos.')
         }
@@ -339,6 +355,8 @@ export class CaptureController {
       if (!isAcceptableImage(image)) {
         return failure('invalid', 'A captura veio vazia ou num formato não suportado.')
       }
+      // Cancelado enquanto o frame era capturado: não segue para recorte/envio.
+      if (cancelled()) return failure('cancelled', 'Captura cancelada.')
       if (image.data.byteLength > MAX_CAPTURE_BYTES) {
         return failure(
           'too-large',
@@ -350,9 +368,9 @@ export class CaptureController {
       let finalImage = image
       let cropRect: PixelRect | null = null
       if (request.kind === 'active-window') {
-        cropRect = computeCropRect(region as ScreenRect, display)
+        cropRect = computeCropRect(region as ScreenRect, display, image)
       } else if (request.kind === 'region') {
-        cropRect = computeRegionRectPx((region as RegionSelection).rect, display)
+        cropRect = computeRegionRectPx((region as RegionSelection).rect, display, image)
       }
       if (cropRect) {
         const clamped = clampRectToImage(cropRect, image.width, image.height)
@@ -379,6 +397,8 @@ export class CaptureController {
       }
 
       const bytes = toBytes(finalImage.data)
+      // Cancelado durante recorte: nenhum envio/auditoria/limite é concluído.
+      if (cancelled()) return failure('cancelled', 'Captura cancelada.')
       const audit: CaptureAuditEvent = {
         at: new Date(this.now()).toISOString(),
         mode: privacy.mode,

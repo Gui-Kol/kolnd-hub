@@ -162,6 +162,7 @@ npm test             # Vitest
 npm run verify       # typecheck + lint + format:check + test
 npm run verify:build # verify + build
 npm run test:e2e     # build + Playwright (duas vezes no release)
+npm run test:bundle  # smoke do package:dir (asar, native, preload, appId)
 
 # Empacotamento (sem instalador: apenas win-unpacked para o bundle da Hub)
 npm run package:dir      # electron-builder --dir -> dist/win-unpacked

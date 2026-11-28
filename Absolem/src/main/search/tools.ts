@@ -7,8 +7,9 @@ import {
   type SearchKind,
   type WebSource
 } from '../../shared/search'
-import type { ToolEntry } from '../gemini/tools/internal'
+import type { ToolEntry, ToolHandlerContext } from '../gemini/tools/internal'
 import type { ToolRegistry } from '../gemini/tools/registry'
+import { SearchRequestCancelledError } from './cache'
 import { extractReadable, type ExtractedPage } from './extract'
 import type { FetchedPage } from './fetchPage'
 import { buildInjectionWarning, buildUntrustedWebContent, detectInjection } from './injection'
@@ -43,7 +44,7 @@ export interface SearchAuditEvent {
 export interface FetchUrlToolDeps {
   /** `web.enabled` lido a cada chamada; desligado recusa sem rede. */
   isEnabled: () => boolean
-  fetchPage: (url: string) => Promise<FetchedPage>
+  fetchPage: (url: string, signal?: AbortSignal) => Promise<FetchedPage>
   extract?: (html: string, url: string) => ExtractedPage
   /** Contadores do turno; ausente apenas em teste unitário do extrator. */
   limits?: SearchTurnLimits
@@ -113,10 +114,15 @@ function titleFor(page: FetchedPage, extracted: ExtractedPage): string {
 
 export function createFetchUrlHandler(deps: FetchUrlToolDeps) {
   const extract = deps.extract ?? extractReadable
-  return async (args: Record<string, unknown>): Promise<FetchUrlToolResult> => {
+  return async (
+    args: Record<string, unknown>,
+    context?: ToolHandlerContext
+  ): Promise<FetchUrlToolResult> => {
     if (!deps.isEnabled()) {
       throw new Error('Pesquisa na internet desligada (web.enabled = false).')
     }
+    const signal = context?.signal
+    if (signal?.aborted) throw new SearchRequestCancelledError()
     const raw = typeof args.url === 'string' ? args.url.trim() : ''
     if (!raw || raw.length > MAX_FETCH_URL_CHARS) {
       throw new Error(`URL inválida (máximo ${MAX_FETCH_URL_CHARS} caracteres).`)
@@ -144,7 +150,7 @@ export function createFetchUrlHandler(deps: FetchUrlToolDeps) {
     let ok = false
     deps.onActivity?.(true, 'fetch')
     try {
-      const page = await deps.fetchPage(allowed)
+      const page = await deps.fetchPage(allowed, signal)
       bytes = page.bytes
       const extracted = extract(page.body, page.finalUrl)
       const warnings: string[] = []

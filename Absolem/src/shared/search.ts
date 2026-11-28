@@ -37,6 +37,13 @@ export interface SearchCacheStatus {
   entries: number
   maxEntries: number
   ttlSeconds: number
+  /** Contadores locais (sem URL/conteúdo) para diagnóstico de latência. */
+  hits: number
+  misses: number
+  evictions: number
+  expirations: number
+  coalesced: number
+  cancelled: number
 }
 
 export interface SearchStatus {

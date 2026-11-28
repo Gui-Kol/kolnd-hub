@@ -112,4 +112,31 @@ describe('timeouts da voz', () => {
     expect(sessions[0].closes).toEqual(['hide'])
     expect(controller.status().sessionActive).toBe(false)
   })
+
+  it('stop limpa timers e é idempotente', async () => {
+    vi.useFakeTimers()
+    const { controller, sessions } = await setup()
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+    controller.stop('teste')
+    expect(vi.getTimerCount()).toBe(0)
+    controller.stop('teste')
+
+    expect(sessions[0].closes).toEqual(['teste'])
+    vi.advanceTimersByTime(20 * 60 * 1000)
+    expect(sessions[0].closes).toEqual(['teste'])
+    expect(controller.getState()).toBe('off')
+  })
+
+  it('shutdown sem sessão não cria timers nem fecha de novo', async () => {
+    vi.useFakeTimers()
+    const { controller, sessions } = await setup()
+    controller.stop('teste')
+
+    controller.shutdown()
+
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].closes).toEqual(['teste'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
 })

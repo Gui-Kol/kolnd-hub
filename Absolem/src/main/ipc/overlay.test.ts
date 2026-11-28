@@ -218,6 +218,23 @@ describe('IPC do overlay', () => {
     expect(toggle(undefined, undefined)).toMatchObject({ ok: true, status: { visible: false } })
   })
 
+  it('100 show/hide intercalados terminam sem erro e com status coerente', async () => {
+    const show = handlerFor(IPC.overlayShow)
+    const hide = handlerFor(IPC.overlayHide)
+    const status = handlerFor(IPC.overlayStatus)
+    const startedAt = performance.now()
+
+    const results = await Promise.all(
+      Array.from({ length: 50 }, () =>
+        Promise.resolve([show(undefined, undefined), hide(undefined, undefined)])
+      )
+    )
+
+    expect(performance.now() - startedAt).toBeLessThan(2_000)
+    expect(results.flat().every((result) => (result as { ok: boolean }).ok)).toBe(true)
+    expect(status(undefined, undefined)).toMatchObject({ ok: true, status: { visible: false } })
+  })
+
   it('status emitido após show', () => {
     const result = handlerFor(IPC.overlayShow)(undefined, undefined)
 
@@ -276,5 +293,26 @@ describe('IPC do overlay', () => {
     handlerFor(IPC.overlayHide)(undefined, undefined)
     handlerFor(IPC.overlayShow)(undefined, undefined)
     expect(shown).toHaveBeenCalledTimes(2)
+  })
+
+  it('polling de tela cheia existe só enquanto o overlay está visível', () => {
+    vi.useFakeTimers()
+    try {
+      controller.resetOverlayControllerForTests()
+      controller.initializeOverlay(makeContext())
+
+      handlerFor(IPC.overlayShow)(undefined, undefined)
+      expect(vi.getTimerCount()).toBe(1)
+
+      handlerFor(IPC.overlayHide)(undefined, undefined)
+      expect(vi.getTimerCount()).toBe(0)
+
+      handlerFor(IPC.overlayShow)(undefined, undefined)
+      expect(vi.getTimerCount()).toBe(1)
+      controller.shutdownOverlay()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

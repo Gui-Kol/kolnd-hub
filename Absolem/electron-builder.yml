@@ -34,6 +34,20 @@ files:
   - '!{README.md,electron-builder.yml}'
   - '!**/*.tsbuildinfo'
   - '!*.log'
+  # Artefato enxuto (task 10): mapas, tipagem, docs de dependências e fontes
+  # nativas não são carregados em runtime. Licenças (LICENSE/LICENCE/NOTICE)
+  # continuam no pacote.
+  - '!**/*.map'
+  - '!**/*.{ts,tsx}'
+  - '!**/{CHANGELOG,README,HISTORY,AUTHORS,CONTRIBUTORS,SECURITY}*'
+  - '!**/tsconfig.json'
+  - '!**/eslint.config.*'
+  # `better-sqlite3` precisa apenas de lib/ + build/Release/better_sqlite3.node
+  # (fora do asar por asarUnpack); deps/ e src/ são fontes de compilação.
+  - '!**/node_modules/better-sqlite3/{deps,src}/**'
+  # react, react-dom, scheduler e three entram no bundle do renderer; o
+  # main/preload não os exigem (conferido em out/main e out/preload).
+  - '!**/node_modules/{three,react,react-dom,scheduler,loose-envify,js-tokens}/**'
 
 # Ícones da bandeja chegam em <resources>/ (fora do asar).
 extraResources:

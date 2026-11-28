@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { CaptureControllerDeps, CapturedImage } from './controller'
+import { createCaptureController } from './controller'
 import { CaptureLimiter } from './limits'
 
 function limiter(options: { checkBudget?: () => void } = {}) {
@@ -89,5 +91,46 @@ describe('limites de captura', () => {
     expect(result).toMatchObject({ ok: false, reason: 'monthly', code: 'quota' })
     if (!result.ok) expect(result.message).toContain('Limite mensal')
     expect(checkBudget).toHaveBeenCalledTimes(1)
+  })
+
+  it('21ª captura é recusada antes de esconder o overlay ou capturar pixels', async () => {
+    const now = 1_000_000
+    const instance = new CaptureLimiter({ now: () => now })
+    for (let index = 0; index < 20; index += 1) instance.record({ at: now })
+
+    const data = new Uint8Array([0xff, 0xd8, 0xff, 0xe0])
+    const image: CapturedImage = { mime: 'image/jpeg', data: data.buffer, width: 1280, height: 720 }
+    const hideOverlay = vi.fn()
+    const grab = vi.fn(async () => image)
+    const record = vi.fn((info: { at: number }) => instance.record(info))
+    const deps: CaptureControllerDeps = {
+      getPrivacy: () => ({ mode: 'on', blocklist: [], proactive: false }),
+      isOverlayVisible: () => true,
+      hideOverlay,
+      showOverlay: vi.fn(),
+      sleep: vi.fn(async () => undefined),
+      listScreens: async () => [
+        { id: 'screen:0:0', name: 'Tela 1', displayId: '0', kind: 'screen' }
+      ],
+      getDisplays: () => [
+        { id: '0', bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 }
+      ],
+      grab,
+      audit: vi.fn(),
+      limits: {
+        check: (input) => instance.check(input),
+        record
+      },
+      now: () => now
+    }
+    const controller = createCaptureController(deps)
+
+    const result = await controller.capture({ kind: 'screen' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'limit' } })
+    expect(hideOverlay).not.toHaveBeenCalled()
+    expect(grab).not.toHaveBeenCalled()
+    expect(record).not.toHaveBeenCalled()
+    expect(instance.snapshot()).toEqual({ capturesLastHour: 20, maxPerHour: 20 })
   })
 })

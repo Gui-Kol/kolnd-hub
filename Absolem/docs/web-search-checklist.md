@@ -41,9 +41,9 @@ Status: pendente (manual).
       que o salto é recusado.
 
 Status: pendente (manual). Cobertura automática: `src/main/search/fetchPage.test.ts`
-(21 casos, incluindo `127/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`,
-`::1`, `fc00::/7`, `fe80::/10`, `localhost`, `.local`, IP literal e redirect
-para host privado).
+(25 casos, incluindo `127/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`,
+`::1`, `fc00::/7`, `fe80::/10`, `localhost`, `.local`, IP literal, redirect
+para host privado, timeout de DNS e cancelamento no meio do corpo).
 
 ## 4. Página dinâmica
 
@@ -76,14 +76,15 @@ segredo não ecoado).
 - [ ] Confirmar que não existe arquivo de cache em `%APPDATA%\absolem`.
 
 Status: pendente (manual). Cobertura automática:
-`src/main/search/cache.test.ts` (4 casos, TTL, LRU e nada em disco).
+`src/main/search/cache.test.ts` (11 casos: TTL, LRU, evicção, expiração,
+coalescência de requisições idênticas, cancelamento e nada em disco).
 
 ## 7. Limite por turno
 
 - [ ] No mesmo turno, pedir 4 buscas; a quarta é recusada.
 - [ ] No mesmo turno, pedir 6 aberturas de página; a sexta é recusada.
 - [ ] Um turno novo zera os contadores (`search:status`).
-- [ ] O orçamento total de 30 s encerra o turno de pesquisa.
+- [ ] O orçamento total de 90 s encerra o turno de pesquisa.
 
 Status: pendente (manual). Cobertura automática:
 `src/main/search/limits.test.ts` (6 casos).

@@ -167,6 +167,9 @@ describe('barge-in com áudio sintético', () => {
         // Ordem real do overlay: corta o áudio local e avisa o main.
         playback.flush()
         controller.handleBargeIn()
+        // O push `voice:state` (listening/barge-in) chega logo depois e chama
+        // flush de novo; sem buffers pendentes isso não refaz a rampa.
+        playback.flush()
         latency = performance.now() - (speechOnset ?? 0)
       }
       if (latency !== null) break
@@ -180,7 +183,8 @@ describe('barge-in com áudio sintético', () => {
     expect(controller.getState()).toBe('listening')
     expect(playback.pending()).toBe(0)
     expect(sources.length).toBe(1)
-    expect(gain.linearRampToValueAtTime).toHaveBeenCalledWith(0, expect.any(Number))
+    expect(gain.linearRampToValueAtTime).toHaveBeenCalledTimes(1)
+    expect(playback.getStats()).toMatchObject({ flushes: 1, skippedFlushes: 1 })
 
     controller.stop('teste')
   })

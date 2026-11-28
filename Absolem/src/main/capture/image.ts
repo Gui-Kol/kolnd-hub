@@ -5,10 +5,10 @@ import type { CapturedImage } from './controller'
 /**
  * Recorte da imagem no main (task 07, T4/T5).
  *
- * A imagem chega em pixels físicos e o retângulo já foi convertido pelo
- * `scaleFactor` do display. `nativeImage.crop` trabalha em pixels; o formato
- * original é preservado (PNG para texto, JPEG qualidade 0.75 caso contrário).
- * Nada é salvo em disco.
+ * A imagem chega na resolução devolvida pelo renderer e o retângulo já foi
+ * convertido para esse espaço pelo controlador (task 04). `nativeImage.crop`
+ * trabalha em pixels; o formato original é preservado (PNG para texto, JPEG
+ * qualidade 0.75 caso contrário). Nada é salvo em disco.
  */
 
 function toArrayBuffer(buffer: Buffer): ArrayBuffer {

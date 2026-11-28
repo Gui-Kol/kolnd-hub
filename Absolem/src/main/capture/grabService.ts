@@ -4,12 +4,16 @@ import { CAPTURE_FRAME_TIMEOUT_MS } from '../../shared/screen'
 import type { CaptureGrabRequest, CapturedImage } from './controller'
 
 /**
- * Ponte main -> renderer para capturar um frame (task 07, T3/T7).
+ * Ponte main -> renderer para capturar um frame (task 07, T3/T7; task 04).
  *
  * O pedido vai por push (`capture:request`) e a resposta volta por
  * `capture:result`. O main espera no máximo 4 s; se o renderer não tiver a
  * janela do overlay viva (ou falhar), o fallback opcional por thumbnail é
  * usado - a interface não muda. Nenhum pixel é escrito em disco.
+ *
+ * - um `requestId` já pendente é deduplicado: o mesmo frame atende os dois
+ *   chamadores, sem um segundo pedido ao renderer;
+ * - timeout, cancelamento e erro sempre liberam o pending e limpam o timer.
  */
 
 export interface FrameGrabServiceOptions {
@@ -28,6 +32,7 @@ export interface FrameResultHandling {
 
 interface PendingRequest {
   request: CaptureGrabRequest
+  promise: Promise<CapturedImage>
   resolve: (image: CapturedImage) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -57,6 +62,11 @@ export class FrameGrabService {
   }
 
   async request(request: CaptureGrabRequest): Promise<CapturedImage> {
+    // Duplicado concorrente: o mesmo frame resolve os dois chamadores e o
+    // renderer só recebe um pedido (sem custo dobrado).
+    const existing = this.pending.get(request.requestId)
+    if (existing) return existing.promise
+
     const push: CaptureRequestPush = {
       requestId: request.requestId,
       sourceId: request.sourceId,
@@ -67,16 +77,27 @@ export class FrameGrabService {
     const sent = this.options.sendRequest(push)
     if (!sent) return this.fallbackOrThrow(request, 'Janela de captura indisponível.')
 
-    return new Promise<CapturedImage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(request.requestId)
-        void this.fallbackOrThrow(
-          request,
-          'A captura no renderer não respondeu em 4 segundos.'
-        ).then(resolve, reject)
-      }, this.timeoutMs)
-      this.pending.set(request.requestId, { request, resolve, reject, timer })
+    let resolvePromise: (image: CapturedImage) => void = () => undefined
+    let rejectPromise: (error: Error) => void = () => undefined
+    const promise = new Promise<CapturedImage>((resolve, reject) => {
+      resolvePromise = resolve
+      rejectPromise = reject
     })
+    const timer = setTimeout(() => {
+      this.pending.delete(request.requestId)
+      void this.fallbackOrThrow(request, 'A captura no renderer não respondeu em 4 segundos.').then(
+        resolvePromise,
+        rejectPromise
+      )
+    }, this.timeoutMs)
+    this.pending.set(request.requestId, {
+      request,
+      promise,
+      resolve: resolvePromise,
+      reject: rejectPromise,
+      timer
+    })
+    return promise
   }
 
   /** Trata `capture:result`; valida tipo/tamanho básico no main. */
@@ -88,8 +109,7 @@ export class FrameGrabService {
     if (!pending) {
       return { handled: false, ok: false, error: 'Resposta de captura fora de hora.' }
     }
-    this.pending.delete(payload.requestId)
-    clearTimeout(pending.timer)
+    this.release(payload.requestId, pending)
 
     if (!payload.ok) {
       const error =
@@ -123,6 +143,11 @@ export class FrameGrabService {
     return { handled: true, ok: true }
   }
 
+  private release(requestId: string, pending: PendingRequest): void {
+    this.pending.delete(requestId)
+    clearTimeout(pending.timer)
+  }
+
   private settleFailure(pending: PendingRequest, reason: string): void {
     if (this.options.fallback) {
       void this.fallbackOrThrow(pending.request, reason).then(pending.resolve, pending.reject)
@@ -145,14 +170,18 @@ export class FrameGrabService {
   cancel(requestId: string): boolean {
     const pending = this.pending.get(requestId)
     if (!pending) return false
-    this.pending.delete(requestId)
-    clearTimeout(pending.timer)
+    this.release(requestId, pending)
     pending.reject(new Error('captura cancelada'))
     return true
   }
 
   cancelAll(): void {
     for (const [requestId] of [...this.pending]) this.cancel(requestId)
+  }
+
+  /** Somente para teste/observação: requests aguardando o renderer. */
+  pendingCount(): number {
+    return this.pending.size
   }
 }
 

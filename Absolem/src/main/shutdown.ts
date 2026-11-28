@@ -20,19 +20,30 @@ interface RegisteredHook {
 }
 
 const hooks: RegisteredHook[] = []
+let shutdownStarted = false
 
 /**
  * Registra um gancho best-effort do encerramento. A task 02 usa para pedir ao
  * controlador do overlay que destrua a janela; a task 06, para encerrar a
  * sessão de voz. Um gancho que lança não impede os demais nem o `app.quit()`.
+ *
+ * O nome identifica o dono do recurso: um segundo registro substitui o
+ * anterior em vez de acumular (remount/teste não roda o mesmo cleanup duas
+ * vezes nem deixa o gancho antigo apontando para uma instância morta).
  */
 export function registerShutdownHook(name: string, run: ShutdownHook): void {
+  const existing = hooks.findIndex((hook) => hook.name === name)
+  if (existing >= 0) {
+    hooks[existing] = { name, run }
+    return
+  }
   hooks.push({ name, run })
 }
 
 /** Hook exclusivo de teste: esvazia o registro entre casos. */
 export function resetShutdownHooksForTests(): void {
   hooks.length = 0
+  shutdownStarted = false
 }
 
 function runHooks(): void {
@@ -44,6 +55,8 @@ function runHooks(): void {
       logger.warn('lifecycle', `gancho de encerramento falhou: ${hook.name}`, err)
     }
   }
+  // Libera as referências: um encerramento repetido não roda cleanup obsoleto.
+  hooks.length = 0
 }
 
 function destroyWindow(label: string, getWindow: () => BrowserWindow | null): void {
@@ -69,6 +82,8 @@ function destroyWindow(label: string, getWindow: () => BrowserWindow | null): vo
  * gancho registrado.
  */
 export function shutdownApp(ctx: ShutdownContext, reason: ShutdownReason = 'tray'): void {
+  if (shutdownStarted) return
+  shutdownStarted = true
   markQuitting()
   logger.info('lifecycle', `encerrando (motivo: ${reason})`)
   runHooks()

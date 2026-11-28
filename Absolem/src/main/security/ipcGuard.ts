@@ -142,19 +142,31 @@ export function checkPayloadLimits(
   return { ok: true }
 }
 
+/**
+ * Lê `message` sem confiar no objeto: getter/`toString` hostil vira texto
+ * vazio em vez de exceção crua escapando do guarda de IPC.
+ */
+function readErrorMessage(error: unknown): string {
+  try {
+    if (error instanceof Error) return error.message
+    if (typeof error === 'string') return error
+    if (error && typeof error === 'object' && 'message' in error) {
+      const value = (error as { message: unknown }).message
+      if (typeof value === 'string') return value
+      return value === undefined || value === null ? '' : String(value)
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
 /** Remove stack, chave e caminho pessoal de qualquer erro que vá ao IPC. */
 export function sanitizeIpcError(
   error: unknown,
   fallback = 'Falha ao executar a operação.'
 ): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : error && typeof error === 'object' && 'message' in error
-          ? String((error as { message: unknown }).message)
-          : ''
+  const raw = readErrorMessage(error)
   const message = raw
     .replace(/\r?\n\s+at\s+[^\r\n]*/g, '')
     .replace(/\r?\n+/g, ' ')

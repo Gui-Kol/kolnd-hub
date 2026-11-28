@@ -123,6 +123,7 @@ A execução continua sujeita a permissão, confirmação e limites da task 08.
 | Execução sem usuário presente   | Pausa global (`Control+Alt+P`) bloqueia todas as ferramentas antes da confirmação                   | task 08; `src/main/actions/tools.test.ts`, `src/renderer/src/settings/PermissionsTab.test.tsx` |
 | UIA controlando outra janela    | Default `deny`; exige `allow` confirmado; 1 ação/2 s                                                | task 08; `src/main/actions/uia.test.ts`, `src/renderer/src/settings/PermissionsTab.test.tsx`   |
 | Ação sem rastro                 | Auditoria JSONL com ferramenta, categoria, hash dos argumentos, decisão, ok e duração; sem conteúdo | task 08; `src/main/audit/actions.test.ts`                                                      |
+| Falha no meio do plano          | Operações já feitas entram no journal; undo reverte o parcial; nada é sobrescrito                   | task 08; `src/main/actions/fileOps.test.ts`                                                    |
 
 Risco residual aceito: o modelo pode propor uma ação permitida e o usuário
 confirmar por engano. A confirmação mostra alvo, processo e motivo; não há
@@ -151,6 +152,7 @@ sem a camada de permissão da task 08.
 | Payload gigante          | Limite de 8 MB para imagem e 64 KB para texto no guarda central                                           | task 13/T6; `src/main/security/ipc.test.ts`                                          |
 | Remetente estranho       | URL do `senderFrame` comparada com a origem do app (dev ou `renderer/index.html`)                         | task 13/T6; `src/main/security/ipc.test.ts`                                          |
 | Stack do SDK no renderer | Erros classificados em `GeminiError`; guarda remove stack e caminhos                                      | task 05/13; `src/main/gemini/engine.test.ts`, `src/main/security/ipc.test.ts`        |
+| Objeto de erro hostil    | `sanitizeIpcError` lê `message` sob `try/catch`; getter/`toString` hostil vira fallback pt-BR             | task 08; `src/main/security/fuzz.test.ts`                                            |
 | XSS no renderer          | CSP sem `unsafe-eval` e sem script inline; `contextIsolation` e `sandbox` ligados                         | task 13/T5; `src/main/security/hardening.test.ts`, `Absolem/src/renderer/index.html` |
 | Nova janela ou navegação | `setWindowOpenHandler` deny, `will-navigate` bloqueado, `webviewTag:false` e `will-attach-webview` negado | task 13/T5; `src/main/security/hardening.test.ts`, `src/main/navigation.test.ts`     |
 
@@ -161,9 +163,12 @@ mesmos privilégios do app. Não há sandbox de processo main no Electron.
 
 | Ameaça                 | Mitigação                                                                                   | Cobertura                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Chave ou token no log  | Redação em `info+` de `authorization`, `api_key`, `token`, `senha` e `chave`                | task 13/T4; `src/main/security/redaction.test.ts`                                        |
-| Caminho pessoal no log | Máscara de `C:\Users\<nome>` em `info+`                                                     | task 13/T4; `src/main/security/redaction.test.ts`                                        |
+| Chave ou token no log  | Redação em `info+` de `authorization`, `api_key`, `token`, `senha` e `chave`                | task 13/T4; `src/main/security/redaction.test.ts`, `src/main/security/fuzz.test.ts`      |
+| Caminho pessoal no log | Máscara de `C:\Users\<nome>` (barra invertida ou normal) em `info+`                         | task 13/T4; `src/main/security/redaction.test.ts`, `src/main/security/fuzz.test.ts`      |
 | Transcrição no log     | Redação de `transcript`/`transcricao` e proibição de `console.*` no main                    | task 13/T4; `src/main/security/redaction.test.ts`, regra ESLint `no-console`             |
+| Conteúdo sem aspas     | `prompt`/`resposta`/`response`/`transcrição` redigidos até o fim da linha                   | task 08; `src/main/security/redaction.test.ts`, `src/main/security/fuzz.test.ts`         |
+| URL privada no log     | `http(s)` e `file://` redigidos por inteiro; caminho de usuário mascarado                   | task 08; `src/main/security/redaction.test.ts`, `src/main/security/fuzz.test.ts`         |
+| Argumento circular     | `sanitizeSafeArgs` limita profundidade e ignora ciclos; auditoria nunca perde o evento      | task 08; `src/main/security/fuzz.test.ts`, `src/main/audit/actions.test.ts`              |
 | Auditoria com conteúdo | `actions.jsonl` guarda hash e `safeArgs`; `memory.jsonl` guarda apenas `{at, op, id, kind}` | task 08/09; `src/main/audit/actions.test.ts`, `src/main/memory/privacy.test.ts`          |
 | Crescimento infinito   | Logs 5 MB x 2, auditoria 5 MB x 2 e retenção de 90 dias                                     | task 08/13; `src/main/audit/actions.test.ts`, `src/main/security/data-lifecycle.test.ts` |
 
@@ -233,17 +238,43 @@ publicado por um canal confiável e da conferência manual do usuário.
 | Redação de logs                   | `src/main/security/redaction.test.ts`                                     | 13     |
 | Custo e deduplicação              | `src/main/security/cost-limits.test.ts`                                   | 13     |
 | Retenção e "apagar tudo"          | `src/main/security/data-lifecycle.test.ts`                                | 13     |
-| Modos degradados                  | `src/main/security/degraded.test.ts`                                      | 13     |
+| Modos degradados                  | `src/main/security/degraded.test.ts`                                      | 13, 08 |
+| Varredura de payloads malformados | `src/main/security/fuzz.test.ts`, `docs/security-robustness.md`           | 08     |
+| Journal/undo em falha parcial     | `src/main/actions/fileOps.test.ts`                                        | 08     |
 | Consentimentos e revogação        | `src/renderer/src/settings/consent-revocation.test.tsx`                   | 13     |
 | Dependências e licenças           | `docs/licenses.md`                                                        | 13     |
 | Release e hash                    | Release do Kolnd Hub (Absolem embarcado)                                  | 32     |
 
-## 7. Como revisar este documento
+## 7. Revisão da task 08 (otimização, 27/11/2026)
+
+A varredura com payloads sintéticos está em
+`src/main/security/fuzz.test.ts`; a matriz de falhas e o antes/depois estão em
+`docs/security-robustness.md`. Três correções foram feitas sem relaxar barreiras:
+
+1. `sanitizeIpcError` lê `message` defensivamente (getter/`toString` hostil não
+   escapa como exceção).
+2. A redação de log passou a cobrir `file:///` e conteúdo sem aspas
+   (`transcricao`, `prompt`, `resposta`, `response`) até o fim da linha.
+3. `sanitizeSafeArgs` limita profundidade e ignora ciclos, sem perder o evento
+   de auditoria.
+
+Retry do cliente e do Live seguem limitados a 2 tentativas totais; nenhum
+default de permissão, confirmação, SSRF, allowlist, CSP, sandbox ou
+`safeStorage` mudou. Risco residual novo: nenhum identificado. Continua aceito
+que logs `warn`/`error` possam conter mensagem de exceção de terceiro; a redação
+cobre segredo, caminho pessoal, URL e conteúdo rotulado, não a semântica de
+qualquer mensagem.
+
+Validação manual ainda necessária: UAC do instalador, `safeStorage`/DPAPI na
+conta real, revogação/pausa no app empacotado, disco cheio/removido, rede
+indisponível e dispositivo de áudio removido.
+
+## 8. Como revisar este documento
 
 1. Toda mitigação citada precisa existir no código e ter teste ou checklist.
 2. Toda linha de risco residual precisa dizer o motivo aceito e onde está
    registrado.
 3. Uma nova superfície (novo canal IPC, nova ferramenta, novo download) obriga a
    atualizar este documento antes do release.
-4. A validação de release do **Kolnd Hub** (que embarca o Absolem) confirma que o
-   modelo foi revisado na versão que está sendo publicada.
+4. A validação de release do **Kolnd Hub** (que embarca o Absolem) atualiza este
+   modelo na versão que está sendo publicada.

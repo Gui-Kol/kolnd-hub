@@ -190,22 +190,38 @@ interface Rgb {
   b: number
 }
 
+// Cores por estado são fixas e os `amount` usados em `shade` são constantes
+// (0.38, -0.16, -0.26). Cachear esses dois níveis evita reinterpretar o hex e
+// remontar a string a cada frame sem crescer sem limite: nenhuma chave depende
+// do tempo ou do nível de voz.
+const rgbCache = new Map<string, Rgb>()
+const shadeCache = new Map<string, string>()
+
 function parseHex(hex: string): Rgb {
+  const cached = rgbCache.get(hex)
+  if (cached) return cached
   const body = hex.replace('#', '')
-  return {
+  const rgb = {
     r: Number.parseInt(body.slice(0, 2), 16),
     g: Number.parseInt(body.slice(2, 4), 16),
     b: Number.parseInt(body.slice(4, 6), 16)
   }
+  rgbCache.set(hex, rgb)
+  return rgb
 }
 
 /** `amount` positivo clareia na direção do branco; negativo escurece. */
 function shade(hex: string, amount: number): string {
+  const key = `${hex}|${amount}`
+  const cached = shadeCache.get(key)
+  if (cached !== undefined) return cached
   const { r, g, b } = parseHex(hex)
   const target = amount >= 0 ? 255 : 0
   const mix = Math.min(1, Math.abs(amount))
   const channel = (value: number): number => Math.round(value + (target - value) * mix)
-  return `rgb(${channel(r)}, ${channel(g)}, ${channel(b)})`
+  const value = `rgb(${channel(r)}, ${channel(g)}, ${channel(b)})`
+  shadeCache.set(key, value)
+  return value
 }
 
 function rgba(hex: string, alpha: number): string {
@@ -432,10 +448,21 @@ export function createAvatarBall(
     canvas.height = Math.max(1, Math.round(cssHeight * pixelRatio))
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
     paint(elapsedSeconds)
+    syncRunning()
   }
 
   function shouldRun(): boolean {
     return !disposed && overlayVisible && pageVisible
+  }
+
+  /**
+   * Frames estáticos: `reducedMotion` zera o tempo e `error` não pulsa. Repintar
+   * o mesmo quadro a cada vsync não altera um pixel, então o loop é encerrado
+   * depois de um quadro e reaberto só quando estado/nível/tema/tamanho mudam.
+   * A animação normal continua no rAF, quadro a quadro.
+   */
+  function isStaticFrame(): boolean {
+    return reducedMotion || state === 'error'
   }
 
   function stopLoop(): void {
@@ -450,26 +477,32 @@ export function createAvatarBall(
       stopLoop()
       return
     }
+    const isStatic = isStaticFrame()
     const deltaMs = lastTimestamp === null ? 0 : Math.max(0, timestamp - lastTimestamp)
     lastTimestamp = timestamp
-    if (deltaMs > 0) {
+    if (!isStatic && deltaMs > 0) {
       elapsedSeconds += deltaMs / 1000
       frameTimes.push(deltaMs)
       if (frameTimes.length > METRIC_WINDOW) frameTimes.shift()
     }
     paint(elapsedSeconds)
-    rafId = scheduler.raf(tick)
-  }
-
-  function startLoop(): void {
-    if (rafId !== null || !shouldRun()) return
-    lastTimestamp = null
+    if (isStatic) {
+      // Um único quadro: não há próxima animação para agendar.
+      rafId = null
+      return
+    }
     rafId = scheduler.raf(tick)
   }
 
   function syncRunning(): void {
-    if (shouldRun()) startLoop()
-    else stopLoop()
+    if (!shouldRun()) {
+      stopLoop()
+      return
+    }
+    if (rafId !== null) return
+    // Sempre começa com um quadro; `tick` só reagenda se o quadro for animado.
+    lastTimestamp = null
+    rafId = scheduler.raf(tick)
   }
 
   const onVisibilityChange = (): void => {
@@ -492,9 +525,11 @@ export function createAvatarBall(
     canvas,
     setState(next: AvatarState): void {
       state = normalizeAvatarState(next)
+      syncRunning()
     },
     setLevel(next: number): void {
       level = clampAvatarLevel(next)
+      syncRunning()
     },
     setTheme(_theme: AvatarTheme): void {
       // Compatibilidade: a bola não usa o accent do store.
@@ -517,6 +552,7 @@ export function createAvatarBall(
     },
     setReducedMotion(reduced: boolean): void {
       reducedMotion = reduced
+      syncRunning()
     },
     resize,
     dispose(): void {

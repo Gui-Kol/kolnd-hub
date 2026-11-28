@@ -37,9 +37,11 @@ function fakeContext() {
     connect: vi.fn(),
     disconnect: vi.fn()
   }
-  const context: PlaybackAudioContextLike & { currentTime: number } = {
+  const context: PlaybackAudioContextLike & { currentTime: number; resume: () => Promise<void> } = {
     currentTime: 0,
+    state: 'running',
     destination: {},
+    resume: vi.fn(async () => undefined),
     createBuffer: (channels, length, sampleRate): AudioBufferLike => {
       const data = new Float32Array(length)
       return {
@@ -124,5 +126,47 @@ describe('reprodução sem estalo', () => {
     expect(lastRamp?.[0]).toBe(0)
     expect(lastRamp?.[1]).toBeCloseTo(0.5 + 0.02, 6)
     expect(fake.gainCalls.set[0]?.[1]).toBeCloseTo(0.5, 6)
+  })
+
+  it('flush duplicado não refaz a rampa de ganho', () => {
+    const fake = fakeContext()
+    const playback = createPlayback({ context: fake.context })
+    playback.enqueue(pcm(2400), 24_000)
+    fake.context.currentTime = 0.01
+
+    playback.flush()
+    playback.flush()
+
+    expect(fake.gainCalls.ramp).toHaveLength(1)
+    expect(fake.gainCalls.set).toHaveLength(2)
+    expect(playback.getStats()).toMatchObject({
+      flushes: 1,
+      skippedFlushes: 1,
+      pending: 0
+    })
+  })
+
+  it('fila limitada descarta o excedente e conta', () => {
+    const fake = fakeContext()
+    const playback = createPlayback({ context: fake.context, maxBufferedMs: 250 })
+
+    for (let index = 0; index < 5; index += 1) playback.enqueue(pcm(2400), 24_000)
+
+    expect(playback.getStats()).toMatchObject({ enqueued: 1, dropped: 4, pending: 1 })
+    expect(fake.sources).toHaveLength(1)
+    expect(playback.getStats().bufferedMs).toBeLessThanOrEqual(250)
+  })
+
+  it('retoma contexto suspenso ao enfileirar', () => {
+    const fake = fakeContext()
+    fake.context.state = 'suspended'
+    const playback = createPlayback({ context: fake.context })
+
+    playback.enqueue(pcm(2400), 24_000)
+
+    expect(fake.context.resume).toHaveBeenCalledTimes(1)
+    playback.dispose()
+    playback.dispose()
+    expect(playback.pending()).toBe(0)
   })
 })

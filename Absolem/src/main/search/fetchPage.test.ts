@@ -146,6 +146,91 @@ describe('fetchPage contra SSRF e limites', () => {
       })
     ).rejects.toMatchObject({ code: 'content-type' })
   })
+
+  it('timeout também cobre DNS/validação que não responde', async () => {
+    const fetchImpl = vi.fn()
+    const started = Date.now()
+
+    await expect(
+      fetchPage('https://example.test/lento', {
+        validate: () => new Promise<UrlValidation>(() => undefined),
+        fetchImpl: fetchImpl as unknown as FetchPageDeps['fetchImpl'],
+        timeoutMs: 25
+      })
+    ).rejects.toMatchObject({ code: 'timeout' })
+
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sinal já cancelado não toca a rede', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const fetchImpl = vi.fn()
+
+    await expect(
+      fetchPage(`${base}/ok`, {
+        validate: allowLocal,
+        fetchImpl: fetchImpl as unknown as FetchPageDeps['fetchImpl'],
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('cancelamento no meio do corpo interrompe a leitura e libera o stream', async () => {
+    const controller = new AbortController()
+    let pulls = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(streamController) {
+        pulls += 1
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        try {
+          streamController.enqueue(new TextEncoder().encode(`<p>${pulls}</p>`))
+        } catch {
+          // O leitor cancelou entre o atraso e o enqueue.
+        }
+      },
+      cancel() {
+        cancelled = true
+      }
+    })
+
+    const promise = fetchPage(`${base}/stream`, {
+      validate: allowLocal,
+      fetchImpl: async () =>
+        new Response(stream, { status: 200, headers: { 'content-type': 'text/html' } }),
+      signal: controller.signal
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    controller.abort()
+
+    await expect(promise).rejects.toMatchObject({ code: 'cancelled' })
+    const pullsAtAbort = pulls
+    expect(cancelled).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(pulls).toBe(pullsAtAbort)
+  })
+
+  it('timeout durante a leitura do corpo não deixa a promise pendurada', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(new TextEncoder().encode('<html>'))
+        // Nunca fecha: simula servidor que trava no meio do corpo.
+      }
+    })
+
+    await expect(
+      fetchPage(`${base}/travado`, {
+        validate: allowLocal,
+        fetchImpl: async () =>
+          new Response(stream, { status: 200, headers: { 'content-type': 'text/html' } }),
+        timeoutMs: 30
+      })
+    ).rejects.toMatchObject({ code: 'timeout' })
+  })
 })
 
 describe('validator real de URL', () => {

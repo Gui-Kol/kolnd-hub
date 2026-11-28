@@ -36,7 +36,12 @@ test('configurações, tema, dispositivo e overlay sem encerrar o app', async ()
 
   try {
     // Primeira execução sem chave abre Configurações em "Chave e custo";
-    // `activate` é o mesmo caminho do menu da bandeja.
+    // `activate` é o mesmo caminho do menu da bandeja. Espera o main ficar
+    // pronto antes de emitir: sem isso, o evento pode chegar antes do listener
+    // e nenhuma janela abre (flake intermitente observado).
+    await electronApp.evaluate(async ({ app }) => {
+      if (!app.isReady()) await app.whenReady()
+    })
     await electronApp.evaluate(({ app }) => {
       app.emit('activate')
     })

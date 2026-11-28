@@ -10,7 +10,15 @@ import { createToolRegistry, type ToolRegistry } from './registry'
  * às tasks 07 a 10.
  */
 
-export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown
+/** Contexto de execução: o roteador aborta quando a ferramenta estoura o tempo. */
+export interface ToolHandlerContext {
+  signal: AbortSignal
+}
+
+export type ToolHandler = (
+  args: Record<string, unknown>,
+  context?: ToolHandlerContext
+) => Promise<unknown> | unknown
 
 export interface ToolEntry {
   definition: ToolDefinition

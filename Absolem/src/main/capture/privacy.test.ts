@@ -138,4 +138,33 @@ describe('política de privacidade da tela', () => {
       expect.arrayContaining(['1password', 'bitwarden', 'keepass', 'nubank', 'itaú'])
     )
   })
+
+  it('pedido cancelado não confirma, não captura e restaura o overlay', async () => {
+    const confirm = vi.fn(async () => true)
+    const grab = vi.fn(async () => image())
+    const hideOverlay = vi.fn()
+    const showOverlay = vi.fn()
+    const audit = vi.fn()
+    const controller = createCaptureController(
+      deps({
+        getPrivacy: () => ({ mode: 'ask', blocklist: [], proactive: false }),
+        confirm,
+        grab,
+        hideOverlay,
+        showOverlay,
+        isOverlayVisible: () => true,
+        isCancelled: () => true,
+        audit
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'privacy-cancel' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(hideOverlay).not.toHaveBeenCalled()
+    expect(showOverlay).not.toHaveBeenCalled()
+    expect(grab).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
 })

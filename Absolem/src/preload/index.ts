@@ -39,6 +39,22 @@ import type {
  * Ponte fina: cada método só repassa o payload para `ipcRenderer.invoke`.
  * Nenhum `event` cruza a fronteira e nenhuma lógica de negócio vive aqui.
  */
+
+/**
+ * Assinatura com remoção idempotente: um segundo unmount não mexe na lista do
+ * Electron e o handler original é sempre o mesmo par `on`/`removeListener`.
+ */
+function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
+  const handler = (_event: unknown, payload: T): void => listener(payload)
+  ipcRenderer.on(channel, handler)
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    ipcRenderer.removeListener(channel, handler)
+  }
+}
+
 const absolem: AbsolemApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appGetInfo),
   quit: () => ipcRenderer.invoke(IPC.appQuit),
@@ -59,25 +75,15 @@ const absolem: AbsolemApi = {
   overlaySetInputMode: (active: boolean) => ipcRenderer.invoke(IPC.overlaySetInputMode, { active }),
   overlaySetShortcut: (shortcut: string) =>
     ipcRenderer.invoke(IPC.overlaySetShortcut, { shortcut }),
-  onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) => {
-    const handler = (_event: unknown, status: OverlayStatus) => listener(status)
-    ipcRenderer.on(IPC.overlayStatusChanged, handler)
-    return () => {
-      ipcRenderer.removeListener(IPC.overlayStatusChanged, handler)
-    }
-  },
+  onOverlayStatusChanged: (listener: (status: OverlayStatus) => void) =>
+    subscribe<OverlayStatus>(IPC.overlayStatusChanged, listener),
 
   avatar: {
     setState: (state: AvatarState) => ipcRenderer.invoke(IPC.avatarSetState, { state }),
     setLevel: (level: number) => ipcRenderer.invoke(IPC.avatarSetLevel, { level }),
     getStatus: () => ipcRenderer.invoke(IPC.avatarGetStatus),
-    onApply: (listener: (payload: AvatarApplyPush) => void) => {
-      const handler = (_event: unknown, payload: AvatarApplyPush) => listener(payload)
-      ipcRenderer.on(IPC.avatarApply, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.avatarApply, handler)
-      }
-    }
+    onApply: (listener: (payload: AvatarApplyPush) => void) =>
+      subscribe<AvatarApplyPush>(IPC.avatarApply, listener)
   },
 
   storeGet: (key: StoreKey) => ipcRenderer.invoke(IPC.storeGet, { key }),
@@ -94,53 +100,28 @@ const absolem: AbsolemApi = {
     }),
   themeExport: () => ipcRenderer.invoke(IPC.themeExport),
   themeImport: () => ipcRenderer.invoke(IPC.themeImport),
-  onThemeChanged: (listener: (theme: ThemeConfig) => void) => {
-    const handler = (_event: unknown, theme: ThemeConfig) => listener(theme)
-    ipcRenderer.on(IPC.themeChanged, handler)
-    return () => {
-      ipcRenderer.removeListener(IPC.themeChanged, handler)
-    }
-  },
+  onThemeChanged: (listener: (theme: ThemeConfig) => void) =>
+    subscribe<ThemeConfig>(IPC.themeChanged, listener),
 
   gemini: {
     status: () => ipcRenderer.invoke(IPC.geminiStatus),
     setKey: (key: string) => ipcRenderer.invoke(IPC.geminiSetKey, { key }),
     clearKey: () => ipcRenderer.invoke(IPC.geminiClearKey),
     testKey: () => ipcRenderer.invoke(IPC.geminiTestKey),
-    onUsageWarning: (listener: (warning: GeminiUsageWarningPush) => void) => {
-      const handler = (_event: unknown, warning: GeminiUsageWarningPush) => listener(warning)
-      ipcRenderer.on(IPC.geminiUsageWarning, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.geminiUsageWarning, handler)
-      }
-    }
+    onUsageWarning: (listener: (warning: GeminiUsageWarningPush) => void) =>
+      subscribe<GeminiUsageWarningPush>(IPC.geminiUsageWarning, listener)
   },
 
   chat: {
     send: (requestId: string, text: string) =>
       ipcRenderer.invoke(IPC.chatSend, { requestId, text }),
     cancel: (requestId: string) => ipcRenderer.invoke(IPC.chatCancel, { requestId }),
-    onDelta: (listener: (push: ChatDeltaPush) => void) => {
-      const handler = (_event: unknown, push: ChatDeltaPush) => listener(push)
-      ipcRenderer.on(IPC.chatDelta, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.chatDelta, handler)
-      }
-    },
-    onDone: (listener: (push: ChatDonePush) => void) => {
-      const handler = (_event: unknown, push: ChatDonePush) => listener(push)
-      ipcRenderer.on(IPC.chatDone, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.chatDone, handler)
-      }
-    },
-    onError: (listener: (push: ChatErrorPush) => void) => {
-      const handler = (_event: unknown, push: ChatErrorPush) => listener(push)
-      ipcRenderer.on(IPC.chatError, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.chatError, handler)
-      }
-    }
+    onDelta: (listener: (push: ChatDeltaPush) => void) =>
+      subscribe<ChatDeltaPush>(IPC.chatDelta, listener),
+    onDone: (listener: (push: ChatDonePush) => void) =>
+      subscribe<ChatDonePush>(IPC.chatDone, listener),
+    onError: (listener: (push: ChatErrorPush) => void) =>
+      subscribe<ChatErrorPush>(IPC.chatError, listener)
   },
 
   diagnostics: {
@@ -189,33 +170,18 @@ const absolem: AbsolemApi = {
     submitRegion: (selection: RegionSelection) => {
       ipcRenderer.send(IPC.captureRegionResult, selection)
     },
-    onRequest: (listener: (push: CaptureRequestPush) => void) => {
-      const handler = (_event: unknown, push: CaptureRequestPush) => listener(push)
-      ipcRenderer.on(IPC.captureRequest, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.captureRequest, handler)
-      }
-    },
-    onIndicator: (listener: (push: CaptureIndicatorPush) => void) => {
-      const handler = (_event: unknown, push: CaptureIndicatorPush) => listener(push)
-      ipcRenderer.on(IPC.captureIndicator, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.captureIndicator, handler)
-      }
-    }
+    onRequest: (listener: (push: CaptureRequestPush) => void) =>
+      subscribe<CaptureRequestPush>(IPC.captureRequest, listener),
+    onIndicator: (listener: (push: CaptureIndicatorPush) => void) =>
+      subscribe<CaptureIndicatorPush>(IPC.captureIndicator, listener)
   },
 
   search: {
     status: () => ipcRenderer.invoke(IPC.searchStatus),
     openUrl: (url: string) => ipcRenderer.invoke(IPC.searchOpenUrl, { url }),
     clearCache: () => ipcRenderer.invoke(IPC.searchClearCache),
-    onIndicator: (listener: (push: SearchIndicatorPush) => void) => {
-      const handler = (_event: unknown, push: SearchIndicatorPush) => listener(push)
-      ipcRenderer.on(IPC.searchIndicator, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.searchIndicator, handler)
-      }
-    }
+    onIndicator: (listener: (push: SearchIndicatorPush) => void) =>
+      subscribe<SearchIndicatorPush>(IPC.searchIndicator, listener)
   },
 
   voice: {
@@ -231,27 +197,12 @@ const absolem: AbsolemApi = {
     sendAudioChunk: (data: Uint8Array) => ipcRenderer.send(IPC.voiceAudioChunk, data),
     sendBargeIn: () => ipcRenderer.send(IPC.voiceBargeIn),
     sendSilence: () => ipcRenderer.send(IPC.voiceSilence),
-    onState: (listener: (push: VoiceStatePush) => void) => {
-      const handler = (_event: unknown, push: VoiceStatePush) => listener(push)
-      ipcRenderer.on(IPC.voiceState, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.voiceState, handler)
-      }
-    },
-    onAudio: (listener: (push: VoiceAudioPush) => void) => {
-      const handler = (_event: unknown, push: VoiceAudioPush) => listener(push)
-      ipcRenderer.on(IPC.voiceAudio, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.voiceAudio, handler)
-      }
-    },
-    onTranscript: (listener: (push: VoiceTranscriptPush) => void) => {
-      const handler = (_event: unknown, push: VoiceTranscriptPush) => listener(push)
-      ipcRenderer.on(IPC.voiceTranscript, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC.voiceTranscript, handler)
-      }
-    }
+    onState: (listener: (push: VoiceStatePush) => void) =>
+      subscribe<VoiceStatePush>(IPC.voiceState, listener),
+    onAudio: (listener: (push: VoiceAudioPush) => void) =>
+      subscribe<VoiceAudioPush>(IPC.voiceAudio, listener),
+    onTranscript: (listener: (push: VoiceTranscriptPush) => void) =>
+      subscribe<VoiceTranscriptPush>(IPC.voiceTranscript, listener)
   }
 }
 

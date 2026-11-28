@@ -49,4 +49,15 @@ describe('handleSecondInstance', () => {
     expect(state.windowsCreated).toBe(0)
     expect(lifecycle.getMainWindow()).toBeNull()
   })
+
+  it('ignora a segunda instância durante o encerramento', () => {
+    const showOverlay = vi.fn()
+    const notify = vi.fn()
+
+    singleInstance.handleSecondInstance({ showOverlay, notify, isQuitting: () => true })
+
+    expect(showOverlay).not.toHaveBeenCalled()
+    expect(notify).not.toHaveBeenCalled()
+    expect(state.windowsCreated).toBe(0)
+  })
 })

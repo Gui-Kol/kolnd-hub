@@ -13,20 +13,32 @@ const REDACTED = '[redigido]'
 
 // Segredos nunca vão para o arquivo, inclusive quando debug está habilitado.
 // `authorization` é tratado antes para engolir o esquema Bearer/Basic junto.
-const AUTH_RE = /(authorization\s*[=:]\s*)(?:(?:bearer|basic)\s+)?\S+/gi
-const SECRET_RE =
-  /(api[-_]?key|token|password|passwd|pwd|transcript|transcription|transcricao|prompt|resposta|response|senha|chave)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi
+// O `"?` cobre o formato JSON (`{"authorization":"..."}`) emitido ao logar um
+// objeto de métrica/diagnóstico.
+const AUTH_RE = /(authorization)"?(\s*[=:]\s*)"?(?:(?:bearer|basic)\s+)?\S+/gi
+// Credencial: o valor é um token (ou texto entre aspas).
+const CREDENTIAL_RE =
+  /(api[-_]?key|token|password|passwd|pwd|senha|chave)"?(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi
+// Conteúdo livre (transcrição, prompt, resposta): redige até o fim da linha,
+// inclusive quando o valor não está entre aspas nem é uma única palavra.
+const CONTENT_RE =
+  /(transcript|transcription|transcri[cç][aã]o|prompt(?:\s+do\s+sistema)?|resposta|response)"?(\s*[=:]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\r\n]*)/gi
 const URL_RE = /\bhttps?:\/\/[^\s"'<>]+/gi
+// URL de arquivo do Windows: o caminho pessoal fica no meio (`file:///C:/Users`).
+const FILE_URL_RE = /\bfile:\/\/[^\s"'<>]+/gi
 // Caminho do perfil do Windows: mantém a unidade e `\Users\`, troca o nome.
-const USER_PATH_RE = /\b([A-Za-z]):\\Users\\[^\\\s"']+/gi
+// Aceita barra invertida (mensagens do SO) e barra normal (URLs/erros).
+const USER_PATH_RE = /\b([A-Za-z]):[\\/]Users[\\/][^\\/\s"']+/gi
 
 /** Redação aplicada a todos os níveis; debug também não pode expor conteúdo. */
 export function redactForLevel(level: LogLevel, text: string): string {
   void level
   return text
-    .replace(AUTH_RE, `$1${REDACTED}`)
-    .replace(SECRET_RE, `$1$2${REDACTED}`)
+    .replace(AUTH_RE, `$1$2${REDACTED}`)
+    .replace(CONTENT_RE, `$1$2${REDACTED}`)
+    .replace(CREDENTIAL_RE, `$1$2${REDACTED}`)
     .replace(URL_RE, REDACTED)
+    .replace(FILE_URL_RE, REDACTED)
     .replace(USER_PATH_RE, '$1:\\Users\\[usuario]')
 }
 

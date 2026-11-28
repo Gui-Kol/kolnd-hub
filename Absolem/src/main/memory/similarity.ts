@@ -40,6 +40,43 @@ export function trigramSimilarity(a: string, b: string): number {
 
 export const DUPLICATE_SIMILARITY = 0.85
 
+/**
+ * Perfil pré-computado para comparar muitas memórias entre si (consolidação).
+ * Evita normalizar/gerar trigramas de novo a cada par comparado.
+ */
+export interface CompareProfile {
+  normalized: string
+  grams: Set<string>
+}
+
+export function buildCompareProfile(text: string): CompareProfile {
+  const normalized = normalizeForCompare(text)
+  const padded = `  ${normalized}  `
+  const grams = new Set<string>()
+  for (let index = 0; index + 3 <= padded.length; index += 1) {
+    grams.add(padded.slice(index, index + 3))
+  }
+  return { normalized, grams }
+}
+
+/**
+ * Mesma regra de `isDuplicateContent`, mas com perfis prontos e um corte
+ * seguro: a similaridade de Dice nunca passa de `2*min/(a+b)`, então perfis
+ * com tamanhos muito diferentes nem entram na interseção.
+ */
+export function isDuplicateProfile(a: CompareProfile, b: CompareProfile): boolean {
+  if (a.normalized === b.normalized) return true
+  if (a.grams.size === 0 || b.grams.size === 0) return false
+  const smaller = Math.min(a.grams.size, b.grams.size)
+  const larger = Math.max(a.grams.size, b.grams.size)
+  if ((2 * smaller) / (smaller + larger) <= DUPLICATE_SIMILARITY) return false
+  let intersection = 0
+  for (const gram of a.grams) {
+    if (b.grams.has(gram)) intersection += 1
+  }
+  return (2 * intersection) / (a.grams.size + b.grams.size) > DUPLICATE_SIMILARITY
+}
+
 /** `true` quando o conteúdo representa a mesma informação de `other`. */
 export function isDuplicateContent(content: string, other: string): boolean {
   if (normalizeForCompare(content) === normalizeForCompare(other)) return true

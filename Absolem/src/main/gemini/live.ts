@@ -86,6 +86,21 @@ export interface LiveSessionOptions extends LiveSessionConfig {
 /** Tokens estimados por segundo de áudio de entrada quando não há metadata. */
 export const LIVE_AUDIO_TOKENS_PER_SECOND = 32
 export const LIVE_MAX_ATTEMPTS = 2
+/** Áudio de microfone preservado durante uma reconexão (2 s a 16 kHz PCM16). */
+export const LIVE_RECONNECT_BUFFER_BYTES = 64_000
+/** Resultados de ferramenta preservados durante uma reconexão. */
+export const LIVE_MAX_PENDING_TOOL_RESPONSES = 8
+
+export interface LiveSessionStats {
+  attempts: number
+  reconnects: number
+  sentAudioChunks: number
+  sentAudioBytes: number
+  bufferedAudioChunks: number
+  bufferedAudioBytes: number
+  droppedAudioChunks: number
+  pendingToolResponses: number
+}
 
 export class LiveSession {
   private readonly transport: LiveTransport
@@ -111,6 +126,18 @@ export class LiveSession {
   private closed = false
   private connecting = false
   private reconnecting = false
+  /** Tentativas de conexão já consumidas (inclui a primeira). */
+  private attemptsUsed = 0
+  private reconnectCount = 0
+  private connectStartedAt: number | null = null
+  private reconnectStartedAt: number | null = null
+  /** PCM capturado durante a reconexão; enviado em ordem depois de voltar. */
+  private pendingAudio: Uint8Array[] = []
+  private pendingAudioBytes = 0
+  private pendingToolResponses: GeminiFunctionResponse[][] = []
+  private sentAudioChunks = 0
+  private sentAudioBytes = 0
+  private droppedAudioChunks = 0
 
   constructor(options: LiveSessionOptions) {
     this.transport = options.transport
@@ -160,7 +187,7 @@ export class LiveSession {
 
   async connect(override?: Partial<LiveSessionConfig>): Promise<void> {
     if (this.closed) throw new GeminiError('invalid', 'Sessão Live já encerrada.')
-    if (this.connection || this.connecting) return
+    if (this.connection || this.connecting || this.reconnecting) return
     if (override) {
       this.config = {
         ...this.config,
@@ -179,6 +206,7 @@ export class LiveSession {
     this.usage.checkBudget()
 
     this.connecting = true
+    this.connectStartedAt = this.now()
     try {
       await this.connectWithRetry(apiKey)
     } finally {
@@ -187,18 +215,103 @@ export class LiveSession {
   }
 
   sendAudio(pcm: Uint8Array): void {
-    if (this.closed || !this.connection) return
+    if (this.closed) return
     if (!(pcm instanceof Uint8Array) || pcm.byteLength === 0) return
+    if (!this.connection) {
+      // Durante a reconexão o renderer continua capturando: preserva os
+      // chunks (limite de 2 s) e envia em ordem quando a sessão voltar.
+      if (this.reconnecting) this.bufferAudio(pcm)
+      return
+    }
+    this.sendAudioNow(pcm)
+  }
+
+  private sendAudioNow(pcm: Uint8Array): void {
+    const connection = this.connection
+    if (!connection) return
     this.audioBytes += pcm.byteLength
+    this.sentAudioChunks += 1
+    this.sentAudioBytes += pcm.byteLength
     this.logger?.debug('voice', 'áudio enviado ao Live', {
       bytes: pcm.byteLength,
       totalBytes: this.audioBytes,
       sampleRate: 16_000
     })
     try {
-      this.connection.sendAudio(pcm)
+      connection.sendAudio(pcm)
     } catch (err) {
       this.handleRuntimeError(err)
+    }
+  }
+
+  private bufferAudio(pcm: Uint8Array): void {
+    if (this.pendingAudioBytes + pcm.byteLength > LIVE_RECONNECT_BUFFER_BYTES) {
+      this.droppedAudioChunks += 1
+      this.logger?.warn('voice', 'buffer de reconexão cheio; chunk descartado', {
+        bytes: pcm.byteLength,
+        bufferedBytes: this.pendingAudioBytes,
+        droppedChunks: this.droppedAudioChunks,
+        sampleRate: 16_000
+      })
+      return
+    }
+    this.pendingAudio.push(new Uint8Array(pcm))
+    this.pendingAudioBytes += pcm.byteLength
+    this.audioBytes += pcm.byteLength
+  }
+
+  private flushPending(): void {
+    const connection = this.connection
+    if (!connection) return
+    if (this.pendingAudio.length > 0) {
+      const chunks = this.pendingAudio.length
+      const bytes = this.pendingAudioBytes
+      let sent = 0
+      while (this.pendingAudio.length > 0) {
+        const pcm = this.pendingAudio[0]
+        if (!pcm) break
+        try {
+          connection.sendAudio(pcm)
+        } catch (err) {
+          this.logger?.warn('voice', 'falha ao reenviar áudio da reconexão', {
+            bytes: pcm.byteLength,
+            sent
+          })
+          this.fail(classifyError(err))
+          return
+        }
+        this.pendingAudio.shift()
+        this.pendingAudioBytes -= pcm.byteLength
+        this.sentAudioChunks += 1
+        this.sentAudioBytes += pcm.byteLength
+        sent += 1
+      }
+      this.logger?.info('voice', 'áudio da reconexão reenviado', {
+        chunks,
+        sent,
+        bytes,
+        sampleRate: 16_000
+      })
+    }
+    if (this.pendingToolResponses.length > 0) {
+      let batches = 0
+      while (this.pendingToolResponses.length > 0) {
+        const responses = this.pendingToolResponses[0]
+        if (!responses) break
+        try {
+          connection.sendToolResponse(responses)
+        } catch (err) {
+          this.logger?.warn('voice', 'falha ao reenviar tool response da reconexão', {
+            count: responses.length,
+            sent: batches
+          })
+          this.fail(classifyError(err))
+          return
+        }
+        this.pendingToolResponses.shift()
+        batches += 1
+      }
+      this.logger?.info('voice', 'tool responses da reconexão reenviados', { batches })
     }
   }
 
@@ -255,8 +368,21 @@ export class LiveSession {
 
   /** Devolve ao modelo o resultado de ferramentas executadas (task 08, T10b). */
   sendToolResponse(responses: GeminiFunctionResponse[]): void {
-    if (this.closed || !this.connection) return
+    if (this.closed) return
     if (!Array.isArray(responses) || responses.length === 0) return
+    if (!this.connection) {
+      if (this.reconnecting) {
+        if (this.pendingToolResponses.length >= LIVE_MAX_PENDING_TOOL_RESPONSES) {
+          this.logger?.warn('voice', 'buffer de tool responses cheio; lote descartado', {
+            count: responses.length,
+            pending: this.pendingToolResponses.length
+          })
+          return
+        }
+        this.pendingToolResponses.push(responses.map((response) => ({ ...response })))
+      }
+      return
+    }
     try {
       this.connection.sendToolResponse(responses)
     } catch (err) {
@@ -286,18 +412,41 @@ export class LiveSession {
         // Conexão já pode ter caído; o fechamento lógico continua.
       }
     }
+    // Áudio capturado mas ainda não reenviado não foi consumido pelo modelo.
+    this.audioBytes = Math.max(0, this.audioBytes - this.pendingAudioBytes)
+    this.pendingAudio = []
+    this.pendingAudioBytes = 0
+    this.pendingToolResponses = []
     this.finalizeUsage()
     this.logger?.info('voice', 'sessão Live encerrada', {
       reason,
-      audioSeconds: Math.round(this.audioSeconds() * 10) / 10
+      audioSeconds: Math.round(this.audioSeconds() * 10) / 10,
+      attempts: this.attemptsUsed,
+      reconnects: this.reconnectCount,
+      droppedAudioChunks: this.droppedAudioChunks
     })
     this.handlers.onClose?.(reason)
+  }
+
+  /** Contadores agregados da sessão (teste/diagnóstico); sem conteúdo. */
+  getStats(): LiveSessionStats {
+    return {
+      attempts: this.attemptsUsed,
+      reconnects: this.reconnectCount,
+      sentAudioChunks: this.sentAudioChunks,
+      sentAudioBytes: this.sentAudioBytes,
+      bufferedAudioChunks: this.pendingAudio.length,
+      bufferedAudioBytes: this.pendingAudioBytes,
+      droppedAudioChunks: this.droppedAudioChunks,
+      pendingToolResponses: this.pendingToolResponses.length
+    }
   }
 
   private async connectWithRetry(apiKey: string): Promise<void> {
     let lastError: GeminiError | null = null
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       if (this.closed) throw new GeminiError('cancelled', 'Sessão Live cancelada.')
+      this.attemptsUsed = attempt
       try {
         const connection = await this.transport.connect({
           apiKey,
@@ -323,7 +472,11 @@ export class LiveSession {
         this.connectedAt = this.now()
         this.logger?.info('voice', 'sessão Live conectada', {
           model: this.config.model,
-          attempt
+          attempt,
+          latencyMs:
+            this.connectStartedAt === null
+              ? undefined
+              : Math.round((this.connectedAt - this.connectStartedAt) * 10) / 10
         })
         return
       } catch (err) {
@@ -397,8 +550,11 @@ export class LiveSession {
   }
 
   /**
-   * Erro em sessão já conectada: tenta reconectar até `maxAttempts - 1`
-   * (a conexão original conta como a primeira tentativa).
+   * Erro em sessão já conectada: tenta reconectar se ainda houver tentativa
+   * disponível (`maxAttempts` é o total, incluindo a conexão original). A
+   * reconexão é idempotente: erros simultâneos enquanto ela corre são
+   * ignorados; depois de consumido o orçamento, um novo erro encerra em vez
+   * de ficar silenciosamente "conectado".
    */
   private handleRuntimeError(err: unknown): void {
     if (this.closed || this.reconnecting) return
@@ -408,7 +564,7 @@ export class LiveSession {
       retryable: error.retryable,
       status: error.status
     })
-    if (!this.isRetryable(error) || this.maxAttempts <= 1) {
+    if (!this.isRetryable(error) || this.attemptsUsed >= this.maxAttempts) {
       this.fail(error)
       return
     }
@@ -418,7 +574,7 @@ export class LiveSession {
   private handleRuntimeClose(reason?: string): void {
     if (this.closed || this.reconnecting) return
     this.logger?.warn('voice', 'sessão Live fechada pelo servidor', { reason })
-    if (this.maxAttempts <= 1) {
+    if (this.attemptsUsed >= this.maxAttempts) {
       this.fail(new GeminiError('network', 'A conexão de voz foi encerrada.'))
       return
     }
@@ -426,7 +582,9 @@ export class LiveSession {
   }
 
   private async reconnect(initialError: GeminiError): Promise<void> {
+    if (this.closed || this.reconnecting) return
     this.reconnecting = true
+    this.reconnectStartedAt = this.now()
     const connection = this.connection
     this.connection = null
     try {
@@ -436,43 +594,59 @@ export class LiveSession {
     }
 
     let lastError = initialError
-    for (let attempt = 2; attempt <= this.maxAttempts; attempt += 1) {
-      if (this.closed) break
-      await this.sleep(this.backoff(attempt))
-      if (this.closed) break
-      try {
-        const connection = await this.transport.connect({
-          apiKey: this.keys.getApiKey() ?? '',
-          model: this.config.model,
-          systemInstruction: this.config.systemInstruction ?? this.config.systemPrompt ?? '',
-          temperature: this.config.temperature ?? 0.7,
-          voiceName: this.config.voiceName,
-          tools: this.config.tools,
-          history: this.getHistory(),
-          onEvent: (event) => this.handleEvent(event)
-        })
-        if (this.closed) {
-          try {
-            connection.close()
-          } catch {
-            // best-effort
+    try {
+      for (let attempt = this.attemptsUsed + 1; attempt <= this.maxAttempts; attempt += 1) {
+        if (this.closed) return
+        await this.sleep(this.backoff(attempt))
+        if (this.closed) return
+        this.attemptsUsed = attempt
+        try {
+          const next = await this.transport.connect({
+            apiKey: this.keys.getApiKey() ?? '',
+            model: this.config.model,
+            systemInstruction: this.config.systemInstruction ?? this.config.systemPrompt ?? '',
+            temperature: this.config.temperature ?? 0.7,
+            voiceName: this.config.voiceName,
+            tools: this.config.tools,
+            history: this.getHistory(),
+            onEvent: (event) => this.handleEvent(event)
+          })
+          if (this.closed) {
+            try {
+              next.close()
+            } catch {
+              // best-effort
+            }
+            return
           }
+          this.connection = next
+          this.reconnectCount += 1
+          const now = this.now()
+          this.logger?.info('voice', 'sessão Live reconectada', {
+            attempt,
+            latencyMs:
+              this.reconnectStartedAt === null
+                ? undefined
+                : Math.round((now - this.reconnectStartedAt) * 10) / 10
+          })
+          // Áudio e resultados de ferramentas capturados durante a queda
+          // voltam em ordem, uma única vez.
+          this.flushPending()
           return
+        } catch (err) {
+          lastError = classifyError(err)
+          this.logger?.warn('voice', 'reconexão da sessão Live falhou', {
+            kind: lastError.kind,
+            attempt
+          })
+          if (!this.isRetryable(lastError)) break
         }
-        this.connection = connection
-        this.logger?.info('voice', 'sessão Live reconectada', { attempt })
-        return
-      } catch (err) {
-        lastError = classifyError(err)
-        this.logger?.warn('voice', 'reconexão da sessão Live falhou', {
-          kind: lastError.kind,
-          attempt
-        })
-        if (!this.isRetryable(lastError)) break
       }
-    }
 
-    if (!this.closed) this.fail(lastError)
+      if (!this.closed) this.fail(lastError)
+    } finally {
+      this.reconnecting = false
+    }
   }
 
   private fail(error: GeminiError): void {

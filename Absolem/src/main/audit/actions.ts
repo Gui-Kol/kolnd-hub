@@ -33,6 +33,7 @@ export const AUDIT_RETENTION_DAYS = 90
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000
 const MAX_SAFE_STRING = 200
 const MAX_SAFE_ARRAY = 20
+const MAX_SAFE_DEPTH = 4
 
 /** Chaves aceitas em `safeArgs`; conteúdo/pergunta/transcrição ficam de fora. */
 export const SAFE_ARG_KEYS = [
@@ -69,13 +70,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function sanitizeValue(value: unknown): unknown {
+/**
+ * Converte o valor para o subconjunto seguro da auditoria. Limita profundidade
+ * e ignora ciclos: um array circular não pode estourar a pilha nem perder o
+ * evento de auditoria.
+ */
+function sanitizeValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet<object>(),
+  depth = 0
+): unknown {
   if (typeof value === 'string') return value.slice(0, MAX_SAFE_STRING)
   if (typeof value === 'number' || typeof value === 'boolean') return value
   if (Array.isArray(value)) {
+    if (depth >= MAX_SAFE_DEPTH || seen.has(value)) return undefined
+    seen.add(value)
     return value
       .slice(0, MAX_SAFE_ARRAY)
-      .map((item) => sanitizeValue(item))
+      .map((item) => sanitizeValue(item, seen, depth + 1))
       .filter((item) => item !== undefined)
   }
   return undefined

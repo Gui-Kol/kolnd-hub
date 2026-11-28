@@ -160,4 +160,29 @@ describe('defesa contra prompt injection da tela', () => {
     expect(done).toHaveBeenCalledTimes(1)
     expect(outcome.asked).toBe(false)
   })
+
+  it('captura cancelada não envia conteúdo nem executa ferramentas', async () => {
+    const capture = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: 'cancelled' as const, message: 'Captura cancelada.' }
+    }))
+    const send = vi.fn()
+    const routeCall = vi.fn()
+    const errors: string[] = []
+    const outcome = await askAboutScreen(
+      { capture, send, routeCall },
+      { requestId: 'req-cancel', kind: 'screen', question: 'descreva a tela' },
+      {
+        delta: () => undefined,
+        done: () => undefined,
+        error: (error) => errors.push(error.kind)
+      }
+    )
+
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
+    expect(routeCall).not.toHaveBeenCalled()
+    expect(errors).toEqual(['cancelled'])
+    expect(outcome).toMatchObject({ asked: false, toolResults: [] })
+  })
 })

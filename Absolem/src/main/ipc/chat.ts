@@ -6,7 +6,7 @@ import type { ChatDonePush, ChatErrorPush } from '../../shared/gemini'
 import { subscribeUsageWarning } from '../gemini/instance'
 import { getUsageMeter } from '../gemini/instance'
 import { LiveSession } from '../gemini/live'
-import { SdkLiveTransport } from '../gemini/sdk'
+import { createLiveTransport, getLiveApiKey } from '../gemini/liveTransportFactory'
 import { getApiKey } from '../secrets'
 import { getStoreSnapshot } from '../store'
 import { buildSystemPrompt } from '../gemini/prompts'
@@ -21,13 +21,15 @@ import type { ToolCallResult } from '../gemini/tools/router'
 import { recordDiagnosticError } from './diagnostics'
 import type { IpcContext } from './lifecycle'
 import { checkPayloadLimits, isTrustedSender } from '../security/ipcGuard'
+import { registerShutdownHook } from '../shutdown'
 
 /**
  * Streaming de texto por IPC.
  *
  * `chat:send` responde na hora e a geração continua em background: nada que o
- * renderer aguarda bloqueia o socket. O engine garante uma conversa por vez e
- * que nenhum delta saia depois do cancelamento.
+ * renderer aguarda bloqueia o socket. Apenas um turno fica ativo por vez (novo
+ * `requestId` encerra o anterior, como no engine histórico) e nenhum delta,
+ * erro ou tool response escapa depois do close/cancelamento.
  */
 
 const MAX_REQUEST_ID = 128
@@ -56,7 +58,18 @@ const emptyUsage: ChatDonePush['usage'] = {
   total: 0,
   estimated: false
 }
-const chatSessions = new Map<string, LiveSession>()
+
+interface ChatTurn {
+  requestId: string
+  session: LiveSession
+  /** Cancelado/encerrado: nenhum push novo pode sair deste turno. */
+  settled: boolean
+}
+
+const chatSessions = new Map<string, ChatTurn>()
+let activeRequestId: string | null = null
+let usageWarningUnsubscribe: (() => void) | null = null
+let shutdownHookRegistered = false
 
 export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void {
   const broadcast = (channel: string, payload: unknown): void => {
@@ -66,7 +79,9 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
     if (main !== overlay) send(main, channel, payload)
   }
 
-  subscribeUsageWarning((warning) => {
+  // Remount/re-registro não acumula assinantes de aviso de uso.
+  usageWarningUnsubscribe?.()
+  usageWarningUnsubscribe = subscribeUsageWarning((warning) => {
     // Payload do contrato: sem o mês interno do medidor.
     broadcast(IPC.geminiUsageWarning, {
       percent: warning.percent,
@@ -74,6 +89,39 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
       used: warning.used
     })
   })
+
+  const settle = (turn: ChatTurn): void => {
+    if (chatSessions.get(turn.requestId) === turn) chatSessions.delete(turn.requestId)
+    if (activeRequestId === turn.requestId) activeRequestId = null
+  }
+
+  /** Encerra um turno no máximo uma vez e libera o `requestId`. */
+  const closeTurn = (turn: ChatTurn, reason: string): void => {
+    if (turn.settled) return
+    turn.settled = true
+    settle(turn)
+    // Cancelar/substituir o turno interrompe fetch de página em voo; sem isso
+    // a rede continuaria consumindo depois que ninguém mais usa o resultado.
+    getSearchRuntime()?.endTurn(turn.requestId)
+    try {
+      turn.session.close(reason)
+    } catch {
+      // Sessão já pode ter caído; o encerramento lógico continua.
+    }
+  }
+
+  const cancelTurn = (requestId: string, reason: string): void => {
+    const turn = chatSessions.get(requestId)
+    if (!turn) return
+    closeTurn(turn, reason)
+  }
+
+  if (!shutdownHookRegistered) {
+    shutdownHookRegistered = true
+    registerShutdownHook('chat', () => {
+      for (const requestId of [...chatSessions.keys()]) cancelTurn(requestId, 'shutdown')
+    })
+  }
 
   ipcMain.handle(IPC.chatSend, (event, payload: unknown): SimpleResult => {
     if (!isTrustedSender(event)) return failure('Remetente não autorizado.')
@@ -91,6 +139,17 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
       return failure(`Payload inválido para ${IPC.chatSend}.`)
     }
     const request: ChatSendRequest = { requestId: payload.requestId, text: payload.text }
+
+    // Duplicado concorrente com o mesmo id (duplo clique/IPC repetido): uma
+    // única sessão; o stream já sai pelo mesmo requestId.
+    if (chatSessions.has(request.requestId)) return { ok: true }
+
+    // Uma conversa por vez: o novo turno encerra o anterior antes de abrir
+    // outra sessão Live, sem deixar deltas/erros tardios do antigo.
+    for (const requestId of [...chatSessions.keys()]) {
+      if (requestId !== request.requestId) cancelTurn(requestId, 'superseded')
+    }
+
     // Cada turno tem contadores próprios de busca/abertura (task 10, T7).
     getSearchRuntime()?.beginTurn(request.requestId)
     const snapshot = getStoreSnapshot()
@@ -105,10 +164,18 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
     let session: LiveSession | null = null
     let lastModelTranscript = ''
     let liveSources: Array<{ title: string; url: string }> = []
+    const turn: ChatTurn = {
+      requestId: request.requestId,
+      session: null as unknown as LiveSession,
+      settled: false
+    }
+    const isActive = (): boolean => !turn.settled
     const sendError = (error: { kind: ChatErrorPush['kind']; message: string }): void => {
+      if (!isActive()) return
+      turn.settled = true
+      settle(turn)
       recordDiagnosticError(error)
       broadcast(IPC.chatError, { requestId: request.requestId, ...error } satisfies ChatErrorPush)
-      chatSessions.delete(request.requestId)
       capture?.setLiveSession(null)
     }
     const route = async (call: GeminiFunctionCall): Promise<ToolCallResult> => {
@@ -120,8 +187,8 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
       return { ok: false, error: { kind: 'not-found', message: 'Ferramenta indisponível.' } }
     }
     session = new LiveSession({
-      transport: new SdkLiveTransport(),
-      keys: { getApiKey },
+      transport: createLiveTransport(),
+      keys: { getApiKey: () => getLiveApiKey(getApiKey) },
       usage: getUsageMeter(),
       model: snapshot.gemini.liveModel,
       voiceName: LIVE_VOICE_NAME,
@@ -146,6 +213,7 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
       handlers: {
         onAudio: () => undefined,
         onTranscript: (event) => {
+          if (!isActive()) return
           if (event.role !== 'model' || !event.text) return
           const delta = event.text.startsWith(lastModelTranscript)
             ? event.text.slice(lastModelTranscript.length)
@@ -157,6 +225,7 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
           void (async () => {
             const responses: GeminiFunctionResponse[] = []
             for (const call of calls) {
+              if (!isActive()) return
               let result: ToolCallResult
               try {
                 result = await route(call)
@@ -170,6 +239,7 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
                   }
                 }
               }
+              if (!isActive()) return
               responses.push({
                 name: call.name,
                 ...(typeof call.id === 'string' && call.id.length > 0 ? { id: call.id } : {}),
@@ -178,10 +248,14 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
                   : { ok: false, error: result.error }
               })
             }
-            if (responses.length > 0) session?.sendToolResponse(responses)
-          })()
+            if (responses.length > 0 && isActive()) session?.sendToolResponse(responses)
+          })().catch(() => {
+            // Falha ao montar/enviar a resposta não derruba o processo; o
+            // encerramento do turno continua pelo done/erro do Live.
+          })
         },
         onTurnComplete: () => {
+          if (!isActive()) return
           if (liveSources.length > 0) {
             broadcast(IPC.chatDelta, {
               requestId: request.requestId,
@@ -189,22 +263,32 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
             })
           }
           broadcast(IPC.chatDone, { requestId: request.requestId, usage: emptyUsage })
-          chatSessions.delete(request.requestId)
+          turn.settled = true
+          settle(turn)
           capture?.setLiveSession(null)
-          session?.close('turn-complete')
+          try {
+            session?.close('turn-complete')
+          } catch {
+            // Sessão já encerrada.
+          }
         },
         onGrounding: (sources) => {
-          liveSources = sources
+          if (isActive()) liveSources = sources
         },
         onError: (error) => sendError(error)
       }
     })
-    chatSessions.set(request.requestId, session)
+    turn.session = session
+    activeRequestId = request.requestId
+    chatSessions.set(request.requestId, turn)
     capture?.setLiveSession(session)
     void session
       .connect()
-      .then(() => session?.sendText(request.text))
+      .then(() => {
+        if (isActive()) session?.sendText(request.text)
+      })
       .catch((error: unknown) => {
+        if (!isActive()) return
         sendError({
           kind: 'unknown',
           message: error instanceof Error ? error.message : 'Falha ao conectar ao Gemini Live.'
@@ -225,9 +309,7 @@ export function registerChatIpc(ctx: IpcContext, _legacyEngine?: unknown): void 
       return failure(`Payload inválido para ${IPC.chatCancel}.`)
     }
     const request: ChatCancelRequest = { requestId: payload.requestId }
-    const session = chatSessions.get(request.requestId)
-    chatSessions.delete(request.requestId)
-    session?.close('cancelled')
+    cancelTurn(request.requestId, 'cancelled')
     return { ok: true }
   })
 }

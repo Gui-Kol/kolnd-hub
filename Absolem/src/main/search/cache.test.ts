@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
-import { SearchCache, createSearchCache, normalizeCacheKey } from './cache'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  SearchCache,
+  SearchRequestCancelledError,
+  createSearchCache,
+  normalizeCacheKey
+} from './cache'
 
 function clock(start = 1_000_000): { now: () => number; advance: (ms: number) => void } {
   let current = start
@@ -52,7 +57,13 @@ describe('cache curto de páginas', () => {
     expect(cache.get('b')).toBeNull()
     expect(cache.get('a')).toBe('A')
     expect(cache.get('c')).toBe('C')
-    expect(cache.snapshot()).toEqual({ entries: 2, maxEntries: 2, ttlSeconds: 600 })
+    expect(cache.snapshot()).toMatchObject({
+      entries: 2,
+      maxEntries: 2,
+      ttlSeconds: 600,
+      evictions: 1,
+      hits: 3
+    })
   })
 
   it('nada é gravado em disco e instância nova nasce vazia', () => {
@@ -68,5 +79,140 @@ describe('cache curto de páginas', () => {
     const fresh = createSearchCache<string>()
     expect(fresh.size()).toBe(0)
     expect(fresh.get('https://example.test/a')).toBeNull()
+  })
+
+  it('vencido é descartado antes de evictar e não ocupa vaga', () => {
+    const time = clock()
+    const cache = new SearchCache<number>({ now: time.now, maxEntries: 2 })
+    cache.set('a', 1)
+    time.advance(10 * 60 * 1000) // 'a' expira
+
+    cache.set('b', 2)
+    cache.set('c', 3)
+
+    expect(cache.stats()).toMatchObject({ expirations: 1, evictions: 0 })
+    expect(cache.get('b')).toBe(2)
+    expect(cache.get('c')).toBe(3)
+    expect(cache.size()).toBe(2)
+  })
+
+  it('snapshot não expõe chave nem conteúdo', () => {
+    const cache = createSearchCache<string>()
+    cache.set('https://example.test/segredo?token=ABC', 'CONTEUDO_SENSIVEL')
+    cache.get('https://example.test/segredo?token=ABC')
+    cache.get('https://example.test/ausente')
+
+    const snapshot = JSON.stringify(cache.snapshot())
+    expect(snapshot).not.toContain('example.test')
+    expect(snapshot).not.toContain('ABC')
+    expect(snapshot).not.toContain('CONTEUDO_SENSIVEL')
+    expect(cache.snapshot()).toMatchObject({ hits: 1, misses: 1 })
+  })
+})
+
+describe('coalescência e cancelamento de requisições idênticas', () => {
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => {
+      resolve = r
+    })
+    return { promise, resolve }
+  }
+
+  it('5 chamadas concorrentes usam um único loader e todas recebem o valor', async () => {
+    const cache = createSearchCache<string>()
+    const gate = deferred<string>()
+    const loader = vi.fn(async () => gate.promise)
+
+    const calls = Array.from({ length: 5 }, () => cache.getOrLoad('https://example.test/a', loader))
+    await Promise.resolve()
+    expect(loader).toHaveBeenCalledTimes(1)
+
+    gate.resolve('página')
+    const values = await Promise.all(calls)
+
+    expect(values).toEqual(Array(5).fill('página'))
+    expect(cache.get('https://example.test/a')).toBe('página')
+    expect(cache.stats()).toMatchObject({ loads: 1, coalesced: 4, inflight: 0 })
+  })
+
+  it('chaves diferentes não compartilham a requisição', async () => {
+    const cache = createSearchCache<string>()
+    const loader = vi.fn(async (signal: AbortSignal) => {
+      expect(signal.aborted).toBe(false)
+      return 'ok'
+    })
+
+    await Promise.all([
+      cache.getOrLoad('https://example.test/a', loader),
+      cache.getOrLoad('https://example.test/b', loader)
+    ])
+
+    expect(loader).toHaveBeenCalledTimes(2)
+    expect(cache.stats().coalesced).toBe(0)
+  })
+
+  it('cancelar um chamador não derruba os outros e não aborta a rede', async () => {
+    const cache = createSearchCache<string>()
+    const gate = deferred<string>()
+    const controllerA = new AbortController()
+    const controllerB = new AbortController()
+    let loaderSignal: AbortSignal | undefined
+    const loader = vi.fn(async (signal: AbortSignal) => {
+      loaderSignal = signal
+      return gate.promise
+    })
+
+    const a = cache.getOrLoad('k', loader, controllerA.signal)
+    const b = cache.getOrLoad('k', loader, controllerB.signal)
+    await Promise.resolve()
+
+    controllerA.abort()
+    await expect(a).rejects.toBeInstanceOf(SearchRequestCancelledError)
+    expect(loaderSignal?.aborted).toBe(false)
+
+    gate.resolve('valor')
+    await expect(b).resolves.toBe('valor')
+    expect(loader).toHaveBeenCalledTimes(1)
+    expect(cache.get('k')).toBe('valor')
+    expect(cache.stats()).toMatchObject({ cancelled: 1, coalesced: 1 })
+  })
+
+  it('quando o último chamador cancela, a requisição é abortada e não entra no cache', async () => {
+    const cache = createSearchCache<string>()
+    const gate = deferred<string>()
+    const controller = new AbortController()
+    let loaderSignal: AbortSignal | undefined
+    const loader = vi.fn(async (signal: AbortSignal) => {
+      loaderSignal = signal
+      return gate.promise
+    })
+
+    const call = cache.getOrLoad('k', loader, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+    await expect(call).rejects.toBeInstanceOf(SearchRequestCancelledError)
+
+    expect(loaderSignal?.aborted).toBe(true)
+    expect(cache.stats().inflight).toBe(0)
+
+    // Se o loader ignorar o abort e resolver depois, nada é cacheado.
+    gate.resolve('tarde')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(cache.get('k')).toBeNull()
+  })
+
+  it('sinal já abortado não executa o loader', async () => {
+    const cache = createSearchCache<string>()
+    const controller = new AbortController()
+    controller.abort()
+    const loader = vi.fn()
+
+    await expect(cache.getOrLoad('k', loader, controller.signal)).rejects.toBeInstanceOf(
+      SearchRequestCancelledError
+    )
+    expect(loader).not.toHaveBeenCalled()
+    expect(cache.stats().cancelled).toBe(1)
   })
 })

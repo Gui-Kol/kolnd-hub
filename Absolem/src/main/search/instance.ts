@@ -40,6 +40,8 @@ export interface SearchRuntime {
   hasTool: (name: string) => boolean
   route: (call: GeminiFunctionCall) => Promise<ToolCallResult>
   beginTurn: (requestId: string) => void
+  /** Cancela a requisição em voo do turno informado (se ainda for o atual). */
+  endTurn: (requestId: string) => void
   status: () => SearchStatus
   clearCache: () => void
   shutdown: () => void
@@ -62,6 +64,7 @@ function broadcast(ctx: IpcContext, channel: string, payload: unknown): void {
 export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): SearchRuntime {
   const cache = createSearchCache<FetchedPage>()
   const limits = createSearchTurnLimits({ checkBudget: deps.checkBudget })
+  let turnAbort = new AbortController()
   let activeKind: SearchKind | null = null
 
   const pushIndicator = (active: boolean, kind?: SearchKind): void => {
@@ -77,18 +80,25 @@ export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): S
     logger.info('audit', event)
   }
 
-  const fetchCached = async (url: string): Promise<FetchedPage> => {
+  const fetchCached = (url: string, signal?: AbortSignal): Promise<FetchedPage> => {
     const key = normalizeCacheKey(url)
-    if (key) {
-      const hit = cache.get(key)
-      if (hit) return hit
+    if (!key) {
+      return fetchPage(url, {
+        validate: (candidate) => validateUrl(candidate),
+        fetchImpl: (input, init) => fetch(input, init),
+        ...(signal ? { signal } : {})
+      })
     }
-    const page = await fetchPage(url, {
-      validate: (candidate) => validateUrl(candidate),
-      fetchImpl: (input, init) => fetch(input, init)
-    })
-    if (key) cache.set(key, page)
-    return page
+    return cache.getOrLoad(
+      key,
+      (requestSignal) =>
+        fetchPage(url, {
+          validate: (candidate) => validateUrl(candidate),
+          fetchImpl: (input, init) => fetch(input, init),
+          signal: requestSignal
+        }),
+      signal
+    )
   }
 
   const confirm = createDialogConfirmation(
@@ -159,7 +169,8 @@ export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): S
         getPermission: (category) => effectivePermission(getStoreSnapshot().permissions, category),
         confirm,
         audit: createLoggerAudit(logger),
-        now: () => Date.now()
+        now: () => Date.now(),
+        signal: turnAbort.signal
       },
       call
     )
@@ -179,7 +190,15 @@ export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): S
     }
   }
 
+  const endTurn = (requestId: string): void => {
+    if (limits.getCurrentRequestId() !== requestId) return
+    turnAbort.abort()
+    turnAbort = new AbortController()
+  }
+
   const shutdown = (): void => {
+    turnAbort.abort()
+    turnAbort = new AbortController()
     cache.clear()
     limits.reset()
     activeKind = null
@@ -190,7 +209,12 @@ export function createSearchRuntime(ctx: IpcContext, deps: SearchRuntimeDeps): S
     listTools,
     hasTool,
     route,
-    beginTurn: (requestId) => limits.beginTurn(requestId),
+    beginTurn: (requestId) => {
+      turnAbort.abort()
+      turnAbort = new AbortController()
+      limits.beginTurn(requestId)
+    },
+    endTurn,
     status,
     clearCache: () => cache.clear(),
     shutdown

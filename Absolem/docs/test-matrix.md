@@ -6,12 +6,15 @@ existe e roda em `npm test`, `npm run test:coverage` ou `npm run test:e2e`. Os
 itens que dependem de ambiente humano aparecem como **manual** com o checklist
 correspondente.
 
-Execução de referência em **2026-11-26**:
+Execução de referência em **2026-11-27**:
 
-- `npm test`: **496 testes em 123 arquivos**, todos verdes, cerca de 6 s.
-- `npm run test:coverage`: **74,51% linhas, 68,33% ramos, 83,29% funções**
-  (meta: linhas >= 70%, ramos >= 60%; statements acompanha linhas).
-- `npm run test:e2e`: coberto em `tests/e2e` (ver seção 4).
+- `npm test`: **150 arquivos verdes e 2 ignorados** (152 no total); **871 testes
+  verdes e 3 ignorados** (874 no total), cerca de 8 s.
+- `npm run test:e2e`: **8 testes** (app buildado, transporte fake, userData
+  temporário, `workers=1`).
+- `npm run test:coverage`: última medição em 2026-11-26 — **74,51% linhas,
+  68,33% ramos, 83,29% funções** (meta: linhas >= 70%, ramos >= 60%;
+  statements acompanha linhas).
 
 ## 1. Escopo da cobertura
 
@@ -222,18 +225,47 @@ lógica entra na conta automaticamente pelo `include`.
 | Store inválido     | `src/main/store.test.ts`, `src/main/ipc/store.test.ts`                                                                                       |
 | IPC inválido       | `src/main/security/ipc.test.ts` e os `ipc/*.test.ts`                                                                                         |
 
-## 4. E2E e manual
+## 4. E2E fake × manual
 
-| Fluxo                                       | Tipo   | Arquivo/checklist            | Critério                                                                       |
-| ------------------------------------------- | ------ | ---------------------------- | ------------------------------------------------------------------------------ |
-| Configurações, tema, dispositivo, overlay   | e2e    | `tests/e2e/settings.spec.ts` | App buildado, userData temporário, transporte fake, janela oculta sem encerrar |
-| Acessibilidade automática                   | e2e    | `tests/e2e/a11y.spec.ts`     | Axe nas abas e overlay expandido sem violação crítica/séria                    |
-| Primeira execução com chave real            | manual | `README.md`                  | Chave salva, testada, voz e barge-in                                           |
-| Modos degradados (rede, dispositivo, banco) | manual | `docs/data-lifecycle.md`     | Recuperação sem tela branca                                                    |
-| Ciclo de vida (apagar tudo e reiniciar)     | manual | `docs/data-lifecycle.md`     | Tela vazia após reinício                                                       |
-| Desempenho idle/fps/memória                 | manual | `docs/perf-budget.md`        | Medição na máquina de referência                                               |
-| Narrador do Windows e teclado               | manual | `docs/a11y-audit.md`         | Navegação completa sem armadilha                                               |
-| Atualização com a Hub                       | manual | (Kolnd Hub)                  | Reinstalar/atualizar a Hub traz o Absolem novo; `%APPDATA%\absolem` preservado |
+Regras dos gates fake: `ABSOLEM_TEST_TRANSPORT=fake`, userData temporário,
+`workers=1`, trace só em falha e nenhuma chave/rede/dado pessoal. O relatório
+local redigido fica em `test-results/e2e-report.json`. O mapa por capability e
+as lacunas estão em `docs/e2e-observability.md`.
+
+### 4.1 Gates fake (app buildado)
+
+| Capability/fluxo                          | Tipo | Arquivo/checklist                   | Critério                                                                       |
+| ----------------------------------------- | ---- | ----------------------------------- | ------------------------------------------------------------------------------ |
+| Primeira execução e abas                  | e2e  | `tests/e2e/lifecycle.spec.ts`       | Abre em Chave e custo, cartão sem chave, `quit` encerra e remove o perfil      |
+| Rotas, aba ativa e tema                   | e2e  | `tests/e2e/settings-memory.spec.ts` | Sete abas, `lastSettingsTab`, export/import de tema com diálogo stub           |
+| Configurações, tema, dispositivo, overlay | e2e  | `tests/e2e/settings.spec.ts`        | App buildado, userData temporário, transporte fake, janela oculta sem encerrar |
+| Overlay, avatar e pausa                   | e2e  | `tests/e2e/overlay-avatar.spec.ts`  | Show/hide/toggle, layout, interativo, input mode, push, avatar e pausa global  |
+| Texto/Live e cancelamento                 | e2e  | `tests/e2e/chat-capture.spec.ts`    | Delta/done, cancelar, substituir, payload inválido e recuperação               |
+| Texto e voz fake (baseline)               | e2e  | `tests/e2e/baseline.spec.ts`        | Chat, captura, consentimento, barge-in, ciclos e fechamento                    |
+| Captura fake                              | e2e  | `tests/e2e/chat-capture.spec.ts`    | Fontes, modo off, captura com indicador, cancelamento e região cancelada       |
+| Memória CRUD/export/import                | e2e  | `tests/e2e/settings-memory.spec.ts` | Criar, buscar, editar, remover, apagar tudo, exportar, importar e auditoria    |
+| Permissões, pausa e limites               | e2e  | `tests/e2e/overlay-avatar.spec.ts`  | Categoria, pausa global, limites e recuperação do app                          |
+| Pesquisa e cache                          | e2e  | `tests/e2e/settings-memory.spec.ts` | Status ligado/desligado, tools, cache e recusa de esquema não http             |
+| Histórico e diagnóstico                   | e2e  | `tests/e2e/settings-memory.spec.ts` | `history:list`, metadados e export redigido sem chave                          |
+| Acessibilidade automática                 | e2e  | `tests/e2e/a11y.spec.ts`            | Axe nas abas e overlay expandido sem violação crítica/séria                    |
+| Relatório redigido                        | e2e  | `tests/e2e/redacted-reporter.ts`    | Duração/estado/fase/categoria de erro, sem payload ou segredo                  |
+
+### 4.2 Pendências manuais (nunca aprovadas por inferência)
+
+| Fluxo                                       | Tipo   | Arquivo/checklist                    | Critério                                                                       |
+| ------------------------------------------- | ------ | ------------------------------------ | ------------------------------------------------------------------------------ |
+| Bandeja, instância única, atalhos e UAC     | manual | `README.md` (Windows)                | Bandeja, segunda instância, atalhos, abrir pastas, relançar, autostart e UAC   |
+| Primeira execução com chave real            | manual | `README.md`                          | Chave salva, testada, voz e barge-in                                           |
+| Voz real, microfone, reconexão e hot-swap   | manual | `docs/diagnostico-voz.md`            | Sessão Live, barge-in acústico, reconexão e troca de dispositivo               |
+| Captura real (DPI, monitores, janela, DRM)  | manual | `docs/screen-capture-checklist.md`   | 100%/150%, dois monitores, região, blocklist, legibilidade e indicador         |
+| Ações reais e auditoria                     | manual | `docs/computer-control-checklist.md` | Apps, arquivos, energia, UIA, pausa e `actions.jsonl`                          |
+| Pesquisa real com chave e internet          | manual | `docs/web-search-checklist.md`       | Fontes, URLs, cache, SSRF, injeção e limites                                   |
+| Modos degradados (rede, dispositivo, banco) | manual | `docs/data-lifecycle.md`             | Recuperação sem tela branca                                                    |
+| Ciclo de vida (apagar tudo e reiniciar)     | manual | `docs/data-lifecycle.md`             | Tela vazia após reinício                                                       |
+| Desempenho idle/fps/memória                 | manual | `docs/perf-budget.md`                | Medição na máquina de referência; baseline fake é referência local             |
+| Narrador do Windows e teclado               | manual | `docs/a11y-audit.md`                 | Navegação completa sem armadilha                                               |
+| Atualização com a Hub                       | manual | (Kolnd Hub)                          | Reinstalar/atualizar a Hub traz o Absolem novo; `%APPDATA%\absolem` preservado |
+| Máquina limpa                               | manual | `README.md`                          | Instalação sem perfil/configuração anterior                                    |
 
 ## 5. Como manter
 

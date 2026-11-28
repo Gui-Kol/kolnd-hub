@@ -13,7 +13,7 @@ import {
   type MemoryRepository,
   type MemoryRow
 } from './repository'
-import { isDuplicateContent } from './similarity'
+import { buildCompareProfile, isDuplicateProfile, type CompareProfile } from './similarity'
 
 /**
  * Consolidação local (sem modelo, sem custo de token).
@@ -39,6 +39,16 @@ export interface ConsolidationOptions {
   archiveBelow?: number
   /** Persiste `memory.lastConsolidationAt` no store (fora da transação). */
   persistLastConsolidationAt?: (at: number) => void
+  /** Cancelamento cooperativo (ex.: encerramento); desfaz a transação. */
+  shouldCancel?: () => boolean
+}
+
+/** Lançado quando `shouldCancel` pede a interrupção; nada é gravado. */
+export class ConsolidationCancelled extends Error {
+  constructor() {
+    super('consolidação cancelada')
+    this.name = 'ConsolidationCancelled'
+  }
 }
 
 export interface ConsolidationReport {
@@ -163,7 +173,13 @@ export function consolidate(
     lines: []
   }
 
+  const shouldCancel = options.shouldCancel
+  const checkCancel = (): void => {
+    if (shouldCancel?.()) throw new ConsolidationCancelled()
+  }
+
   inTransaction(db, () => {
+    checkCancel()
     // 1. temporárias expiradas
     const expired = db
       .prepare(
@@ -175,22 +191,32 @@ export function consolidate(
 
     // 2. duplicatas restantes
     const active = repo.list({ limit: MEMORY_ACTIVE_LIMIT }).memories
+    // Perfis (texto normalizado + trigramas) calculados uma vez por memória;
+    // antes cada par refazia as duas normalizações (~O(n²) com 5.000 itens).
+    const profiles: CompareProfile[] = active.map((memory) => buildCompareProfile(memory.content))
     const removed = new Set<string>()
     for (let index = 0; index < active.length; index += 1) {
+      checkCancel()
       let keeper = active[index]
       if (!keeper || removed.has(keeper.id)) continue
+      let keeperProfile = profiles[index]
+      if (!keeperProfile) continue
       for (let next = index + 1; next < active.length; next += 1) {
+        if (next % 256 === 0) checkCancel()
         const other = active[next]
         if (!other || removed.has(other.id)) continue
         if (other.kind !== keeper.kind) continue
-        if (!isDuplicateContent(keeper.content, other.content)) continue
+        const otherProfile = profiles[next]
+        if (!otherProfile || !isDuplicateProfile(keeperProfile, otherProfile)) continue
         const chosen = pickKeeper(keeper, other)
         const discarded = chosen.id === keeper.id ? other : keeper
+        const chosenProfile = chosen.id === keeper.id ? keeperProfile : otherProfile
         const merged = mergeRecords(chosen, discarded)
         writeMerged(db, merged)
         db.prepare('DELETE FROM memories WHERE id = ?').run(discarded.id)
         removed.add(discarded.id)
         keeper = merged
+        keeperProfile = chosenProfile
         active[index] = merged
         report.merged += 1
       }
@@ -198,6 +224,7 @@ export function consolidate(
     if (report.merged > 0) rebuildMemoryIndex(db)
 
     // 3. decaimento por desuso
+    checkCancel()
     const cutoff = now - decayAfterDays * DAY_MS
     const afterMerge = repo.list({ limit: MEMORY_ACTIVE_LIMIT }).memories
     const decayStatement = db.prepare('UPDATE memories SET confidence = ? WHERE id = ?')
@@ -212,6 +239,7 @@ export function consolidate(
     }
 
     // 4. arquivo por confiança baixa
+    checkCancel()
     const afterDecay = repo.list({ limit: MEMORY_ACTIVE_LIMIT }).memories
     for (const memory of afterDecay) {
       if (memory.pinned || memory.confidence >= archiveBelow) continue
@@ -221,6 +249,7 @@ export function consolidate(
     if (report.archived > 0) rebuildMemoryIndex(db)
 
     // 5. limite de memórias ativas
+    checkCancel()
     const total = count(db, 'SELECT COUNT(*) AS total FROM memories')
     const excess = total - limit
     if (excess > 0) {

@@ -23,13 +23,20 @@ import { resolveHubVersion } from '../../shared/version'
 
 export type { IpcContext } from './lifecycle'
 
+/** Um `ipcMain.handle` por canal: re-registrar acumularia handlers no Electron. */
+let registered = false
+
 /**
  * Ponto único de registro dos módulos IPC.
  *
  * O motor Gemini (task 05) é o único dono do cliente: os canais de chave,
  * streaming e diagnóstico recebem a mesma instância compartilhada.
+ * A função é idempotente para que um remount/reload do main não registre os
+ * mesmos canais duas vezes.
  */
 export function registerIpc(ctx: IpcContext): void {
+  if (registered) return
+  registered = true
   registerAppIpc(ctx)
   registerStoreIpc()
   registerOverlayIpc(ctx)

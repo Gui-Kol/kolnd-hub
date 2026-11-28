@@ -130,4 +130,123 @@ describe('controlador de captura', () => {
     expect(showOverlay).toHaveBeenCalledTimes(1)
     expect(audit).not.toHaveBeenCalled()
   })
+
+  it('cancelado antes de esconder não captura nem registra limite', async () => {
+    const hideOverlay = vi.fn()
+    const grab = vi.fn(async () => image())
+    const record = vi.fn()
+    const controller = createCaptureController(
+      deps({
+        isCancelled: () => true,
+        hideOverlay,
+        grab,
+        limits: { check: () => ({ ok: true }), record }
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'cancel-1' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(hideOverlay).not.toHaveBeenCalled()
+    expect(grab).not.toHaveBeenCalled()
+    expect(record).not.toHaveBeenCalled()
+  })
+
+  it('cancelamento durante a espera do overlay não captura e restaura tudo', async () => {
+    const indicators: Array<{ active: boolean }> = []
+    let visible = true
+    const grab = vi.fn(async () => image())
+    const isCancelled = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    const controller = createCaptureController(
+      deps({
+        isCancelled,
+        isOverlayVisible: () => visible,
+        hideOverlay: () => {
+          visible = false
+        },
+        showOverlay: () => {
+          visible = true
+        },
+        grab,
+        pushIndicator: (push) => indicators.push({ active: push.active })
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'cancel-2' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(grab).not.toHaveBeenCalled()
+    expect(visible).toBe(true)
+    expect(indicators).toEqual([])
+  })
+
+  it('cancelamento durante o grab não audita nem envia a imagem', async () => {
+    const audit = vi.fn()
+    const record = vi.fn()
+    const indicators: Array<{ active: boolean }> = []
+    let visible = true
+    const isCancelled = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true)
+    const controller = createCaptureController(
+      deps({
+        isCancelled,
+        isOverlayVisible: () => visible,
+        hideOverlay: () => {
+          visible = false
+        },
+        showOverlay: () => {
+          visible = true
+        },
+        pushIndicator: (push) => indicators.push({ active: push.active }),
+        audit,
+        limits: { check: () => ({ ok: true }), record }
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'cancel-3' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(audit).not.toHaveBeenCalled()
+    expect(record).not.toHaveBeenCalled()
+    expect(visible).toBe(true)
+    expect(indicators).toEqual([{ active: true }, { active: false }])
+  })
+
+  it('grab cancelado devolve código cancelled, não erro desconhecido', async () => {
+    let cancelled = false
+    const controller = createCaptureController(
+      deps({
+        isCancelled: () => cancelled,
+        grab: async () => {
+          cancelled = true
+          throw new Error('captura cancelada')
+        }
+      })
+    )
+
+    const result = await controller.capture({ kind: 'screen', requestId: 'cancel-grab' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+
+  it('erro marca indicador inativo mesmo com overlay já oculto', async () => {
+    const indicators: Array<{ active: boolean }> = []
+    const controller = createCaptureController(
+      deps({
+        isOverlayVisible: () => false,
+        pushIndicator: (push) => indicators.push({ active: push.active }),
+        grab: async () => {
+          throw new Error('renderer caiu')
+        }
+      })
+    )
+
+    await controller.capture({ kind: 'screen' })
+
+    expect(indicators).toEqual([{ active: true }, { active: false }])
+  })
 })

@@ -101,4 +101,36 @@ describe('janela ativa', () => {
       height: 450
     })
   })
+
+  it('recorta pela proporção real da imagem (1280x720 em monitor 1920x1080)', async () => {
+    const display: CaptureDisplay = {
+      id: '0',
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      scaleFactor: 1
+    }
+    const bounds = { x: 1200, y: 800, width: 400, height: 200 }
+
+    expect(computeCropRect(bounds, display, { width: 1280, height: 720 })).toEqual({
+      x: 800,
+      y: 533,
+      width: 267,
+      height: 133
+    })
+    expect(computeCropRect(bounds, display)).toEqual(bounds)
+
+    const crop = vi.fn((_image: CapturedImage, rect) => image(rect.width, rect.height))
+    const controller = createCaptureController(
+      deps({
+        getDisplays: () => [display],
+        getForeground: async () => foreground(bounds),
+        grab: async () => image(1280, 720),
+        crop
+      })
+    )
+
+    const result = await controller.capture({ kind: 'active-window' })
+
+    expect(result.ok).toBe(true)
+    expect(crop.mock.calls[0]?.[1]).toEqual({ x: 800, y: 533, width: 267, height: 133 })
+  })
 })

@@ -14,7 +14,7 @@ import { getStoreSnapshot, setStoreValue } from '../store'
 import { registerShutdownHook } from '../shutdown'
 import type { IpcContext } from '../ipc/lifecycle'
 import type { MemoryService } from '../ipc/memory'
-import { consolidate, needsConsolidation } from './consolidate'
+import { consolidate, ConsolidationCancelled, needsConsolidation } from './consolidate'
 import { openMemoryDatabase, type MemoryDatabase } from './db'
 import { runExtraction, type ExtractionGenerator } from './extract'
 import { createMemoryIO, type MemoryIODialog, type MemoryIOFs } from './exportImport'
@@ -294,10 +294,22 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
     audit.write({ op: after.enabled ? 'resume' : 'pause', id: null, kind: null })
   }
 
-  // Consolidação na abertura, se atrasada. Pausada não apaga nada.
-  try {
-    if (memoryEnabled() && needsConsolidation(getStoreSnapshot().memory.lastConsolidationAt)) {
+  // Consolidação na abertura, se atrasada. Fica fora do boot (task 06/T2):
+  // agenda depois dos canais IPC e cancela no encerramento, para não segurar a
+  // primeira janela. Pausada não apaga nada.
+  let shuttingDown = false
+  let consolidationTimer: ReturnType<typeof setTimeout> | null = null
+  const CONSOLIDATION_START_DELAY_MS = 1500
+
+  function runDeferredConsolidation(): void {
+    consolidationTimer = null
+    if (shuttingDown) return
+    try {
+      if (!memoryEnabled() || !needsConsolidation(getStoreSnapshot().memory.lastConsolidationAt)) {
+        return
+      }
       const report = consolidate(repo, {
+        shouldCancel: () => shuttingDown,
         persistLastConsolidationAt: (at) => {
           setStoreValue('memory', { ...getStoreSnapshot().memory, lastConsolidationAt: at })
         }
@@ -309,12 +321,26 @@ function createMemoryRuntime(ctx: IpcContext): MemoryRuntime {
         archived: report.archived,
         trimmed: report.trimmed
       })
+    } catch (error) {
+      if (error instanceof ConsolidationCancelled) {
+        logger.info('memory', 'consolidação interrompida no encerramento')
+        return
+      }
+      logger.warn('memory', 'consolidação inicial falhou', error)
     }
-  } catch (error) {
-    logger.warn('memory', 'consolidação inicial falhou', error)
   }
 
-  registerShutdownHook('memory', () => database.close())
+  consolidationTimer = setTimeout(runDeferredConsolidation, CONSOLIDATION_START_DELAY_MS)
+  consolidationTimer.unref?.()
+
+  registerShutdownHook('memory', () => {
+    shuttingDown = true
+    if (consolidationTimer) {
+      clearTimeout(consolidationTimer)
+      consolidationTimer = null
+    }
+    database.close()
+  })
 
   return {
     available: true,

@@ -154,4 +154,19 @@ describe('transcrição da voz', () => {
     expect(ended).toHaveLength(1)
     expect(ended[0]?.id).toBe(started[0]?.id)
   })
+
+  it('fim de turno não duplica a transcrição no turno seguinte', async () => {
+    const { session, transcripts } = await setup()
+
+    session.handlers.onTranscript({ role: 'model', text: 'primeira resposta', final: true })
+    session.handlers.onAudio(new Uint8Array([1, 2]), 24_000)
+    session.handlers.onTurnComplete()
+    session.handlers.onTranscript({ role: 'model', text: 'segunda', final: false })
+
+    expect(transcripts).toEqual([
+      { role: 'model', text: 'primeira resposta', final: true, interrupted: false },
+      { role: 'model', text: 'segunda', final: false, interrupted: false }
+    ])
+    expect(session.history).toEqual([{ role: 'model', text: 'primeira resposta' }])
+  })
 })

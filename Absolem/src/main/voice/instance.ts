@@ -2,7 +2,7 @@ import { dialog, session } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { buildSystemPrompt } from '../gemini/prompts'
 import { createChatHistory } from '../gemini/history'
-import { SdkLiveTransport } from '../gemini/sdk'
+import { createLiveTransport, getLiveApiKey } from '../gemini/liveTransportFactory'
 import { LiveSession } from '../gemini/live'
 import { getUsageMeter } from '../gemini/instance'
 import { applyAvatarState } from '../ipc/avatar'
@@ -114,13 +114,6 @@ let runtime: VoiceRuntime | null = null
 
 export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
   const chatHistory = createChatHistory({ store: getPersistentStore() })
-  const hasApiKey = (): boolean => {
-    try {
-      return getApiKey() !== null
-    } catch {
-      return false
-    }
-  }
   const pushAudio = (push: VoiceAudioPush): void => broadcast(ctx, IPC.voiceAudio, push)
 
   // Saudação curta por horário: mesma voz/modelo Live, sem microfone. O áudio
@@ -129,8 +122,8 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
       return new LiveSession({
-        transport: new SdkLiveTransport(),
-        keys: { getApiKey },
+        transport: createLiveTransport(),
+        keys: { getApiKey: () => getLiveApiKey(getApiKey) },
         usage: getUsageMeter(),
         model: snapshot.gemini.liveModel,
         voiceName: LIVE_VOICE_NAME,
@@ -147,7 +140,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
         maxAttempts: 1
       })
     },
-    hasApiKey,
+    hasApiKey: () => getLiveApiKey(getApiKey) !== null,
     checkBudget: () => getUsageMeter().checkBudget(),
     pushAudio,
     logger,
@@ -164,7 +157,7 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
     hasConsent: () => isMicrophoneGranted(consentStore),
     persistConsent: (granted) => setMicrophoneConsent(consentStore, granted),
     requestConsent: () => askMicrophoneConsent(ctx),
-    hasApiKey,
+    hasApiKey: () => getLiveApiKey(getApiKey) !== null,
     checkBudget: () => getUsageMeter().checkBudget(),
     createSession: (handlers) => {
       const snapshot = getStoreSnapshot()
@@ -195,8 +188,8 @@ export function createVoiceRuntime(ctx: IpcContext): VoiceRuntime {
         .filter((part) => part.length > 0)
         .join('\n\n')
       const live = new LiveSession({
-        transport: new SdkLiveTransport(),
-        keys: { getApiKey },
+        transport: createLiveTransport(),
+        keys: { getApiKey: () => getLiveApiKey(getApiKey) },
         usage: getUsageMeter(),
         model: snapshot.gemini.liveModel,
         voiceName: LIVE_VOICE_NAME,

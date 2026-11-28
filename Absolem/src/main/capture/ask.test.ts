@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatUsagePayload } from '../../shared/gemini'
 import { estimateImageTokens } from '../../shared/screen'
+import type { ToolCallResult } from '../gemini/tools/router'
 import type { CaptureResult } from './controller'
 import type { LiveScreenSession, LiveScreenSessionHandlers, ScreenAskDeps } from './ask'
 import {
+  SCREEN_LIVE_TURN_TIMEOUT_MS,
   SCREEN_SECRET_REFUSAL,
   SCREEN_SYSTEM_RULES,
   askAboutScreen,
@@ -99,6 +101,217 @@ describe('envio multimodal da tela', () => {
     expect(outcome.asked).toBe(true)
   })
 
+  it('não resolve antes do turnComplete do turno', async () => {
+    const events: string[] = []
+    let handlers: LiveScreenSessionHandlers | undefined
+    const session: LiveScreenSession = {
+      connect: vi.fn(async () => undefined),
+      sendImage: vi.fn(),
+      sendImageAndText: vi.fn(() => {
+        // O modelo começa a responder, mas o turno ainda não terminou.
+        handlers?.onTranscript({ role: 'model', text: 'resposta parcial', final: false })
+      }),
+      sendText: vi.fn(),
+      sendToolResponse: vi.fn(),
+      close: vi.fn()
+    }
+    let settled = false
+    const pending = askAboutScreenLive(
+      {
+        capture: async () => captureOk(),
+        createSession: (next) => {
+          handlers = next
+          return session
+        }
+      },
+      { requestId: 'live-delayed', kind: 'screen', question: 'descreva a tela' },
+      sinks(events) as never
+    )
+    void pending.then(() => {
+      settled = true
+    })
+
+    // Deixa o envio e as microtasks do caminho atual rodarem.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(settled).toBe(false)
+    expect(events).not.toContain('done:0')
+    expect(session.close).not.toHaveBeenCalled()
+
+    handlers?.onTranscript({ role: 'model', text: 'resposta completa', final: true })
+    handlers?.onTurnComplete()
+
+    const outcome = await pending
+
+    expect(settled).toBe(true)
+    expect(events).toEqual(['delta:resposta parcial', 'delta:resposta completa', 'done:0'])
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledWith('turn-complete')
+    expect(outcome.asked).toBe(true)
+  })
+
+  it('espera as ferramentas do turno e devolve toolResults preenchidos', async () => {
+    vi.useFakeTimers()
+    try {
+      const events: string[] = []
+      let handlers: LiveScreenSessionHandlers | undefined
+      let resolveRoute!: (value: ToolCallResult) => void
+      const routeCall = vi.fn(
+        () =>
+          new Promise<ToolCallResult>((resolve) => {
+            resolveRoute = resolve
+          })
+      )
+      const session: LiveScreenSession = {
+        connect: vi.fn(async () => undefined),
+        sendImage: vi.fn(),
+        sendImageAndText: vi.fn(() => {
+          handlers?.onToolCall([{ name: 'get_current_time', args: {} }])
+        }),
+        sendText: vi.fn(),
+        sendToolResponse: vi.fn(),
+        close: vi.fn()
+      }
+      let settled = false
+      const pending = askAboutScreenLive(
+        {
+          capture: async () => captureOk(),
+          createSession: (next) => {
+            handlers = next
+            return session
+          },
+          routeCall
+        },
+        { requestId: 'live-tools', kind: 'screen', question: 'que horas são na tela?' },
+        sinks(events) as never
+      )
+      void pending.then(() => {
+        settled = true
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(routeCall).toHaveBeenCalledOnce()
+
+      // O turno termina enquanto a ferramenta ainda está em execução.
+      handlers?.onTurnComplete()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+
+      resolveRoute({ ok: true, result: { iso: '2026-11-27T12:00:00.000Z' } })
+      const outcome = await pending
+
+      expect(settled).toBe(true)
+      expect(outcome.toolResults).toEqual([
+        { ok: true, result: { iso: '2026-11-27T12:00:00.000Z' } }
+      ])
+      expect(events).toEqual(['done:0'])
+      expect(session.close).toHaveBeenCalledOnce()
+      expect(session.close).toHaveBeenCalledWith('turn-complete')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('timeout fecha a sessão e emite erro uma única vez', async () => {
+    vi.useFakeTimers()
+    try {
+      const events: string[] = []
+      let handlers: LiveScreenSessionHandlers | undefined
+      const session: LiveScreenSession = {
+        connect: vi.fn(async () => undefined),
+        sendImage: vi.fn(),
+        sendImageAndText: vi.fn(),
+        sendText: vi.fn(),
+        sendToolResponse: vi.fn(),
+        close: vi.fn()
+      }
+      const pending = askAboutScreenLive(
+        {
+          capture: async () => captureOk(),
+          createSession: (next) => {
+            handlers = next
+            return session
+          }
+        },
+        { requestId: 'live-timeout', kind: 'screen', question: 'descreva a tela' },
+        sinks(events) as never
+      )
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.connect).toHaveBeenCalledOnce()
+      expect(session.sendImageAndText).toHaveBeenCalledOnce()
+      expect(events).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(SCREEN_LIVE_TURN_TIMEOUT_MS)
+      const outcome = await pending
+
+      expect(outcome.asked).toBe(true)
+      expect(events).toEqual(['error:timeout'])
+      expect(session.close).toHaveBeenCalledOnce()
+      expect(session.close).toHaveBeenCalledWith('timeout')
+      expect(vi.getTimerCount()).toBe(0)
+
+      // Eventos tardios depois do timeout não reabrem done/erro nem fecham de novo.
+      handlers?.onTurnComplete()
+      handlers?.onError({ kind: 'network', message: 'tardio' })
+      await vi.advanceTimersByTimeAsync(SCREEN_LIVE_TURN_TIMEOUT_MS)
+      expect(events).toEqual(['error:timeout'])
+      expect(session.close).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancelamento libera a promessa sem done/erro e sem timer pendente', async () => {
+    vi.useFakeTimers()
+    try {
+      const events: string[] = []
+      let handlers: LiveScreenSessionHandlers | undefined
+      const session: LiveScreenSession = {
+        connect: vi.fn(async () => undefined),
+        sendImage: vi.fn(),
+        sendImageAndText: vi.fn(),
+        sendText: vi.fn(),
+        sendToolResponse: vi.fn(),
+        close: vi.fn((reason?: string) => {
+          handlers?.onClose?.(reason ?? 'close')
+        })
+      }
+      const pending = askAboutScreenLive(
+        {
+          capture: async () => captureOk(),
+          createSession: (next) => {
+            handlers = next
+            return session
+          }
+        },
+        { requestId: 'live-cancel-live', kind: 'screen', question: 'descreva a tela' },
+        sinks(events) as never
+      )
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(session.sendImageAndText).toHaveBeenCalledOnce()
+
+      // `capture:cancel`/shutdown fecham a sessão antes do turno terminar.
+      session.close('cancelled')
+      const outcome = await pending
+
+      expect(outcome.asked).toBe(true)
+      expect(events).toEqual([])
+      expect(session.close).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+
+      handlers?.onTurnComplete()
+      handlers?.onError({ kind: 'cancelled', message: 'tardio' })
+      await vi.advanceTimersByTimeAsync(SCREEN_LIVE_TURN_TIMEOUT_MS)
+      expect(events).toEqual([])
+      expect(session.close).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('não abre sessão Live para pedido de segredo', async () => {
     const createSession = vi.fn()
     const events: string[] = []
@@ -111,6 +324,45 @@ describe('envio multimodal da tela', () => {
     expect(createSession).not.toHaveBeenCalled()
     expect(events).toContain(`delta:${SCREEN_SECRET_REFUSAL}`)
     expect(outcome.asked).toBe(false)
+  })
+
+  it('descarta delta/tool/erro tardios depois do turno concluído', async () => {
+    const events: string[] = []
+    let handlers: LiveScreenSessionHandlers | undefined
+    const routeCall = vi.fn(async () => ({ ok: true as const, result: null }))
+    const session: LiveScreenSession = {
+      connect: vi.fn(async () => undefined),
+      sendImage: vi.fn(),
+      sendImageAndText: vi.fn(() => {
+        handlers?.onTranscript({ role: 'model', text: 'parcial', final: true })
+        handlers?.onTurnComplete()
+        // Eventos que o transporte pode enfileirar depois do turno:
+        handlers?.onTranscript({ role: 'model', text: 'parcial tardio', final: true })
+        handlers?.onToolCall([{ name: 'get_current_time', args: {} }])
+        handlers?.onError({ kind: 'network', message: 'tardio' })
+      }),
+      sendText: vi.fn(),
+      sendToolResponse: vi.fn(),
+      close: vi.fn()
+    }
+
+    await askAboutScreenLive(
+      {
+        capture: async () => captureOk(),
+        createSession: (next) => {
+          handlers = next
+          return session
+        },
+        routeCall
+      },
+      { requestId: 'live-late', kind: 'screen', question: 'descreva a tela' },
+      sinks(events) as never
+    )
+    await Promise.resolve()
+
+    expect(events).toEqual(['delta:parcial', 'done:0'])
+    expect(routeCall).not.toHaveBeenCalled()
+    expect(session.sendToolResponse).not.toHaveBeenCalled()
   })
 
   it('monta mensagem com uma imagem', async () => {
@@ -170,6 +422,27 @@ describe('envio multimodal da tela', () => {
     expect(send).not.toHaveBeenCalled()
     expect(events).toContain('error:blocked')
     expect(outcome.asked).toBe(false)
+  })
+
+  it('captura cancelada não abre sessão nem envia imagem', async () => {
+    const createSession = vi.fn()
+    const events: string[] = []
+    const outcome = await askAboutScreenLive(
+      {
+        capture: async () => ({
+          ok: false,
+          error: { code: 'cancelled', message: 'Captura cancelada.' }
+        }),
+        createSession
+      },
+      { requestId: 'live-cancel', kind: 'screen', question: 'descreva a tela' },
+      sinks(events) as never
+    )
+
+    expect(createSession).not.toHaveBeenCalled()
+    expect(events).toEqual(['error:cancelled'])
+    expect(outcome.asked).toBe(false)
+    expect(outcome.toolResults).toEqual([])
   })
 
   it('usa streaming', async () => {

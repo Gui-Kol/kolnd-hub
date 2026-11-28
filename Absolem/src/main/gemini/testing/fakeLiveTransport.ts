@@ -15,7 +15,38 @@ export class FakeLiveConnection implements LiveConnection {
   interrupts = 0
   closes = 0
 
-  constructor(private readonly options: LiveConnectOptions) {}
+  constructor(
+    private readonly options: LiveConnectOptions,
+    private readonly autoRespond = false,
+    private readonly responseDelayMs = 0
+  ) {}
+
+  private respond(): void {
+    if (!this.autoRespond || this.closes > 0) return
+    const emit = (): void => {
+      if (this.closes > 0) return
+      this.options.onEvent({
+        type: 'transcript',
+        role: 'model',
+        text: 'Resposta sintética do transporte fake.',
+        final: true
+      })
+      this.options.onEvent({
+        type: 'usage',
+        usage: { input: 1, output: 1, total: 2 }
+      })
+      this.options.onEvent({
+        type: 'audio',
+        data: new Uint8Array([0, 0, 0, 0]),
+        sampleRate: 24_000
+      })
+      this.options.onEvent({ type: 'turnComplete' })
+    }
+    // E2E de cancelamento precisa de uma janela determinística entre o envio e
+    // a resposta; em produção/teste unitário o padrão continua `queueMicrotask`.
+    if (this.responseDelayMs > 0) setTimeout(emit, this.responseDelayMs)
+    else queueMicrotask(emit)
+  }
 
   sendAudio(pcm: Uint8Array): void {
     this.audio.push(new Uint8Array(pcm))
@@ -23,6 +54,7 @@ export class FakeLiveConnection implements LiveConnection {
 
   sendText(text: string): void {
     this.texts.push(text)
+    this.respond()
   }
 
   sendImage(image: GeminiImage): void {
@@ -32,6 +64,7 @@ export class FakeLiveConnection implements LiveConnection {
   sendImageAndText(image: GeminiImage, text: string): void {
     this.images.push(image)
     this.texts.push(text)
+    this.respond()
   }
 
   sendToolResponse(responses: GeminiFunctionResponse[]): void {
@@ -54,6 +87,10 @@ export class FakeLiveConnection implements LiveConnection {
 export class FakeLiveTransport implements LiveTransport {
   readonly connects: LiveConnectOptions[] = []
   readonly connections: FakeLiveConnection[] = []
+  constructor(
+    private readonly autoRespond = false,
+    private readonly responseDelayMs = 0
+  ) {}
   /** Erro por tentativa (índice = tentativa - 1); `undefined` conecta. */
   failures: Array<unknown | undefined> = []
 
@@ -62,7 +99,7 @@ export class FakeLiveTransport implements LiveTransport {
     this.connects.push(options)
     const failure = attempt < this.failures.length ? this.failures[attempt] : undefined
     if (failure !== undefined) throw failure
-    const connection = new FakeLiveConnection(options)
+    const connection = new FakeLiveConnection(options, this.autoRespond, this.responseDelayMs)
     this.connections.push(connection)
     return connection
   }

@@ -64,6 +64,20 @@ describe('modos degradados', () => {
     }
   })
 
+  it('estado degradado é determinístico e não compartilha referência', () => {
+    const first = degradedState('temporary')
+    const second = degradedState('temporary')
+    expect(second).toEqual(first)
+    expect(second).not.toBe(first)
+
+    first.title = 'mutado'
+    expect(degradedState('temporary').title).not.toBe('mutado')
+
+    const listed = listDegradedStates()
+    expect(listDegradedStates()).toEqual(listed)
+    expect(listed.map((state) => state.scenario)).toEqual([...DEGRADED_SCENARIOS])
+  })
+
   it('microfone negado, dispositivo removido e banco corrompido são acionáveis', () => {
     expect(degradedState('microphone-denied').recovery).toContain('Permitir microfone')
     expect(degradedState('microphone-denied').message).toContain('texto')

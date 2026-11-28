@@ -289,15 +289,22 @@ describe('resolveYoutubeVideo', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('respeita o timeout sem deixar a promise pendurada', async () => {
-    const fetchImpl = (_input: string, init?: RequestInit): Promise<Response> =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+  it('respeita o timeout, aborta o sinal e não deixa a promise pendurada', async () => {
+    let aborted = false
+    const fetchImpl = vi.fn((_input: string, init?: RequestInit): Promise<Response> => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new Error('aborted'))
+        })
       })
+    })
 
     await expect(
       resolveYoutubeVideo('casa automatica', { fetchImpl, timeoutMs: 10 })
     ).rejects.toMatchObject({ code: 'timeout' })
+    expect(aborted).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(YOUTUBE_SEARCH_TIMEOUT_MS).toBeGreaterThan(0)
   })
 

@@ -62,6 +62,8 @@ export interface ToolRouterOptions {
   audit?: (event: AuditEvent, context?: AuditContext) => void
   now?: () => number
   hash?: (text: string) => string
+  /** Cancelamento do turno inteiro; aborta o sinal entregue ao handler. */
+  signal?: AbortSignal
 }
 
 export const DEFAULT_CONFIRM_TIMEOUT_MS = 30_000
@@ -227,12 +229,28 @@ export async function routeToolCall(
     })
   }
 
+  const controller = new AbortController()
+  const onExternalAbort = (): void => controller.abort()
+  const external = options.signal
+  if (external) {
+    if (external.aborted) {
+      return finish(decision, false, {
+        ok: false,
+        error: { kind: 'failed', message: 'A ferramenta foi cancelada.' }
+      })
+    }
+    external.addEventListener('abort', onExternalAbort, { once: true })
+  }
+
   try {
     const execution = await raceTimeout(
-      Promise.resolve().then(() => handler(validation.value)),
+      Promise.resolve().then(() => handler(validation.value, { signal: controller.signal })),
       tool.timeoutMs
     )
     if (execution.timedOut) {
+      // Para o handler de verdade: sem isso a requisição de rede continuaria
+      // consumindo depois que o modelo já recebeu o timeout.
+      controller.abort()
       return finish(decision, false, {
         ok: false,
         error: {
@@ -247,5 +265,7 @@ export async function routeToolCall(
       ok: false,
       error: { kind: toolErrorKind(err), message: `Falha na ferramenta: ${errorMessage(err)}` }
     })
+  } finally {
+    external?.removeEventListener('abort', onExternalAbort)
   }
 }

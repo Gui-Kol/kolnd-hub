@@ -28,6 +28,7 @@ import { AvatarArea } from './AvatarArea'
 import { FallbackAvatar } from './avatar/FallbackAvatar'
 import { ConversationLayer } from './conversation/ConversationLayer'
 import { TextInput } from './conversation/TextInput'
+import { createPausableLoop, isPageHidden } from './visibility'
 
 /**
  * Casca do overlay do avatar (task 02).
@@ -81,14 +82,27 @@ export function OverlayApp() {
     let unsubscribeStatus: (() => void) | null = null
     let unsubscribeApply: (() => void) | null = null
     let unsubscribeTheme: (() => void) | null = null
-    let fakeVoiceTimer: ReturnType<typeof setInterval> | null = null
-    let hudTimer: ReturnType<typeof setInterval> | null = null
     let motionMedia: MediaQueryList | null = null
     let visible = true
+    let pageVisible = !isPageHidden(typeof document === 'undefined' ? undefined : document)
     let themeReducedMotion = false
+    // HUD de QA: preenchidos depois que o tema/status chegam; o loop lê sempre
+    // o valor vigente.
+    let debugLook = 'storybook'
+    let debugScale = 1
+
+    const sameLayout = (a: typeof DEFAULT_OVERLAY_LAYOUT, b: typeof DEFAULT_OVERLAY_LAYOUT) =>
+      a.position === b.position &&
+      a.offsetX === b.offsetX &&
+      a.offsetY === b.offsetY &&
+      a.width === b.width &&
+      a.height === b.height
 
     const applyLayout = (next: typeof DEFAULT_OVERLAY_LAYOUT): void => {
       if (disposed) return
+      // `overlay:status-changed` chega a cada show/hide com o mesmo layout; sem
+      // esta comparação o React re-renderiza a casca (e o balão) à toa.
+      if (sameLayout(layoutRef.current, next)) return
       layoutRef.current = next
       setLayout(next)
     }
@@ -105,7 +119,6 @@ export function OverlayApp() {
     let unsubscribeCaptureRequest: (() => void) | null = null
     let unsubscribeCaptureIndicator: (() => void) | null = null
     let unsubscribeSearchIndicator: (() => void) | null = null
-    let voiceLevelTimer: ReturnType<typeof setInterval> | null = null
     let currentVoiceState: VoiceState = 'off'
     let lastMicLevel = 0
     let inputDeviceId: string | null = null
@@ -113,6 +126,58 @@ export function OverlayApp() {
     let outputVolume = 1
     let bargeInEnabled = true
     let deviceWatcher: DeviceWatcher | null = null
+
+    // Timers de nível/HUD/demonstração: um único intervalo por consumidor,
+    // pausado quando o overlay está oculto (atalho, bandeja, captura) ou a
+    // página foi para segundo plano. O estado de voz não muda ao pausar; ao
+    // reaparecer, o próximo tick (≤60 ms) reaplica o nível corrente.
+    const levelLoop = createPausableLoop({
+      intervalMs: 60,
+      isVisible: () => visible && pageVisible,
+      run: () => {
+        if (currentVoiceState === 'speaking') {
+          handle?.setLevel(playback?.getLastLevel() ?? 0)
+        } else if (currentVoiceState === 'listening' || currentVoiceState === 'thinking') {
+          handle?.setLevel(lastMicLevel)
+          lastMicLevel *= 0.82
+        } else {
+          handle?.setLevel(0)
+        }
+      }
+    })
+    const fakeVoiceLoop = createPausableLoop({
+      intervalMs: 60,
+      isVisible: () => visible && pageVisible,
+      run: () => {
+        const time = performance.now() / 1000
+        const level = 0.18 + 0.5 * Math.abs(Math.sin(time * 2.4) * Math.sin(time * 3.3))
+        handle?.setLevel(level)
+      }
+    })
+    const hudLoop = createPausableLoop({
+      intervalMs: 500,
+      isVisible: () => visible && pageVisible,
+      run: () => {
+        if (!handle) return
+        const metrics = handle.getMetrics()
+        const area = layoutRef.current
+        setDebugLine(
+          `fps ${metrics.fps} | frame ${metrics.frameMs} ms | draws ${metrics.drawCalls} | tris ${metrics.triangles} | deg ${metrics.degradation} | look ${debugLook} | state ${handle.getState()} | scale ${debugScale.toFixed(2)} | area ${area.width}x${area.height}`
+        )
+      }
+    })
+    const syncLoops = (): void => {
+      levelLoop.sync()
+      fakeVoiceLoop.sync()
+      hudLoop.sync()
+    }
+    const onVisibilityChange = (): void => {
+      pageVisible = !isPageHidden(document)
+      syncLoops()
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
 
     const ensurePlayback = async (): Promise<boolean> => {
       if (disposed) return false
@@ -185,6 +250,16 @@ export function OverlayApp() {
           workletUrl,
           getDeviceId: () => inputDeviceId,
           onChunk: handleMicChunk,
+          // Microfone sumiu ou falhou: a sessão do main não pode continuar
+          // "ouvindo" sem stream local.
+          onTrackEnded: () => {
+            console.warn('voice', 'microfone desconectado; encerrando a sessão')
+            void window.absolem.voice.stop()
+          },
+          onError: (err) => {
+            console.warn('voice', 'falha na captura de microfone', err)
+            void window.absolem.voice.stop()
+          },
           logger: { warn: (scope, message) => console.warn(scope, message) }
         })
       }
@@ -213,25 +288,6 @@ export function OverlayApp() {
       }
     }
 
-    const startLevelTimer = (): void => {
-      if (voiceLevelTimer) return
-      voiceLevelTimer = setInterval(() => {
-        if (currentVoiceState === 'speaking') {
-          handle?.setLevel(playback?.getLastLevel() ?? 0)
-        } else if (currentVoiceState === 'listening' || currentVoiceState === 'thinking') {
-          handle?.setLevel(lastMicLevel)
-          lastMicLevel *= 0.82
-        } else {
-          handle?.setLevel(0)
-        }
-      }, 60)
-    }
-
-    const stopLevelTimer = (): void => {
-      if (voiceLevelTimer) clearInterval(voiceLevelTimer)
-      voiceLevelTimer = null
-    }
-
     const applyVoiceState = (change: { state: VoiceState; reason?: string }): void => {
       currentVoiceState = change.state
       setVoiceState(change.state)
@@ -245,18 +301,22 @@ export function OverlayApp() {
         // flusha, para não cortar a cauda da resposta.
         playback?.flush()
       }
+      const wantsLevel =
+        change.state === 'listening' ||
+        change.state === 'speaking' ||
+        change.state === 'connecting' ||
+        change.state === 'thinking'
+      levelLoop.setEnabled(wantsLevel)
       if (change.state === 'listening' || change.state === 'speaking') {
-        startLevelTimer()
         void startCapture()
       } else if (change.state === 'connecting' || change.state === 'thinking') {
-        startLevelTimer()
+        // Sem captura: só o nível/HUD acompanham o estado.
       } else {
         capture?.stop()
         playback?.flush()
         vad = createVad()
         lastMicLevel = 0
         handle?.setLevel(0)
-        stopLevelTimer()
       }
     }
 
@@ -363,8 +423,8 @@ export function OverlayApp() {
         }
         const reducedMotion = systemReducedMotion || themeReducedMotion
         // HUD de QA (task 22, T5): só leitura, nunca altera comportamento.
-        let debugLook: string = flags.look ?? theme?.look ?? 'storybook'
-        let debugScale = theme?.scale ?? 1
+        debugLook = flags.look ?? theme?.look ?? 'storybook'
+        debugScale = theme?.scale ?? 1
 
         handle = module.mountAvatar(canvas, {
           theme: { accent: DEFAULT_AVATAR_ACCENT },
@@ -413,6 +473,7 @@ export function OverlayApp() {
           // O main empurra o layout novo depois de `overlay:set-layout`; a área
           // do avatar acompanha sem remontar a cena.
           applyLayout(next.layout)
+          syncLoops()
         })
 
         // Push do main (`avatar:apply`) mantém estado e nível sincronizados.
@@ -459,11 +520,7 @@ export function OverlayApp() {
           // Driver de demonstração: sem a task 06, gera amplitude suave para a
           // boca. `speaking` só é forçado se nenhum estado real chegou.
           if (!avatarStatus?.ok || avatarStatus.state === 'idle') handle.setState('speaking')
-          fakeVoiceTimer = setInterval(() => {
-            const time = performance.now() / 1000
-            const level = 0.18 + 0.5 * Math.abs(Math.sin(time * 2.4) * Math.sin(time * 3.3))
-            handle?.setLevel(level)
-          }, 60)
+          fakeVoiceLoop.setEnabled(true)
         }
 
         // QA visual (task 22, T5): `?state=` muda só o avatar, nunca a voz.
@@ -471,14 +528,7 @@ export function OverlayApp() {
         if (qaState) handle.setState(qaState)
 
         if (flags.debug) {
-          hudTimer = setInterval(() => {
-            if (!handle) return
-            const metrics = handle.getMetrics()
-            const area = layoutRef.current
-            setDebugLine(
-              `fps ${metrics.fps} | frame ${metrics.frameMs} ms | draws ${metrics.drawCalls} | tris ${metrics.triangles} | deg ${metrics.degradation} | look ${debugLook} | state ${handle.getState()} | scale ${debugScale.toFixed(2)} | area ${area.width}x${area.height}`
-            )
-          }, 500)
+          hudLoop.setEnabled(true)
         }
       } catch (err) {
         // Falha de carregamento do chunk nunca deixa a área preta/sem conteúdo.
@@ -490,9 +540,12 @@ export function OverlayApp() {
 
     return () => {
       disposed = true
-      if (hudTimer) clearInterval(hudTimer)
-      if (fakeVoiceTimer) clearInterval(fakeVoiceTimer)
-      stopLevelTimer()
+      levelLoop.stop()
+      fakeVoiceLoop.stop()
+      hudLoop.stop()
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
       deviceWatcher?.stop()
       capture?.stop()
       playback?.dispose()

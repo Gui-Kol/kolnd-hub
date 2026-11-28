@@ -10,13 +10,14 @@ import {
 
 function mediaDevices(devices: MediaDeviceInfoLike[]) {
   const listeners = new Set<() => void>()
-  const api: MediaDevicesLike & { fire: () => void } = {
+  const api: MediaDevicesLike & { fire: () => void; listenerCount: () => number } = {
     enumerateDevices: async () => devices,
     addEventListener: (_type, listener) => listeners.add(listener),
     removeEventListener: (_type, listener) => listeners.delete(listener),
     fire: () => {
       for (const listener of listeners) listener()
-    }
+    },
+    listenerCount: () => listeners.size
   }
   return api
 }
@@ -85,5 +86,37 @@ describe('dispositivos de áudio', () => {
     expect(
       planDeviceChange({ inputDeviceId: 'mic-2', outputDeviceId: 'out-1' }, lists, false).endSession
     ).toBe(false)
+  })
+
+  it('watcher para uma vez e não reage depois do stop', async () => {
+    const api = mediaDevices([{ deviceId: 'mic-1', kind: 'audioinput', label: 'Mic 1' }])
+    const lost = vi.fn()
+    let selection: DeviceSelection = { inputDeviceId: 'mic-1', outputDeviceId: null }
+    const watcher = createDeviceWatcher({
+      mediaDevices: api,
+      getSelection: () => selection,
+      onSelectionLost: (kind, next) => {
+        lost(kind, next)
+        selection = next
+      }
+    })
+
+    expect(api.listenerCount()).toBe(1)
+    await watcher.refresh()
+    expect(lost).not.toHaveBeenCalled()
+
+    api.enumerateDevices = async () => []
+    await watcher.refresh()
+    expect(lost).toHaveBeenCalledTimes(1)
+
+    watcher.stop()
+    watcher.stop()
+    expect(api.listenerCount()).toBe(0)
+
+    // Evento tardio do Chromium não dispara callback depois do stop.
+    api.fire()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(lost).toHaveBeenCalledTimes(1)
   })
 })

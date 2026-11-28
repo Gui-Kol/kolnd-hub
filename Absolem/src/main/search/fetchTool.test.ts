@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { SearchRequestCancelledError } from './cache'
 import type { FetchedPage } from './fetchPage'
 import { DYNAMIC_PAGE_WARNING, createFetchUrlHandler } from './tools'
 
@@ -56,5 +57,40 @@ describe('ferramenta fetch_url', () => {
     expect(result.sources).toEqual([{ title: 'Artigo', url: 'https://final.example/artigo' }])
     expect(result.title).toBe('Artigo')
     expect(result.content).toContain('Texto do artigo')
+  })
+
+  it('entrega o sinal do roteador ao fetch e recusa antes da rede se já cancelado', async () => {
+    const controller = new AbortController()
+    const fetchPage = vi.fn(async (_url: string, signal?: AbortSignal) => {
+      expect(signal).toBe(controller.signal)
+      return page()
+    })
+    const handler = createFetchUrlHandler({ isEnabled: () => true, fetchPage })
+
+    await handler({ url: 'https://example.test/artigo' }, { signal: controller.signal })
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(
+      handler({ url: 'https://example.test/artigo' }, { signal: aborted.signal })
+    ).rejects.toBeInstanceOf(SearchRequestCancelledError)
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancelamento durante o fetch vira falha auditada sem conteúdo', async () => {
+    const audit: Array<{ ok: boolean; bytes: number }> = []
+    const handler = createFetchUrlHandler({
+      isEnabled: () => true,
+      fetchPage: async () => {
+        throw new SearchRequestCancelledError()
+      },
+      audit: (event) => audit.push({ ok: event.ok, bytes: event.bytes })
+    })
+
+    await expect(handler({ url: 'https://example.test/artigo' })).rejects.toMatchObject({
+      kind: 'cancelled'
+    })
+    expect(audit).toEqual([{ ok: false, bytes: 0 }])
   })
 })

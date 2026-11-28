@@ -8,7 +8,6 @@ import type {
   CaptureStatusResult
 } from '../../shared/ipc'
 import type { CaptureIndicatorPush, CaptureKind, CaptureStatus } from '../../shared/screen'
-import type { GeminiErrorKind } from '../../shared/gemini'
 import { isCaptureKind } from '../../shared/screen'
 import type { ChatSinks } from '../gemini/engine'
 import type { GeminiFunctionCall } from '../gemini/transport'
@@ -17,7 +16,7 @@ import { effectiveScreenPermission } from '../../shared/permissions'
 import type { ToolCallResult } from '../gemini/tools/router'
 import type { LiveSession } from '../gemini/live'
 import { LiveSession as LiveSessionImpl } from '../gemini/live'
-import { SdkLiveTransport } from '../gemini/sdk'
+import { createLiveTransport, getLiveApiKey } from '../gemini/liveTransportFactory'
 import { buildSystemPrompt } from '../gemini/prompts'
 import { getUsageMeter } from '../gemini/instance'
 import { createDefaultToolRegistry } from '../gemini/tools/internal'
@@ -37,13 +36,15 @@ import { registerShutdownHook } from '../shutdown'
 import { getStoreSnapshot } from '../store'
 import { getVoiceController } from '../voice/instance'
 import { askAboutScreenLive, SCREEN_SYSTEM_RULES } from './ask'
+import type { LiveScreenSessionHandlers } from './ask'
 import type { CaptureController, CaptureGrabRequest, CapturedImage } from './controller'
 import { createCaptureController } from './controller'
 import { createFrameGrabService, type FrameGrabService } from './grabService'
 import { cropCapturedImage } from './image'
 import { createCaptureLimiter, type CaptureLimiter } from './limits'
 import { createRegionSelector, type RegionSelector } from './regionWindow'
-import { listScreens } from './sources'
+import { createCaptureRequestTracker } from './requestTracker'
+import { createScreenSourceCache, listScreens } from './sources'
 import { registerScreenTool } from './tool'
 import { getApiKey } from '../secrets'
 import { getSearchRuntime } from '../search/instance'
@@ -148,6 +149,20 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
   const regionContents = new Set<number>()
   let liveSession: LiveSession | null = null
   const screenSessions = new Map<string, LiveSessionImpl>()
+  /** Pedidos em andamento e cancelados (`capture:ask`). */
+  const requestTracker = createCaptureRequestTracker()
+  /** Depois do hook de encerramento nenhum push/pedido novo sai daqui. */
+  let shuttingDown = false
+
+  const screenSources = createScreenSourceCache({
+    getScreens: () => listScreens(),
+    getDisplayKey: () =>
+      screen
+        .getAllDisplays()
+        .map((display) => String(display.id))
+        .sort()
+        .join(',')
+  })
 
   const pushIndicator = (push: CaptureIndicatorPush): void => {
     activeKind = push.active ? (push.kind ?? null) : null
@@ -282,7 +297,7 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
     isOverlayVisible,
     hideOverlay: hideOverlayWindowForCapture,
     showOverlay: showOverlayWindow,
-    listScreens,
+    listScreens: () => screenSources.list(),
     getDisplays: () =>
       screen.getAllDisplays().map((display) => ({
         id: String(display.id),
@@ -305,6 +320,7 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
         ...(request.processName ? { processName: request.processName } : {}),
         reason: request.reason
       }),
+    isCancelled: (requestId) => requestTracker.isCancelled(requestId),
     audit: (event) => logger.info('audit', event),
     pushIndicator,
     limits: limiter
@@ -371,11 +387,29 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
   const listTools = (): readonly ToolDefinition[] => buildScreenRegistry().registry.listTools()
 
   const ask = (request: CaptureAskRequest): void => {
+    if (shuttingDown) {
+      logger.warn('capture', 'capture:ask ignorado durante o encerramento')
+      return
+    }
+    // Duplicado concorrente com o mesmo requestId (duplo clique/IPC repetido):
+    // um único frame e uma única sessão Live. O stream já sai pelo mesmo
+    // `requestId`, então quem repetiu recebe a mesma resposta sem custo extra.
+    if (!requestTracker.begin(request.requestId)) {
+      logger.warn('capture', 'capture:ask duplicado ignorado', { requestId: request.requestId })
+      return
+    }
+    let finished = false
+    // Cancelamento/encerramento fecha a porta antes do push: nada de delta,
+    // tool, done ou erro tardio depois de `capture:cancel`/close.
+    const push = (channel: string, payload: unknown): void => {
+      if (finished || shuttingDown || requestTracker.isCancelled(request.requestId)) return
+      broadcast(ctx, channel, payload)
+    }
     const sinks: ChatSinks = {
-      delta: (text) => broadcast(ctx, IPC.chatDelta, { requestId: request.requestId, text }),
-      done: (usage) => broadcast(ctx, IPC.chatDone, { requestId: request.requestId, usage }),
+      delta: (text) => push(IPC.chatDelta, { requestId: request.requestId, text }),
+      done: (usage) => push(IPC.chatDone, { requestId: request.requestId, usage }),
       error: (error) =>
-        broadcast(ctx, IPC.chatError, {
+        push(IPC.chatError, {
           requestId: request.requestId,
           kind: error.kind,
           message: error.message
@@ -397,15 +431,10 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
         error: { kind: 'not-found', message: 'Ferramentas de ação não inicializadas.' }
       }
     }
-    let screenHandlers: {
-      onTranscript: (event: { role: 'user' | 'model'; text: string; final: boolean }) => void
-      onToolCall: (calls: GeminiFunctionCall[]) => void
-      onTurnComplete: () => void
-      onError: (error: { kind: GeminiErrorKind; message: string }) => void
-    } | null = null
+    let screenHandlers: LiveScreenSessionHandlers | null = null
     const live = new LiveSessionImpl({
-      transport: new SdkLiveTransport(),
-      keys: { getApiKey },
+      transport: createLiveTransport(),
+      keys: { getApiKey: () => getLiveApiKey(getApiKey) },
       usage: getUsageMeter(),
       model: getStoreSnapshot().gemini.liveModel,
       voiceName: LIVE_VOICE_NAME,
@@ -438,6 +467,7 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
         onToolCall: (calls) => screenHandlers?.onToolCall(calls),
         onTurnComplete: () => screenHandlers?.onTurnComplete(),
         onError: (error) => screenHandlers?.onError({ kind: error.kind, message: error.message }),
+        onClose: (reason) => screenHandlers?.onClose?.(reason),
         onAudio: () => undefined
       },
       logger
@@ -446,7 +476,18 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
     liveSession = live
     void askAboutScreenLive(
       {
-        capture: (captureRequest) => controller.capture(captureRequest),
+        capture: async (captureRequest) => {
+          const result = await controller.capture(captureRequest)
+          // Cancelamento entre o fim do recorte e o envio: descarta a imagem.
+          if (
+            result.ok &&
+            captureRequest.requestId &&
+            requestTracker.isCancelled(captureRequest.requestId)
+          ) {
+            return { ok: false, error: { code: 'cancelled', message: 'Captura cancelada.' } }
+          }
+          return result
+        },
         createSession: (handlers) => {
           screenHandlers = handlers
           return {
@@ -466,11 +507,23 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
       },
       request,
       sinks
-    ).finally(() => {
-      screenSessions.delete(request.requestId)
-      if (liveSession === live) liveSession = null
-      if (!live.isClosed()) live.close('finished')
-    })
+    )
+      .catch((err: unknown) => {
+        logger.warn(
+          'capture',
+          'falha no pedido de visão da tela',
+          err instanceof Error ? { type: err.name } : { type: typeof err }
+        )
+      })
+      .finally(() => {
+        // Fecha a porta de push ANTES de liberar o tracker: eventos que ainda
+        // estejam na fila não chegam ao renderer depois do close/cancel.
+        finished = true
+        requestTracker.end(request.requestId)
+        screenSessions.delete(request.requestId)
+        if (liveSession === live) liveSession = null
+        if (!live.isClosed()) live.close('finished')
+      })
   }
 
   const status = (): CaptureStatus => {
@@ -507,24 +560,45 @@ export function createCaptureRuntime(ctx: IpcContext): CaptureRuntime {
   const cancel = (request: CaptureCancelRequest): void => {
     if (request.kind === 'region') selector.cancel()
     if (request.requestId) {
+      requestTracker.cancel(request.requestId)
       grab.cancel(request.requestId)
       const session = screenSessions.get(request.requestId)
       screenSessions.delete(request.requestId)
       session?.close('cancelled')
     } else if (request.kind === 'ask') {
-      for (const session of screenSessions.values()) session.close('cancelled')
-      screenSessions.clear()
+      for (const requestId of requestTracker.inflightIds()) requestTracker.cancel(requestId)
+      for (const [requestId, session] of [...screenSessions]) {
+        screenSessions.delete(requestId)
+        session.close('cancelled')
+      }
     }
     if (request.kind === undefined && request.requestId === undefined) {
       selector.cancel()
-      for (const session of screenSessions.values()) session.close('cancelled')
-      screenSessions.clear()
+      for (const requestId of requestTracker.inflightIds()) requestTracker.cancel(requestId)
+      for (const [requestId, session] of [...screenSessions]) {
+        screenSessions.delete(requestId)
+        session.close('cancelled')
+      }
     }
   }
 
   const shutdown = (): void => {
+    shuttingDown = true
     selector.cancel()
     grab.cancelAll()
+    requestTracker.clear()
+    // Sessões Live abertas por `capture:ask` não podem sobreviver ao
+    // encerramento nem emitir eventos para janelas já destruídas.
+    for (const [requestId, session] of [...screenSessions]) {
+      screenSessions.delete(requestId)
+      try {
+        session.close('shutdown')
+      } catch {
+        // Sessão já encerrada.
+      }
+    }
+    liveSession = null
+    activeKind = null
   }
   registerShutdownHook('capture', shutdown)
 

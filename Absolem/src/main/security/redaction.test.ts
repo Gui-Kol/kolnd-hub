@@ -87,6 +87,43 @@ describe('redação de logs', () => {
     expect(text).not.toContain(TRANSCRIPT)
   })
 
+  it('arquivo de log não guarda URL de arquivo nem conteúdo sem aspas', () => {
+    const fileUrl = 'file:///C:/Users/joao.silva/Documents/segredo.txt'
+    const forwardPath = 'C:/Users/joao.silva/Documents/segredo.txt'
+    const content = 'eu moro na rua das flores e meu telefone e 99999-0000'
+
+    logger.warn('teste', `will-navigate bloqueado: ${fileUrl}`)
+    logger.warn('teste', `falha em ${forwardPath}`)
+    logger.info('teste', `transcricao: ${content}`)
+    logger.info('teste', `prompt: responda com a senha do usuário`)
+    logger.info('teste', `resposta: ${content}`)
+
+    const text = readFileSync(logPath, 'utf8')
+    expect(text).not.toContain('joao.silva')
+    expect(text).not.toContain('rua das flores')
+    expect(text).not.toContain('99999-0000')
+    expect(text).not.toContain('senha do usuário')
+    expect(text).toContain('[redigido]')
+    expect(text).toContain('[usuario]')
+  })
+
+  it('objeto JSON de métrica também é redigido', () => {
+    logger.info('teste', {
+      prompt: TRANSCRIPT,
+      transcript: TRANSCRIPT,
+      api_key: SECRET,
+      authorization: `Bearer ${SECRET}`,
+      url: 'file:///C:/Users/joao.silva/Documents/segredo.txt'
+    })
+
+    const text = readFileSync(logPath, 'utf8')
+    expect(text).not.toContain(SECRET)
+    expect(text).not.toContain(TRANSCRIPT)
+    expect(text).not.toContain('joao.silva')
+    expect(text).not.toContain('rua das flores')
+    expect(text).toContain('[redigido]')
+  })
+
   it('nenhum console.* no main fora do logger', () => {
     const problems: string[] = []
     for (const file of listMainSources(ROOT)) {

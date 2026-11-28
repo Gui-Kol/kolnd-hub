@@ -10,6 +10,9 @@
  * - todas as tracks são encerradas em `finally`, inclusive em erro;
  * - a imagem é limitada a 1280 px no maior lado (gate de custo);
  * - JPEG qualidade 0.75 por padrão; PNG quando `lossless` é pedido (texto);
+ * - encode síncrono (`toDataURL`): o overlay fica oculto durante a captura e o
+ *   callback de `toBlob` é throttled (~1 s) nesse estado; `toBlob` fica apenas
+ *   como fallback para ambientes sem `toDataURL`;
  * - nada é gravado em disco: o retorno é um `ArrayBuffer` em memória.
  */
 
@@ -67,7 +70,12 @@ export interface CanvasElementLike {
   width: number
   height: number
   getContext: (type: '2d') => Canvas2DContextLike | null
-  toBlob: (callback: (blob: BlobLike | null) => void, type?: string, quality?: number) => void
+  /**
+   * Encode síncrono. É o caminho principal: quando o overlay está oculto, o
+   * callback assíncrono de `toBlob` é throttled e chega ~1 s depois (task 04).
+   */
+  toDataURL?: (type?: string, quality?: number) => string
+  toBlob?: (callback: (blob: BlobLike | null) => void, type?: string, quality?: number) => void
 }
 
 export interface GrabFactories {
@@ -170,9 +178,20 @@ function encodeCanvas(
   mime: 'image/jpeg' | 'image/png',
   quality?: number
 ): Promise<ArrayBuffer> {
+  // Caminho síncrono: não depende do agendador de tarefas do renderer oculto.
+  if (typeof canvas.toDataURL === 'function') {
+    try {
+      return Promise.resolve(decodeDataUrl(canvas.toDataURL(mime, quality)))
+    } catch (err) {
+      return Promise.reject(err instanceof Error ? err : new Error(String(err)))
+    }
+  }
+  if (typeof canvas.toBlob !== 'function') {
+    return Promise.reject(new Error('canvas sem encoder para a imagem da tela'))
+  }
   return new Promise<ArrayBuffer>((resolve, reject) => {
     try {
-      canvas.toBlob(
+      canvas.toBlob?.(
         (blob) => {
           if (!blob) {
             reject(new Error('falha ao codificar a imagem da tela'))
@@ -187,6 +206,21 @@ function encodeCanvas(
       reject(err instanceof Error ? err : new Error(String(err)))
     }
   })
+}
+
+/** Converte um `data:` URL (encode síncrono do canvas) em bytes. */
+export function decodeDataUrl(url: string): ArrayBuffer {
+  if (typeof url !== 'string' || !url.startsWith('data:')) {
+    throw new Error('encode da tela devolveu dados inválidos')
+  }
+  const comma = url.indexOf(',')
+  if (comma < 0) throw new Error('encode da tela veio sem payload')
+  const binary = atob(url.slice(comma + 1))
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes.buffer
 }
 
 /**

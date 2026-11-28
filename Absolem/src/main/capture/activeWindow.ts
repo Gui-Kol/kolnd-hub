@@ -4,9 +4,9 @@ import type { ScreenRect } from '../../shared/screen'
  * Cálculos da janela ativa (task 07, T4), sem Electron.
  *
  * `getForegroundWindow()` (task 02) devolve bounds em DIPs no espaço virtual do
- * Windows. A imagem capturada vem em pixels físicos do display, então a
- * conversão é `(bounds - display.bounds) * display.scaleFactor` - nunca o DPR
- * da janela de captura.
+ * Windows. O recorte é relativo ao display e multiplicado pela proporção real
+ * entre a imagem capturada e o monitor (task 04) - a imagem pode ter sido
+ * reduzida a `MAX_CAPTURE_SIDE`, então não basta o `scaleFactor`.
  */
 
 export interface CaptureDisplay {
@@ -57,26 +57,56 @@ export function selectDisplayForBounds(
   return displays.find((display) => pointInRect(center, display.bounds)) ?? null
 }
 
-/** Retângulo da janela em pixels físicos, relativo ao display. */
-export function computeCropRect(bounds: ScreenRect, display: CaptureDisplay): PixelRect {
-  const scale = display.scaleFactor > 0 ? display.scaleFactor : 1
+/** Retângulo da janela em pixels da imagem capturada, relativo ao display. */
+export function computeCropRect(
+  bounds: ScreenRect,
+  display: CaptureDisplay,
+  captured?: { width: number; height: number }
+): PixelRect {
+  const { scaleX, scaleY } = cropScale(display, captured)
   return {
-    x: Math.round((bounds.x - display.bounds.x) * scale),
-    y: Math.round((bounds.y - display.bounds.y) * scale),
-    width: Math.round(bounds.width * scale),
-    height: Math.round(bounds.height * scale)
+    x: Math.round((bounds.x - display.bounds.x) * scaleX),
+    y: Math.round((bounds.y - display.bounds.y) * scaleY),
+    width: Math.round(bounds.width * scaleX),
+    height: Math.round(bounds.height * scaleY)
   }
 }
 
-/** Retângulo de região (DIPs locais) em pixels físicos. */
-export function computeRegionRectPx(rect: ScreenRect, display: CaptureDisplay): PixelRect {
-  const scale = display.scaleFactor > 0 ? display.scaleFactor : 1
+/** Retângulo de região (DIPs locais) em pixels da imagem capturada. */
+export function computeRegionRectPx(
+  rect: ScreenRect,
+  display: CaptureDisplay,
+  captured?: { width: number; height: number }
+): PixelRect {
+  const { scaleX, scaleY } = cropScale(display, captured)
   return {
-    x: Math.round(rect.x * scale),
-    y: Math.round(rect.y * scale),
-    width: Math.round(rect.width * scale),
-    height: Math.round(rect.height * scale)
+    x: Math.round(rect.x * scaleX),
+    y: Math.round(rect.y * scaleY),
+    width: Math.round(rect.width * scaleX),
+    height: Math.round(rect.height * scaleY)
   }
+}
+
+/**
+ * O renderer limita a captura a `MAX_CAPTURE_SIDE`, então a imagem pode vir
+ * menor que o monitor em pixels físicos. O recorte precisa usar a proporção
+ * real imagem/monitor, não só o `scaleFactor` (task 04): em 1920x1080 a imagem
+ * chega em 1280x720 e o recorte antigo caía na área errada.
+ */
+function cropScale(
+  display: CaptureDisplay,
+  captured?: { width: number; height: number }
+): { scaleX: number; scaleY: number } {
+  const fallback = display.scaleFactor > 0 ? display.scaleFactor : 1
+  const scaleX =
+    captured && captured.width > 0 && display.bounds.width > 0
+      ? captured.width / display.bounds.width
+      : fallback
+  const scaleY =
+    captured && captured.height > 0 && display.bounds.height > 0
+      ? captured.height / display.bounds.height
+      : fallback
+  return { scaleX, scaleY }
 }
 
 /**

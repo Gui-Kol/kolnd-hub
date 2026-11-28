@@ -49,8 +49,8 @@ export interface PlaybackAudioContextLike {
 }
 
 export interface PlaybackLoggerLike {
-  warn: (scope: string, message: unknown) => void
-  info?: (scope: string, message: unknown) => void
+  warn: (scope: string, message: unknown, ...args: unknown[]) => void
+  info?: (scope: string, message: unknown, ...args: unknown[]) => void
 }
 
 export interface PlaybackOptions {
@@ -59,7 +59,21 @@ export interface PlaybackOptions {
   getVolume?: () => number
   headroomMs?: number
   fadeMs?: number
+  /** Teto de segurança para atraso acumulado; padrão de 30 s. */
+  maxBufferedMs?: number
   logger?: PlaybackLoggerLike
+}
+
+export interface PlaybackStats {
+  enqueued: number
+  started: number
+  ended: number
+  flushes: number
+  skippedFlushes: number
+  dropped: number
+  maxPending: number
+  pending: number
+  bufferedMs: number
 }
 
 export interface Playback {
@@ -68,12 +82,15 @@ export interface Playback {
   setOutputDevice: (deviceId: string | null) => Promise<boolean>
   pending: () => number
   getLastLevel: () => number
+  getStats: () => PlaybackStats
   dispose: () => void
 }
 
 export const PLAYBACK_SAMPLE_RATE = 24_000
 export const PLAYBACK_HEADROOM_MS = 60
 export const PLAYBACK_FADE_MS = 20
+/** Proteção contra crescimento sem limite se o modelo enviar mais rápido. */
+export const PLAYBACK_MAX_BUFFERED_MS = 30_000
 
 interface ScheduledBuffer {
   source: AudioBufferSourceLike
@@ -118,6 +135,7 @@ export function createPlayback(options: PlaybackOptions): Playback {
   const { context } = options
   const headroom = (options.headroomMs ?? PLAYBACK_HEADROOM_MS) / 1000
   const fade = (options.fadeMs ?? PLAYBACK_FADE_MS) / 1000
+  const maxBuffered = (options.maxBufferedMs ?? PLAYBACK_MAX_BUFFERED_MS) / 1000
   const getVolume = () => clampVolume(options.getVolume?.() ?? 1)
 
   const master = context.createGain()
@@ -128,6 +146,15 @@ export function createPlayback(options: PlaybackOptions): Playback {
   let nextTime = 0
   let lastLevel = 0
   let disposed = false
+  const stats = {
+    enqueued: 0,
+    started: 0,
+    ended: 0,
+    flushes: 0,
+    skippedFlushes: 0,
+    dropped: 0,
+    maxPending: 0
+  }
 
   const enqueue = (pcm: Uint8Array | Int16Array, sampleRate = PLAYBACK_SAMPLE_RATE): void => {
     if (disposed) return
@@ -135,26 +162,50 @@ export function createPlayback(options: PlaybackOptions): Playback {
     if (samples.length === 0) return
     if (context.state === 'suspended') void context.resume?.().catch(() => undefined)
 
+    const now = context.currentTime
+    const queuedUntil = Math.max(now + headroom, nextTime) + samples.length / sampleRate
+    if (queuedUntil - now > maxBuffered) {
+      // Fila patológica (modelo muito à frente do relógio): não cresce sem
+      // limite. O descarte é contado e nunca silencioso.
+      stats.dropped += 1
+      options.logger?.warn('voice', 'fila de reprodução cheia; buffer descartado', {
+        bufferedMs: Math.round((nextTime - now) * 1000),
+        maxBufferedMs: Math.round(maxBuffered * 1000)
+      })
+      return
+    }
+
     const buffer = context.createBuffer(1, samples.length, sampleRate)
     buffer.getChannelData(0).set(samples)
     const source = context.createBufferSource()
     source.buffer = buffer
     source.connect(master)
 
-    const startAt = Math.max(context.currentTime + headroom, nextTime)
+    const startAt = Math.max(now + headroom, nextTime)
     const endAt = startAt + buffer.duration
     nextTime = endAt
     lastLevel = rms(samples)
     source.onended = () => {
+      stats.ended += 1
       scheduled = scheduled.filter((entry) => entry.source !== source)
     }
     const entry: ScheduledBuffer = { source, startAt, endAt }
     scheduled.push(entry)
+    stats.enqueued += 1
+    stats.started += 1
+    stats.maxPending = Math.max(stats.maxPending, scheduled.length)
     source.start(startAt)
   }
 
   const flush = (): void => {
     if (disposed) return
+    // Barge-in pode chegar duas vezes (VAD local + push de estado do main).
+    // Sem buffers pendentes não há nada para cortar nem rampa para refazer.
+    if (scheduled.length === 0) {
+      stats.skippedFlushes += 1
+      return
+    }
+    stats.flushes += 1
     const now = context.currentTime
     const fadeEnd = now + fade
     master.gain.setValueAtTime(master.gain.value, now)
@@ -199,6 +250,11 @@ export function createPlayback(options: PlaybackOptions): Playback {
     setOutputDevice,
     pending: () => scheduled.length,
     getLastLevel: () => lastLevel,
+    getStats: () => ({
+      ...stats,
+      pending: scheduled.length,
+      bufferedMs: Math.max(0, Math.round((nextTime - context.currentTime) * 1000))
+    }),
     dispose: () => {
       if (disposed) return
       flush()

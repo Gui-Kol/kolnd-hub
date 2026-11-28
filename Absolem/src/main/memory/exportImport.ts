@@ -408,36 +408,42 @@ export function createMemoryIO(options: MemoryIOOptions): MemoryIO {
         }
       }
 
+      // Import atômico: memórias e sessões entram na mesma transação; uma
+      // falha no meio (ex.: disco cheio) desfaz tudo em vez de deixar metade.
       let imported = 0
-      for (const item of plan.accepted) {
-        repo.insert({
-          kind: item.kind,
-          content: item.content,
-          tags: item.tags,
-          confidence: item.confidence,
-          source: item.source === 'import' ? 'import' : item.source,
-          pinned: item.pinned,
-          expiresAt: item.expiresAt,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-          lastUsedAt: item.lastUsedAt,
-          useCount: item.useCount
-        })
-        imported += 1
-      }
-      for (const session of plan.sessions) {
-        repo.turns.startSession(session.id, session.startedAt)
-        for (const turn of session.turns) {
-          repo.turns.insert({
-            sessionId: session.id,
-            role: turn.role,
-            content: turn.content,
-            at: turn.at,
-            interrupted: turn.interrupted
-          })
+      repo.transaction(() => {
+        if (plan.accepted.length > 0) {
+          repo.insertMany(
+            plan.accepted.map((item) => ({
+              kind: item.kind,
+              content: item.content,
+              tags: item.tags,
+              confidence: item.confidence,
+              source: item.source === 'import' ? 'import' : item.source,
+              pinned: item.pinned,
+              expiresAt: item.expiresAt,
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt,
+              lastUsedAt: item.lastUsedAt,
+              useCount: item.useCount
+            }))
+          )
+          imported = plan.accepted.length
         }
-        repo.turns.endSession(session.id, session.endedAt ?? nowMs, session.summary)
-      }
+        for (const session of plan.sessions) {
+          repo.turns.startSession(session.id, session.startedAt)
+          for (const turn of session.turns) {
+            repo.turns.insert({
+              sessionId: session.id,
+              role: turn.role,
+              content: turn.content,
+              at: turn.at,
+              interrupted: turn.interrupted
+            })
+          }
+          repo.turns.endSession(session.id, session.endedAt ?? nowMs, session.summary)
+        }
+      })
 
       // Import em massa: índice reconstruído e páginas livres devolvidas ao SO.
       if (imported > 0) rebuildMemoryIndex(repo.handle)

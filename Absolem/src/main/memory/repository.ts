@@ -86,6 +86,10 @@ export interface TurnInput {
 export interface MemoryRepository {
   handle: SqlDatabase
   insert: (input: NewMemoryInput) => MemoryRecord
+  /** Insere várias memórias em uma única transação (import atômico). */
+  insertMany: (inputs: NewMemoryInput[]) => MemoryRecord[]
+  /** Executa um bloco em transação; aninhamentos usam savepoints. */
+  transaction: <T>(run: () => T) => T
   get: (id: string) => MemoryRecord | null
   update: (id: string, patch: MemoryUpdatePatch) => MemoryRecord | null
   remove: (id: string) => boolean
@@ -336,19 +340,46 @@ export function buildFtsQuery(query: string): string {
   return tokens.map((token) => `"${token.replace(/"/g, '""')}"*`).join(' OR ')
 }
 
-function inTransaction<T>(db: SqlDatabase, run: () => T): T {
-  db.exec('BEGIN IMMEDIATE')
-  try {
-    const result = run()
-    db.exec('COMMIT')
-    return result
-  } catch (error) {
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      // rollback best-effort
+function createTransactor(db: SqlDatabase): <T>(run: () => T) => T {
+  let depth = 0
+  return function transaction<T>(run: () => T): T {
+    if (depth > 0) {
+      // Transação aninhada (ex.: import em massa chamando insert): savepoint.
+      const savepoint = `memory_sp_${depth}`
+      depth += 1
+      db.exec(`SAVEPOINT ${savepoint}`)
+      try {
+        const result = run()
+        depth -= 1
+        db.exec(`RELEASE ${savepoint}`)
+        return result
+      } catch (error) {
+        depth -= 1
+        try {
+          db.exec(`ROLLBACK TO ${savepoint}`)
+          db.exec(`RELEASE ${savepoint}`)
+        } catch {
+          // rollback best-effort
+        }
+        throw error
+      }
     }
-    throw error
+    db.exec('BEGIN IMMEDIATE')
+    depth = 1
+    try {
+      const result = run()
+      db.exec('COMMIT')
+      return result
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // rollback best-effort
+      }
+      throw error
+    } finally {
+      depth = 0
+    }
   }
 }
 
@@ -423,7 +454,9 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
     return row ? mapMemoryRow(row as MemoryRow) : null
   }
 
-  function insert(input: NewMemoryInput): MemoryRecord {
+  const transaction = createTransactor(db)
+
+  function insertOne(input: NewMemoryInput): MemoryRecord {
     const now = numberOr(input.createdAt, Date.now())
     const kind = requireKind(input.kind)
     const content = requireContent(input.content)
@@ -434,31 +467,41 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
     const pinned = input.pinned === true
     const id = randomUUID()
 
-    inTransaction(db, () => {
-      db.prepare(
-        `INSERT INTO memories
-          (id, kind, content, tags, confidence, source, created_at, updated_at, last_used_at, use_count, expires_at, pinned)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        id,
-        kind,
-        content,
-        JSON.stringify(tags),
-        confidence,
-        source,
-        now,
-        numberOr(input.updatedAt, now),
-        typeof input.lastUsedAt === 'number' && Number.isFinite(input.lastUsedAt)
-          ? Math.floor(input.lastUsedAt)
-          : null,
-        nonNegativeInt(input.useCount),
-        expiresAt,
-        pinned ? 1 : 0
-      )
-    })
+    db.prepare(
+      `INSERT INTO memories
+        (id, kind, content, tags, confidence, source, created_at, updated_at, last_used_at, use_count, expires_at, pinned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      kind,
+      content,
+      JSON.stringify(tags),
+      confidence,
+      source,
+      now,
+      numberOr(input.updatedAt, now),
+      typeof input.lastUsedAt === 'number' && Number.isFinite(input.lastUsedAt)
+        ? Math.floor(input.lastUsedAt)
+        : null,
+      nonNegativeInt(input.useCount),
+      expiresAt,
+      pinned ? 1 : 0
+    )
     const created = getMemory(id)
     if (!created) throw new Error('memÃ³ria nÃ£o encontrada apÃ³s a inserÃ§Ã£o')
     return created
+  }
+
+  function insert(input: NewMemoryInput): MemoryRecord {
+    return transaction(() => insertOne(input))
+  }
+
+  function insertMany(inputs: NewMemoryInput[]): MemoryRecord[] {
+    if (!Array.isArray(inputs)) {
+      throw new MemoryValidationError('Lista de memÃ³rias invÃ¡lida.')
+    }
+    if (inputs.length === 0) return []
+    return transaction(() => inputs.map((input) => insertOne(input)))
   }
 
   function update(id: string, patch: MemoryUpdatePatch): MemoryRecord | null {
@@ -484,7 +527,7 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
             : now + MEMORY_TEMPORARY_TTL_MS
           : normalizeExpiresAt(kind, patch.expiresAt, now)
 
-    inTransaction(db, () => {
+    transaction(() => {
       db.prepare(
         `UPDATE memories SET
           kind = ?, content = ?, tags = ?, confidence = ?, updated_at = ?,
@@ -506,9 +549,11 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
 
   function remove(id: string): boolean {
     const memoryId = requireId(id)
-    return inTransaction(db, () => {
+    return transaction(() => {
+      // O trigger `memories_ad` remove a linha do FTS na mesma transaÃ§Ã£o;
+      // reconstruir o Ã­ndice inteiro a cada exclusÃ£o custava ~10 ms com 5.000
+      // itens (medido na task 06/T1) e nÃ£o era necessÃ¡rio.
       const result = db.prepare('DELETE FROM memories WHERE id = ?').run(memoryId)
-      if (result.changes > 0) rebuildMemoryIndex(db)
       return result.changes > 0
     })
   }
@@ -603,7 +648,7 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
   function touch(ids: string[], at: number = Date.now()): number {
     const valid = ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
     if (valid.length === 0) return 0
-    return inTransaction(db, () => {
+    return transaction(() => {
       const statement = db.prepare(
         'UPDATE memories SET use_count = use_count + 1, last_used_at = ? WHERE id = ?'
       )
@@ -614,7 +659,7 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
   }
 
   function removeAll(options: RemoveAllOptions = {}): RemoveAllResult {
-    return inTransaction(db, () => {
+    return transaction(() => {
       const memories = db.prepare('SELECT COUNT(*) AS total FROM memories').get()
       const turns = db.prepare('SELECT COUNT(*) AS total FROM turns').get()
       const sessions = db.prepare('SELECT COUNT(*) AS total FROM sessions').get()
@@ -738,7 +783,7 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
   }
 
   function clearTurns(): number {
-    return inTransaction(db, () => {
+    return transaction(() => {
       const row = db.prepare('SELECT COUNT(*) AS total FROM turns').get()
       db.exec('DELETE FROM turns')
       db.exec('DELETE FROM sessions')
@@ -749,6 +794,8 @@ export function createMemoryRepository(db: SqlDatabase): MemoryRepository {
   return {
     handle: db,
     insert,
+    insertMany,
+    transaction,
     get: getMemory,
     update,
     remove,

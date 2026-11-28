@@ -61,18 +61,30 @@ function createCanvas(width = 480, height = 360): HTMLCanvasElement {
   } as unknown as HTMLCanvasElement
 }
 
-function installBrowser(raf: (callback: FrameRequestCallback) => number): () => void {
+function installBrowser(
+  raf: (callback: FrameRequestCallback) => number,
+  cancel: (handle: number) => void = () => undefined,
+  audit?: { added: number; removed: number }
+): () => void {
   const fakeWindow = {
     requestAnimationFrame: raf,
-    cancelAnimationFrame: () => undefined,
+    cancelAnimationFrame: (handle: number) => cancel(handle),
     devicePixelRatio: 1,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined
+    addEventListener: () => {
+      if (audit) audit.added += 1
+    },
+    removeEventListener: () => {
+      if (audit) audit.removed += 1
+    }
   }
   const fakeDocument = {
     visibilityState: 'visible',
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined
+    addEventListener: () => {
+      if (audit) audit.added += 1
+    },
+    removeEventListener: () => {
+      if (audit) audit.removed += 1
+    }
   }
   const scope = globalThis as unknown as Record<string, unknown>
   const hadWindow = 'window' in scope
@@ -247,6 +259,112 @@ describe('ciclo de vida da bola', () => {
       handle.dispose()
     } finally {
       restore()
+    }
+  })
+})
+
+describe('pausa de quadros estáticos', () => {
+  function installScheduler(audit?: { added: number; removed: number }) {
+    let nextId = 1
+    const pending = new Map<number, FrameRequestCallback>()
+    const restore = installBrowser(
+      (callback) => {
+        const id = nextId
+        nextId += 1
+        pending.set(id, callback)
+        return id
+      },
+      (id) => {
+        pending.delete(id)
+      },
+      audit
+    )
+    const runNext = (timestamp: number): void => {
+      const first = pending.entries().next()
+      if (first.done) return
+      pending.delete(first.value[0])
+      first.value[1](timestamp)
+    }
+    return { pending, runNext, restore }
+  }
+
+  it('reduced motion desenha um quadro e não mantém o rAF', () => {
+    const scheduler = installScheduler()
+    try {
+      const handle = createAvatarBall(createCanvas(), { visible: true, reducedMotion: true })
+      expect(scheduler.pending.size).toBe(1)
+
+      scheduler.runNext(100)
+      expect(handle.isRunning()).toBe(false)
+      expect(scheduler.pending.size).toBe(0)
+
+      // Nível novo é um quadro novo, não um loop.
+      handle.setLevel(0.7)
+      expect(scheduler.pending.size).toBe(1)
+      scheduler.runNext(116)
+      expect(scheduler.pending.size).toBe(0)
+      expect(handle.isRunning()).toBe(false)
+    } finally {
+      scheduler.restore()
+    }
+  })
+
+  it('error fica parado e volta a animar ao trocar de estado', () => {
+    const scheduler = installScheduler()
+    try {
+      const handle = createAvatarBall(createCanvas(), { visible: true, state: 'error' })
+      expect(scheduler.pending.size).toBe(1)
+      scheduler.runNext(100)
+      expect(handle.isRunning()).toBe(false)
+
+      handle.setState('idle')
+      expect(scheduler.pending.size).toBe(1)
+      scheduler.runNext(116)
+      expect(handle.isRunning()).toBe(true)
+      expect(scheduler.pending.size).toBe(1)
+
+      // O próximo quadro animado agenda outro; não há duplicação.
+      scheduler.runNext(132)
+      expect(scheduler.pending.size).toBe(1)
+    } finally {
+      scheduler.restore()
+    }
+  })
+
+  it('ocultar cancela o rAF e mostrar retoma exatamente um loop', () => {
+    const scheduler = installScheduler()
+    try {
+      const handle = createAvatarBall(createCanvas(), { visible: true })
+      expect(scheduler.pending.size).toBe(1)
+      scheduler.runNext(100)
+      expect(handle.isRunning()).toBe(true)
+
+      handle.setVisible(false)
+      expect(handle.isRunning()).toBe(false)
+      expect(scheduler.pending.size).toBe(0)
+      expect(handle.getMetrics()).toEqual(ZERO_METRICS)
+
+      handle.setVisible(true)
+      expect(scheduler.pending.size).toBe(1)
+      scheduler.runNext(200)
+      expect(handle.isRunning()).toBe(true)
+      expect(scheduler.pending.size).toBe(1)
+    } finally {
+      scheduler.restore()
+    }
+  })
+
+  it('dispose remove os listeners de visibilidade e resize', () => {
+    const audit = { added: 0, removed: 0 }
+    const scheduler = installScheduler(audit)
+    try {
+      const handle = createAvatarBall(createCanvas(), { visible: true })
+      expect(audit.added).toBe(2)
+      handle.dispose()
+      expect(audit.removed).toBe(2)
+      expect(scheduler.pending.size).toBe(0)
+    } finally {
+      scheduler.restore()
     }
   })
 })

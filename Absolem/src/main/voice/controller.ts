@@ -11,6 +11,7 @@ import type {
 import { VOICE_REASONS } from '../../shared/voice'
 import type { GeminiFunctionCall, GeminiFunctionResponse } from '../gemini/transport'
 import type { ToolCallResult } from '../gemini/tools/router'
+import { LatencyTracker, type LatencySummary } from '../latency'
 import { MICROPHONE_DENIED_MESSAGE } from './consent'
 import { VoiceStateMachine } from './machine'
 
@@ -164,6 +165,14 @@ export class VoiceController {
   private toolReplyNudged = false
   private transcripts = { user: emptyBuffer(), model: emptyBuffer() }
   private memorySessionId: string | null = null
+  /** Latências agregadas por sessão (somente números, sem conteúdo). */
+  private readonly metrics = new LatencyTracker()
+  private sessionStartAt: number | null = null
+  private firstAudioAt: number | null = null
+  private turnAudioAt: number | null = null
+  private audioChunks = 0
+  private audioBytes = 0
+  private bargeIns = 0
 
   constructor(deps: VoiceControllerDeps) {
     this.deps = deps
@@ -201,6 +210,7 @@ export class VoiceController {
   }
 
   start(source: 'ipc' | 'shortcut' = 'ipc'): VoiceStatus {
+    const startedAt = this.monotonicNow()
     this.deps.logger?.info('voice', 'início solicitado', {
       source,
       state: this.machine.getState(),
@@ -240,12 +250,23 @@ export class VoiceController {
       // `error -> connecting` é válido; o motivo antigo é descartado.
     }
     this.machine.transition('connecting', source)
+    this.sessionStartAt = startedAt
+    this.firstAudioAt = null
+    this.turnAudioAt = null
+    this.audioChunks = 0
+    this.audioBytes = 0
+    this.bargeIns = 0
+    this.metrics.record('start', this.monotonicNow() - startedAt)
     const epoch = ++this.epoch
-    void this.beginStart(epoch)
+    void this.beginStart(epoch).catch((err: unknown) => {
+      if (epoch !== this.epoch) return
+      this.fail(err instanceof Error ? err.message : 'Falha ao iniciar a voz.')
+    })
     return this.status()
   }
 
   stop(reason: string = VOICE_REASONS.user): VoiceStatus {
+    const startedAt = this.monotonicNow()
     this.deps.logger?.info('voice', 'parada solicitada', {
       reason,
       state: this.machine.getState(),
@@ -267,6 +288,8 @@ export class VoiceController {
     if (this.machine.getState() !== 'off') {
       this.machine.transition('off', reason)
     }
+    this.metrics.record('stop', this.monotonicNow() - startedAt)
+    this.logLatencySummary('stop')
     return this.status()
   }
 
@@ -373,6 +396,8 @@ export class VoiceController {
       return
     }
     if (pcmRms(data) >= AUDIO_SPEECH_RMS) this.armSilenceTimer()
+    this.audioChunks += 1
+    this.audioBytes += data.byteLength
     this.deps.logger?.debug('voice', 'chunk de microfone aceito', {
       bytes: data.byteLength,
       sampleRate: 16_000,
@@ -383,16 +408,22 @@ export class VoiceController {
 
   handleBargeIn(): void {
     if (this.deps.getConfig().bargeIn === false) return
+    const state = this.machine.getState()
+    // Sem sessão ativa (off/error/connecting) não há geração para interromper
+    // nem timer de silêncio a rearmar: o comando tardio é descartado.
+    if (!this.session || state === 'off' || state === 'error' || state === 'connecting') return
+    const startedAt = this.monotonicNow()
+    this.bargeIns += 1
     this.deps.logger?.debug('voice', 'barge-in recebido do renderer')
     // O pre-roll de 300 ms não precisa ser reenviado: os chunks anteriores já
     // foram transmitidos ao Live em tempo real; aqui só interrompemos a
     // geração e voltamos a ouvir.
-    this.session?.interrupt()
+    this.session.interrupt()
     this.armSilenceTimer()
-    const state = this.machine.getState()
     if (state === 'speaking' || state === 'thinking') {
       this.machine.transition('listening', VOICE_REASONS.bargeIn)
     }
+    this.metrics.record('barge-in', this.monotonicNow() - startedAt)
   }
 
   handleSilence(): void {
@@ -443,6 +474,9 @@ export class VoiceController {
       this.transcripts = { user: emptyBuffer(), model: emptyBuffer() }
       this.beginMemorySession()
       this.machine.transition('listening', 'connected')
+      if (this.sessionStartAt !== null) {
+        this.metrics.record('connect', this.monotonicNow() - this.sessionStartAt)
+      }
       this.armSilenceTimer()
       this.armSessionTimer()
     } catch (err) {
@@ -456,6 +490,14 @@ export class VoiceController {
     return {
       onAudio: (data, sampleRate) => {
         if (epoch !== this.epoch) return
+        const now = this.monotonicNow()
+        if (this.firstAudioAt === null) {
+          this.firstAudioAt = now
+          if (this.sessionStartAt !== null) {
+            this.metrics.record('first-audio', now - this.sessionStartAt)
+          }
+        }
+        if (this.turnAudioAt === null) this.turnAudioAt = now
         this.deps.logger?.debug('voice', 'áudio recebido do Live', {
           bytes: data.byteLength,
           sampleRate
@@ -482,7 +524,12 @@ export class VoiceController {
       },
       onToolCall: (calls) => {
         if (epoch !== this.epoch) return
-        void this.handleToolCalls(epoch, calls)
+        void this.handleToolCalls(epoch, calls).catch((err: unknown) => {
+          if (epoch !== this.epoch) return
+          this.deps.logger?.warn('voice', 'falha ao responder ferramenta', {
+            type: err instanceof Error ? err.name : typeof err
+          })
+        })
       },
       onError: (error) => {
         if (epoch !== this.epoch) return
@@ -498,6 +545,7 @@ export class VoiceController {
         this.session = null
         this.clearTimers()
         this.finishMemorySession()
+        this.logLatencySummary('close')
         if (this.machine.getState() !== 'off' && this.machine.getState() !== 'error') {
           this.machine.transition('off', reason)
         }
@@ -508,6 +556,11 @@ export class VoiceController {
       },
       onTurnComplete: () => {
         if (epoch !== this.epoch) return
+        const now = this.monotonicNow()
+        if (this.turnAudioAt !== null) {
+          this.metrics.record('turn', now - this.turnAudioAt)
+          this.turnAudioAt = null
+        }
         this.deps.logger?.debug('voice', 'turno Live concluído')
         // Turno fechado sem fala depois de uma ferramenta: pede a confirmação
         // uma única vez, em vez de deixar o usuário no silêncio.
@@ -603,6 +656,7 @@ export class VoiceController {
 
   private handleInterrupted(): void {
     const model = this.transcripts.model
+    this.turnAudioAt = null
     if (model.text) {
       this.deps.pushTranscript({
         role: 'model',
@@ -646,6 +700,14 @@ export class VoiceController {
 
   private now(): number {
     return this.deps.now ? this.deps.now() : Date.now()
+  }
+
+  /** Relógio monotônico só para latências (nunca para timestamps de memória). */
+  private monotonicNow(): number {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now()
+    }
+    return this.now()
   }
 
   private beginMemorySession(): void {
@@ -743,6 +805,27 @@ export class VoiceController {
     this.deps.logger?.warn('voice', 'voz em estado de erro', {
       messageType: typeof message,
       messageChars: message.length
+    })
+    this.logLatencySummary('error')
+  }
+
+  /** Resumo numérico das fases (teste/diagnóstico); nunca inclui conteúdo. */
+  latencySummary(): LatencySummary {
+    return this.metrics.summary()
+  }
+
+  private logLatencySummary(reason: string): void {
+    const phases = this.metrics.summary()
+    if (Object.keys(phases).length === 0) return
+    this.deps.logger?.info('voice', 'latências agregadas da voz', {
+      reason,
+      phases,
+      audio: {
+        chunks: this.audioChunks,
+        bytes: this.audioBytes,
+        sampleRate: 16_000
+      },
+      bargeIns: this.bargeIns
     })
   }
 

@@ -196,4 +196,24 @@ describe('overlayWindow', () => {
     expect(() => mod.destroyOverlayWindow()).not.toThrow()
     expect(mod.getOverlayWindow()).toBeNull()
   })
+
+  it('50 ciclos show/hide reutilizam a janela e não acumulam listeners', () => {
+    const first = mod.showOverlayWindow() as unknown as FakeWindow
+    const handlersBefore = first.handlers.size
+    const webContentsListenersBefore = first.webContents.on.mock.calls.length
+
+    for (let index = 0; index < 50; index += 1) {
+      mod.hideOverlayWindow()
+      mod.showOverlayWindow()
+      expect(mod.getOverlayWindow()).toBe(
+        first as unknown as ReturnType<typeof mod.getOverlayWindow>
+      )
+    }
+
+    expect(state.instances).toHaveLength(1)
+    expect(first.loadFile).toHaveBeenCalledTimes(1)
+    expect(first.destroy).not.toHaveBeenCalled()
+    expect(first.handlers.size).toBe(handlersBefore)
+    expect(first.webContents.on.mock.calls.length).toBe(webContentsListenersBefore)
+  })
 })

@@ -204,4 +204,40 @@ describe('toggle da voz', () => {
     expect(controller.getState()).toBe('off')
     expect(getConfig().inputDeviceId).toBe('headset-usb')
   })
+
+  it('troca de dispositivo com sessão inativa só persiste', async () => {
+    const { controller, sessions, getConfig } = setup()
+
+    const result = controller.setDevice({ outputDeviceId: 'out-usb' })
+
+    expect(result.ok).toBe(true)
+    expect(sessions).toHaveLength(0)
+    expect(controller.getState()).toBe('off')
+    expect(getConfig().outputDeviceId).toBe('out-usb')
+  })
+
+  it('dispositivo inválido não encerra a sessão', async () => {
+    const { controller, sessions } = setup()
+    controller.toggle()
+    await flushAsync()
+
+    const result = controller.setDevice({ inputDeviceId: 'x'.repeat(201) })
+
+    expect(result.ok).toBe(false)
+    expect(sessions[0].closes).toEqual([])
+    expect(controller.getState()).toBe('listening')
+  })
+
+  it('stop repetido fecha a sessão uma vez', async () => {
+    const { controller, sessions } = setup()
+    controller.toggle()
+    await flushAsync()
+
+    controller.stop('user')
+    controller.stop('user')
+
+    expect(sessions[0].closes).toEqual(['user'])
+    expect(controller.getState()).toBe('off')
+    expect(controller.status().sessionActive).toBe(false)
+  })
 })

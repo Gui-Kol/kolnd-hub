@@ -94,7 +94,8 @@ if (gotSingleInstanceLock) {
   app.on('second-instance', () => {
     handleSecondInstance({
       showOverlay,
-      notify: () => showTrayBalloon('Absolem já está em execução.')
+      notify: () => showTrayBalloon('Absolem já está em execução.'),
+      isQuitting
     })
   })
 } else {

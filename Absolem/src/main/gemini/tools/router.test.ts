@@ -69,7 +69,10 @@ describe('roteador de ferramentas', () => {
     })
 
     expect(confirm).not.toHaveBeenCalled()
-    expect(dangerHandler).toHaveBeenCalledWith({ target: 'janela' })
+    expect(dangerHandler).toHaveBeenCalledWith(
+      { target: 'janela' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
     expect(result).toEqual({ ok: true, result: { done: true } })
   })
 
@@ -216,5 +219,153 @@ describe('roteador de ferramentas', () => {
     audit(event)
 
     expect(info).toHaveBeenCalledWith('audit', event)
+  })
+
+  it('100 chamadas concorrentes terminam sem deadlock nem exceção não tratada', async () => {
+    const { audits, routerOptions } = harness()
+    const startedAt = performance.now()
+
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        routeToolCall(routerOptions, { name: 'echo', args: { text: `item-${index}` } })
+      )
+    )
+
+    expect(performance.now() - startedAt).toBeLessThan(2_000)
+    expect(results).toHaveLength(100)
+    expect(results.every((result) => result.ok)).toBe(true)
+    expect(audits).toHaveLength(100)
+    expect(new Set(audits.map((event) => event.argsHash)).size).toBe(100)
+  })
+
+  it('timeout não rejeita quando a ferramenta termina depois do prazo', async () => {
+    const { registry, handlers, routerOptions } = harness()
+    const slow: ToolDefinition = {
+      name: 'slow_test',
+      description: 'Ferramenta lenta.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      sensitive: false,
+      category: 'internal',
+      timeoutMs: 100
+    }
+    expect(registry.registerTool(slow).ok).toBe(true)
+    handlers.set(
+      'slow_test',
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ late: true }), 150)
+        }) as never
+    )
+
+    const result = await routeToolCall(routerOptions, { name: 'slow_test', args: {} })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('timeout')
+
+    // Deixa a promessa original resolver: nada deve escapar como rejeição.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  })
+
+  it('100 confirmações expiradas terminam negadas sem vazar timer', async () => {
+    const { dangerHandler, routerOptions } = harness({
+      permission: () => 'ask',
+      confirmation: () => new Promise<boolean>(() => undefined)
+    })
+
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        routeToolCall(routerOptions, {
+          name: 'danger_test',
+          args: { target: `janela-${index}` }
+        })
+      )
+    )
+
+    expect(results).toHaveLength(100)
+    for (const result of results) {
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.kind).toBe('denied')
+    }
+    expect(dangerHandler).not.toHaveBeenCalled()
+  })
+
+  it('timeout aborta o sinal entregue ao handler', async () => {
+    const { registry, handlers, routerOptions } = harness()
+    const tool: ToolDefinition = {
+      name: 'abort_test',
+      description: 'Ferramenta que espera o abort.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      sensitive: false,
+      category: 'internal',
+      timeoutMs: 100
+    }
+    expect(registry.registerTool(tool).ok).toBe(true)
+    let seen: AbortSignal | undefined
+    handlers.set('abort_test', (_args, context) => {
+      seen = context?.signal
+      return new Promise((_resolve, reject) => {
+        context?.signal.addEventListener('abort', () => reject(new Error('abortado')))
+      })
+    })
+
+    const result = await routeToolCall(routerOptions, { name: 'abort_test', args: {} })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.kind).toBe('timeout')
+    expect(seen?.aborted).toBe(true)
+  })
+
+  it('cancelamento do turno chega ao handler e encerra a espera', async () => {
+    const { registry, handlers, routerOptions } = harness()
+    const tool: ToolDefinition = {
+      name: 'wait_test',
+      description: 'Ferramenta cancelável.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      sensitive: false,
+      category: 'internal',
+      timeoutMs: 5_000
+    }
+    expect(registry.registerTool(tool).ok).toBe(true)
+    let seen: AbortSignal | undefined
+    let startedResolve!: () => void
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve
+    })
+    handlers.set('wait_test', (_args, context) => {
+      seen = context?.signal
+      startedResolve()
+      return new Promise((_resolve, reject) => {
+        context?.signal.addEventListener('abort', () => reject(new Error('cancelada pelo turno')))
+      })
+    })
+
+    const external = new AbortController()
+    const pending = routeToolCall(
+      { ...routerOptions, signal: external.signal },
+      { name: 'wait_test', args: {} }
+    )
+    await started
+    external.abort()
+    const result = await pending
+
+    expect(seen?.aborted).toBe(true)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.message).toContain('cancelada pelo turno')
+  })
+
+  it('sinal externo já cancelado não executa o handler', async () => {
+    const { dangerHandler, routerOptions } = harness()
+    const external = new AbortController()
+    external.abort()
+
+    const result = await routeToolCall(
+      { ...routerOptions, signal: external.signal },
+      { name: 'danger_test', args: { target: 'janela' } }
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      error: { kind: 'failed', message: 'A ferramenta foi cancelada.' }
+    })
+    expect(dangerHandler).not.toHaveBeenCalled()
   })
 })
