@@ -9,6 +9,7 @@ import type {
   VoiceTranscriptPush
 } from '../../shared/voice'
 import { VOICE_REASONS } from '../../shared/voice'
+import { randomBytes } from 'crypto'
 import type { GeminiFunctionCall, GeminiFunctionResponse } from '../gemini/transport'
 import type { ToolCallResult } from '../gemini/tools/router'
 import { LatencyTracker, type LatencySummary } from '../latency'
@@ -713,7 +714,7 @@ export class VoiceController {
   private beginMemorySession(): void {
     this.memorySessionId = null
     if (!this.deps.memoryEnabled() || !this.deps.history.beginSession) return
-    const sessionId = `${this.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    const sessionId = `${this.now().toString(36)}-${randomBytes(4).toString('hex')}`
     try {
       this.deps.history.beginSession(sessionId, this.now())
       this.memorySessionId = sessionId
